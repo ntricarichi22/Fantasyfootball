@@ -65,6 +65,7 @@ const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const AVAILABILITY_CACHE_KEY = "trade_studio_availability";
 const TRADE_BLOCK_CACHE_KEY = "trade_studio_trade_block";
+const PANEL_MAX_HEIGHT_CLASS = "max-h-[calc(100vh-220px)]";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 
@@ -339,7 +340,7 @@ export default function TradeStudioPage() {
                 <p className="mt-3 text-sm text-red-400">{errorMessage}</p>
               )}
               <div className="mt-4">
-                <label className="block mb-1 text-xs text-gray-400" htmlFor="team-picker">
+                <label className="block mb-2 text-xs text-gray-400" htmlFor="team-picker">
                   Sleeper team
                 </label>
                 <select
@@ -363,7 +364,7 @@ export default function TradeStudioPage() {
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-3">
-            <section className="rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1 flex flex-col max-h-[calc(100vh-220px)]">
+            <section className={`rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1 flex flex-col ${PANEL_MAX_HEIGHT_CLASS}`}>
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Roster + Picks</h2>
                 <span className="text-xs text-gray-400">{teamName}</span>
@@ -518,7 +519,9 @@ export default function TradeStudioPage() {
                 <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">
                   <div className="mb-2 flex items-center justify-between">
                     <span className="font-semibold text-white">Trade Block</span>
-                    <span className="text-xs text-gray-400">{tradeBlock.length} item(s)</span>
+                    <span className="text-xs text-gray-400">
+                      {tradeBlock.length} {tradeBlock.length === 1 ? "item" : "items"}
+                    </span>
                   </div>
                   {tradeBlock.length ? (
                     <ul className="space-y-2">
