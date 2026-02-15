@@ -92,8 +92,8 @@ const computeAge = (player: SleeperPlayer) => {
 const formatPickLabel = (pick: DraftPick) => {
   const seasonLabel = pick.season || "Future";
   const round = pick.round ? String(pick.round) : "?";
-  const pickNum = pick.pick_no ? String(pick.pick_no).padStart(2, "0") : "??";
-  return `${seasonLabel} ${round}.${pickNum}`;
+  const pickNumber = pick.pick_no ? String(pick.pick_no).padStart(2, "0") : "??";
+  return `${seasonLabel} ${round}.${pickNumber}`;
 };
 
 const availabilityKeyForPlayer = (playerId: string) => `player:${playerId}`;
@@ -340,7 +340,7 @@ export default function TradeStudioPage() {
                 <p className="mt-3 text-sm text-red-400">{errorMessage}</p>
               )}
               <div className="mt-4">
-                <label className="block mb-2 text-xs text-gray-400" htmlFor="team-picker">
+                <label className="block mb-3 text-xs text-gray-400" htmlFor="team-picker">
                   Sleeper team
                 </label>
                 <select
@@ -364,7 +364,12 @@ export default function TradeStudioPage() {
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-3">
-            <section className={`rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1 flex flex-col ${PANEL_MAX_HEIGHT_CLASS}`}>
+            <section
+              className={[
+                "rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1 flex flex-col",
+                PANEL_MAX_HEIGHT_CLASS,
+              ].join(" ")}
+            >
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Roster + Picks</h2>
                 <span className="text-xs text-gray-400">{teamName}</span>
