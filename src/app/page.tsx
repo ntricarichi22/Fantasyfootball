@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import DraftTimer from "../components/DraftTimer";
 
 interface Team {
@@ -85,6 +85,7 @@ const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
 const PICK_ANNOUNCEMENT_DELAY_MS = 1000;
 const PICK_RESET_DELAY_MS = 3000;
+const DROPPABLE_BORDER_CLASS = "border border-blue-600/50";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 
@@ -139,6 +140,11 @@ const isPlayerEligible = (slot: string, positions: string[]) => {
   }
 
   return playerPositions.includes(upperSlot);
+};
+
+const isBenchSlot = (slot: string) => {
+  const normalized = slot.trim().toUpperCase();
+  return normalized === "BN" || normalized === "BENCH";
 };
 
 const resolveDraftedPlayer = (
@@ -231,6 +237,7 @@ export default function Home() {
   const [currentClockTeam, setCurrentClockTeam] = useState("");
   const [pickAnnouncement, setPickAnnouncement] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [draggedBenchPlayer, setDraggedBenchPlayer] = useState("");
   const [queuedExternalPick, setQueuedExternalPick] = useState<{
     selection: string;
     alreadyRecorded?: boolean;
@@ -405,13 +412,32 @@ export default function Home() {
     [leagueData]
   );
 
-  const resolvedLineup = useMemo(() => {
+  const visibleLineupSlots = useMemo(
+    () =>
+      rosterPositions
+        .map((slot, index) => ({ slot, index }))
+        .filter(({ slot }) => slot && !isBenchSlot(slot)),
+    [rosterPositions]
+  );
+
+  const baseLineup = useMemo(() => {
     if (!rosterPositions.length) return [];
     const source = selectedTeam
       ? lineupOverrides[selectedTeam] || activeRoster?.starters || []
       : [];
     return rosterPositions.map((_, idx) => toId(source[idx]));
   }, [activeRoster?.starters, lineupOverrides, rosterPositions, selectedTeam]);
+
+  const resolvedLineup = useMemo(
+    () => visibleLineupSlots.map(({ index }) => baseLineup[index] || ""),
+    [baseLineup, visibleLineupSlots]
+  );
+
+  const getPlayerPositions = (playerId: string) =>
+    normalizePositions(
+      playerDictionary[playerId]?.fantasy_positions,
+      playerDictionary[playerId]?.position
+    );
 
   const lineupSet = useMemo(() => new Set(resolvedLineup.filter(Boolean)), [resolvedLineup]);
 
@@ -509,27 +535,100 @@ export default function Home() {
     }));
   };
 
-  const moveDraftedPlayerToSlot = (player: DraftedPlayer, slotIndex: number) => {
-    if (!selectedTeam) return;
-    const slotLabel = rosterPositions[slotIndex];
-    if (!slotLabel) return;
+  const assignPlayerToSlot = (
+    playerId: string,
+    slotIndex: number,
+    playerName: string,
+    positions: string[]
+  ) => {
+    if (!selectedTeam || !rosterPositions.length) return;
+    const targetSlot = visibleLineupSlots[slotIndex];
+    if (!targetSlot) return;
 
-    const positions = player.positions;
+    const slotLabel = targetSlot.slot;
     if (!isPlayerEligible(slotLabel, positions)) {
-      setStatusMessage(`${player.name} is not eligible for ${slotLabel}.`);
+      setStatusMessage(`${playerName} is not eligible for ${slotLabel}.`);
       return;
     }
 
-    const updatedLineup = [...resolvedLineup].map((p, idx) =>
-      idx !== slotIndex && p === player.id ? EMPTY_SLOT : p
+    const updatedLineup = [...baseLineup];
+    const normalizedPlayerId = toId(playerId);
+    if (!normalizedPlayerId) return;
+
+    updatedLineup[targetSlot.index] = normalizedPlayerId;
+    const existingIndex = updatedLineup.findIndex(
+      (id, idx) => idx !== targetSlot.index && id === normalizedPlayerId
     );
-    updatedLineup[slotIndex] = player.id;
+    if (existingIndex !== -1) {
+      updatedLineup[existingIndex] = EMPTY_SLOT;
+    }
 
     setLineupOverrides((prev) => ({
       ...prev,
       [selectedTeam]: updatedLineup,
     }));
-    setStatusMessage(`${player.name} moved to ${slotLabel}.`);
+    setStatusMessage(`${playerName} moved to ${slotLabel}.`);
+  };
+
+  const moveDraftedPlayerToSlot = (player: DraftedPlayer, slotIndex: number) => {
+    assignPlayerToSlot(player.id, slotIndex, player.name, player.positions);
+  };
+
+  const moveBenchPlayerToSlot = (playerId: string, slotIndex: number) => {
+    const { name } = playerLabel(playerId, playerDictionary);
+    const positions = getPlayerPositions(playerId) || [];
+    assignPlayerToSlot(playerId, slotIndex, name || "Player", positions);
+  };
+
+  const handleBenchDragStart = (event: DragEvent<HTMLElement>, playerId: string) => {
+    event.dataTransfer.setData("text/plain", playerId);
+    setDraggedBenchPlayer(playerId);
+  };
+
+  const handleBenchKeyDown = (event: KeyboardEvent<HTMLElement>, playerId: string) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      const benchName = playerLabel(playerId, playerDictionary).name;
+      setDraggedBenchPlayer(playerId);
+      setStatusMessage(`Select a starting slot and press Enter to place ${benchName}.`);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setDraggedBenchPlayer("");
+      setStatusMessage("Move cancelled.");
+    }
+  };
+
+  const handleBenchDragEnd = () => setDraggedBenchPlayer("");
+
+  const handleSlotDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
+
+  const handleSlotDrop = (event: DragEvent<HTMLDivElement>, slotIndex: number) => {
+    event.preventDefault();
+    const playerId = event.dataTransfer.getData("text/plain");
+    if (!playerId) return;
+    moveBenchPlayerToSlot(playerId, slotIndex);
+    setDraggedBenchPlayer("");
+  };
+
+  const handleSlotKeyDown = (event: KeyboardEvent<HTMLDivElement>, slotIndex: number) => {
+    if (event.key === "Escape") {
+      if (draggedBenchPlayer) {
+        event.preventDefault();
+        setDraggedBenchPlayer("");
+        setStatusMessage("Move cancelled.");
+      }
+      return;
+    }
+
+    if (!draggedBenchPlayer) return;
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      moveBenchPlayerToSlot(draggedBenchPlayer, slotIndex);
+      setDraggedBenchPlayer("");
+    }
   };
 
   const draftPickText = (pick: DraftPick) => {
@@ -598,6 +697,24 @@ export default function Home() {
                 <span className="text-xs text-emerald-300">{statusMessage}</span>
               )}
             </div>
+            <div className="mb-3">
+              <label className="text-xs text-gray-400 block mb-1" htmlFor="team-switcher">
+                View another team
+              </label>
+              <select
+                id="team-switcher"
+                className="w-full bg-black border border-gray-700 p-2 rounded-lg text-white"
+                value={selectedTeam}
+                onChange={(e) => setSelectedTeam(e.target.value)}
+              >
+                <option value="">-- Choose Team --</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={toId(team.id)}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+            </div>
             {errorMessage && (
               <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
             )}
@@ -608,14 +725,28 @@ export default function Home() {
                   Starting Lineup
                 </h3>
                 <div className="space-y-2">
-                  {rosterPositions.length ? (
-                    rosterPositions.map((slot, idx) => {
+                  {visibleLineupSlots.length ? (
+                    visibleLineupSlots.map(({ slot }, idx) => {
                       const playerId = resolvedLineup[idx];
                       const { name, meta } = playerLabel(playerId, playerDictionary);
+                      const droppableClasses = draggedBenchPlayer ? DROPPABLE_BORDER_CLASS : "";
+                      const slotAriaLabel = draggedBenchPlayer
+                        ? `Starting slot ${slot}${playerId ? `: ${name}` : ": Empty"}. Drop a bench player here.`
+                        : `Starting slot ${slot}${playerId ? `: ${name}` : ": Empty"}.`;
+                      const slotMeta = playerId
+                        ? meta || "Sleeper player"
+                        : draggedBenchPlayer
+                          ? "Drag or press Enter with a bench player to place here"
+                          : "No player assigned";
                       return (
                         <div
                           key={`${slot}-${idx}`}
-                          className="flex items-center justify-between rounded-lg bg-gray-800 px-3 py-2"
+                          tabIndex={0}
+                          className={`flex items-center justify-between rounded-lg bg-gray-800 px-3 py-2 text-left ${droppableClasses}`}
+                          aria-label={slotAriaLabel}
+                          onDragOver={(e) => handleSlotDragOver(e)}
+                          onDrop={(e) => handleSlotDrop(e, idx)}
+                          onKeyDown={(e) => handleSlotKeyDown(e, idx)}
                         >
                           <span className="text-sm font-semibold text-gray-300">
                             {slot}
@@ -625,7 +756,7 @@ export default function Home() {
                               {playerId ? name : "Empty"}
                             </div>
                             <div className="text-xs text-gray-400">
-                              {playerId ? meta || "Sleeper player" : "No player assigned"}
+                              {slotMeta}
                             </div>
                           </div>
                         </div>
@@ -652,8 +783,26 @@ export default function Home() {
                           key={playerId}
                           className="rounded-lg bg-gray-800 px-3 py-2"
                         >
-                          <div className="text-sm font-medium">{name}</div>
-                          <div className="text-xs text-gray-400">{meta || "Bench"}</div>
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">{name}</div>
+                              <div className="text-xs text-gray-400">
+                                {meta || "Bench"}
+                              </div>
+                            </div>
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:border-blue-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 focus-visible:outline-offset-2"
+                              draggable
+                              aria-label={`Drag ${name} to a starting slot`}
+                              onDragStart={(e) => handleBenchDragStart(e, playerId)}
+                              onDragEnd={handleBenchDragEnd}
+                              onKeyDown={(e) => handleBenchKeyDown(e, playerId)}
+                            >
+                              Drag
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
@@ -705,7 +854,7 @@ export default function Home() {
                           </div>
                         </div>
 
-                        {rosterPositions.length ? (
+                        {visibleLineupSlots.length ? (
                           <div className="flex items-center gap-2">
                             <select
                               className="flex-1 rounded-md bg-gray-900 border border-gray-700 px-2 py-1 text-sm"
@@ -718,7 +867,7 @@ export default function Home() {
                               }
                             >
                               <option value="">Move to slot...</option>
-                              {rosterPositions.map((slot, idx) => (
+                              {visibleLineupSlots.map(({ slot }, idx) => (
                                 <option key={`${slot}-${idx}`} value={String(idx)}>
                                   {slot}
                                 </option>
@@ -734,7 +883,7 @@ export default function Home() {
                                 if (
                                   !Number.isNaN(slotIndex) &&
                                   slotIndex >= 0 &&
-                                  slotIndex < rosterPositions.length
+                                  slotIndex < visibleLineupSlots.length
                                 ) {
                                   moveDraftedPlayerToSlot(player, slotIndex);
                                 }
