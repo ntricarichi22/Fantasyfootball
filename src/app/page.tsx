@@ -257,17 +257,25 @@ const derivePickIndexFromNumber = (pickNumber: string, teamCount: number) => {
   return null;
 };
 
+const hasRequiredDraftFields = (
+  entry: Partial<DraftLogEntry>
+): entry is Partial<DraftLogEntry> &
+  Required<Pick<DraftLogEntry, "teamName" | "playerId" | "playerName" | "pickNumber">> => {
+  return (
+    typeof entry.teamName === "string" &&
+    typeof entry.playerId === "string" &&
+    typeof entry.playerName === "string" &&
+    typeof entry.pickNumber === "string"
+  );
+};
+
 const normalizeDraftLogEntry = (entry: Partial<DraftLogEntry>): DraftLogEntry | null => {
   const teamCount =
     typeof entry.teamCount === "number" && entry.teamCount > 0
       ? entry.teamCount
       : MIN_TEAM_COUNT;
   const positions = Array.isArray(entry.positions) ? entry.positions : [];
-  const hasCoreFields =
-    typeof entry.teamName === "string" &&
-    typeof entry.playerId === "string" &&
-    typeof entry.playerName === "string" &&
-    typeof entry.pickNumber === "string";
+  const hasCoreFields = hasRequiredDraftFields(entry);
   if (
     typeof entry.pickIndex === "number" &&
     Number.isInteger(entry.pickIndex) &&
