@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import DraftTimer from "../components/DraftTimer";
 
 interface Team {
@@ -47,6 +47,9 @@ interface SleeperPlayer {
   position?: string;
   fantasy_positions?: string[];
   team?: string;
+  status?: string;
+  birth_date?: string;
+  age?: number;
 }
 
 interface DraftedPlayer {
@@ -54,6 +57,14 @@ interface DraftedPlayer {
   name: string;
   positions: string[];
   team?: string;
+}
+
+interface AvailablePlayer {
+  id: string;
+  name: string;
+  position: string;
+  team: string;
+  ageLabel: string;
 }
 
 const DEMO_TEAM_ID = 0;
@@ -71,6 +82,9 @@ const LINEUP_CACHE_KEY = "lineup_overrides_state";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
 const STATUS_MESSAGE_TIMEOUT_MS = 3000;
+const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
+const PICK_ANNOUNCEMENT_DELAY_MS = 1000;
+const PICK_RESET_DELAY_MS = 3000;
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 
@@ -184,6 +198,23 @@ const playerLabel = (playerId: string, dictionary: Record<string, SleeperPlayer>
   return { name, meta };
 };
 
+const computeAge = (player: SleeperPlayer) => {
+  if (typeof player.age === "number") return player.age;
+  if (player.birth_date) {
+    const birthDate = new Date(player.birth_date);
+    if (!Number.isNaN(birthDate.getTime())) {
+      const now = new Date();
+      let age = now.getFullYear() - birthDate.getFullYear();
+      const hadBirthday =
+        now.getMonth() > birthDate.getMonth() ||
+        (now.getMonth() === birthDate.getMonth() && now.getDate() >= birthDate.getDate());
+      if (!hadBirthday) age -= 1;
+      return age;
+    }
+  }
+  return null;
+};
+
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -198,12 +229,38 @@ export default function Home() {
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
   const [currentClockTeam, setCurrentClockTeam] = useState("");
+  const [pickAnnouncement, setPickAnnouncement] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [queuedExternalPick, setQueuedExternalPick] = useState<{
+    selection: string;
+    alreadyRecorded?: boolean;
+  } | null>(null);
+  const pickMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearPickTimers = () => {
+    if (pickMessageTimeout.current) {
+      clearTimeout(pickMessageTimeout.current);
+      pickMessageTimeout.current = null;
+    }
+    if (pickResetTimeout.current) {
+      clearTimeout(pickResetTimeout.current);
+      pickResetTimeout.current = null;
+    }
+  };
 
   useEffect(() => {
     if (!statusMessage) return;
     const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
+
+  useEffect(
+    () => () => {
+      clearPickTimers();
+    },
+    []
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -370,6 +427,74 @@ export default function Home() {
     [draftedPlayersState, selectedTeam]
   );
 
+  const rosteredPlayerIds = useMemo(() => {
+    const set = new Set<string>();
+    rosters.forEach((roster) => {
+      roster.players?.forEach((p) => {
+        const id = toId(p);
+        if (id) set.add(id);
+      });
+      roster.starters?.forEach((p) => {
+        const id = toId(p);
+        if (id) set.add(id);
+      });
+    });
+    return set;
+  }, [rosters]);
+
+  const draftedPlayerIds = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(draftedPlayersState).forEach((playerList) => {
+      playerList.forEach((player) => {
+        if (player.id) set.add(player.id);
+      });
+    });
+    return set;
+  }, [draftedPlayersState]);
+
+  const unavailablePlayers = useMemo(
+    () => new Set([...rosteredPlayerIds, ...draftedPlayerIds]),
+    [draftedPlayerIds, rosteredPlayerIds]
+  );
+
+  const availablePlayers = useMemo(() => {
+    const query = searchTerm.trim().toLowerCase();
+    const players: AvailablePlayer[] = [];
+
+    Object.entries(playerDictionary).forEach(([playerId, player]) => {
+      if (unavailablePlayers.has(playerId)) return;
+
+      const position =
+        player.position?.toUpperCase() || player.fantasy_positions?.[0]?.toUpperCase() || "";
+      if (!position || !SKILL_POSITIONS.includes(position)) return;
+
+      // Limit to active NFL skill-position players with team context to keep the player pool relevant
+      if (!player.team) return;
+      if (player.status && player.status.toLowerCase() !== "active") return;
+
+      const name =
+        player.full_name ||
+        [player.first_name, player.last_name].filter(Boolean).join(" ").trim() ||
+        playerId;
+
+      if (query && !name.toLowerCase().includes(query)) return;
+
+      const ageValue = computeAge(player);
+      players.push({
+        id: playerId,
+        name,
+        position,
+        team: player.team,
+        ageLabel: ageValue ? String(ageValue) : "–",
+      });
+    });
+
+    return players.sort((a, b) => {
+      if (a.position !== b.position) return a.position.localeCompare(b.position);
+      return a.name.localeCompare(b.name);
+    });
+  }, [playerDictionary, searchTerm, unavailablePlayers]);
+
   const handlePickMade = (teamName: string, selection: string) => {
     if (!teamName || !selection) return;
 
@@ -413,6 +538,29 @@ export default function Home() {
     if (pick.round) parts.push(`Round ${pick.round}`);
     if (pick.pick_no) parts.push(`Pick ${pick.pick_no}`);
     return parts.join(" • ") || "Future pick";
+  };
+
+  const handleAvailablePlayerSelect = (player: AvailablePlayer) => {
+    if (!currentClockTeam) {
+      setStatusMessage("Start the draft to make picks.");
+      return;
+    }
+
+    clearPickTimers();
+    const announcingTeam = currentClockTeam;
+    const announcingPlayerName = player.name;
+
+    handlePickMade(announcingTeam, player.id);
+    setPickAnnouncement("Pick is in");
+
+    pickMessageTimeout.current = window.setTimeout(() => {
+      setPickAnnouncement(`${announcingTeam} selects ${announcingPlayerName}`);
+    }, PICK_ANNOUNCEMENT_DELAY_MS);
+
+    pickResetTimeout.current = window.setTimeout(() => {
+      setPickAnnouncement("");
+      setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
+    }, PICK_RESET_DELAY_MS);
   };
 
   return (
@@ -613,14 +761,104 @@ export default function Home() {
               teams={teams}
               onPickMade={handlePickMade}
               onTeamChange={setCurrentClockTeam}
+              externalPick={queuedExternalPick}
+              onExternalPickHandled={() => setQueuedExternalPick(null)}
             />
-            <div className="w-full bg-gray-800 rounded-xl p-6 text-center">
-              <div className="text-4xl font-bold mb-2">Draft Board</div>
-              <p className="text-gray-300">
-                {currentClockTeam
-                  ? `${currentClockTeam} is on the clock.`
-                  : "Start the draft to begin picks."}
+            <div className="w-full bg-gray-800 rounded-xl p-6 text-center space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-4xl font-bold">Draft Board</div>
+                {pickAnnouncement ? (
+                  <span className="rounded-full bg-emerald-600/20 border border-emerald-500 px-4 py-1 text-sm font-semibold text-emerald-200">
+                    {pickAnnouncement}
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-200">
+                    {currentClockTeam ? `${currentClockTeam} is on the clock` : "Waiting to start"}
+                  </span>
+                )}
+              </div>
+              <p className="text-gray-300 text-left">
+                Use the available players list below to make your pick for the team on the clock.
+                Selections will remove the player from the pool and append them to the drafted list.
               </p>
+            </div>
+
+            <div className="w-full bg-gray-900 rounded-xl p-6 space-y-4 shadow-lg border border-gray-800">
+              <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <h3 className="text-2xl font-semibold">Available Players</h3>
+                  <p className="text-sm text-gray-400">
+                    Active QB / RB / WR / TE players not currently rostered.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
+                    placeholder="Search by name"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  {!currentClockTeam && (
+                    <span className="text-xs text-amber-300">
+                      Start the draft to enable selections.
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-lg border border-gray-800">
+                <div className="max-h-[480px] overflow-y-auto">
+                  <table className="min-w-full divide-y divide-gray-800 text-sm">
+                    <thead className="bg-gray-800 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-200">
+                          Player Name
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-200">
+                          Position
+                        </th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-200">Team</th>
+                        <th className="px-4 py-3 text-left font-semibold text-gray-200">Age</th>
+                        <th className="px-4 py-3 text-right font-semibold text-gray-200">
+                          Action
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-800 bg-gray-900/60">
+                      {availablePlayers.length ? (
+                        availablePlayers.map((player) => (
+                          <tr key={player.id} className="hover:bg-gray-800/60 transition">
+                            <td className="px-4 py-3">
+                              <div className="font-medium text-white">{player.name}</div>
+                            </td>
+                            <td className="px-4 py-3 text-gray-200">{player.position}</td>
+                            <td className="px-4 py-3 text-gray-300">{player.team}</td>
+                            <td className="px-4 py-3 text-gray-300">{player.ageLabel}</td>
+                            <td className="px-4 py-3 text-right">
+                              <button
+                                className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
+                                disabled={!currentClockTeam}
+                                onClick={() => handleAvailablePlayerSelect(player)}
+                              >
+                                Select
+                              </button>
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td
+                            colSpan={5}
+                            className="px-4 py-6 text-center text-gray-400 text-sm"
+                          >
+                            No available players match the filters.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
             </div>
           </div>
 
