@@ -70,9 +70,9 @@ const DRAFTED_CACHE_KEY = "drafted_players_state";
 const LINEUP_CACHE_KEY = "lineup_overrides_state";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
+const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
-let fallbackCounter = 0;
 
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
@@ -135,7 +135,7 @@ const resolveDraftedPlayer = (
   const fallbackId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
-      : `custom-${Date.now()}-${fallbackCounter++}`;
+      : `custom-${Date.now()}-${Math.random().toString(16).slice(2)}`;
   if (!trimmed) {
     return { id: fallbackId, name: "Unnamed Player", positions: [] };
   }
@@ -201,7 +201,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!statusMessage) return;
-    const timer = setTimeout(() => setStatusMessage(""), 3000);
+    const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
@@ -321,7 +321,7 @@ export default function Home() {
         if (typeof window !== "undefined") {
           try {
             localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify(dict));
-            localStorage.setItem(PLAYER_CACHE_TIME_KEY, Date.now().toString());
+            localStorage.setItem(PLAYER_CACHE_TIME_KEY, String(Date.now()));
           } catch (storageError) {
             console.warn("Unable to cache player dictionary", storageError);
           }
@@ -395,12 +395,9 @@ export default function Home() {
       return;
     }
 
-    let updatedLineup = [...resolvedLineup];
-    if (updatedLineup.includes(player.id)) {
-      updatedLineup = updatedLineup.map((p, idx) =>
-        idx !== slotIndex && p === player.id ? EMPTY_SLOT : p
-      );
-    }
+    const updatedLineup = [...resolvedLineup].map((p, idx) =>
+      idx !== slotIndex && p === player.id ? EMPTY_SLOT : p
+    );
     updatedLineup[slotIndex] = player.id;
 
     setLineupOverrides((prev) => ({

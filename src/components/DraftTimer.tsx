@@ -83,7 +83,10 @@ export default function DraftTimer({
   const makePick = () => {
     if (!hasStarted) return;
 
-    onPickMade?.(currentTeamName, draftSelection.trim());
+    const trimmed = draftSelection.trim();
+    if (!trimmed) return;
+
+    onPickMade?.(currentTeamName, trimmed);
     setDraftSelection("");
 
     setPickNumber((prev) => prev + 1);
