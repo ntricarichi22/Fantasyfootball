@@ -6,7 +6,11 @@ import {
   formatDraftPickLabel,
   logDraftPickDistribution,
   withComputedDraftPicks,
+  deriveDraftOrderForSeason,
+  PICK_SLOT_SEASON,
+  DRAFT_ORDER_UNAVAILABLE_MESSAGE,
   type DraftPick,
+  type SleeperDraft,
   type TradedPick,
 } from "../lib/picks";
 import DraftTimer from "../components/DraftTimer";
@@ -332,6 +336,7 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [leagueData, setLeagueData] = useState<League | null>(null);
+  const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
   const [rosters, setRosters] = useState<Roster[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
@@ -414,14 +419,15 @@ export default function Home() {
   useEffect(() => {
     async function fetchSleeperData() {
       try {
-        const [leagueRes, rosterRes, userRes, tradedRes] = await Promise.all([
+        const [leagueRes, rosterRes, userRes, tradedRes, draftsRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/traded_picks`),
+          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/drafts`),
         ]);
 
-        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok) {
+        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok || !draftsRes.ok) {
           throw new Error("Bad response from Sleeper");
         }
 
@@ -429,6 +435,7 @@ export default function Home() {
         const rosterJson: Roster[] = await rosterRes.json();
         const userJson: SleeperUser[] = await userRes.json();
         const tradedJson: TradedPick[] = await tradedRes.json();
+        const draftsJson: SleeperDraft[] = await draftsRes.json();
 
         const mappedTeams: Team[] = rosterJson.map((roster) => {
           const user = roster.owner_id
@@ -446,13 +453,15 @@ export default function Home() {
         });
         const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
 
+        const { draftOrder, available } = deriveDraftOrderForSeason(draftsJson, PICK_SLOT_SEASON);
         const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
           teamCountOverride: rosterJson.length,
-          draftOrder: leagueJson.draft_order,
+          draftOrder: draftOrder ?? leagueJson.draft_order,
         });
 
         setTeams(mappedTeams);
         setLeagueData(leagueJson);
+        setDraftOrderAvailable(available);
         setRosterNames(nameMap);
         setRosters(rostersWithPicks);
         setErrorMessage("");
@@ -465,6 +474,7 @@ export default function Home() {
         });
         setTeams(DEMO_TEAMS);
         setLeagueData(DEMO_LEAGUE);
+        setDraftOrderAvailable(false);
         setRosters(demoRosters);
         setRosterNames(demoNameMap);
         logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
@@ -783,6 +793,8 @@ export default function Home() {
     formatDraftPickLabel(pick, {
       teamCount: rosters.length || teams.length || 1,
       originalTeamNames: rosterNames,
+      draftOrderAvailable: draftOrderAvailable === true,
+      slotSeason: PICK_SLOT_SEASON,
     });
 
   const handleRegisterStart = useCallback((handler: () => void) => {
@@ -997,6 +1009,9 @@ export default function Home() {
                   <h3 className="text-lg font-semibold mb-2 text-gray-200">
                     Draft Picks
                   </h3>
+                  {draftOrderAvailable === false ? (
+                    <p className="mb-2 text-xs text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
+                  ) : null}
                   {activeRoster?.draft_picks?.length ? (
                     <ul className="space-y-2">
                       {activeRoster.draft_picks.map((pick, idx) => (
