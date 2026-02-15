@@ -83,8 +83,6 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
 const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
-const PICK_ANNOUNCEMENT_DELAY_MS = 1000;
-const PICK_RESET_DELAY_MS = 3000;
 const DROPPABLE_BORDER_CLASS = "border border-blue-600/50";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
@@ -235,26 +233,15 @@ export default function Home() {
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
   const [currentClockTeam, setCurrentClockTeam] = useState("");
-  const [pickAnnouncement, setPickAnnouncement] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
+  const [draftStarted, setDraftStarted] = useState(false);
+  const [startReady, setStartReady] = useState(false);
   const [draggedBenchPlayer, setDraggedBenchPlayer] = useState("");
   const [queuedExternalPick, setQueuedExternalPick] = useState<{
     selection: string;
     alreadyRecorded?: boolean;
   } | null>(null);
-  const pickMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pickResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const clearPickTimers = () => {
-    if (pickMessageTimeout.current) {
-      clearTimeout(pickMessageTimeout.current);
-      pickMessageTimeout.current = null;
-    }
-    if (pickResetTimeout.current) {
-      clearTimeout(pickResetTimeout.current);
-      pickResetTimeout.current = null;
-    }
-  };
+  const startDraftHandler = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!statusMessage) return;
@@ -262,12 +249,6 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
-  useEffect(
-    () => () => {
-      clearPickTimers();
-    },
-    []
-  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -639,27 +620,24 @@ export default function Home() {
     return parts.join(" • ") || "Future pick";
   };
 
+  const handleRegisterStart = useCallback((handler: () => void) => {
+    startDraftHandler.current = handler;
+    setStartReady(true);
+  }, []);
+
+  const handleStartDraftClick = () => {
+    if (!startDraftHandler.current) return;
+    startDraftHandler.current();
+  };
+
   const handleAvailablePlayerSelect = (player: AvailablePlayer) => {
     if (!currentClockTeam) {
       setStatusMessage("Start the draft to make picks.");
       return;
     }
 
-    clearPickTimers();
-    const announcingTeam = currentClockTeam;
-    const announcingPlayerName = player.name;
-
-    handlePickMade(announcingTeam, player.id);
-    setPickAnnouncement("Pick is in");
-
-    pickMessageTimeout.current = setTimeout(() => {
-      setPickAnnouncement(`${announcingTeam} selects ${announcingPlayerName}`);
-    }, PICK_ANNOUNCEMENT_DELAY_MS);
-
-    pickResetTimeout.current = setTimeout(() => {
-      setPickAnnouncement("");
-      setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
-    }, PICK_RESET_DELAY_MS);
+    handlePickMade(currentClockTeam, player.id);
+    setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
   };
 
   return (
@@ -687,7 +665,17 @@ export default function Home() {
           </select>
         </div>
       ) : (
-        <div className="w-full min-h-screen flex">
+        <>
+          <div className="mb-6">
+            <button
+              className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-green-800"
+              onClick={handleStartDraftClick}
+              disabled={!startReady || draftStarted}
+            >
+              Start Draft
+            </button>
+          </div>
+          <div className="w-full min-h-screen flex">
           <div className="w-1/4 bg-gray-900 p-4 border-r border-gray-800 overflow-y-auto">
             <div className="flex items-center justify-between">
               <h2 className="text-xl font-bold mb-2">
@@ -912,26 +900,9 @@ export default function Home() {
               onTeamChange={setCurrentClockTeam}
               externalPick={queuedExternalPick}
               onExternalPickHandled={() => setQueuedExternalPick(null)}
+              registerStartHandler={handleRegisterStart}
+              onStart={() => setDraftStarted(true)}
             />
-            <div className="w-full bg-gray-800 rounded-xl p-6 text-center space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="text-4xl font-bold">Draft Board</div>
-                {pickAnnouncement ? (
-                  <span className="rounded-full bg-emerald-600/20 border border-emerald-500 px-4 py-1 text-sm font-semibold text-emerald-200">
-                    {pickAnnouncement}
-                  </span>
-                ) : (
-                  <span className="rounded-full bg-slate-700 px-3 py-1 text-xs text-slate-200">
-                    {currentClockTeam ? `${currentClockTeam} is on the clock` : "Waiting to start"}
-                  </span>
-                )}
-              </div>
-              <p className="text-gray-300 text-left">
-                Use the available players list below to make your pick for the team on the clock.
-                Selections will remove the player from the pool and append them to the drafted list.
-              </p>
-            </div>
-
             <div className="w-full bg-gray-900 rounded-xl p-6 space-y-4 shadow-lg border border-gray-800">
               <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
                 <div>
@@ -1029,6 +1000,7 @@ export default function Home() {
             </div>
           </div>
         </div>
+        </>
       )}
     </main>
   );
