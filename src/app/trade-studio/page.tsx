@@ -339,7 +339,7 @@ export default function TradeStudioPage() {
                 <p className="mt-3 text-sm text-red-400">{errorMessage}</p>
               )}
               <div className="mt-4">
-                <label className="text-xs text-gray-400 block mb-1" htmlFor="team-picker">
+                <label className="block mb-1 text-xs text-gray-400" htmlFor="team-picker">
                   Sleeper team
                 </label>
                 <select
@@ -363,7 +363,7 @@ export default function TradeStudioPage() {
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-3">
-            <section className="rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1 flex flex-col max-h-[70vh]">
+            <section className="rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1 flex flex-col max-h-[calc(100vh-220px)]">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Roster + Picks</h2>
                 <span className="text-xs text-gray-400">{teamName}</span>
@@ -431,14 +431,14 @@ export default function TradeStudioPage() {
                   <h3 className="mb-2 text-sm font-semibold text-gray-200">Draft Picks</h3>
                   {draftPicks.length ? (
                     <div className="space-y-2">
-                      {draftPicks.map((pick, idx) => {
+                      {draftPicks.map((pick) => {
                         const key = availabilityKeyForPick(pick);
                         const isAvailable = availability[key] || false;
                         const isInBlock = tradeBlock.some((asset) => asset.id === key);
                         const label = formatPickLabel(pick);
                         return (
                           <div
-                            key={`${key}-${idx}`}
+                            key={key}
                             className="flex items-center justify-between rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs sm:text-sm"
                           >
                             <div className="flex items-center gap-3">
