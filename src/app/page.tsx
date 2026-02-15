@@ -644,7 +644,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center">
       <div className="mb-8 flex w-full max-w-6xl flex-col items-center gap-4 px-4 sm:flex-row sm:justify-between">
-        <h1 className="text-5xl font-bold sm:text-left">CFC Offseason Draft</h1>
+        <h1 className="text-5xl font-bold">CFC Offseason Draft</h1>
         <Link
           href="/trade-studio"
           className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
