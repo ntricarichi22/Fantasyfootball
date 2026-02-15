@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDraftPickLabel, withComputedDraftPicks, type DraftPick, type TradedPick } from "../lib/picks";
 import DraftTimer from "../components/DraftTimer";
 
 interface Team {
@@ -12,14 +13,7 @@ interface Team {
 
 interface League {
   roster_positions: string[];
-}
-
-interface DraftPick {
-  season?: string;
-  round?: number;
-  roster_id?: number;
-  original_roster_id?: number;
-  pick_no?: number;
+  draft_order?: Record<string, number>;
 }
 
 interface Roster {
@@ -413,19 +407,21 @@ export default function Home() {
   useEffect(() => {
     async function fetchSleeperData() {
       try {
-        const [leagueRes, rosterRes, userRes] = await Promise.all([
+        const [leagueRes, rosterRes, userRes, tradedRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
+          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/traded_picks`),
         ]);
 
-        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok) {
+        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok) {
           throw new Error("Bad response from Sleeper");
         }
 
         const leagueJson: League = await leagueRes.json();
         const rosterJson: Roster[] = await rosterRes.json();
         const userJson: SleeperUser[] = await userRes.json();
+        const tradedJson: TradedPick[] = await tradedRes.json();
 
         const mappedTeams: Team[] = rosterJson.map((roster) => {
           const user = roster.owner_id
@@ -442,9 +438,14 @@ export default function Home() {
           };
         });
 
+        const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
+          teamCountOverride: rosterJson.length,
+          draftOrder: leagueJson.draft_order,
+        });
+
         setTeams(mappedTeams);
         setLeagueData(leagueJson);
-        setRosters(rosterJson);
+        setRosters(rostersWithPicks);
         setErrorMessage("");
       } catch (error) {
         console.error("Error fetching Sleeper data:", error);
@@ -762,13 +763,7 @@ export default function Home() {
     }
   };
 
-  const draftPickText = (pick: DraftPick) => {
-    const parts = [];
-    if (pick.season) parts.push(pick.season);
-    if (pick.round) parts.push(`Round ${pick.round}`);
-    if (pick.pick_no) parts.push(`Pick ${pick.pick_no}`);
-    return parts.join(" • ") || "Future pick";
-  };
+  const draftPickText = (pick: DraftPick) => formatDraftPickLabel(pick, rosters.length || teams.length || 1);
 
   const handleRegisterStart = useCallback((handler: () => void) => {
     startDraftHandler.current = handler;

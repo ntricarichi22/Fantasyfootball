@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { formatDraftPickLabel, withComputedDraftPicks, type DraftPick, type TradedPick } from "../../lib/picks";
 
 interface Team {
   id: number;
@@ -9,12 +10,8 @@ interface Team {
   ownerId?: string | null;
 }
 
-interface DraftPick {
-  season?: string;
-  round?: number;
-  roster_id?: number;
-  original_roster_id?: number;
-  pick_no?: number;
+interface League {
+  draft_order?: Record<string, number>;
 }
 
 interface Roster {
@@ -100,13 +97,6 @@ const computeAge = (player: SleeperPlayer) => {
     }
   }
   return null;
-};
-
-const formatPickLabel = (pick: DraftPick) => {
-  const seasonLabel = pick.season || "Future";
-  const round = pick.round ? String(pick.round) : "?";
-  const pickNumber = pick.pick_no ? String(pick.pick_no).padStart(2, "0") : "??";
-  return `${seasonLabel} ${round}.${pickNumber}`;
 };
 
 const availabilityKeyForPlayer = (playerId: string) => `player:${playerId}`;
@@ -198,19 +188,21 @@ export default function TradeStudioPage() {
 
     async function fetchSleeperData() {
       try {
-        const [leagueRes, rosterRes, userRes] = await Promise.all([
+        const [leagueRes, rosterRes, userRes, tradedRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
+          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/traded_picks`),
         ]);
 
-        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok) {
+        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok) {
           throw new Error("Bad response from Sleeper");
         }
 
-        await leagueRes.json();
+        const leagueJson: League = await leagueRes.json();
         const rosterJson: Roster[] = await rosterRes.json();
         const userJson: SleeperUser[] = await userRes.json();
+        const tradedJson: TradedPick[] = await tradedRes.json();
 
         if (!isMounted) return;
 
@@ -229,8 +221,13 @@ export default function TradeStudioPage() {
           };
         });
 
+        const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
+          teamCountOverride: rosterJson.length,
+          draftOrder: leagueJson.draft_order,
+        });
+
         setTeams(mappedTeams);
-        setRosters(rosterJson);
+        setRosters(rostersWithPicks);
         setErrorMessage("");
       } catch (error) {
         console.error("Error fetching Sleeper data:", error);
@@ -503,7 +500,7 @@ export default function TradeStudioPage() {
                         const key = availabilityKeyForPick(pick);
                         const isAvailable = availability[key] || false;
                         const isInBlock = tradeBlock.some((asset) => asset.id === key);
-                        const label = formatPickLabel(pick);
+                        const label = formatDraftPickLabel(pick, rosters.length || teams.length || 1);
                         return (
                           <div
                             key={key}
