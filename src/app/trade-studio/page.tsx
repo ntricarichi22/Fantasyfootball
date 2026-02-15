@@ -340,7 +340,7 @@ export default function TradeStudioPage() {
                 <p className="mt-3 text-sm text-red-400">{errorMessage}</p>
               )}
               <div className="mt-4">
-                <label className="block text-xs text-gray-400 mb-3" htmlFor="team-picker">
+                <label className="mb-3 block text-xs text-gray-400" htmlFor="team-picker">
                   Sleeper team
                 </label>
                 <select
