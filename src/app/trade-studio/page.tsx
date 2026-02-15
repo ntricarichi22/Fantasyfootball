@@ -241,7 +241,7 @@ export default function TradeStudioPage() {
 
         const { draftOrder, available } = deriveDraftOrderForSeason(draftsJson, PICK_SLOT_SEASON);
         console.log(
-          "Derived 2026 draft slots (team -> slot):",
+          `Derived ${PICK_SLOT_SEASON} draft slots (team -> slot):`,
           Object.fromEntries(
             mappedTeams.map((team) => {
               const ownerKey = team.ownerId != null ? String(team.ownerId) : null;

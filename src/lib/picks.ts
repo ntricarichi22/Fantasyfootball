@@ -208,10 +208,10 @@ export const computeCurrentDraftPicks = <
   tradedPicks.forEach((trade) => {
     if (!trade.season || !trade.round) return;
     if (!allowedSeasons.has(String(trade.season))) return;
-    const originalOwner = trade.roster_id;
-    if (!originalOwner) return;
+    const originalRosterId = trade.roster_id;
+    if (!originalRosterId) return;
 
-    const key = pickKey(trade.season, trade.round, originalOwner);
+    const key = pickKey(trade.season, trade.round, originalRosterId);
     const currentOwner = trade.owner_id;
     const existing = lookup.get(key);
 
@@ -221,11 +221,11 @@ export const computeCurrentDraftPicks = <
       existing ?? {
         season: trade.season,
         round: trade.round,
-        original_roster_id: originalOwner,
+        original_roster_id: originalRosterId,
       };
 
     pick.roster_id = currentOwner;
-    const draftSlot = draftSlotForRoster(originalOwner);
+    const draftSlot = draftSlotForRoster(originalRosterId);
     if (draftSlot !== undefined) {
       pick.pick_no = draftSlot;
     } else if (trade.pick_no !== undefined) {
