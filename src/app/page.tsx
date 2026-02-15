@@ -134,7 +134,7 @@ const resolveDraftedPlayer = (
   const fallbackId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
-      : `custom-${Date.now()}`;
+      : `custom-${Date.now()}-${Math.random()}`;
   if (!trimmed) {
     return { id: fallbackId, name: "Unnamed Player", positions: [] };
   }
@@ -150,8 +150,10 @@ const resolveDraftedPlayer = (
   }
 
   const lower = trimmed.toLowerCase().trim();
-  const byName = Object.entries(dictionary).find(([, player]) =>
-    (player.full_name || "").toLowerCase().trim() === lower
+  const byName = Object.entries(dictionary).find(
+    ([, player]) =>
+      player.full_name &&
+      (player.full_name || "").toLowerCase().trim() === lower
   );
 
   if (byName) {
@@ -286,9 +288,10 @@ export default function Home() {
       if (typeof window !== "undefined") {
         const cachedDict = localStorage.getItem(PLAYER_CACHE_KEY);
         const cachedTime = localStorage.getItem(PLAYER_CACHE_TIME_KEY);
+        const parsedTime = cachedTime ? parseInt(cachedTime, 10) : NaN;
         const isFresh =
-          cachedTime &&
-          Date.now() - Number(cachedTime) < CACHE_TTL_MS;
+          !Number.isNaN(parsedTime) &&
+          Date.now() - parsedTime < CACHE_TTL_MS;
         if (cachedDict && isFresh) {
           try {
             const parsed = JSON.parse(cachedDict);
@@ -424,7 +427,7 @@ export default function Home() {
           >
             <option value="">-- Choose Team --</option>
             {teams.map((team) => (
-              <option key={team.id} value={team.id}>
+              <option key={team.id} value={toId(team.id)}>
                 {team.name}
               </option>
             ))}
@@ -562,7 +565,7 @@ export default function Home() {
                             >
                               <option value="">Move to slot...</option>
                               {rosterPositions.map((slot, idx) => (
-                                <option key={`${slot}-${idx}`} value={idx}>
+                                <option key={`${slot}-${idx}`} value={String(idx)}>
                                   {slot}
                                 </option>
                               ))}
@@ -571,7 +574,9 @@ export default function Home() {
                               className="rounded-md bg-blue-600 px-3 py-1 text-sm font-semibold text-white disabled:bg-blue-900"
                               disabled={!slotSelections[player.id]}
                               onClick={() => {
-                                const slotIndex = Number(slotSelections[player.id]);
+                                const selectionValue = slotSelections[player.id];
+                                if (!selectionValue) return;
+                                const slotIndex = Number(selectionValue);
                                 if (Number.isFinite(slotIndex)) {
                                   moveDraftedPlayerToSlot(player, slotIndex);
                                 }
