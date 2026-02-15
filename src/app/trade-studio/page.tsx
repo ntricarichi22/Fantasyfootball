@@ -240,6 +240,7 @@ export default function TradeStudioPage() {
         const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
 
         const { draftOrder, available } = deriveDraftOrderForSeason(draftsJson, PICK_SLOT_SEASON);
+        // TODO: Remove once draft slot mapping has been verified in production.
         // Temporary debug to verify draft slot mapping against Sleeper Draft Settings.
         console.log(
           `Derived ${PICK_SLOT_SEASON} draft slots (team -> slot):`,

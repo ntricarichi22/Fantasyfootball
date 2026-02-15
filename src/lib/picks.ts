@@ -227,6 +227,7 @@ export const computeCurrentDraftPicks = <
     pick.roster_id = currentOwner;
     const draftSlot = draftSlotForRoster(originalRosterId);
     if (draftSlot !== undefined) {
+      // Use Sleeper draft settings as the source of truth for pick slot numbering.
       pick.pick_no = draftSlot;
     } else if (trade.pick_no !== undefined) {
       pick.pick_no = normalizePickNumber(trade.pick_no, teamCount);
