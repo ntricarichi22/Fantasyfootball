@@ -92,6 +92,7 @@ const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const DRAFTED_CACHE_KEY = "drafted_players_state";
 const DRAFT_LOG_CACHE_KEY = "draft_log_state";
 const LINEUP_CACHE_KEY = "lineup_overrides_state";
+const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
 const STATUS_MESSAGE_TIMEOUT_MS = 3000;
@@ -103,6 +104,18 @@ let playerDictCache: Record<string, SleeperPlayer> | null = null;
 
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
+
+const getStoredSelectedTeam = () => {
+  if (typeof window === "undefined") return "";
+  try {
+    const saved = localStorage.getItem(SELECTED_TEAM_CACHE_KEY);
+    if (!saved) return "";
+    const parsed = JSON.parse(saved);
+    return toId(parsed?.rosterId);
+  } catch {
+    return "";
+  }
+};
 
 const normalizePositions = (positions?: string[] | null, fallback?: string) => {
   if (positions?.length) return positions;
@@ -315,7 +328,7 @@ const normalizeDraftLogEntry = (entry: Partial<DraftLogEntry>): DraftLogEntry | 
 
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState("");
+  const [selectedTeam, setSelectedTeam] = useState(() => getStoredSelectedTeam());
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [leagueData, setLeagueData] = useState<League | null>(null);
@@ -343,7 +356,11 @@ export default function Home() {
     const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
-
+  useEffect(() => {
+    if (selectedTeam || typeof window === "undefined") return;
+    const stored = getStoredSelectedTeam();
+    if (stored) setSelectedTeam(stored);
+  }, [selectedTeam]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -762,6 +779,30 @@ export default function Home() {
     if (!startDraftHandler.current) return;
     startDraftHandler.current();
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedTeam) {
+      localStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
+      return;
+    }
+
+    const team = teams.find((t) => toId(t.id) === selectedTeam);
+    if (!team) return;
+
+    try {
+      localStorage.setItem(
+        SELECTED_TEAM_CACHE_KEY,
+        JSON.stringify({
+          rosterId: toId(team.id),
+          ownerId: team.ownerId || null,
+          teamName: team.name,
+        })
+      );
+    } catch {
+      // ignore storage failures
+    }
+  }, [selectedTeam, teams]);
 
   const handleAvailablePlayerSelect = (player: AvailablePlayer) => {
     if (!currentClockTeam) {
