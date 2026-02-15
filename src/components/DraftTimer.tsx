@@ -72,7 +72,10 @@ export default function DraftTimer({
     ? currentTeamIndex % teamsForDraft.length
     : 0;
 
-  const currentTeam = teamsForDraft[safeTeamIndex];
+  const currentTeam = useMemo(
+    () => teamsForDraft[safeTeamIndex],
+    [safeTeamIndex, teamsForDraft]
+  );
   const currentTeamName = currentTeam?.name || "Team on the clock";
 
   const startDraft = useCallback(() => {

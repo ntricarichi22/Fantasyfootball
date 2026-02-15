@@ -24,7 +24,8 @@ const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const ALLOWED_POSITIONS = new Set(["QB", "RB", "WR", "TE"]);
 const POSITION_ORDER = ["QB", "RB", "WR", "TE"];
 const PICK_ANNOUNCE_DELAY_MS = 1000;
-const PICK_ADVANCE_DELAY_MS = 3000;
+// Advance to the next pick ~2 seconds after the announcement shows
+const PICK_ADVANCE_DELAY_MS = PICK_ANNOUNCE_DELAY_MS + 2000;
 
 interface DraftedEntry {
   player: SleeperPlayer;
@@ -66,7 +67,7 @@ export default function Home() {
     Record<number, DraftedEntry[]>
   >({});
   const [pickAnnouncement, setPickAnnouncement] = useState<{
-    stage: "in" | "announce";
+    stage: "submitted" | "announced";
     message: string;
   } | null>(null);
   const [draftClockState, setDraftClockState] = useState<{
@@ -142,11 +143,11 @@ export default function Home() {
 
         const filtered =
           players
-            ?.filter((player) => player?.player_id)
-            .filter((player) => {
+            ?.filter((player) => {
               const status = player.status?.toLowerCase();
               return (
-                player?.position &&
+                player?.player_id &&
+                player.position &&
                 ALLOWED_POSITIONS.has(player.position) &&
                 !rostered.has(player.player_id) &&
                 player.team &&
@@ -185,10 +186,9 @@ export default function Home() {
 
   useEffect(() => {
     return () => {
-      pickTimeouts.current.forEach((timeoutId) => clearTimeout(timeoutId));
-      pickTimeouts.current = [];
+      clearPickTimeouts();
     };
-  }, []);
+  }, [clearPickTimeouts]);
 
   const displayedPlayers = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -217,12 +217,17 @@ export default function Home() {
     []
   );
 
+  const clearPickTimeouts = useCallback(() => {
+    pickTimeouts.current.forEach((timeoutId) => clearTimeout(timeoutId));
+    pickTimeouts.current = [];
+  }, []);
+
   const handleSelectPlayer = (player: SleeperPlayer) => {
     const controls = draftControlsRef.current;
     const fallbackTeam =
       teams.length > 0 ? teams[0] : { id: DEMO_TEAM_ID, name: "Demo Team" };
     const teamOnClock =
-      draftClockState.team && draftClockState.team.id !== undefined
+      draftClockState.team && draftClockState.team.id != null
         ? draftClockState.team
         : fallbackTeam;
     const pickLabelAtSelection = draftClockState.pickLabel;
@@ -241,10 +246,9 @@ export default function Home() {
       controls.pauseTimer();
     }
 
-    pickTimeouts.current.forEach((timeoutId) => clearTimeout(timeoutId));
-    pickTimeouts.current = [];
+    clearPickTimeouts();
 
-    setPickAnnouncement({ stage: "in", message: "Pick is in" });
+    setPickAnnouncement({ stage: "submitted", message: "Pick is in" });
     setAvailablePlayers((prev) =>
       prev.filter((p) => p.player_id !== player.player_id)
     );
@@ -258,7 +262,7 @@ export default function Home() {
 
     const announceTimeout = setTimeout(() => {
       setPickAnnouncement({
-        stage: "announce",
+        stage: "announced",
         message: `${teamOnClock.name} selects ${playerName}${
           pickLabelAtSelection ? ` (${pickLabelAtSelection})` : ""
         }`,
@@ -285,7 +289,9 @@ export default function Home() {
       {pickAnnouncement && (
         <div className="fixed top-6 left-1/2 z-50 -translate-x-1/2 rounded-xl bg-slate-800 px-6 py-3 text-center shadow-2xl border border-slate-700">
           <div className="text-sm uppercase tracking-widest text-slate-300">
-            {pickAnnouncement.stage === "in" ? "Pick Submitted" : "Selection"}
+            {pickAnnouncement.stage === "submitted"
+              ? "Pick Submitted"
+              : "Selection"}
           </div>
           <div className="text-lg font-semibold text-white">
             {pickAnnouncement.message}
