@@ -16,7 +16,16 @@ export interface TradedPick {
   pick_no?: number;
 }
 
-export const DEFAULT_PICK_SEASONS = ["2026", "2027", "2028"];
+export interface SleeperDraft {
+  season?: string;
+  type?: string;
+  draft_order?: Record<string, number>;
+  slot_to_roster_id?: Record<string, number>;
+}
+
+export const DEFAULT_PICK_SEASONS = ["2026", "2027"];
+export const PICK_SLOT_SEASON = DEFAULT_PICK_SEASONS[0];
+export const DRAFT_ORDER_UNAVAILABLE_MESSAGE = "Draft order unavailable";
 const DEFAULT_ROUNDS = 3;
 const DEFAULT_TEAM_COUNT = 12;
 
@@ -64,9 +73,21 @@ const roundName = (round?: number) => {
   return `${round}th Rd`;
 };
 
+const formatPickSlot = (pick: DraftPick, teamCount?: number) => {
+  if (!pick.round || !pick.pick_no) return undefined;
+  const normalized = normalizePickNumber(pick.pick_no, teamCount);
+  if (!normalized) return undefined;
+  return `${pick.round}.${String(normalized).padStart(2, "0")}`;
+};
+
 export const formatDraftPickLabel = (
   pick: DraftPick,
-  options?: { teamCount?: number; originalTeamNames?: Record<number, string> }
+  options?: {
+    teamCount?: number;
+    originalTeamNames?: Record<number, string>;
+    draftOrderAvailable?: boolean;
+    slotSeason?: string;
+  }
 ) => {
   const seasonLabel = pick.season ?? "Future";
   const roundLabel = roundName(pick.round);
@@ -75,7 +96,55 @@ export const formatDraftPickLabel = (
   const name = originalOwner != null ? rosterNames?.[originalOwner] : undefined;
   const fallbackName =
     originalOwner != null ? `Roster ${originalOwner}` : "Unknown Team";
-  return `${seasonLabel} ${roundLabel} (${name || fallbackName})`;
+  const shouldShowSlot =
+    options?.draftOrderAvailable &&
+    pick.season === (options?.slotSeason ?? PICK_SLOT_SEASON);
+  const slot = shouldShowSlot ? formatPickSlot(pick, options?.teamCount) : undefined;
+  const slotSuffix = slot ? ` - ${slot}` : "";
+  return `${seasonLabel} ${roundLabel}${slotSuffix} (${name || fallbackName})`;
+};
+
+const parseRosterDraftOrder = (order?: Record<string, number>) => {
+  if (!order) return undefined;
+  const entries = Object.entries(order)
+    .map(([key, slotNumber]) => [Number(key), Number(slotNumber)] as const)
+    .filter(
+      ([rosterId, slotNumber]) =>
+        Number.isFinite(rosterId) && rosterId > 0 && Number.isFinite(slotNumber) && slotNumber > 0
+    );
+  if (!entries.length) return undefined;
+  return Object.fromEntries(entries);
+};
+
+const invertSlotMap = (slotMap?: Record<string, number>) => {
+  if (!slotMap) return undefined;
+  // Convert slot->roster_id map into roster_id->slot map.
+  const entries = Object.entries(slotMap)
+    .map(([slotStr, rosterId]) => [Number(rosterId), Number(slotStr)] as const)
+    .filter(
+      ([rosterId, slot]) =>
+        Number.isFinite(rosterId) && rosterId > 0 && Number.isFinite(slot) && slot > 0
+    );
+  if (!entries.length) return undefined;
+  return Object.fromEntries(entries);
+};
+
+export const deriveDraftOrderForSeason = (
+  drafts: SleeperDraft[] | undefined,
+  season: string = PICK_SLOT_SEASON
+) => {
+  if (!drafts?.length) return { draftOrder: undefined, available: false };
+  const matchingDraft =
+    drafts.find((draft) => draft.season === season && draft.type === "rookie") ||
+    drafts.find((draft) => draft.season === season);
+  const draftOrder =
+    parseRosterDraftOrder(matchingDraft?.draft_order) ||
+    invertSlotMap(matchingDraft?.slot_to_roster_id);
+  return {
+    draftOrder,
+    // Convenience boolean for consumers deciding whether to display slot numbers.
+    available: !!draftOrder,
+  };
 };
 
 export const computeCurrentDraftPicks = <
@@ -88,6 +157,7 @@ export const computeCurrentDraftPicks = <
     defaultRounds?: number;
     teamCountOverride?: number;
     draftOrder?: Record<string, number>;
+    draftOrderAvailable?: boolean;
   }
 ): Record<number, DraftPick[]> => {
   const teamCount = options?.teamCountOverride ?? rosters.length ?? DEFAULT_TEAM_COUNT;
@@ -100,14 +170,9 @@ export const computeCurrentDraftPicks = <
     if (typeof byNumberKey === "number") return byNumberKey;
     return undefined;
   };
-  const seasons = Array.from(
-    new Set([
-      ...(options?.seasons?.map(String) ?? DEFAULT_PICK_SEASONS),
-      ...tradedPicks
-        .map((p) => p.season)
-        .filter((p): p is string => typeof p === "string"),
-    ])
-  );
+  // Only display picks for the allowed seasons (default: 2026-2027).
+  const allowedSeasons = new Set(options?.seasons?.map(String) ?? DEFAULT_PICK_SEASONS);
+  const seasons = Array.from(allowedSeasons);
   const maxRound = options?.defaultRounds ?? DEFAULT_ROUNDS;
 
   const lookup = new Map<string, DraftPick>();
@@ -181,6 +246,7 @@ export const withComputedDraftPicks = <
     defaultRounds?: number;
     teamCountOverride?: number;
     draftOrder?: Record<string, number>;
+    draftOrderAvailable?: boolean;
   }
 ): Roster[] => {
   const pickMap = computeCurrentDraftPicks(rosters, tradedPicks, options);

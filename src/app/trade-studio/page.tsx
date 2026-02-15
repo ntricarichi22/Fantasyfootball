@@ -6,7 +6,11 @@ import {
   formatDraftPickLabel,
   logDraftPickDistribution,
   withComputedDraftPicks,
+  deriveDraftOrderForSeason,
+  PICK_SLOT_SEASON,
+  DRAFT_ORDER_UNAVAILABLE_MESSAGE,
   type DraftPick,
+  type SleeperDraft,
   type TradedPick,
 } from "../../lib/picks";
 
@@ -118,6 +122,7 @@ export default function TradeStudioPage() {
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
   const [selectedTeam, setSelectedTeam] = useState(() => getStoredSelectedTeam());
   const [errorMessage, setErrorMessage] = useState("");
+  const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
   const [availability, setAvailability] = useState<Record<string, boolean>>({});
   const [tradeBlock, setTradeBlock] = useState<TradeAsset[]>([]);
 
@@ -195,14 +200,15 @@ export default function TradeStudioPage() {
 
     async function fetchSleeperData() {
       try {
-        const [leagueRes, rosterRes, userRes, tradedRes] = await Promise.all([
+        const [leagueRes, rosterRes, userRes, tradedRes, draftsRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
           fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/traded_picks`),
+          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/drafts`),
         ]);
 
-        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok) {
+        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok || !draftsRes.ok) {
           throw new Error("Bad response from Sleeper");
         }
 
@@ -210,6 +216,7 @@ export default function TradeStudioPage() {
         const rosterJson: Roster[] = await rosterRes.json();
         const userJson: SleeperUser[] = await userRes.json();
         const tradedJson: TradedPick[] = await tradedRes.json();
+        const draftsJson: SleeperDraft[] = await draftsRes.json();
 
         if (!isMounted) return;
 
@@ -229,14 +236,16 @@ export default function TradeStudioPage() {
         });
         const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
 
+        const { draftOrder, available } = deriveDraftOrderForSeason(draftsJson, PICK_SLOT_SEASON);
         const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
           teamCountOverride: rosterJson.length,
-          draftOrder: leagueJson.draft_order,
+          draftOrder: draftOrder ?? leagueJson.draft_order,
         });
 
         setTeams(mappedTeams);
         setRosterNames(nameMap);
         setRosters(rostersWithPicks);
+        setDraftOrderAvailable(available);
         setErrorMessage("");
         logDraftPickDistribution(rostersWithPicks, nameMap, rosterJson.length);
       } catch (error) {
@@ -248,6 +257,7 @@ export default function TradeStudioPage() {
         });
         setTeams(DEMO_TEAMS);
         setRosters(demoRosters);
+        setDraftOrderAvailable(false);
         setRosterNames(demoNameMap);
         logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
         setErrorMessage("Unable to reach Sleeper API. Showing demo data instead.");
@@ -510,6 +520,9 @@ export default function TradeStudioPage() {
 
                 <div>
                   <h3 className="mb-2 text-sm font-semibold text-gray-200">Draft Picks</h3>
+                  {draftOrderAvailable === false ? (
+                    <p className="mb-2 text-xs text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
+                  ) : null}
                   {draftPicks.length ? (
                     <div className="space-y-2">
                       {draftPicks.map((pick) => {
@@ -519,6 +532,8 @@ export default function TradeStudioPage() {
                         const label = formatDraftPickLabel(pick, {
                           teamCount: rosters.length || teams.length || 1,
                           originalTeamNames: rosterNames,
+                          draftOrderAvailable: draftOrderAvailable === true,
+                          slotSeason: PICK_SLOT_SEASON,
                         });
                         return (
                           <div
