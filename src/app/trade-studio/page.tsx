@@ -367,7 +367,7 @@ export default function TradeStudioPage() {
           <div className="grid gap-6 md:grid-cols-3">
             <section
               className={[
-                "rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1 flex flex-col",
+                "flex flex-col rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg md:col-span-1",
                 PANEL_MAX_HEIGHT_CLASS,
               ].join(" ")}
             >
