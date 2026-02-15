@@ -60,9 +60,9 @@ export default function TradeStudioPage() {
               <span className="text-xs text-gray-400">Live board</span>
             </div>
             <div className="space-y-3 text-sm text-gray-300">
-              <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">Assets you&apos;re shopping</div>
+              <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">Assets you’re shopping</div>
               <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">Incoming offers and counters</div>
-              <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">Notes &amp; constraints</div>
+              <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">Notes & constraints</div>
             </div>
           </section>
         </div>
