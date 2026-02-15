@@ -113,7 +113,7 @@ export default function Home() {
 
     {/* CENTER DRAFT BOARD */}
     <div className="w-3/5 flex flex-col items-center justify-start p-8">
-      <DraftTimer />
+      <DraftTimer teams={teams} />
       <div className="text-4xl font-bold mb-6">
         Draft Board
       </div>
