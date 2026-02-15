@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DraftTimer from "../components/DraftTimer";
 
@@ -642,7 +643,15 @@ export default function Home() {
 
   return (
     <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center">
-      <h1 className="text-5xl font-bold mb-8">CFC Offseason Draft</h1>
+      <div className="mb-8 flex w-full max-w-6xl flex-col items-center gap-4 px-4 sm:flex-row sm:justify-between">
+        <h1 className="text-5xl font-bold text-center sm:text-left">CFC Offseason Draft</h1>
+        <Link
+          href="/trade-studio"
+          className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
+        >
+          Open Trade Studio
+        </Link>
+      </div>
 
       {!selectedTeam ? (
         <div className="bg-gray-900 p-8 rounded-xl shadow-lg">
