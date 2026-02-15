@@ -195,6 +195,7 @@ export const computeCurrentDraftPicks = <
 
   tradedPicks.forEach((trade) => {
     if (!trade.season || !trade.round) return;
+    if (!allowedSeasons.has(String(trade.season))) return;
     const originalOwner = trade.roster_id;
     if (!originalOwner) return;
 
