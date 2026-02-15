@@ -12,14 +12,21 @@ const FALLBACK_TEAMS = [
 
 type DraftTimerProps = {
   teams: { name: string }[];
+  onPickMade?: (teamName: string, selection: string) => void;
+  onTeamChange?: (teamName: string) => void;
 };
 
-export default function DraftTimer({ teams }: DraftTimerProps) {
+export default function DraftTimer({
+  teams,
+  onPickMade,
+  onTeamChange,
+}: DraftTimerProps) {
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
   const [isRunning, setIsRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const [pickNumber, setPickNumber] = useState(1);
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+  const [draftSelection, setDraftSelection] = useState("");
 
   const teamsForDraft = teams.length ? teams : FALLBACK_TEAMS;
 
@@ -58,19 +65,34 @@ export default function DraftTimer({ teams }: DraftTimerProps) {
   const currentTeamName =
     teamsForDraft[safeTeamIndex]?.name || "Team on the clock";
 
+  useEffect(() => {
+    if (!teamsForDraft.length) return;
+    // Inform parent whenever the team on the clock changes
+    onTeamChange?.(currentTeamName);
+  }, [currentTeamName, onTeamChange, teamsForDraft.length]);
+
   const startDraft = () => {
     setHasStarted(true);
     setPickNumber(1);
     setCurrentTeamIndex(0);
     setSecondsLeft(TOTAL_SECONDS);
     setIsRunning(true);
+    onTeamChange?.(teamsForDraft[0]?.name || "Team on the clock");
   };
 
   const makePick = () => {
     if (!hasStarted) return;
 
+    const trimmed = draftSelection.trim();
+    if (!trimmed) return;
+
+    onPickMade?.(currentTeamName, trimmed);
+    setDraftSelection("");
+
     setPickNumber((prev) => prev + 1);
-    setCurrentTeamIndex((prev) => (prev + 1) % teamsForDraft.length);
+    setCurrentTeamIndex((prev) =>
+      teamsForDraft.length ? (prev + 1) % teamsForDraft.length : 0
+    );
     setSecondsLeft(TOTAL_SECONDS);
     setIsRunning(true);
   };
@@ -105,6 +127,12 @@ export default function DraftTimer({ teams }: DraftTimerProps) {
         >
           Start Draft
         </button>
+        <input
+          className="rounded-lg bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 outline-none border border-slate-700 focus:border-blue-500"
+          placeholder="Player drafted (name or ID)"
+          value={draftSelection}
+          onChange={(e) => setDraftSelection(e.target.value)}
+        />
         <button
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
           onClick={makePick}
