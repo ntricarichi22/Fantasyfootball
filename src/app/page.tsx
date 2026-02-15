@@ -199,6 +199,12 @@ export default function Home() {
   const [currentClockTeam, setCurrentClockTeam] = useState("");
 
   useEffect(() => {
+    if (!statusMessage) return;
+    const timer = setTimeout(() => setStatusMessage(""), 3000);
+    return () => clearTimeout(timer);
+  }, [statusMessage]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const savedDrafted = localStorage.getItem(DRAFTED_CACHE_KEY);
     if (savedDrafted) {
