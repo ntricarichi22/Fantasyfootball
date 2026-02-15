@@ -68,6 +68,15 @@ interface AvailablePlayer {
   ageLabel: string;
 }
 
+interface DraftLogEntry {
+  pickNumber: string;
+  teamName: string;
+  playerId: string;
+  playerName: string;
+  positions: string[];
+  nflTeam?: string;
+}
+
 const DEMO_TEAM_ID = 0;
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
@@ -79,6 +88,7 @@ const LEAGUE_ID = "1183585976810295296";
 const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const DRAFTED_CACHE_KEY = "drafted_players_state";
+const DRAFT_LOG_CACHE_KEY = "draft_log_state";
 const LINEUP_CACHE_KEY = "lineup_overrides_state";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
@@ -220,6 +230,13 @@ const computeAge = (player: SleeperPlayer) => {
   return null;
 };
 
+const formatPickNumber = (pickIndex: number, teamCount: number) => {
+  const safeTeamCount = teamCount > 0 ? teamCount : 1;
+  const round = Math.floor(pickIndex / safeTeamCount) + 1;
+  const pickInRound = (pickIndex % safeTeamCount) + 1;
+  return `${round}.${String(pickInRound).padStart(2, "0")}`;
+};
+
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -231,6 +248,7 @@ export default function Home() {
   const [draftedPlayersState, setDraftedPlayersState] = useState<Record<string, DraftedPlayer[]>>(
     {}
   );
+  const [draftLog, setDraftLog] = useState<DraftLogEntry[]>([]);
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
   const [currentClockTeam, setCurrentClockTeam] = useState("");
@@ -261,6 +279,14 @@ export default function Home() {
         // ignore corrupted cache
       }
     }
+    const savedDraftLog = localStorage.getItem(DRAFT_LOG_CACHE_KEY);
+    if (savedDraftLog) {
+      try {
+        setDraftLog(JSON.parse(savedDraftLog));
+      } catch {
+        // ignore corrupted cache
+      }
+    }
     const savedLineup = localStorage.getItem(LINEUP_CACHE_KEY);
     if (savedLineup) {
       try {
@@ -275,6 +301,11 @@ export default function Home() {
     if (typeof window === "undefined") return;
     localStorage.setItem(DRAFTED_CACHE_KEY, JSON.stringify(draftedPlayersState));
   }, [draftedPlayersState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(DRAFT_LOG_CACHE_KEY, JSON.stringify(draftLog));
+  }, [draftLog]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -510,11 +541,27 @@ export default function Home() {
     const rosterKey =
       matchingTeam ? toId(matchingTeam.id) : teamName || `team-${Date.now()}`;
     const drafted = resolveDraftedPlayer(selection, playerDictionary);
+    const teamDisplayName = matchingTeam?.name || teamName;
 
     setDraftedPlayersState((prev) => ({
       ...prev,
       [rosterKey]: [...(prev[rosterKey] || []), drafted],
     }));
+
+    setDraftLog((prev) => {
+      const pickNumber = formatPickNumber(prev.length, teams.length || 1);
+      return [
+        ...prev,
+        {
+          pickNumber,
+          teamName: teamDisplayName || rosterKey,
+          playerId: drafted.id,
+          playerName: drafted.name,
+          positions: drafted.positions,
+          nflTeam: drafted.team,
+        },
+      ];
+    });
   };
 
   const assignPlayerToSlot = (
@@ -991,22 +1038,33 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="w-1/4 bg-gray-900 p-4 border-l border-gray-800">
-            <h2 className="text-xl font-bold mb-4">Other Teams</h2>
-            <div className="space-y-2">
-              {teams.map((team) => (
-                <div
-                  key={team.id}
-                  className={`rounded-lg px-3 py-2 text-sm ${
-                    toId(team.id) === selectedTeam
-                      ? "bg-blue-900 text-white"
-                      : "bg-gray-800 text-gray-200"
-                  }`}
-                >
-                  {team.name}
-                </div>
-              ))}
-            </div>
+          <div className="w-1/4 bg-gray-900 p-4 border-l border-gray-800 overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">Draft Log</h2>
+            {draftLog.length ? (
+              <div className="space-y-2">
+                {draftLog.map((entry, idx) => {
+                  const positionLabel = entry.positions.join("/");
+                  const meta = [positionLabel, entry.nflTeam].filter(Boolean).join(" • ");
+                  return (
+                    <div
+                      key={`${entry.pickNumber}-${entry.playerId}-${idx}`}
+                      className="rounded-lg bg-gray-800 px-3 py-2 text-sm border border-gray-700"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-semibold text-blue-300">
+                          {entry.pickNumber}
+                        </span>
+                        <span className="text-xs text-gray-200">{entry.teamName}</span>
+                      </div>
+                      <div className="text-sm font-semibold text-white">{entry.playerName}</div>
+                      <div className="text-xs text-gray-400">{meta || "Selected player"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">No picks have been made yet.</p>
+            )}
           </div>
         </div>
         </>
