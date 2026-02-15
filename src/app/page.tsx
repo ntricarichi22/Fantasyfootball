@@ -68,6 +68,8 @@ const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const DRAFTED_CACHE_KEY = "drafted_players_state";
 const LINEUP_CACHE_KEY = "lineup_overrides_state";
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const EMPTY_SLOT = "";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 
@@ -129,7 +131,10 @@ const resolveDraftedPlayer = (
   dictionary: Record<string, SleeperPlayer>
 ): DraftedPlayer => {
   const trimmed = selection.trim();
-  const fallbackId = `custom-${Date.now()}`;
+  const fallbackId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `custom-${Date.now()}`;
   if (!trimmed) {
     return { id: fallbackId, name: "Unnamed Player", positions: [] };
   }
@@ -144,9 +149,9 @@ const resolveDraftedPlayer = (
     };
   }
 
-  const lower = trimmed.toLowerCase();
+  const lower = trimmed.toLowerCase().trim();
   const byName = Object.entries(dictionary).find(([, player]) =>
-    (player.full_name || "").toLowerCase() === lower
+    (player.full_name || "").toLowerCase().trim() === lower
   );
 
   if (byName) {
@@ -281,7 +286,10 @@ export default function Home() {
       if (typeof window !== "undefined") {
         const cachedDict = localStorage.getItem(PLAYER_CACHE_KEY);
         const cachedTime = localStorage.getItem(PLAYER_CACHE_TIME_KEY);
-        if (cachedDict && cachedTime) {
+        const isFresh =
+          cachedTime &&
+          Date.now() - Number(cachedTime) < CACHE_TTL_MS;
+        if (cachedDict && isFresh) {
           try {
             const parsed = JSON.parse(cachedDict);
             playerDictCache = parsed;
@@ -356,7 +364,8 @@ export default function Home() {
     if (!teamName || !selection) return;
 
     const matchingTeam = teams.find((team) => team.name === teamName);
-    const rosterKey = matchingTeam ? toId(matchingTeam.id) : teamName || "unknown-team";
+    const rosterKey =
+      matchingTeam ? toId(matchingTeam.id) : teamName || `team-${Date.now()}`;
     const drafted = resolveDraftedPlayer(selection, playerDictionary);
 
     setDraftedPlayersState((prev) => ({
@@ -378,7 +387,7 @@ export default function Home() {
 
     let updatedLineup = [...resolvedLineup];
     updatedLineup = updatedLineup.map((p, idx) =>
-      idx !== slotIndex && p === player.id ? "" : p
+      idx !== slotIndex && p === player.id ? EMPTY_SLOT : p
     );
     updatedLineup[slotIndex] = player.id;
 
