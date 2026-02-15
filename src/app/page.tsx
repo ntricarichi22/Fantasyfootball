@@ -353,7 +353,7 @@ export default function Home() {
   );
 
   const handlePickMade = (teamName: string, selection: string) => {
-    if (!teamName && !selection) return;
+    if (!teamName || !selection) return;
 
     const matchingTeam = teams.find((team) => team.name === teamName);
     const rosterKey = matchingTeam ? toId(matchingTeam.id) : teamName || "unknown-team";
@@ -376,12 +376,10 @@ export default function Home() {
       return;
     }
 
-    const updatedLineup = [...resolvedLineup];
-    updatedLineup.forEach((p, idx) => {
-      if (idx !== slotIndex && p === player.id) {
-        updatedLineup[idx] = "";
-      }
-    });
+    let updatedLineup = [...resolvedLineup];
+    updatedLineup = updatedLineup.map((p, idx) =>
+      idx !== slotIndex && p === player.id ? "" : p
+    );
     updatedLineup[slotIndex] = player.id;
 
     setLineupOverrides((prev) => ({
