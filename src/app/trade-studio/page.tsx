@@ -340,7 +340,7 @@ export default function TradeStudioPage() {
                 <p className="mt-3 text-sm text-red-400">{errorMessage}</p>
               )}
               <div className="mt-4">
-                <label className="block mb-3 text-xs text-gray-400" htmlFor="team-picker">
+                <label className="block text-xs text-gray-400 mb-3" htmlFor="team-picker">
                   Sleeper team
                 </label>
                 <select
@@ -349,7 +349,6 @@ export default function TradeStudioPage() {
                   disabled={!!selectedTeam}
                   value={selectedTeam}
                   onChange={(e) => {
-                    if (selectedTeam) return;
                     setSelectedTeam(e.target.value);
                   }}
                 >
@@ -378,7 +377,7 @@ export default function TradeStudioPage() {
               <div className="mb-2 text-xs text-gray-500">
                 Team selection is locked. Left panel scrolls independently.
               </div>
-              <div className="flex-1 overflow-y-auto space-y-5 pr-1">
+              <div className="flex-1 space-y-5 overflow-y-auto pr-1">
                 <div>
                   <h3 className="mb-2 text-sm font-semibold text-gray-200">Roster</h3>
                   {rosterPlayers.length ? (
