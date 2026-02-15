@@ -77,7 +77,7 @@ export const computeCurrentDraftPicks = <
     draftOrder?: Record<string, number>;
   }
 ): Record<number, DraftPick[]> => {
-  const teamCount = options?.teamCountOverride ?? rosters.length || DEFAULT_TEAM_COUNT;
+  const teamCount = options?.teamCountOverride ?? rosters.length ?? DEFAULT_TEAM_COUNT;
   // Sleeper may return draft_order with string keys; normalize lookup while tolerating either shape.
   const draftSlotForRoster = (rosterId: number) => {
     if (!options?.draftOrder) return undefined;
