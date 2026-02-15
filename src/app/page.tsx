@@ -583,7 +583,11 @@ export default function Home() {
                                 const selectionValue = slotSelections[player.id];
                                 if (!selectionValue) return;
                                 const slotIndex = Number(selectionValue);
-                                if (!Number.isNaN(slotIndex) && slotIndex >= 0) {
+                                if (
+                                  !Number.isNaN(slotIndex) &&
+                                  slotIndex >= 0 &&
+                                  slotIndex < rosterPositions.length
+                                ) {
                                   moveDraftedPlayerToSlot(player, slotIndex);
                                 }
                               }}
