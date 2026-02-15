@@ -158,16 +158,28 @@ export const computeCurrentDraftPicks = <
     teamCountOverride?: number;
     draftOrder?: Record<string, number>;
     draftOrderAvailable?: boolean;
+    rosterOwnerMap?: Record<number, string | number | null | undefined>;
   }
 ): Record<number, DraftPick[]> => {
   const teamCount = options?.teamCountOverride ?? rosters.length ?? DEFAULT_TEAM_COUNT;
-  // Sleeper may return draft_order with string keys; normalize lookup while tolerating either shape.
+  // Sleeper may return draft_order keyed by user_id with string keys; normalize lookup while tolerating either shape.
   const draftSlotForRoster = (rosterId: number) => {
     if (!options?.draftOrder) return undefined;
-    const byString = options.draftOrder[String(rosterId)];
-    if (typeof byString === "number") return byString;
-    const byNumberKey = (options.draftOrder as unknown as Record<number, number>)[rosterId];
-    if (typeof byNumberKey === "number") return byNumberKey;
+    const ownerId = options.rosterOwnerMap?.[rosterId];
+    if (ownerId != null) {
+      const key = String(ownerId);
+      const byString = options.draftOrder[key];
+      if (typeof byString === "number") return byString;
+      const numericOwner = Number(ownerId);
+      if (Number.isFinite(numericOwner)) {
+        const byNumberKey = (options.draftOrder as unknown as Record<number, number>)[numericOwner];
+        if (typeof byNumberKey === "number") return byNumberKey;
+      }
+    }
+    const byRosterString = options.draftOrder[String(rosterId)];
+    if (typeof byRosterString === "number") return byRosterString;
+    const byRosterNumber = (options.draftOrder as unknown as Record<number, number>)[rosterId];
+    if (typeof byRosterNumber === "number") return byRosterNumber;
     return undefined;
   };
   // Only display picks for the allowed seasons (default: 2026-2027).
@@ -213,7 +225,10 @@ export const computeCurrentDraftPicks = <
       };
 
     pick.roster_id = currentOwner;
-    if (trade.pick_no !== undefined) {
+    const draftSlot = draftSlotForRoster(originalOwner);
+    if (draftSlot !== undefined) {
+      pick.pick_no = draftSlot;
+    } else if (trade.pick_no !== undefined) {
       pick.pick_no = normalizePickNumber(trade.pick_no, teamCount);
     }
 
@@ -248,6 +263,7 @@ export const withComputedDraftPicks = <
     teamCountOverride?: number;
     draftOrder?: Record<string, number>;
     draftOrderAvailable?: boolean;
+    rosterOwnerMap?: Record<number, string | number | null | undefined>;
   }
 ): Roster[] => {
   const pickMap = computeCurrentDraftPicks(rosters, tradedPicks, options);
