@@ -21,6 +21,10 @@ interface SleeperPlayer {
 
 const DEMO_TEAM_ID = 0;
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
+const ALLOWED_POSITIONS = new Set(["QB", "RB", "WR", "TE"]);
+const POSITION_ORDER = ["QB", "RB", "WR", "TE"];
+const PICK_ANNOUNCE_DELAY_MS = 1000;
+const PICK_ADVANCE_DELAY_MS = 3000;
 
 interface DraftedEntry {
   player: SleeperPlayer;
@@ -65,7 +69,7 @@ export default function Home() {
     stage: "in" | "announce";
     message: string;
   } | null>(null);
-  const [clockState, setClockState] = useState<{
+  const [draftClockState, setDraftClockState] = useState<{
     team?: { id?: number; name: string };
     pickLabel?: string;
     hasStarted?: boolean;
@@ -123,7 +127,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    const allowedPositions = new Set(["QB", "RB", "WR", "TE"]);
     async function buildAvailablePlayers() {
       try {
         setIsLoadingPlayers(true);
@@ -140,22 +143,21 @@ export default function Home() {
         const filtered =
           players
             ?.filter((player) => player?.player_id)
-            .filter(
-              (player) =>
+            .filter((player) => {
+              const status = player.status?.toLowerCase();
+              return (
                 player?.position &&
-                allowedPositions.has(player.position) &&
+                ALLOWED_POSITIONS.has(player.position) &&
                 !rostered.has(player.player_id) &&
                 player.team &&
-                (!player.status ||
-                  player.status.toLowerCase() === "active" ||
-                  player.status.toLowerCase() === "act")
-            )
+                (!status || status === "active" || status === "act")
+              );
+            })
             .sort((a, b) => {
-              const positionOrder = ["QB", "RB", "WR", "TE"];
               const aPos = a.position ?? "";
               const bPos = b.position ?? "";
               const posComparison =
-                positionOrder.indexOf(aPos) - positionOrder.indexOf(bPos);
+                POSITION_ORDER.indexOf(aPos) - POSITION_ORDER.indexOf(bPos);
 
               if (posComparison !== 0) return posComparison;
 
@@ -210,17 +212,20 @@ export default function Home() {
       pickLabel: string;
       hasStarted: boolean;
     }) => {
-      setClockState(state);
+      setDraftClockState(state);
     },
     []
   );
 
   const handleSelectPlayer = (player: SleeperPlayer) => {
     const controls = draftControlsRef.current;
+    const fallbackTeam =
+      teams.length > 0 ? teams[0] : { id: DEMO_TEAM_ID, name: "Demo Team" };
     const teamOnClock =
-      (clockState.team && typeof clockState.team.id === "number"
-        ? clockState.team
-        : teams[0]) || { id: DEMO_TEAM_ID, name: "Demo Team" };
+      draftClockState.team && draftClockState.team.id !== undefined
+        ? draftClockState.team
+        : fallbackTeam;
+    const pickLabelAtSelection = draftClockState.pickLabel;
 
     if (!teamOnClock) return;
 
@@ -247,7 +252,7 @@ export default function Home() {
       ...prev,
       [teamOnClock.id]: [
         ...(prev[teamOnClock.id] ?? []),
-        { player, pickLabel: clockState.pickLabel },
+        { player, pickLabel: pickLabelAtSelection },
       ],
     }));
 
@@ -255,16 +260,16 @@ export default function Home() {
       setPickAnnouncement({
         stage: "announce",
         message: `${teamOnClock.name} selects ${playerName}${
-          clockState.pickLabel ? ` (${clockState.pickLabel})` : ""
+          pickLabelAtSelection ? ` (${pickLabelAtSelection})` : ""
         }`,
       });
-    }, 1000);
+    }, PICK_ANNOUNCE_DELAY_MS);
     pickTimeouts.current.push(announceTimeout);
 
     const advanceTimeout = setTimeout(() => {
       setPickAnnouncement(null);
       draftControlsRef.current?.advancePick();
-    }, 3000);
+    }, PICK_ADVANCE_DELAY_MS);
     pickTimeouts.current.push(advanceTimeout);
   };
 
@@ -389,7 +394,7 @@ export default function Home() {
                   <div>
                     <div className="text-2xl font-bold">Available Players</div>
                     <p className="text-sm text-gray-400">
-                      Active rookie-eligible skill players not currently rostered
+                      Active skill-position players not currently rostered
                     </p>
                   </div>
                   <div className="relative">
@@ -466,16 +471,16 @@ export default function Home() {
               <h2 className="text-xl font-bold mb-4">
                 On the Clock
               </h2>
-              <div className="rounded-lg bg-gray-800 p-4 border border-gray-700">
-                <div className="text-gray-400 text-sm">Team</div>
-                <div className="text-white font-semibold text-lg">
-                  {clockState.team?.name || "TBD"}
+                <div className="rounded-lg bg-gray-800 p-4 border border-gray-700">
+                  <div className="text-gray-400 text-sm">Team</div>
+                  <div className="text-white font-semibold text-lg">
+                    {draftClockState.team?.name || "TBD"}
+                  </div>
+                  <div className="mt-4 text-gray-400 text-sm">Pick</div>
+                  <div className="text-white font-semibold text-lg">
+                    {draftClockState.pickLabel || "—"}
+                  </div>
                 </div>
-                <div className="mt-4 text-gray-400 text-sm">Pick</div>
-                <div className="text-white font-semibold text-lg">
-                  {clockState.pickLabel || "—"}
-                </div>
-              </div>
               <div className="mt-6 text-sm text-gray-400">
                 Use the table to select a player for the team currently on the
                 clock. Picks will auto-advance and reset the timer.
