@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const TOTAL_SECONDS = 5 * 60;
 const FALLBACK_TEAMS = [
@@ -10,11 +10,28 @@ const FALLBACK_TEAMS = [
   { name: "Team 4" },
 ];
 
-type DraftTimerProps = {
-  teams: { name: string }[];
+export type DraftControls = {
+  startDraft: () => void;
+  advancePick: () => void;
+  pauseTimer: () => void;
+  hasStarted: boolean;
 };
 
-export default function DraftTimer({ teams }: DraftTimerProps) {
+type DraftTimerProps = {
+  teams: { id?: number; name: string }[];
+  onStateChange?: (payload: {
+    team?: { id?: number; name: string };
+    pickLabel: string;
+    hasStarted: boolean;
+  }) => void;
+  registerControls?: (controls: DraftControls) => void;
+};
+
+export default function DraftTimer({
+  teams,
+  onStateChange,
+  registerControls,
+}: DraftTimerProps) {
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
   const [isRunning, setIsRunning] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
@@ -55,25 +72,49 @@ export default function DraftTimer({ teams }: DraftTimerProps) {
     ? currentTeamIndex % teamsForDraft.length
     : 0;
 
-  const currentTeamName =
-    teamsForDraft[safeTeamIndex]?.name || "Team on the clock";
+  const currentTeam = teamsForDraft[safeTeamIndex];
+  const currentTeamName = currentTeam?.name || "Team on the clock";
 
-  const startDraft = () => {
+  const startDraft = useCallback(() => {
     setHasStarted(true);
     setPickNumber(1);
     setCurrentTeamIndex(0);
     setSecondsLeft(TOTAL_SECONDS);
     setIsRunning(true);
-  };
+  }, []);
 
-  const makePick = () => {
+  const pauseTimer = useCallback(() => {
+    setIsRunning(false);
+  }, []);
+
+  const advancePick = useCallback(() => {
     if (!hasStarted) return;
 
+    const teamCount = Math.max(teamsForDraft.length, 1);
     setPickNumber((prev) => prev + 1);
-    setCurrentTeamIndex((prev) => (prev + 1) % teamsForDraft.length);
+    setCurrentTeamIndex((prev) => (prev + 1) % teamCount);
     setSecondsLeft(TOTAL_SECONDS);
     setIsRunning(true);
-  };
+  }, [hasStarted, teamsForDraft.length]);
+
+  useEffect(() => {
+    onStateChange?.({
+      team: currentTeam,
+      pickLabel,
+      hasStarted,
+    });
+  }, [currentTeam, hasStarted, onStateChange, pickLabel]);
+
+  useEffect(() => {
+    if (!registerControls) return;
+
+    registerControls({
+      startDraft,
+      advancePick,
+      pauseTimer,
+      hasStarted,
+    });
+  }, [advancePick, hasStarted, pauseTimer, registerControls, startDraft]);
 
   return (
     <div className="w-full max-w-4xl space-y-4">
@@ -107,7 +148,7 @@ export default function DraftTimer({ teams }: DraftTimerProps) {
         </button>
         <button
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
-          onClick={makePick}
+          onClick={advancePick}
           disabled={!hasStarted}
         >
           Make Pick
