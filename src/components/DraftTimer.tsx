@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 const TOTAL_SECONDS = 5 * 60;
 
@@ -8,26 +8,26 @@ export default function DraftTimer() {
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSecondsLeft((prev) => (prev > 0 ? prev - 1 : 0));
+    const intervalId = setInterval(() => {
+      setSecondsLeft((prev) => Math.max(prev - 1, 0));
     }, 1000);
 
-    return () => clearInterval(interval);
+    return () => clearInterval(intervalId);
   }, []);
 
-  const minutes = useMemo(() => Math.floor(secondsLeft / 60), [secondsLeft]);
-  const seconds = useMemo(() => secondsLeft % 60, [secondsLeft]);
+  const minutes = Math.floor(secondsLeft / 60);
+  const seconds = secondsLeft % 60;
 
   const isCritical = secondsLeft > 0 && secondsLeft < 30;
 
   return (
     <div className="flex items-center justify-center p-6">
       <div
-        className={`rounded-2xl bg-gray-900 px-8 py-6 text-center text-white shadow-xl transition-transform duration-300 ${
+        className={`rounded-2xl bg-slate-900 px-8 py-6 text-center text-white shadow-xl transition-transform duration-300 ${
           isCritical ? "animate-pulse scale-110" : "scale-100"
         }`}
       >
-        <p className="mb-2 text-sm font-medium uppercase tracking-widest text-gray-300">
+        <p className="mb-2 text-sm font-medium uppercase tracking-widest text-slate-300">
           Draft Timer
         </p>
         <p className="font-mono text-5xl font-bold tabular-nums">

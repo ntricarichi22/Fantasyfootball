@@ -8,6 +8,9 @@ interface Team {
   name: string;
 }
 
+const DEMO_TEAM_ID = 0;
+const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
+
 interface Roster {
   roster_id: number;
   owner_id: string | null;
@@ -26,6 +29,7 @@ interface SleeperUser {
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
     async function fetchTeams() {
@@ -57,9 +61,13 @@ export default function Home() {
         });
 
         setTeams(mappedTeams);
+        setErrorMessage("");
       } catch (error) {
         console.error("Error fetching Sleeper data:", error);
-        setTeams([{ id: 0, name: "Demo Team" }]);
+        setTeams(DEMO_TEAMS);
+        setErrorMessage(
+          "Unable to reach Sleeper API. Showing demo data instead."
+        );
       }
     }
 
@@ -75,6 +83,9 @@ export default function Home() {
       {!selectedTeam ? (
         <div className="bg-gray-900 p-8 rounded-xl shadow-lg">
           <p className="mb-4 text-gray-400">Select Your Team</p>
+          {errorMessage && (
+            <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
+          )}
 
           <select
             className="bg-black border border-gray-700 p-3 rounded-lg text-white w-64"
