@@ -16,8 +16,8 @@ export interface TradedPick {
   pick_no?: number;
 }
 
-export const DEFAULT_PICK_SEASONS = ["2025", "2026", "2027"];
-const DEFAULT_ROUNDS = 4;
+export const DEFAULT_PICK_SEASONS = ["2026", "2027", "2028"];
+const DEFAULT_ROUNDS = 3;
 const DEFAULT_TEAM_COUNT = 12;
 
 const pickKey = (season: string, round: number, originalRosterId: number) =>
@@ -56,13 +56,26 @@ const sortPicks = (teamCount: number) => (a: DraftPick, b: DraftPick) => {
   return originalA - originalB;
 };
 
-export const formatDraftPickLabel = (pick: DraftPick, teamCount?: number) => {
+const roundName = (round?: number) => {
+  if (!round) return "?";
+  if (round === 1) return "1st Rd";
+  if (round === 2) return "2nd Rd";
+  if (round === 3) return "3rd Rd";
+  return `${round}th Rd`;
+};
+
+export const formatDraftPickLabel = (
+  pick: DraftPick,
+  options?: { teamCount?: number; originalTeamNames?: Record<number, string> }
+) => {
   const seasonLabel = pick.season ?? "Future";
-  const roundLabel = pick.round ? String(pick.round) : "?";
-  const teamSlots = ensureTeamCount(teamCount);
-  const slotNumber = normalizePickNumber(pick.pick_no, teamSlots);
-  const slotLabel = slotNumber ? String(slotNumber).padStart(2, "0") : "??";
-  return `${seasonLabel} ${roundLabel}.${slotLabel}`;
+  const roundLabel = roundName(pick.round);
+  const originalOwner = pick.original_roster_id ?? pick.roster_id;
+  const rosterNames = options?.originalTeamNames;
+  const name = originalOwner != null ? rosterNames?.[originalOwner] : undefined;
+  const fallbackName =
+    originalOwner != null ? `Roster ${originalOwner}` : "Unknown Team";
+  return `${seasonLabel} ${roundLabel} (${name || fallbackName})`;
 };
 
 export const computeCurrentDraftPicks = <
@@ -95,12 +108,7 @@ export const computeCurrentDraftPicks = <
         .filter((p): p is string => typeof p === "string"),
     ])
   );
-  const maxRoundCandidates = [
-    options?.defaultRounds ?? DEFAULT_ROUNDS,
-    ...tradedPicks.map((p) => p.round ?? 0),
-    ...rosters.flatMap((r) => r.draft_picks || []).map((p) => p.round ?? 0),
-  ];
-  const maxRound = Math.max(...maxRoundCandidates);
+  const maxRound = options?.defaultRounds ?? DEFAULT_ROUNDS;
 
   const lookup = new Map<string, DraftPick>();
 
@@ -122,12 +130,11 @@ export const computeCurrentDraftPicks = <
 
   tradedPicks.forEach((trade) => {
     if (!trade.season || !trade.round) return;
-    const originalOwner = trade.original_owner_id;
+    const originalOwner = trade.roster_id;
     if (!originalOwner) return;
 
     const key = pickKey(trade.season, trade.round, originalOwner);
-    // The traded_picks payload sometimes uses owner_id or roster_id to denote the current roster.
-    const currentOwner = trade.owner_id ?? trade.roster_id;
+    const currentOwner = trade.owner_id;
     const existing = lookup.get(key);
 
     if (!currentOwner) return;
@@ -181,4 +188,43 @@ export const withComputedDraftPicks = <
     ...roster,
     draft_picks: pickMap[roster.roster_id] ?? [],
   }));
+};
+
+export const logDraftPickDistribution = <
+  Roster extends { roster_id: number; draft_picks?: DraftPick[] },
+>(
+  rosters: Roster[],
+  teamNames?: Record<number, string>,
+  expectedTeamCount?: number
+) => {
+  const teamCount = expectedTeamCount ?? rosters.length ?? DEFAULT_TEAM_COUNT;
+  const totals: Record<string, number> = {};
+  const rows: Record<string, Record<string, string | number>> = {};
+
+  rosters.forEach((roster) => {
+    const row: Record<string, string | number> = {
+      Team: teamNames?.[roster.roster_id] ?? `Roster ${roster.roster_id}`,
+    };
+
+    (roster.draft_picks ?? []).forEach((pick) => {
+      if (!pick.season || !pick.round) return;
+      const key = `${pick.season} R${pick.round}`;
+      const current = typeof row[key] === "number" ? (row[key] as number) : 0;
+      row[key] = current + 1;
+      totals[key] = (totals[key] ?? 0) + 1;
+    });
+
+    rows[roster.roster_id] = row;
+  });
+
+  console.table(rows);
+  console.log(
+    "Pick totals by season/round:",
+    Object.fromEntries(
+      Object.entries(totals).map(([key, count]) => [
+        key,
+        `${count} picks ${count === teamCount ? "✅" : `⚠️ expected ${teamCount}`}`,
+      ])
+    )
+  );
 };
