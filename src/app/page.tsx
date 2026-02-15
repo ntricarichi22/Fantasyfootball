@@ -235,7 +235,7 @@ export default function Home() {
     selection: string;
     alreadyRecorded?: boolean;
   } | null>(null);
-  const pickMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickMessageTimeout = useRef<number | null>(null);
   const pickResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearPickTimers = () => {
