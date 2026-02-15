@@ -774,40 +774,36 @@ export default function Home() {
   };
 
   return (
-    <main className="min-h-screen bg-black text-white flex flex-col items-center justify-center">
-      <div className="mb-8 flex w-full max-w-6xl flex-col items-center gap-4 px-4 sm:flex-row sm:justify-between">
+    <main className="h-screen bg-black text-white flex flex-col overflow-hidden">
+      <div className="mb-4 flex w-full max-w-6xl flex-col items-start gap-2 px-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
         <h1 className="text-5xl font-bold">CFC Offseason Draft</h1>
-        <Link
-          href="/trade-studio"
-          className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-indigo-500"
-        >
-          Open Trade Studio
-        </Link>
       </div>
 
       {!selectedTeam ? (
-        <div className="bg-gray-900 p-8 rounded-xl shadow-lg">
-          <p className="mb-4 text-gray-400">Select Your Team</p>
-          {errorMessage && (
-            <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
-          )}
+        <div className="flex flex-1 items-center justify-center px-4 pb-8 overflow-hidden">
+          <div className="bg-gray-900 p-8 rounded-xl shadow-lg">
+            <p className="mb-4 text-gray-400">Select Your Team</p>
+            {errorMessage && (
+              <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
+            )}
 
-          <select
-            className="bg-black border border-gray-700 p-3 rounded-lg text-white w-64"
-            value={selectedTeam}
-            onChange={(e) => setSelectedTeam(e.target.value)}
-          >
-            <option value="">-- Choose Team --</option>
-            {teams.map((team) => (
-              <option key={team.id} value={toId(team.id)}>
-                {team.name}
-              </option>
-            ))}
-          </select>
+            <select
+              className="bg-black border border-gray-700 p-3 rounded-lg text-white w-64"
+              value={selectedTeam}
+              onChange={(e) => setSelectedTeam(e.target.value)}
+            >
+              <option value="">-- Choose Team --</option>
+              {teams.map((team) => (
+                <option key={team.id} value={toId(team.id)}>
+                  {team.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       ) : (
-        <>
-          <div className="mb-6">
+        <div className="flex-1 flex flex-col gap-4 px-4 pb-6 overflow-hidden">
+          <div className="flex items-center justify-start">
             <button
               className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-green-800"
               onClick={handleStartDraftClick}
@@ -816,343 +812,354 @@ export default function Home() {
               Start Draft
             </button>
           </div>
-          <div className="w-full min-h-screen flex">
-          <div className="w-1/4 bg-gray-900 p-4 border-r border-gray-800 overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold mb-2">
-                {teams.find((t) => toId(t.id) === selectedTeam)?.name || selectedTeam}
-              </h2>
-              {statusMessage && (
-                <span className="text-xs text-emerald-300">{statusMessage}</span>
+          <div className="flex flex-1 gap-4 overflow-hidden">
+            <div className="w-1/4 bg-gray-900 p-4 border-r border-gray-800 flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold mb-2">
+                  {teams.find((t) => toId(t.id) === selectedTeam)?.name || selectedTeam}
+                </h2>
+                {statusMessage && (
+                  <span className="text-xs text-emerald-300">{statusMessage}</span>
+                )}
+              </div>
+              <div className="mb-3">
+                <label className="text-xs text-gray-400 block mb-1" htmlFor="team-switcher">
+                  View another team
+                </label>
+                <select
+                  id="team-switcher"
+                  className="w-full bg-black border border-gray-700 p-2 rounded-lg text-white"
+                  value={selectedTeam}
+                  onChange={(e) => setSelectedTeam(e.target.value)}
+                >
+                  <option value="">-- Choose Team --</option>
+                  {teams.map((team) => (
+                    <option key={team.id} value={toId(team.id)}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {errorMessage && (
+                <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
               )}
-            </div>
-            <div className="mb-3">
-              <label className="text-xs text-gray-400 block mb-1" htmlFor="team-switcher">
-                View another team
-              </label>
-              <select
-                id="team-switcher"
-                className="w-full bg-black border border-gray-700 p-2 rounded-lg text-white"
-                value={selectedTeam}
-                onChange={(e) => setSelectedTeam(e.target.value)}
-              >
-                <option value="">-- Choose Team --</option>
-                {teams.map((team) => (
-                  <option key={team.id} value={toId(team.id)}>
-                    {team.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {errorMessage && (
-              <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
-            )}
 
-            <div className="space-y-5">
-              <div>
-                <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                  Starting Lineup
-                </h3>
-                <div className="space-y-2">
-                  {visibleLineupSlots.length ? (
-                    visibleLineupSlots.map(({ slot }, idx) => {
-                      const playerId = resolvedLineup[idx];
-                      const { name, meta } = playerLabel(playerId, playerDictionary);
-                      const droppableClasses = draggedBenchPlayer ? DROPPABLE_BORDER_CLASS : "";
-                      const slotAriaLabel = draggedBenchPlayer
-                        ? `Starting slot ${slot}${playerId ? `: ${name}` : ": Empty"}. Drop a bench player here.`
-                        : `Starting slot ${slot}${playerId ? `: ${name}` : ": Empty"}.`;
-                      const slotMeta = playerId
-                        ? meta || "Sleeper player"
-                        : draggedBenchPlayer
-                          ? "Drag or press Enter with a bench player to place here"
-                          : "No player assigned";
-                      return (
-                        <div
-                          key={`${slot}-${idx}`}
-                          tabIndex={0}
-                          className={`flex items-center justify-between rounded-lg bg-gray-800 px-3 py-2 text-left ${droppableClasses}`}
-                          aria-label={slotAriaLabel}
-                          onDragOver={(e) => handleSlotDragOver(e)}
-                          onDrop={(e) => handleSlotDrop(e, idx)}
-                          onKeyDown={(e) => handleSlotKeyDown(e, idx)}
-                        >
-                          <span className="text-sm font-semibold text-gray-300">
-                            {slot}
-                          </span>
-                          <div className="text-right">
-                            <div className="text-sm font-medium">
-                              {playerId ? name : "Empty"}
-                            </div>
-                            <div className="text-xs text-gray-400">
-                              {slotMeta}
+              <div className="flex-1 overflow-y-auto space-y-5 pr-1">
+                <div>
+                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
+                    Starting Lineup
+                  </h3>
+                  <div className="space-y-2">
+                    {visibleLineupSlots.length ? (
+                      visibleLineupSlots.map(({ slot }, idx) => {
+                        const playerId = resolvedLineup[idx];
+                        const { name, meta } = playerLabel(playerId, playerDictionary);
+                        const droppableClasses = draggedBenchPlayer ? DROPPABLE_BORDER_CLASS : "";
+                        const slotAriaLabel = draggedBenchPlayer
+                          ? `Starting slot ${slot}${playerId ? `: ${name}` : ": Empty"}. Drop a bench player here.`
+                          : `Starting slot ${slot}${playerId ? `: ${name}` : ": Empty"}.`;
+                        const slotMeta = playerId
+                          ? meta || "Sleeper player"
+                          : draggedBenchPlayer
+                            ? "Drag or press Enter with a bench player to place here"
+                            : "No player assigned";
+                        return (
+                          <div
+                            key={`${slot}-${idx}`}
+                            tabIndex={0}
+                            className={`flex items-center justify-between rounded-lg bg-gray-800 px-3 py-2 text-left ${droppableClasses}`}
+                            aria-label={slotAriaLabel}
+                            onDragOver={(e) => handleSlotDragOver(e)}
+                            onDrop={(e) => handleSlotDrop(e, idx)}
+                            onKeyDown={(e) => handleSlotKeyDown(e, idx)}
+                          >
+                            <span className="text-sm font-semibold text-gray-300">
+                              {slot}
+                            </span>
+                            <div className="text-right">
+                              <div className="text-sm font-medium">
+                                {playerId ? name : "Empty"}
+                              </div>
+                              <div className="text-xs text-gray-400">
+                                {slotMeta}
+                              </div>
                             </div>
                           </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-gray-400 text-sm">
+                        Roster positions unavailable.
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
+                    Bench
+                  </h3>
+                  {benchPlayers.length ? (
+                    <div className="space-y-2">
+                      {benchPlayers.map((playerId) => {
+                        const { name, meta } = playerLabel(playerId, playerDictionary);
+                        return (
+                          <div
+                            key={playerId}
+                            className="rounded-lg bg-gray-800 px-3 py-2"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium">{name}</div>
+                                <div className="text-xs text-gray-400">
+                                  {meta || "Bench"}
+                                </div>
+                              </div>
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:border-blue-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 focus-visible:outline-offset-2"
+                                draggable
+                                aria-label={`Drag ${name} to a starting slot`}
+                                onDragStart={(e) => handleBenchDragStart(e, playerId)}
+                                onDragEnd={handleBenchDragEnd}
+                                onKeyDown={(e) => handleBenchKeyDown(e, playerId)}
+                              >
+                                Drag
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-gray-400 text-sm">No bench players.</p>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
+                    Draft Picks
+                  </h3>
+                  {activeRoster?.draft_picks?.length ? (
+                    <ul className="space-y-2">
+                      {activeRoster.draft_picks.map((pick, idx) => (
+                        <li
+                          key={`${pick.season}-${pick.round}-${idx}`}
+                          className="rounded-lg bg-gray-800 px-3 py-2 text-sm"
+                        >
+                          {draftPickText(pick)}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="text-gray-400 text-sm">No draft picks found.</p>
+                  )}
+                </div>
+
+                <div>
+                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
+                    Drafted Players
+                  </h3>
+                  {draftedPlayersForTeam.length ? (
+                    <div className="space-y-3">
+                      {draftedPlayersForTeam.map((player) => (
+                        <div
+                          key={`${player.id}-${player.name}`}
+                          className="rounded-lg bg-gray-800 px-3 py-3 space-y-2"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <div className="text-sm font-medium">{player.name}</div>
+                              <div className="text-xs text-gray-400">
+                                {[player.positions.join("/"), player.team]
+                                  .filter(Boolean)
+                                  .join(" • ") || "Drafted player"}
+                              </div>
+                            </div>
+                          </div>
+
+                          {visibleLineupSlots.length ? (
+                            <div className="flex items-center gap-2">
+                              <select
+                                className="flex-1 rounded-md bg-gray-900 border border-gray-700 px-2 py-1 text-sm"
+                                value={slotSelections[player.id] || ""}
+                                onChange={(e) =>
+                                  setSlotSelections((prev) => ({
+                                    ...prev,
+                                    [player.id]: e.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">Move to slot...</option>
+                                {visibleLineupSlots.map(({ slot }, idx) => (
+                                  <option key={`${slot}-${idx}`} value={String(idx)}>
+                                    {slot}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                className="rounded-md bg-blue-600 px-3 py-1 text-sm font-semibold text-white disabled:bg-blue-900"
+                                disabled={!slotSelections[player.id]}
+                                onClick={() => {
+                                  const selectionValue = slotSelections[player.id];
+                                  if (!selectionValue) return;
+                                  const slotIndex = Number(selectionValue);
+                                  if (
+                                    !Number.isNaN(slotIndex) &&
+                                    slotIndex >= 0 &&
+                                    slotIndex < visibleLineupSlots.length
+                                  ) {
+                                    moveDraftedPlayerToSlot(player, slotIndex);
+                                  }
+                                }}
+                              >
+                                Move
+                              </button>
+                            </div>
+                          ) : null}
                         </div>
-                      );
-                    })
+                      ))}
+                    </div>
                   ) : (
                     <p className="text-gray-400 text-sm">
-                      Roster positions unavailable.
+                      Drafted players will appear here.
                     </p>
                   )}
                 </div>
               </div>
+            </div>
 
-              <div>
-                <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                  Bench
-                </h3>
-                {benchPlayers.length ? (
-                  <div className="space-y-2">
-                    {benchPlayers.map((playerId) => {
-                      const { name, meta } = playerLabel(playerId, playerDictionary);
+            <div className="flex-1 flex flex-col gap-4 overflow-hidden bg-transparent">
+              <DraftTimer
+                teams={teams}
+                onPickMade={handlePickMade}
+                onTeamChange={setCurrentClockTeam}
+                externalPick={queuedExternalPick}
+                onExternalPickHandled={() => setQueuedExternalPick(null)}
+                registerStartHandler={handleRegisterStart}
+                onStart={() => setDraftStarted(true)}
+              />
+              <div className="flex-1 w-full bg-gray-900 rounded-xl p-6 space-y-4 shadow-lg border border-gray-800 flex flex-col overflow-hidden">
+                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <h3 className="text-2xl font-semibold">Available Players</h3>
+                    <p className="text-sm text-gray-400">
+                      Active QB / RB / WR / TE players not currently rostered.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
+                      placeholder="Search by name"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                    {!currentClockTeam && (
+                      <span className="text-xs text-amber-300">
+                        Start the draft to enable selections.
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-hidden rounded-lg border border-gray-800">
+                  <div className="h-full overflow-y-auto">
+                    <table className="min-w-full divide-y divide-gray-800 text-sm">
+                      <thead className="bg-gray-800 sticky top-0 z-10">
+                        <tr>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-200">
+                            Player Name
+                          </th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-200">
+                            Position
+                          </th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-200">Team</th>
+                          <th className="px-4 py-3 text-left font-semibold text-gray-200">Age</th>
+                          <th className="px-4 py-3 text-right font-semibold text-gray-200">
+                            Action
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-800 bg-gray-900/60">
+                        {availablePlayers.length ? (
+                          availablePlayers.map((player) => (
+                            <tr key={player.id} className="hover:bg-gray-800/60 transition">
+                              <td className="px-4 py-3">
+                                <div className="font-medium text-white">{player.name}</div>
+                              </td>
+                              <td className="px-4 py-3 text-gray-200">{player.position}</td>
+                              <td className="px-4 py-3 text-gray-300">{player.team}</td>
+                              <td className="px-4 py-3 text-gray-300">{player.ageLabel}</td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
+                                  disabled={!currentClockTeam}
+                                  onClick={() => handleAvailablePlayerSelect(player)}
+                                >
+                                  Select
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td
+                              colSpan={5}
+                              className="px-4 py-6 text-center text-gray-400 text-sm"
+                            >
+                              No available players match the filters.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="w-1/4 flex flex-col gap-4 h-full">
+              <Link
+                href="/trade-studio"
+                className="flex h-1/4 min-h-[120px] items-center justify-center rounded-xl bg-red-600 text-lg font-semibold text-white shadow-lg transition hover:bg-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300"
+              >
+                Open Trade Studio
+              </Link>
+              <div className="flex-1 bg-gray-900 p-4 border-l border-gray-800 rounded-xl flex flex-col overflow-hidden">
+                <h2 className="text-xl font-bold">Draft Log</h2>
+                {draftLog.length ? (
+                  <div className="mt-3 flex-1 overflow-y-auto divide-y divide-gray-800 pr-1">
+                    {draftLog.map((entry) => {
+                      const positionLabel = (entry.positions || []).join("/");
                       return (
                         <div
-                          key={playerId}
-                          className="rounded-lg bg-gray-800 px-3 py-2"
+                          key={entry.pickIndex}
+                          className="flex items-center gap-3 px-1 py-2 text-sm text-gray-200"
                         >
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-medium">{name}</div>
-                              <div className="text-xs text-gray-400">
-                                {meta || "Bench"}
-                              </div>
-                            </div>
-                            <div
-                              role="button"
-                              tabIndex={0}
-                              className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:border-blue-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 focus-visible:outline-offset-2"
-                              draggable
-                              aria-label={`Drag ${name} to a starting slot`}
-                              onDragStart={(e) => handleBenchDragStart(e, playerId)}
-                              onDragEnd={handleBenchDragEnd}
-                              onKeyDown={(e) => handleBenchKeyDown(e, playerId)}
-                            >
-                              Drag
-                            </div>
-                          </div>
+                          <span className="text-xs text-gray-400 w-14 shrink-0">
+                            {entry.pickNumber}
+                          </span>
+                          <span className="text-sm font-semibold text-gray-100 truncate">
+                            {entry.teamName}
+                          </span>
+                          <span className="flex-1 truncate text-gray-100">
+                            {entry.playerName}
+                          </span>
+                          <span className="text-xs text-gray-300 uppercase shrink-0">
+                            {positionLabel || "—"}
+                          </span>
                         </div>
                       );
                     })}
                   </div>
                 ) : (
-                  <p className="text-gray-400 text-sm">No bench players.</p>
-                )}
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                  Draft Picks
-                </h3>
-                {activeRoster?.draft_picks?.length ? (
-                  <ul className="space-y-2">
-                    {activeRoster.draft_picks.map((pick, idx) => (
-                      <li
-                        key={`${pick.season}-${pick.round}-${idx}`}
-                        className="rounded-lg bg-gray-800 px-3 py-2 text-sm"
-                      >
-                        {draftPickText(pick)}
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-gray-400 text-sm">No draft picks found.</p>
-                )}
-              </div>
-
-              <div>
-                <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                  Drafted Players
-                </h3>
-                {draftedPlayersForTeam.length ? (
-                  <div className="space-y-3">
-                    {draftedPlayersForTeam.map((player) => (
-                      <div
-                        key={`${player.id}-${player.name}`}
-                        className="rounded-lg bg-gray-800 px-3 py-3 space-y-2"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="text-sm font-medium">{player.name}</div>
-                            <div className="text-xs text-gray-400">
-                              {[player.positions.join("/"), player.team]
-                                .filter(Boolean)
-                                .join(" • ") || "Drafted player"}
-                            </div>
-                          </div>
-                        </div>
-
-                        {visibleLineupSlots.length ? (
-                          <div className="flex items-center gap-2">
-                            <select
-                              className="flex-1 rounded-md bg-gray-900 border border-gray-700 px-2 py-1 text-sm"
-                              value={slotSelections[player.id] || ""}
-                              onChange={(e) =>
-                                setSlotSelections((prev) => ({
-                                  ...prev,
-                                  [player.id]: e.target.value,
-                                }))
-                              }
-                            >
-                              <option value="">Move to slot...</option>
-                              {visibleLineupSlots.map(({ slot }, idx) => (
-                                <option key={`${slot}-${idx}`} value={String(idx)}>
-                                  {slot}
-                                </option>
-                              ))}
-                            </select>
-                            <button
-                              className="rounded-md bg-blue-600 px-3 py-1 text-sm font-semibold text-white disabled:bg-blue-900"
-                              disabled={!slotSelections[player.id]}
-                              onClick={() => {
-                                const selectionValue = slotSelections[player.id];
-                                if (!selectionValue) return;
-                                const slotIndex = Number(selectionValue);
-                                if (
-                                  !Number.isNaN(slotIndex) &&
-                                  slotIndex >= 0 &&
-                                  slotIndex < visibleLineupSlots.length
-                                ) {
-                                  moveDraftedPlayerToSlot(player, slotIndex);
-                                }
-                              }}
-                            >
-                              Move
-                            </button>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-400 text-sm">
-                    Drafted players will appear here.
-                  </p>
+                  <p className="mt-3 text-sm text-gray-400">No picks have been made yet.</p>
                 )}
               </div>
             </div>
-          </div>
-
-          <div className="flex-1 flex flex-col items-center justify-start p-8 space-y-6">
-            <DraftTimer
-              teams={teams}
-              onPickMade={handlePickMade}
-              onTeamChange={setCurrentClockTeam}
-              externalPick={queuedExternalPick}
-              onExternalPickHandled={() => setQueuedExternalPick(null)}
-              registerStartHandler={handleRegisterStart}
-              onStart={() => setDraftStarted(true)}
-            />
-            <div className="w-full bg-gray-900 rounded-xl p-6 space-y-4 shadow-lg border border-gray-800">
-              <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-                <div>
-                  <h3 className="text-2xl font-semibold">Available Players</h3>
-                  <p className="text-sm text-gray-400">
-                    Active QB / RB / WR / TE players not currently rostered.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <input
-                    className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
-                    placeholder="Search by name"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                  {!currentClockTeam && (
-                    <span className="text-xs text-amber-300">
-                      Start the draft to enable selections.
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div className="overflow-hidden rounded-lg border border-gray-800">
-                <div className="max-h-[480px] overflow-y-auto">
-                  <table className="min-w-full divide-y divide-gray-800 text-sm">
-                    <thead className="bg-gray-800 sticky top-0 z-10">
-                      <tr>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-200">
-                          Player Name
-                        </th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-200">
-                          Position
-                        </th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-200">Team</th>
-                        <th className="px-4 py-3 text-left font-semibold text-gray-200">Age</th>
-                        <th className="px-4 py-3 text-right font-semibold text-gray-200">
-                          Action
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-800 bg-gray-900/60">
-                      {availablePlayers.length ? (
-                        availablePlayers.map((player) => (
-                          <tr key={player.id} className="hover:bg-gray-800/60 transition">
-                            <td className="px-4 py-3">
-                              <div className="font-medium text-white">{player.name}</div>
-                            </td>
-                            <td className="px-4 py-3 text-gray-200">{player.position}</td>
-                            <td className="px-4 py-3 text-gray-300">{player.team}</td>
-                            <td className="px-4 py-3 text-gray-300">{player.ageLabel}</td>
-                            <td className="px-4 py-3 text-right">
-                              <button
-                                className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
-                                disabled={!currentClockTeam}
-                                onClick={() => handleAvailablePlayerSelect(player)}
-                              >
-                                Select
-                              </button>
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td
-                            colSpan={5}
-                            className="px-4 py-6 text-center text-gray-400 text-sm"
-                          >
-                            No available players match the filters.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="w-1/4 bg-gray-900 p-4 border-l border-gray-800 overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">Draft Log</h2>
-            {draftLog.length ? (
-              <div className="space-y-2">
-                {draftLog.map((entry) => {
-                  const positionLabel = (entry.positions || []).join("/");
-                  const meta = [positionLabel, entry.nflTeam].filter(Boolean).join(" • ");
-                  return (
-                    <div
-                      key={entry.pickIndex}
-                      className="rounded-lg bg-gray-800 px-3 py-2 text-sm border border-gray-700"
-                    >
-                      <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-semibold text-blue-300">
-                          {entry.pickNumber}
-                        </span>
-                        <span className="text-xs text-gray-200">{entry.teamName}</span>
-                      </div>
-                      <div className="text-sm font-semibold text-white">{entry.playerName}</div>
-                      <div className="text-xs text-gray-400">{meta || "Selected player"}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">No picks have been made yet.</p>
-            )}
           </div>
         </div>
-        </>
       )}
     </main>
   );
