@@ -72,6 +72,7 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
+let fallbackCounter = 0;
 
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
@@ -134,7 +135,7 @@ const resolveDraftedPlayer = (
   const fallbackId =
     typeof crypto !== "undefined" && "randomUUID" in crypto
       ? crypto.randomUUID()
-      : `custom-${Date.now()}-${Math.random()}`;
+      : `custom-${Date.now()}-${fallbackCounter++}`;
   if (!trimmed) {
     return { id: fallbackId, name: "Unnamed Player", positions: [] };
   }
@@ -153,7 +154,7 @@ const resolveDraftedPlayer = (
   const byName = Object.entries(dictionary).find(
     ([, player]) =>
       player.full_name &&
-      (player.full_name || "").toLowerCase().trim() === lower
+      player.full_name.toLowerCase().trim() === lower
   );
 
   if (byName) {
@@ -172,7 +173,7 @@ const resolveDraftedPlayer = (
 const playerLabel = (playerId: string, dictionary: Record<string, SleeperPlayer>) => {
   const info = dictionary[playerId];
   const name =
-    info?.full_name ||
+    info?.full_name?.trim() ||
     [info?.first_name, info?.last_name].filter(Boolean).join(" ").trim() ||
     playerId ||
     "Unknown Player";
@@ -180,7 +181,7 @@ const playerLabel = (playerId: string, dictionary: Record<string, SleeperPlayer>
   const positions = normalizePositions(info?.fantasy_positions, info?.position);
   const meta = [positions.join("/"), info?.team].filter(Boolean).join(" • ");
 
-  return { name: name || "Unknown Player", meta };
+  return { name, meta };
 };
 
 export default function Home() {
@@ -395,9 +396,11 @@ export default function Home() {
     }
 
     let updatedLineup = [...resolvedLineup];
-    updatedLineup = updatedLineup.map((p, idx) =>
-      idx !== slotIndex && p === player.id ? EMPTY_SLOT : p
-    );
+    if (updatedLineup.includes(player.id)) {
+      updatedLineup = updatedLineup.map((p, idx) =>
+        idx !== slotIndex && p === player.id ? EMPTY_SLOT : p
+      );
+    }
     updatedLineup[slotIndex] = player.id;
 
     setLineupOverrides((prev) => ({
@@ -583,7 +586,7 @@ export default function Home() {
                                 const selectionValue = slotSelections[player.id];
                                 if (!selectionValue) return;
                                 const slotIndex = Number(selectionValue);
-                                if (Number.isFinite(slotIndex)) {
+                                if (!Number.isNaN(slotIndex) && slotIndex >= 0) {
                                   moveDraftedPlayerToSlot(player, slotIndex);
                                 }
                               }}
