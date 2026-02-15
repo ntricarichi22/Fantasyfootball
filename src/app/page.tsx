@@ -241,7 +241,7 @@ export default function Home() {
     selection: string;
     alreadyRecorded?: boolean;
   } | null>(null);
-  const startDraftHandler = useRef<() => void>(() => {});
+  const startDraftHandler = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!statusMessage) return;
@@ -249,11 +249,6 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
-  useEffect(() => {
-    startDraftHandler.current = () => {};
-    setDraftStarted(false);
-    setStartReady(false);
-  }, [selectedTeam]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -625,13 +620,13 @@ export default function Home() {
     return parts.join(" • ") || "Future pick";
   };
 
-  const handleRegisterStart = (handler: () => void) => {
+  const handleRegisterStart = useCallback((handler: () => void) => {
     startDraftHandler.current = handler;
     setStartReady(true);
-  };
+  }, []);
 
   const handleStartDraftClick = () => {
-    if (!startReady) return;
+    if (!startDraftHandler.current) return;
     startDraftHandler.current();
   };
 
@@ -641,9 +636,7 @@ export default function Home() {
       return;
     }
 
-    const announcingTeam = currentClockTeam;
-
-    handlePickMade(announcingTeam, player.id);
+    handlePickMade(currentClockTeam, player.id);
     setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
   };
 
@@ -991,11 +984,11 @@ export default function Home() {
 
           <div className="w-1/4 bg-gray-900 p-4 border-l border-gray-800">
             <h2 className="text-xl font-bold mb-4">Other Teams</h2>
-          <div className="space-y-2">
-            {teams.map((team) => (
-              <div
-                key={team.id}
-                className={`rounded-lg px-3 py-2 text-sm ${
+            <div className="space-y-2">
+              {teams.map((team) => (
+                <div
+                  key={team.id}
+                  className={`rounded-lg px-3 py-2 text-sm ${
                     toId(team.id) === selectedTeam
                       ? "bg-blue-900 text-white"
                       : "bg-gray-800 text-gray-200"
