@@ -68,6 +68,17 @@ interface AvailablePlayer {
   ageLabel: string;
 }
 
+interface DraftLogEntry {
+  pickIndex: number;
+  pickNumber: string;
+  teamCount: number; // number of teams at the time of the pick, used to rebuild pick order from cache
+  teamName: string;
+  playerId: string;
+  playerName: string;
+  positions: string[];
+  nflTeam?: string;
+}
+
 const DEMO_TEAM_ID = 0;
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
@@ -79,12 +90,14 @@ const LEAGUE_ID = "1183585976810295296";
 const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const DRAFTED_CACHE_KEY = "drafted_players_state";
+const DRAFT_LOG_CACHE_KEY = "draft_log_state";
 const LINEUP_CACHE_KEY = "lineup_overrides_state";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
 const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
 const DROPPABLE_BORDER_CLASS = "border border-blue-600/50";
+const MIN_TEAM_COUNT = 1;
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 
@@ -220,6 +233,78 @@ const computeAge = (player: SleeperPlayer) => {
   return null;
 };
 
+const calculatePickNumber = (pickIndex: number, teamCount: number) => {
+  const safeTeamCount = Math.max(teamCount, MIN_TEAM_COUNT);
+  const round = Math.floor(pickIndex / safeTeamCount) + 1;
+  const pickInRound = (pickIndex % safeTeamCount) + 1;
+  return `${round}.${String(pickInRound).padStart(2, "0")}`;
+};
+
+const derivePickIndexFromNumber = (pickNumber: string, teamCount: number) => {
+  const parts = pickNumber.split(".");
+  if (parts.length !== 2) return null;
+  const [roundPart, pickPart] = parts;
+  const round = Number(roundPart);
+  const pickInRound = Number(pickPart);
+  const safeTeamCount = Math.max(teamCount, MIN_TEAM_COUNT);
+  const validRound =
+    Number.isFinite(round) && Number.isInteger(round) && round > 0;
+  const validPick =
+    Number.isFinite(pickInRound) && Number.isInteger(pickInRound) && pickInRound > 0;
+  if (validRound && validPick) {
+    return (round - 1) * safeTeamCount + (pickInRound - 1);
+  }
+  return null;
+};
+
+const normalizeDraftLogEntry = (entry: Partial<DraftLogEntry>): DraftLogEntry | null => {
+  const teamCount =
+    typeof entry.teamCount === "number" && entry.teamCount > 0
+      ? entry.teamCount
+      : MIN_TEAM_COUNT;
+  const positions = Array.isArray(entry.positions) ? entry.positions : [];
+  const hasCoreFields =
+    typeof entry.teamName === "string" &&
+    typeof entry.playerId === "string" &&
+    typeof entry.playerName === "string" &&
+    typeof entry.pickNumber === "string";
+  if (
+    typeof entry.pickIndex === "number" &&
+    Number.isInteger(entry.pickIndex) &&
+    entry.pickIndex >= 0 &&
+    hasCoreFields
+  ) {
+    return {
+      pickIndex: entry.pickIndex,
+      pickNumber: entry.pickNumber,
+      teamCount,
+      teamName: entry.teamName,
+      playerId: entry.playerId,
+      playerName: entry.playerName,
+      positions,
+      nflTeam: entry.nflTeam,
+    };
+  }
+
+  if (typeof entry.pickNumber === "string" && hasCoreFields) {
+    const derivedIndex = derivePickIndexFromNumber(entry.pickNumber, teamCount);
+    if (derivedIndex !== null && Number.isInteger(derivedIndex) && derivedIndex >= 0) {
+      return {
+        pickIndex: derivedIndex,
+        pickNumber: entry.pickNumber,
+        teamCount,
+        teamName: entry.teamName,
+        playerId: entry.playerId,
+        playerName: entry.playerName,
+        positions,
+        nflTeam: entry.nflTeam,
+      };
+    }
+  }
+
+  return null;
+};
+
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState("");
@@ -231,6 +316,7 @@ export default function Home() {
   const [draftedPlayersState, setDraftedPlayersState] = useState<Record<string, DraftedPlayer[]>>(
     {}
   );
+  const [draftLog, setDraftLog] = useState<DraftLogEntry[]>([]);
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
   const [currentClockTeam, setCurrentClockTeam] = useState("");
@@ -261,6 +347,19 @@ export default function Home() {
         // ignore corrupted cache
       }
     }
+    const savedDraftLog = localStorage.getItem(DRAFT_LOG_CACHE_KEY);
+    if (savedDraftLog) {
+      try {
+        const parsed: Partial<DraftLogEntry>[] = JSON.parse(savedDraftLog);
+        // Backward compatibility: normalize entries that predate pickIndex/teamCount fields
+        const normalizedLog = parsed
+          .map((entry) => normalizeDraftLogEntry(entry))
+          .filter((entry): entry is DraftLogEntry => entry !== null);
+        setDraftLog(normalizedLog);
+      } catch {
+        // ignore corrupted cache
+      }
+    }
     const savedLineup = localStorage.getItem(LINEUP_CACHE_KEY);
     if (savedLineup) {
       try {
@@ -275,6 +374,11 @@ export default function Home() {
     if (typeof window === "undefined") return;
     localStorage.setItem(DRAFTED_CACHE_KEY, JSON.stringify(draftedPlayersState));
   }, [draftedPlayersState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(DRAFT_LOG_CACHE_KEY, JSON.stringify(draftLog));
+  }, [draftLog]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -510,11 +614,31 @@ export default function Home() {
     const rosterKey =
       matchingTeam ? toId(matchingTeam.id) : teamName || `team-${Date.now()}`;
     const drafted = resolveDraftedPlayer(selection, playerDictionary);
+    const teamDisplayName = matchingTeam?.name || teamName;
+    const teamCount = Math.max(teams.length, MIN_TEAM_COUNT);
 
     setDraftedPlayersState((prev) => ({
       ...prev,
       [rosterKey]: [...(prev[rosterKey] || []), drafted],
     }));
+
+    setDraftLog((prev) => {
+      const nextPickIndex = prev.length;
+      const pickNumber = calculatePickNumber(nextPickIndex, teamCount);
+      return [
+        ...prev,
+        {
+          pickIndex: nextPickIndex,
+          pickNumber,
+          teamCount,
+          teamName: teamDisplayName || rosterKey,
+          playerId: drafted.id,
+          playerName: drafted.name,
+          positions: drafted.positions,
+          nflTeam: drafted.team,
+        },
+      ];
+    });
   };
 
   const assignPlayerToSlot = (
@@ -991,22 +1115,33 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="w-1/4 bg-gray-900 p-4 border-l border-gray-800">
-            <h2 className="text-xl font-bold mb-4">Other Teams</h2>
-            <div className="space-y-2">
-              {teams.map((team) => (
-                <div
-                  key={team.id}
-                  className={`rounded-lg px-3 py-2 text-sm ${
-                    toId(team.id) === selectedTeam
-                      ? "bg-blue-900 text-white"
-                      : "bg-gray-800 text-gray-200"
-                  }`}
-                >
-                  {team.name}
-                </div>
-              ))}
-            </div>
+          <div className="w-1/4 bg-gray-900 p-4 border-l border-gray-800 overflow-y-auto">
+            <h2 className="text-xl font-bold mb-4">Draft Log</h2>
+            {draftLog.length ? (
+              <div className="space-y-2">
+                {draftLog.map((entry) => {
+                  const positionLabel = (entry.positions || []).join("/");
+                  const meta = [positionLabel, entry.nflTeam].filter(Boolean).join(" • ");
+                  return (
+                    <div
+                      key={entry.pickIndex}
+                      className="rounded-lg bg-gray-800 px-3 py-2 text-sm border border-gray-700"
+                    >
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs font-semibold text-blue-300">
+                          {entry.pickNumber}
+                        </span>
+                        <span className="text-xs text-gray-200">{entry.teamName}</span>
+                      </div>
+                      <div className="text-sm font-semibold text-white">{entry.playerName}</div>
+                      <div className="text-xs text-gray-400">{meta || "Selected player"}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">No picks have been made yet.</p>
+            )}
           </div>
         </div>
         </>
