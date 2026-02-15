@@ -1,6 +1,6 @@
 "use client";
 
-import { type DragEvent, type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import DraftTimer from "../components/DraftTimer";
 
 interface Team {
