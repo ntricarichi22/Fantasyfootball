@@ -346,6 +346,7 @@ export default function TradeStudioPage() {
                 <select
                   id="team-picker"
                   className="w-full rounded-lg border border-gray-700 bg-black px-3 py-2 text-sm text-white"
+                  disabled={!!selectedTeam}
                   value={selectedTeam}
                   onChange={(e) => {
                     if (selectedTeam) return;
