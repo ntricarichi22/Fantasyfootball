@@ -89,10 +89,10 @@ const computeAge = (player: SleeperPlayer) => {
 };
 
 const formatPickLabel = (pick: DraftPick) => {
-  const year = pick.season || "Future";
+  const seasonLabel = pick.season || "Future";
   const round = pick.round ? String(pick.round) : "?";
   const pickNum = pick.pick_no ? String(pick.pick_no).padStart(2, "0") : "??";
-  return `${year} ${round}.${pickNum}`;
+  return `${seasonLabel} ${round}.${pickNum}`;
 };
 
 const availabilityKeyForPlayer = (playerId: string) => `player:${playerId}`;
