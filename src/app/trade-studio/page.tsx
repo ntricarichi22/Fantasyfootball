@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatDraftPickLabel, withComputedDraftPicks, type DraftPick, type TradedPick } from "../../lib/picks";
+import {
+  formatDraftPickLabel,
+  logDraftPickDistribution,
+  withComputedDraftPicks,
+  type DraftPick,
+  type TradedPick,
+} from "../../lib/picks";
 
 interface Team {
   id: number;
@@ -108,6 +114,7 @@ const availabilityKeyForPick = (pick: DraftPick) =>
 export default function TradeStudioPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [rosters, setRosters] = useState<Roster[]>([]);
+  const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
   const [selectedTeam, setSelectedTeam] = useState(() => getStoredSelectedTeam());
   const [errorMessage, setErrorMessage] = useState("");
@@ -220,6 +227,7 @@ export default function TradeStudioPage() {
               `Roster ${roster.roster_id}`,
           };
         });
+        const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
 
         const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
           teamCountOverride: rosterJson.length,
@@ -227,13 +235,21 @@ export default function TradeStudioPage() {
         });
 
         setTeams(mappedTeams);
+        setRosterNames(nameMap);
         setRosters(rostersWithPicks);
         setErrorMessage("");
+        logDraftPickDistribution(rostersWithPicks, nameMap, rosterJson.length);
       } catch (error) {
         console.error("Error fetching Sleeper data:", error);
         if (!isMounted) return;
+        const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
+        const demoRosters = withComputedDraftPicks(DEMO_ROSTERS, [], {
+          teamCountOverride: DEMO_ROSTERS.length || 1,
+        });
         setTeams(DEMO_TEAMS);
-        setRosters(DEMO_ROSTERS);
+        setRosters(demoRosters);
+        setRosterNames(demoNameMap);
+        logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
         setErrorMessage("Unable to reach Sleeper API. Showing demo data instead.");
       }
     }
@@ -500,7 +516,10 @@ export default function TradeStudioPage() {
                         const key = availabilityKeyForPick(pick);
                         const isAvailable = availability[key] || false;
                         const isInBlock = tradeBlock.some((asset) => asset.id === key);
-                        const label = formatDraftPickLabel(pick, rosters.length || teams.length || 1);
+                        const label = formatDraftPickLabel(pick, {
+                          teamCount: rosters.length || teams.length || 1,
+                          originalTeamNames: rosterNames,
+                        });
                         return (
                           <div
                             key={key}

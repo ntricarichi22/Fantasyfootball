@@ -2,7 +2,13 @@
 
 import Link from "next/link";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { formatDraftPickLabel, withComputedDraftPicks, type DraftPick, type TradedPick } from "../lib/picks";
+import {
+  formatDraftPickLabel,
+  logDraftPickDistribution,
+  withComputedDraftPicks,
+  type DraftPick,
+  type TradedPick,
+} from "../lib/picks";
 import DraftTimer from "../components/DraftTimer";
 
 interface Team {
@@ -327,6 +333,7 @@ export default function Home() {
   const [statusMessage, setStatusMessage] = useState("");
   const [leagueData, setLeagueData] = useState<League | null>(null);
   const [rosters, setRosters] = useState<Roster[]>([]);
+  const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
   const [draftedPlayersState, setDraftedPlayersState] = useState<Record<string, DraftedPlayer[]>>(
     {}
@@ -437,6 +444,7 @@ export default function Home() {
               `Roster ${roster.roster_id}`,
           };
         });
+        const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
 
         const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
           teamCountOverride: rosterJson.length,
@@ -445,13 +453,21 @@ export default function Home() {
 
         setTeams(mappedTeams);
         setLeagueData(leagueJson);
+        setRosterNames(nameMap);
         setRosters(rostersWithPicks);
         setErrorMessage("");
+        logDraftPickDistribution(rostersWithPicks, nameMap, rosterJson.length);
       } catch (error) {
         console.error("Error fetching Sleeper data:", error);
+        const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
+        const demoRosters = withComputedDraftPicks(DEMO_ROSTERS, [], {
+          teamCountOverride: DEMO_ROSTERS.length || 1,
+        });
         setTeams(DEMO_TEAMS);
         setLeagueData(DEMO_LEAGUE);
-        setRosters(DEMO_ROSTERS);
+        setRosters(demoRosters);
+        setRosterNames(demoNameMap);
+        logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
         setErrorMessage("Unable to reach Sleeper API. Showing demo data instead.");
       }
     }
@@ -763,7 +779,11 @@ export default function Home() {
     }
   };
 
-  const draftPickText = (pick: DraftPick) => formatDraftPickLabel(pick, rosters.length || teams.length || 1);
+  const draftPickText = (pick: DraftPick) =>
+    formatDraftPickLabel(pick, {
+      teamCount: rosters.length || teams.length || 1,
+      originalTeamNames: rosterNames,
+    });
 
   const handleRegisterStart = useCallback((handler: () => void) => {
     startDraftHandler.current = handler;
