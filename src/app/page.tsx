@@ -235,7 +235,7 @@ export default function Home() {
     selection: string;
     alreadyRecorded?: boolean;
   } | null>(null);
-  const pickMessageTimeout = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const pickMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pickResetTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearPickTimers = () => {
@@ -553,11 +553,11 @@ export default function Home() {
     handlePickMade(announcingTeam, player.id);
     setPickAnnouncement("Pick is in");
 
-    pickMessageTimeout.current = window.setTimeout(() => {
+    pickMessageTimeout.current = setTimeout(() => {
       setPickAnnouncement(`${announcingTeam} selects ${announcingPlayerName}`);
     }, PICK_ANNOUNCEMENT_DELAY_MS);
 
-    pickResetTimeout.current = window.setTimeout(() => {
+    pickResetTimeout.current = setTimeout(() => {
       setPickAnnouncement("");
       setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
     }, PICK_RESET_DELAY_MS);
