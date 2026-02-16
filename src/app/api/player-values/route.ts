@@ -87,8 +87,7 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdated =
-    lastUpdatedFromAppState ?? computeLastUpdatedFromRows(data ?? []) ?? null;
+  const lastUpdated = lastUpdatedFromAppState ?? computeLastUpdatedFromRows(data ?? []);
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
