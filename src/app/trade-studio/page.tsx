@@ -395,7 +395,7 @@ const buildAiProfile = (
       .filter((m) => (ranks[m] ?? MAX_RANK_FALLBACK) <= strongRankThreshold)
       .sort((a, b) => (ranks[a] ?? MAX_RANK_FALLBACK) - (ranks[b] ?? MAX_RANK_FALLBACK));
     const fillPool = [...coreMetricOrder, ...depthMetricOrder].sort(
-      (a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99)
+      (a, b) => (ranks[a] ?? MAX_RANK_FALLBACK) - (ranks[b] ?? MAX_RANK_FALLBACK)
     );
 
     const picks: MetricKey[] = [];
