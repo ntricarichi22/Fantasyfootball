@@ -9,6 +9,10 @@ type SupabaseClientResult =
   | { client: SupabaseClient; error: null }
   | { client: null; error: string };
 
+type PlayerValuesRefreshState = {
+  refreshed_at?: string | null;
+};
+
 const getSupabaseAdminClient = (): SupabaseClientResult => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -41,11 +45,11 @@ const fetchPlayerValuesLastRefresh = async (client: SupabaseClient) => {
     return null;
   }
 
-  const refreshedAt = (data?.value as { refreshed_at?: string } | null)?.refreshed_at;
+  const refreshedAt = (data?.value as PlayerValuesRefreshState | null)?.refreshed_at;
   return refreshedAt ?? data?.updated_at ?? null;
 };
 
-const toValueMap = (rows: Array<{ sleeper_id: string | null; value: number | null }>) => {
+const buildPlayerValueMap = (rows: Array<{ sleeper_id: string | null; value: number | null }>) => {
   return rows.reduce<Record<string, number>>((acc, row) => {
     if (row.sleeper_id && typeof row.value === "number") {
       acc[row.sleeper_id] = row.value;
@@ -86,7 +90,7 @@ export async function GET() {
   const lastUpdated = lastUpdatedFromAppState ?? findLatestUpdateTimestamp(data ?? []);
 
   return NextResponse.json({
-    data: toValueMap(data ?? []),
+    data: buildPlayerValueMap(data ?? []),
     meta: { lastUpdated },
   });
 }
