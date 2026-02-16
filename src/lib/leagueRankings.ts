@@ -166,7 +166,7 @@ export const computeLeagueRankings = (
 };
 
 export const rankBandLabel = (rank?: number) => {
-  if (!rank) return "N/A";
+  if (rank === undefined || rank === null) return "N/A";
   if (rank === 1) return "Best in league";
   if (rank <= 2) return "Top 2";
   if (rank <= 4) return "Top 4";
