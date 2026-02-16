@@ -41,8 +41,8 @@ const fetchLastUpdated = async (client: SupabaseClient) => {
     return null;
   }
 
-  const refreshed_at = (data?.value as { refreshed_at?: string } | null)?.refreshed_at;
-  return refreshed_at ?? data?.updated_at ?? null;
+  const refreshedAt = (data?.value as { refreshed_at?: string } | null)?.refreshed_at;
+  return refreshedAt ?? data?.updated_at ?? null;
 };
 
 const toValueMap = (rows: Array<{ sleeper_id: string | null; value: number | null }>) => {
@@ -87,10 +87,10 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdatedFromRows = lastUpdatedFromAppState === null
-    ? computeLastUpdatedFromRows(data ?? [])
-    : null;
-  const lastUpdated = lastUpdatedFromAppState ?? lastUpdatedFromRows ?? null;
+  const lastUpdated =
+    lastUpdatedFromAppState ??
+    (lastUpdatedFromAppState === null ? computeLastUpdatedFromRows(data ?? []) : null) ??
+    null;
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
