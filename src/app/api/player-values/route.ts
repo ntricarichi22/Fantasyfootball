@@ -92,9 +92,6 @@ export async function GET() {
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
-    meta: {
-      lastUpdated,
-      lastUpdatedAvailable: lastUpdated !== null,
-    },
+    meta: { lastUpdated },
   });
 }
