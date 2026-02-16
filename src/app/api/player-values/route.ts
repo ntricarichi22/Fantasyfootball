@@ -45,7 +45,11 @@ const fetchPlayerValuesLastRefresh = async (client: SupabaseClient) => {
     return null;
   }
 
-  const refreshedAt = (data?.value as PlayerValuesRefreshState | null)?.refreshed_at;
+  const rawValue = data?.value;
+  const refreshedAt =
+    rawValue && typeof rawValue === "object" && "refreshed_at" in rawValue
+      ? (rawValue as PlayerValuesRefreshState).refreshed_at
+      : null;
   return refreshedAt ?? data?.updated_at ?? null;
 };
 
@@ -59,14 +63,20 @@ const buildPlayerValueMap = (rows: Array<{ sleeper_id: string | null; value: num
 };
 
 const findLatestUpdateTimestamp = (rows: Array<{ updated_at?: string | null }>) => {
-  return rows.reduce<string | null>((latest, row) => {
-    const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
-    if (!updatedAt) return latest;
-    if (!latest || new Date(updatedAt).getTime() > new Date(latest).getTime()) {
-      return updatedAt;
+  let latest: string | null = null;
+  let latestTime = -Infinity;
+
+  rows.forEach((row) => {
+    if (typeof row.updated_at !== "string") return;
+    const timestamp = new Date(row.updated_at).getTime();
+    if (Number.isNaN(timestamp)) return;
+    if (timestamp > latestTime) {
+      latest = row.updated_at;
+      latestTime = timestamp;
     }
-    return latest;
-  }, null);
+  });
+
+  return latest;
 };
 
 export async function GET() {
