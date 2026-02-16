@@ -166,12 +166,13 @@ export const computeLeagueRankings = (
 };
 
 // Bands default to 12-team league unless a teamCount override is provided.
+const MIN_MIDDLE_BAND_SIZE = 8; // keeps middle band reasonable for small leagues
 export const rankBandLabel = (rank?: number, teamCount = 12) => {
   if (rank === undefined || rank === null) return "N/A";
   if (rank === 1) return "Best in league";
   if (rank <= 2) return "Top 2";
   if (rank <= 4) return "Top 4";
-  if (rank <= Math.max(8, Math.ceil(teamCount / 2))) return "Middle of the pack";
+  if (rank <= Math.max(MIN_MIDDLE_BAND_SIZE, Math.ceil(teamCount / 2))) return "Middle of the pack";
   if (rank <= teamCount - 2) return "Bottom 4";
   return "Bottom 2";
 };

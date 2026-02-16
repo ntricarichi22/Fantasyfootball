@@ -198,6 +198,7 @@ const metricLabels: Record<MetricKey, string> = {
   qbDepth: "QB depth",
   skillDepth: "Skill depth",
 };
+// Rank bands assume 12-team league: strong = Top 4 (~top third), weak = 9+ (bottom third).
 const STRONG_RANK_THRESHOLD = 4;
 const WEAK_RANK_THRESHOLD = 9;
 
@@ -833,6 +834,8 @@ export default function TradeStudioPage() {
     return computeLeagueRankings(teamsInput, playerValues);
   }, [playerDictionary, playerValues, rosters]);
 
+  const selectedTeamRanking = leagueRankings?.teams?.[toId(selectedTeam)];
+
   const playerValuesLoadedLabel = useMemo(() => {
     const count = Object.keys(playerValues).length;
     const updated = playerValuesMeta?.lastUpdated;
@@ -873,11 +876,11 @@ export default function TradeStudioPage() {
         draftPicks,
         {
           teStartableThreshold,
-          teamRanking: leagueRankings?.teams?.[toId(selectedTeam)],
+          teamRanking: selectedTeamRanking,
           teamCount: leagueRankings?.teamCount,
         }
       ),
-    [teamName, rosterPlayers, draftPicks, teStartableThreshold, leagueRankings?.teamCount, leagueRankings?.teams, selectedTeam]
+    [teamName, rosterPlayers, draftPicks, teStartableThreshold, leagueRankings?.teamCount, selectedTeamRanking]
   );
 
   useEffect(() => {
