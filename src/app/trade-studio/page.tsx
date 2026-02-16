@@ -80,6 +80,13 @@ let playerDictCache: Record<string, SleeperPlayer> | null = null;
 type TimelineLane = "Contend" | "Re-tool" | "Rebuild";
 type Posture = "Buyer" | "Seller";
 
+const YOUNG_PLAYER_AGE_THRESHOLD = 25;
+const VETERAN_PLAYER_AGE_THRESHOLD = 29;
+const REBUILD_YOUNG_ADVANTAGE = 2;
+const REBUILD_PICK_THRESHOLD = 3;
+const CONTEND_NEAR_TERM_PICK_MAX = 2;
+const BUYER_PICK_THRESHOLD = 1;
+
 interface AiProfileContext {
   topPosition?: string;
   needPosition?: string;
@@ -136,14 +143,15 @@ const availabilityKeyForPick = (pick: DraftPick) =>
     pick.roster_id || pick.original_roster_id || "roster"
   }`;
 
-const parseAge = (ageLabel: string) => {
+const parseAgeFromLabel = (ageLabel: string) => {
+  if (!ageLabel || !ageLabel.trim()) return null;
   const parsed = parseInt(ageLabel, 10);
   return Number.isFinite(parsed) ? parsed : null;
 };
 
 const buildPrimaryPlan = (timeline: TimelineLane, posture: Posture, ctx: AiProfileContext) => {
-  const targetNeed = ctx.needPosition || "priority spots";
-  const coreStrength = ctx.topPosition || "core lineup";
+  const targetNeed = ctx.needPosition || "priority needs";
+  const coreStrength = ctx.topPosition || "core group";
   const seasonLabel = ctx.primaryPickSeason || PICK_SLOT_SEASON;
   const capitalPhrase =
     ctx.nearTermPicks > 0
@@ -157,7 +165,9 @@ const buildPrimaryPlan = (timeline: TimelineLane, posture: Posture, ctx: AiProfi
     return `Trim fringe pieces, hold ${capitalPhrase}, and stream upgrades at ${targetNeed} to keep the ${coreStrength} stable.`;
   }
   if (timeline === "Rebuild") {
-    return `Move veterans for ${capitalPhrase.replace("limited ", "")} and build around young ${coreStrength} while stockpiling future shots.`;
+    const rebuildCapital =
+      ctx.nearTermPicks > 0 ? capitalPhrase : "future picks and upside darts";
+    return `Move veterans for ${rebuildCapital} and build around young ${coreStrength} while stockpiling future shots.`;
   }
   if (posture === "Seller") {
     return `Flip aging contributors for picks, then re-route surplus ${coreStrength} depth toward ${targetNeed}.`;
@@ -199,16 +209,13 @@ const buildAiProfile = (
 
   const sortedPositions = Object.entries(positionCounts).sort(([, a], [, b]) => b - a);
   const topPosition = sortedPositions[0]?.[0];
-  const needPosition = sortedPositions.reduce((weakest, entry) => {
-    if (!weakest) return entry;
-    return entry[1] < weakest[1] ? entry : weakest;
-  }, sortedPositions[0] as [string, number] | undefined)?.[0];
+  const needPosition = sortedPositions[sortedPositions.length - 1]?.[0];
 
   const ages = players
-    .map((p) => parseAge(p.ageLabel))
+    .map((p) => parseAgeFromLabel(p.ageLabel))
     .filter((age): age is number => age != null);
-  const youngCount = ages.filter((age) => age <= 25).length;
-  const veteranCount = ages.filter((age) => age >= 29).length;
+  const youngCount = ages.filter((age) => age <= YOUNG_PLAYER_AGE_THRESHOLD).length;
+  const veteranCount = ages.filter((age) => age >= VETERAN_PLAYER_AGE_THRESHOLD).length;
 
   const picksBySeason = picks.reduce<Record<string, number>>((acc, pick) => {
     const season = pick.season ?? "Future";
@@ -220,19 +227,21 @@ const buildAiProfile = (
   const primaryPickSeason =
     nearTermPicks > 0
       ? PICK_SLOT_SEASON
-      : Object.keys(picksBySeason).sort((a, b) => a.localeCompare(b))[0];
+      : Object.keys(picksBySeason).sort((a, b) => a.localeCompare(b))[0] ?? "Future";
 
   let recommendedTimeline: TimelineLane = "Re-tool";
-  if (youngCount >= veteranCount + 2 && totalPicks >= 3) {
+  if (youngCount >= veteranCount + REBUILD_YOUNG_ADVANTAGE && totalPicks >= REBUILD_PICK_THRESHOLD) {
     recommendedTimeline = "Rebuild";
-  } else if (veteranCount >= youngCount && nearTermPicks <= 2) {
+  } else if (veteranCount >= youngCount && nearTermPicks <= CONTEND_NEAR_TERM_PICK_MAX) {
     recommendedTimeline = "Contend";
   }
 
   let recommendedPosture: Posture = "Buyer";
   if (recommendedTimeline === "Rebuild") {
     recommendedPosture = "Seller";
-  } else if (recommendedTimeline === "Contend" && totalPicks <= 1) {
+  } else if (recommendedTimeline === "Contend" && totalPicks <= BUYER_PICK_THRESHOLD) {
+    recommendedPosture = "Buyer";
+  } else if (recommendedTimeline === "Contend") {
     recommendedPosture = "Buyer";
   } else if (recommendedTimeline === "Re-tool") {
     recommendedPosture = veteranCount > youngCount ? "Seller" : "Buyer";
@@ -623,7 +632,6 @@ export default function TradeStudioPage() {
   );
 
   useEffect(() => {
-    if (!aiProfile) return;
     if (lastTeamRef.current !== selectedTeam) {
       setTimelineChoice(aiProfile.recommendedTimeline);
       setPostureChoice(aiProfile.recommendedPosture);
@@ -868,7 +876,7 @@ export default function TradeStudioPage() {
                       <p className="text-xs uppercase tracking-wide text-emerald-300">Strengths</p>
                       <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
                         {aiProfile.strengths.slice(0, 3).map((item, idx) => (
-                          <li key={`strength-${idx}`}>{item}</li>
+                          <li key={idx}>{item}</li>
                         ))}
                       </ul>
                     </div>
@@ -876,7 +884,7 @@ export default function TradeStudioPage() {
                       <p className="text-xs uppercase tracking-wide text-amber-300">Risks / Gaps</p>
                       <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
                         {aiProfile.risks.slice(0, 3).map((item, idx) => (
-                          <li key={`risk-${idx}`}>{item}</li>
+                          <li key={idx}>{item}</li>
                         ))}
                       </ul>
                     </div>
@@ -908,13 +916,13 @@ export default function TradeStudioPage() {
                     <div>
                       <p className="text-xs text-gray-400">Posture</p>
                       <div className="mt-1 flex flex-wrap gap-2">
-                        {(["Buyer", "Seller"] as Posture[]).map((lane) => {
-                          const selected = postureChoice === lane;
+                        {(["Buyer", "Seller"] as Posture[]).map((posture) => {
+                          const selected = postureChoice === posture;
                           return (
                             <button
-                              key={lane}
+                              key={posture}
                               type="button"
-                              onClick={() => setPostureChoice(lane)}
+                              onClick={() => setPostureChoice(posture)}
                               className={[
                                 "rounded-full border px-3 py-1 text-xs font-semibold transition",
                                 selected
@@ -922,7 +930,7 @@ export default function TradeStudioPage() {
                                   : "border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
                               ].join(" ")}
                             >
-                              {lane}
+                              {posture}
                             </button>
                           );
                         })}
