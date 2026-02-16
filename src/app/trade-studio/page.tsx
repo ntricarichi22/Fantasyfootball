@@ -198,13 +198,23 @@ const metricLabels: Record<MetricKey, string> = {
   qbDepth: "QB depth",
   skillDepth: "Skill depth",
 };
-// Rank bands assume 12-team league: strong = Top 4 (~top third), weak = 9+ (bottom third).
-const STRONG_RANK_THRESHOLD = 4;
-const WEAK_RANK_THRESHOLD = 9;
 const DEFAULT_STRENGTH_BAND = "solid";
 const DEFAULT_GAP_BAND = "behind the pack";
 const pluralize = (count: number, singular: string, plural?: string) =>
   `${count} ${count === 1 ? singular : plural ?? `${singular}s`}`;
+const MAX_RANK_FALLBACK = 999;
+
+const getTopRankedMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
+  if (!ranks) return undefined;
+  const sorted = [...order].sort((a, b) => (ranks[a] ?? MAX_RANK_FALLBACK) - (ranks[b] ?? MAX_RANK_FALLBACK));
+  return sorted[0];
+};
+
+const getWorstRankedMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
+  if (!ranks) return undefined;
+  const sorted = [...order].sort((a, b) => (ranks[b] ?? MAX_RANK_FALLBACK) - (ranks[a] ?? MAX_RANK_FALLBACK));
+  return sorted[0];
+};
 
 const buildAiProfile = (
   teamName: string,
@@ -237,6 +247,8 @@ const buildAiProfile = (
   const teamRanking = options?.teamRanking;
   const teamCount = options?.teamCount ?? 0;
   const bandTeamCount = teamCount || 12;
+  const strongRankThreshold = Math.min(4, Math.max(2, Math.ceil(bandTeamCount / 3)));
+  const weakRankThreshold = Math.max(bandTeamCount - 3, Math.ceil((bandTeamCount * 2) / 3));
 
   const positionValues: Record<string, number[]> = Object.fromEntries(
     Object.keys(positionLimits).map((pos) => [pos, [] as number[]])
@@ -312,20 +324,8 @@ const buildAiProfile = (
   const coreMetricOrder: MetricKey[] = ["startingQBs", "startingRBs", "startingWRs", "remainingStarters"];
   const depthMetricOrder: MetricKey[] = ["skillDepth", "qbDepth"];
 
-const getTopRankedMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
-  if (!ranks) return undefined;
-  const sorted = [...order].sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
-  return sorted[0];
-};
-
-const worstCoreMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
-  if (!ranks) return undefined;
-  const sorted = [...order].sort((a, b) => (ranks[b] ?? 999) - (ranks[a] ?? 999));
-  return sorted[0];
-};
-
   const bestMetric = getTopRankedMetric(teamRanking?.ranks, [...coreMetricOrder, ...depthMetricOrder]);
-  const weakestMetric = worstCoreMetric(teamRanking?.ranks, coreMetricOrder);
+  const weakestMetric = getWorstRankedMetric(teamRanking?.ranks, coreMetricOrder);
 
   const bestLabel = bestMetric ? metricLabels[bestMetric] : topPosition ? `${topPosition} core` : "Core group";
   const bestBand = bestMetric ? rankBandLabel(teamRanking?.ranks?.[bestMetric], bandTeamCount) : null;
@@ -389,11 +389,11 @@ const worstCoreMetric = (ranks: Record<MetricKey, number> | undefined, order: Me
 
     const ranks = teamRanking.ranks;
     const strongCore = coreMetricOrder
-      .filter((m) => (ranks[m] ?? 99) <= STRONG_RANK_THRESHOLD)
-      .sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
+      .filter((m) => (ranks[m] ?? MAX_RANK_FALLBACK) <= strongRankThreshold)
+      .sort((a, b) => (ranks[a] ?? MAX_RANK_FALLBACK) - (ranks[b] ?? MAX_RANK_FALLBACK));
     const strongDepth = depthMetricOrder
-      .filter((m) => (ranks[m] ?? 99) <= STRONG_RANK_THRESHOLD)
-      .sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
+      .filter((m) => (ranks[m] ?? MAX_RANK_FALLBACK) <= strongRankThreshold)
+      .sort((a, b) => (ranks[a] ?? MAX_RANK_FALLBACK) - (ranks[b] ?? MAX_RANK_FALLBACK));
     const fillPool = [...coreMetricOrder, ...depthMetricOrder].sort(
       (a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99)
     );
@@ -435,11 +435,11 @@ const worstCoreMetric = (ranks: Record<MetricKey, number> | undefined, order: Me
 
     const ranks = teamRanking.ranks;
     const weakCore = coreMetricOrder
-      .filter((m) => (ranks[m] ?? 0) >= WEAK_RANK_THRESHOLD)
-      .sort((a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0));
+      .filter((m) => (ranks[m] ?? MAX_RANK_FALLBACK) >= weakRankThreshold)
+      .sort((a, b) => (ranks[b] ?? MAX_RANK_FALLBACK) - (ranks[a] ?? MAX_RANK_FALLBACK));
     const weakDepth = depthMetricOrder
-      .filter((m) => (ranks[m] ?? 0) >= WEAK_RANK_THRESHOLD)
-      .sort((a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0));
+      .filter((m) => (ranks[m] ?? MAX_RANK_FALLBACK) >= weakRankThreshold)
+      .sort((a, b) => (ranks[b] ?? MAX_RANK_FALLBACK) - (ranks[a] ?? MAX_RANK_FALLBACK));
     const fillPool = [...coreMetricOrder, ...depthMetricOrder].sort(
       (a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0)
     );
