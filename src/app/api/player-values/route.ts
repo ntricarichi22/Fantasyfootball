@@ -54,6 +54,17 @@ const toValueMap = (rows: Array<{ sleeper_id: string | null; value: number | nul
   }, {});
 };
 
+const computeLastUpdatedFromRows = (rows: Array<{ updated_at?: string | null }>) => {
+  return rows.reduce<string | null>((latest, row) => {
+    const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
+    if (!updatedAt) return latest;
+    if (!latest || new Date(updatedAt).getTime() > new Date(latest).getTime()) {
+      return updatedAt;
+    }
+    return latest;
+  }, null);
+};
+
 export async function GET() {
   const { client, error: clientError } = getSupabaseAdminClient();
 
@@ -65,26 +76,19 @@ export async function GET() {
   }
 
   const lastUpdatedFromAppState = await fetchLastUpdated(client);
+  const needsFallbackTimestamp = lastUpdatedFromAppState === null;
 
   const { data, error } = await client
     .from("player_values")
-    .select("sleeper_id, value, updated_at");
+    .select(needsFallbackTimestamp ? "sleeper_id, value, updated_at" : "sleeper_id, value");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdatedFromRows =
-    lastUpdatedFromAppState === null
-      ? data?.reduce<string | null>((latest, row) => {
-          const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
-          if (!updatedAt) return latest;
-          if (!latest || new Date(updatedAt).getTime() > new Date(latest).getTime()) {
-            return updatedAt;
-          }
-          return latest;
-        }, null) ?? null
-      : null;
+  const lastUpdatedFromRows = needsFallbackTimestamp
+    ? computeLastUpdatedFromRows(data ?? [])
+    : null;
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
