@@ -13,6 +13,12 @@ import {
   type SleeperDraft,
   type TradedPick,
 } from "../../lib/picks";
+import {
+  computeLeagueRankings,
+  rankBandLabel,
+  type MetricKey,
+  type TeamRanking,
+} from "../../lib/leagueRankings";
 
 interface Team {
   id: number;
@@ -87,8 +93,6 @@ const REBUILD_PICK_THRESHOLD = 3;
 const CONTEND_NEAR_TERM_PICK_MAX = 2;
 const BUYER_PICK_THRESHOLD = 1;
 const TE_VALUE_MULTIPLIER = 0.7;
-const getPositionLimit = (position: string, limits: Record<string, number>) =>
-  limits[position as keyof typeof limits] ?? 0;
 
 interface AiProfileContext {
   topPosition?: string;
@@ -96,6 +100,8 @@ interface AiProfileContext {
   primaryPickSeason?: string;
   nearTermPicks: number;
   totalPicks: number;
+  strengthBand?: string;
+  gapBand?: string;
 }
 
 interface AiProfile {
@@ -164,29 +170,40 @@ const buildPrimaryPlan = (timeline: TimelineLane, posture: Posture, ctx: AiProfi
     ctx.nearTermPicks > 0
       ? `${ctx.nearTermPicks} pick${ctx.nearTermPicks === 1 ? "" : "s"} in ${seasonLabel}`
       : "limited near-term picks";
+  const strengthBand = ctx.strengthBand ? `${ctx.strengthBand} ${coreStrength}` : coreStrength;
+  const gapBand = ctx.gapBand ? `${ctx.gapBand.toLowerCase()} ${targetNeed}` : targetNeed;
 
   if (timeline === "Contend" && posture === "Buyer") {
-    return `Package depth and ${capitalPhrase} to land a ${startableNeed} without gutting the ${coreStrength}.`;
+    return `Lean on ${strengthBand}; use ${capitalPhrase} to land a ${startableNeed} (${gapBand}).`;
   }
   if (timeline === "Contend") {
-    return `Trim fringe pieces, hold ${capitalPhrase}, and stream upgrades at ${targetNeed} to keep the ${coreStrength} stable.`;
+    return `Trim fringe pieces, hold ${capitalPhrase}, and stream upgrades at ${targetNeed} (${gapBand}) to keep the ${coreStrength} stable.`;
   }
   if (timeline === "Rebuild") {
     const rebuildCapital =
       ctx.nearTermPicks > 0 ? capitalPhrase : "future picks and upside darts";
-    return `Move veterans for ${rebuildCapital} and build around young ${coreStrength} while stockpiling future shots.`;
+    return `Move veterans for ${rebuildCapital} and build around young ${strengthBand} while stockpiling future shots.`;
   }
   if (posture === "Seller") {
-    return `Flip aging contributors for picks, then re-route surplus ${coreStrength} depth toward ${targetNeed}.`;
+    return `Flip aging contributors for picks, then re-route surplus ${strengthBand} toward ${targetNeed} (${gapBand}).`;
   }
-  return `Use ${capitalPhrase} to balance ${targetNeed} while protecting the ${coreStrength} you already have.`;
+  return `Use ${capitalPhrase} to balance ${targetNeed} (${gapBand}) while protecting the ${strengthBand} you already have.`;
+};
+
+const metricLabels: Record<MetricKey, string> = {
+  startingQBs: "Starting QB tandem",
+  startingRBs: "RB starters",
+  startingWRs: "WR starters",
+  remainingStarters: "Flex core",
+  qbDepth: "QB depth",
+  skillDepth: "Skill depth",
 };
 
 const buildAiProfile = (
   teamName: string,
   players: { position: string; ageLabel: string; value: number }[],
   picks: DraftPick[],
-  options?: { teStartableThreshold?: number }
+  options?: { teStartableThreshold?: number; teamRanking?: TeamRanking; teamCount?: number }
 ): AiProfile => {
   const fallbackSummary = `${teamName} profile will refresh as roster data loads.`;
   if (!players.length && !picks.length) {
@@ -210,6 +227,8 @@ const buildAiProfile = (
   // Limits mirror typical startable cores (QB2/RB3/WR4) with TE treated separately (flex-oriented).
   const positionLimits: Record<string, number> = { QB: 2, RB: 3, WR: 4, TE: 1 };
   const teStartableThreshold = options?.teStartableThreshold ?? 0;
+  const teamRanking = options?.teamRanking;
+  const teamCount = options?.teamCount ?? 0;
 
   const positionValues: Record<string, number[]> = Object.fromEntries(
     Object.keys(positionLimits).map((pos) => [pos, [] as number[]])
@@ -282,70 +301,165 @@ const buildAiProfile = (
     recommendedPosture = veteranCount > youngCount ? "Seller" : "Buyer";
   }
 
-  const summaryParts = [
-    topPosition
-      ? `${teamName} leans on ${topPosition} value (top ${getPositionLimit(
-          topPosition,
-          positionLimits
-        )} sum ≈ ${Math.round(
-          positionStrengths[topPosition] ?? 0
-        )})`
-      : `${teamName} is taking shape with value data loading`,
-    totalPicks
-      ? `Holding ${totalPicks} pick${totalPicks === 1 ? "" : "s"} including ${nearTermPicks || "no"} in ${PICK_SLOT_SEASON}`
-      : "With minimal draft capital on hand",
-  ];
-  const summary = `${summaryParts[0]}. ${summaryParts[1]}.`;
+  const coreMetricOrder: MetricKey[] = ["startingQBs", "startingRBs", "startingWRs", "remainingStarters"];
+  const depthMetricOrder: MetricKey[] = ["skillDepth", "qbDepth"];
 
-  const strengths: string[] = [];
-  strengths.push(
-    topPosition
-      ? `${topPosition} value leads: top ${getPositionLimit(topPosition, positionLimits)} sum ≈ ${Math.round(
-          positionStrengths[topPosition] ?? 0
-        )}`
-      : "Balanced positional value mix"
-  );
-  strengths.push(
-    youngCount > 0
-      ? `Youth movement: ${youngCount} player${youngCount === 1 ? "" : "s"} age 25 or younger`
-      : "Veteran stability across the lineup"
-  );
-  strengths.push(
-    totalPicks > 0
-      ? `Draft ammo: ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to deploy`
-      : "Clear runway to pursue trades without pick constraints"
-  );
+  const pickMetricByRank = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
+    if (!ranks) return undefined;
+    const sorted = [...order].sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
+    return sorted[0];
+  };
 
-  const risks: string[] = [];
-  risks.push(
-    veteranCount > 0
-      ? `Aging core: ${veteranCount} veteran${veteranCount === 1 ? "" : "s"} 29+ need an exit plan`
-      : "Unproven core still needs reliable producers"
-  );
-  risks.push(
-    needPosition
-      ? `Value gap: ${needPosition} lags (top ${getPositionLimit(needPosition, positionLimits)} sum ≈ ${Math.round(
-          positionStrengths[needPosition] ?? 0
-        )})`
-      : "Need to identify priority value gaps"
-  );
-  if (needsTeFlexUpgrade) {
-    risks.push(
-      `Flex TE upgrade: no TE above startable threshold (~${Math.round(teStartableThreshold)})`
+  const worstCoreMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
+    if (!ranks) return undefined;
+    const sorted = [...order].sort((a, b) => (ranks[b] ?? -1) - (ranks[a] ?? -1));
+    return sorted[0];
+  };
+
+  const bestMetric = pickMetricByRank(teamRanking?.ranks, [...coreMetricOrder, ...depthMetricOrder]);
+  const weakestMetric = worstCoreMetric(teamRanking?.ranks, coreMetricOrder);
+
+  const bestLabel = bestMetric ? metricLabels[bestMetric] : topPosition ? `${topPosition} core` : "Core group";
+  const bestBand = bestMetric ? rankBandLabel(teamRanking?.ranks?.[bestMetric]) : null;
+  const gapLabel = weakestMetric ? metricLabels[weakestMetric] : needPosition ? `${needPosition} starters` : "priority need";
+  const gapBand = weakestMetric ? rankBandLabel(teamRanking?.ranks?.[weakestMetric]) : null;
+
+  const firstSentence = `${teamName} profiles as a ${recommendedTimeline}/${recommendedPosture} team${
+    teamCount ? ` in a ${teamCount}-team league` : ""
+  }.`;
+
+  const secondSentence = teamRanking?.ranks
+    ? `${bestLabel} is ${bestBand || "solid"}, but ${gapLabel} sits ${gapBand || "behind the pack"}; ${
+        totalPicks > 0
+          ? `use ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to balance it.`
+          : `leverage roster depth to shore it up.`
+      }`
+    : topPosition
+      ? `${topPosition} value leads the way; ${totalPicks > 0 ? `deploy ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to smooth gaps.` : "leverage depth to smooth gaps."}`
+      : "Roster data is loading.";
+
+  const summary = `${firstSentence} ${secondSentence}`;
+
+  const formatStrength = (metric: MetricKey, rank?: number) => {
+    const band = rankBandLabel(rank);
+    if (metric === "skillDepth") {
+      return `Strong ${metricLabels[metric].toLowerCase()} (${band}) gives you trade leverage.`;
+    }
+    if (metric === "qbDepth") {
+      return `QB3/4 depth is ${band} — helpful insurance during byes.`;
+    }
+    return `${metricLabels[metric]} is ${band} in the league.`;
+  };
+
+  const formatRisk = (metric: MetricKey, rank?: number) => {
+    const band = rankBandLabel(rank);
+    if (metric === "qbDepth") {
+      return `QB depth is ${band}; add a reliable QB3 to stabilize.`; 
+    }
+    if (metric === "skillDepth") {
+      return `Depth behind starters is ${band}; consolidate fringe pieces for sturdier options.`;
+    }
+    return `${metricLabels[metric]} is ${band} — clear upgrade path.`;
+  };
+
+  const pickStrengths = () => {
+    if (!teamRanking?.ranks) {
+      return [
+        topPosition ? `${topPosition} value leads the roster.` : "Balanced positional value mix.",
+        youngCount > 0
+          ? `Youth movement: ${youngCount} player${youngCount === 1 ? "" : "s"} age 25 or younger`
+          : "Veteran stability across the lineup",
+        totalPicks > 0
+          ? `Draft ammo: ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to deploy`
+          : "Clear runway to pursue trades without pick constraints",
+      ];
+    }
+
+    const ranks = teamRanking.ranks;
+    const strongCore = coreMetricOrder
+      .filter((m) => (ranks[m] ?? 99) <= 4)
+      .sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
+    const strongDepth = depthMetricOrder
+      .filter((m) => (ranks[m] ?? 99) <= 4)
+      .sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
+    const fillPool = [...coreMetricOrder, ...depthMetricOrder].sort(
+      (a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99)
     );
-  }
-  risks.push(
-    nearTermPicks > 0
-      ? `${nearTermPicks} pick${nearTermPicks === 1 ? "" : "s"} in ${PICK_SLOT_SEASON} are the main leverage points`
-      : "Limited near-term picks may slow a pivot"
-  );
+
+    const picks: MetricKey[] = [];
+    strongCore.forEach((m) => {
+      if (picks.length < 3 && !picks.includes(m)) picks.push(m);
+    });
+    strongDepth.forEach((m) => {
+      if (picks.length < 3 && !picks.includes(m)) picks.push(m);
+    });
+    fillPool.forEach((m) => {
+      if (picks.length < 3 && !picks.includes(m)) picks.push(m);
+    });
+
+    return picks.slice(0, 3).map((m) => formatStrength(m, ranks[m]));
+  };
+
+  const pickRisks = () => {
+    if (!teamRanking?.ranks) {
+      const baseRisks: string[] = [];
+      baseRisks.push(
+        veteranCount > 0
+          ? `Aging core: ${veteranCount} veteran${veteranCount === 1 ? "" : "s"} 29+ need an exit plan`
+          : "Unproven core still needs reliable producers"
+      );
+      if (needsTeFlexUpgrade) {
+        baseRisks.push(
+          `Flex TE upgrade: no TE above startable threshold (~${Math.round(teStartableThreshold)})`
+        );
+      }
+      baseRisks.push(
+        nearTermPicks > 0
+          ? `${nearTermPicks} pick${nearTermPicks === 1 ? "" : "s"} in ${PICK_SLOT_SEASON} are the main leverage points`
+          : "Limited near-term picks may slow a pivot"
+      );
+      while (baseRisks.length < 3) {
+        baseRisks.push("Monitor weekly waivers to backfill depth.");
+      }
+      return baseRisks.slice(0, 3);
+    }
+
+    const ranks = teamRanking.ranks;
+    const weakCore = coreMetricOrder
+      .filter((m) => (ranks[m] ?? 0) >= 9)
+      .sort((a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0));
+    const weakDepth = depthMetricOrder
+      .filter((m) => (ranks[m] ?? 0) >= 9)
+      .sort((a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0));
+    const fillPool = [...coreMetricOrder, ...depthMetricOrder].sort(
+      (a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0)
+    );
+
+    const picks: MetricKey[] = [];
+    weakCore.forEach((m) => {
+      if (picks.length < 3 && !picks.includes(m)) picks.push(m);
+    });
+    weakDepth.forEach((m) => {
+      if (picks.length < 3 && !picks.includes(m)) picks.push(m);
+    });
+    fillPool.forEach((m) => {
+      if (picks.length < 3 && !picks.includes(m)) picks.push(m);
+    });
+
+    return picks.slice(0, 3).map((m) => formatRisk(m, ranks[m]));
+  };
+
+  const strengths = pickStrengths();
+  const risks = pickRisks();
 
   const context: AiProfileContext = {
     topPosition,
-    needPosition: needsTeFlexUpgrade ? "flex TE upgrade" : needPosition,
+    needPosition: needsTeFlexUpgrade ? "flex TE upgrade" : gapLabel,
     primaryPickSeason,
     nearTermPicks,
     totalPicks,
+    strengthBand: bestBand || undefined,
+    gapBand: gapBand || undefined,
   };
 
   return {
@@ -701,6 +815,21 @@ export default function TradeStudioPage() {
     return sorted[mid];
   }, [playerDictionary, playerValues]);
 
+  const leagueRankings = useMemo(() => {
+    if (!rosters.length || !Object.keys(playerValues).length) return null;
+    const teamsInput = rosters.map((roster) => ({
+      rosterId: roster.roster_id,
+      players: (roster.players ?? []).map((player) => {
+        const id = toId(player);
+        const info = playerDictionary[id];
+        const position =
+          info?.position?.toUpperCase() || info?.fantasy_positions?.[0]?.toUpperCase() || undefined;
+        return { sleeperId: id, position };
+      }),
+    }));
+    return computeLeagueRankings(teamsInput, playerValues);
+  }, [playerDictionary, playerValues, rosters]);
+
   const playerValuesLoadedLabel = useMemo(() => {
     const count = Object.keys(playerValues).length;
     const updated = playerValuesMeta?.lastUpdated;
@@ -739,9 +868,13 @@ export default function TradeStudioPage() {
         teamName,
         rosterPlayers.map((p) => ({ position: p.position, ageLabel: p.ageLabel, value: p.value })),
         draftPicks,
-        { teStartableThreshold }
+        {
+          teStartableThreshold,
+          teamRanking: leagueRankings?.teams?.[toId(selectedTeam)],
+          teamCount: leagueRankings?.teamCount,
+        }
       ),
-    [teamName, rosterPlayers, draftPicks, teStartableThreshold]
+    [teamName, rosterPlayers, draftPicks, teStartableThreshold, leagueRankings?.teamCount, leagueRankings?.teams, selectedTeam]
   );
 
   useEffect(() => {
