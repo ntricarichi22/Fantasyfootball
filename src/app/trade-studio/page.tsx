@@ -201,6 +201,8 @@ const metricLabels: Record<MetricKey, string> = {
 // Rank bands assume 12-team league: strong = Top 4 (~top third), weak = 9+ (bottom third).
 const STRONG_RANK_THRESHOLD = 4;
 const WEAK_RANK_THRESHOLD = 9;
+const DEFAULT_STRENGTH_BAND = "solid";
+const DEFAULT_GAP_BAND = "behind the pack";
 
 const buildAiProfile = (
   teamName: string,
@@ -333,7 +335,7 @@ const buildAiProfile = (
   }.`;
 
   const secondSentence = teamRanking?.ranks
-    ? `${bestLabel} is ${bestBand || "solid"}, but ${gapLabel} sits ${gapBand || "behind the pack"}; ${
+    ? `${bestLabel} is ${bestBand || DEFAULT_STRENGTH_BAND}, but ${gapLabel} sits ${gapBand || DEFAULT_GAP_BAND}; ${
         totalPicks > 0
           ? `use ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to balance it.`
           : `leverage roster depth to shore it up.`
@@ -358,7 +360,7 @@ const buildAiProfile = (
   const formatRisk = (metric: MetricKey, rank?: number) => {
     const band = rankBandLabel(rank, bandTeamCount);
     if (metric === "qbDepth") {
-      return `QB depth is ${band}; add a reliable QB3 to stabilize.`; 
+      return `QB depth is ${band}; add a reliable QB3 to stabilize.`;
     }
     if (metric === "skillDepth") {
       return `Depth behind starters is ${band}; consolidate fringe pieces for sturdier options.`;
