@@ -66,7 +66,7 @@ const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
   { roster_id: DEMO_TEAM_ID, owner_id: null, starters: [], players: [], draft_picks: [] },
 ];
-const LEAGUE_ID = "1183585976810295296";
+const LEAGUE_ID = "1328902558617473024";
 const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
