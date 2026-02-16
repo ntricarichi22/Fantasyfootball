@@ -41,8 +41,8 @@ const fetchLastUpdated = async (client: SupabaseClient) => {
     return null;
   }
 
-  const refreshedAt = (data?.value as { refreshed_at?: string } | null)?.refreshed_at;
-  return refreshedAt ?? data?.updated_at ?? null;
+  const refreshed_at = (data?.value as { refreshed_at?: string } | null)?.refreshed_at;
+  return refreshed_at ?? data?.updated_at ?? null;
 };
 
 const toValueMap = (rows: Array<{ sleeper_id: string | null; value: number | null }>) => {
@@ -74,17 +74,20 @@ export async function GET() {
 
   const client = clientResult.client;
   const lastUpdatedFromAppState = await fetchLastUpdated(client);
-  const needsFallbackTimestamp = lastUpdatedFromAppState === null;
 
   const { data, error } = await client
     .from("player_values")
-    .select(needsFallbackTimestamp ? "sleeper_id, value, updated_at" : "sleeper_id, value");
+    .select(
+      lastUpdatedFromAppState === null
+        ? "sleeper_id, value, updated_at"
+        : "sleeper_id, value",
+    );
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdatedFromRows = needsFallbackTimestamp
+  const lastUpdatedFromRows = lastUpdatedFromAppState === null
     ? computeLastUpdatedFromRows(data ?? [])
     : null;
   const lastUpdated = lastUpdatedFromAppState ?? lastUpdatedFromRows ?? null;
