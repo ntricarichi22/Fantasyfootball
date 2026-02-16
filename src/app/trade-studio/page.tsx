@@ -220,6 +220,9 @@ export default function TradeStudioPage() {
 
         if (!isMounted) return;
 
+        const rosterOwnerMap: Record<number, string | number | null | undefined> = Object.fromEntries(
+          rosterJson.map((roster) => [roster.roster_id, roster.owner_id] as const)
+        );
         const mappedTeams: Team[] = rosterJson.map((roster) => {
           const user = roster.owner_id
             ? userJson.find((u) => u.user_id === roster.owner_id)
@@ -237,9 +240,27 @@ export default function TradeStudioPage() {
         const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
 
         const { draftOrder, available } = deriveDraftOrderForSeason(draftsJson, PICK_SLOT_SEASON);
+        // TODO: Remove once draft slot mapping has been verified in production.
+        // Temporary debug to verify draft slot mapping against Sleeper Draft Settings.
+        console.log(
+          `Derived ${PICK_SLOT_SEASON} draft slots (team -> slot):`,
+          Object.fromEntries(
+            mappedTeams.map((team) => {
+              const ownerKey = team.ownerId != null ? String(team.ownerId) : null;
+              const rosterKey = String(team.id);
+              return [
+                team.name,
+                ownerKey != null
+                  ? draftOrder?.[ownerKey] ?? draftOrder?.[rosterKey]
+                  : draftOrder?.[rosterKey],
+              ];
+            })
+          )
+        );
         const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
           teamCountOverride: rosterJson.length,
           draftOrder: draftOrder ?? leagueJson.draft_order,
+          rosterOwnerMap,
         });
 
         setTeams(mappedTeams);
