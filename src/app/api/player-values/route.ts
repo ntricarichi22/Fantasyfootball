@@ -59,7 +59,7 @@ export async function GET() {
 
   if (!client || clientError) {
     return NextResponse.json(
-      { error: clientError ?? "Missing Supabase configuration" },
+      { error: clientError },
       { status: 500 },
     );
   }
@@ -75,8 +75,7 @@ export async function GET() {
   const lastUpdatedFromAppState = await fetchLastUpdated(client);
   const lastUpdatedFromRows =
     data?.reduce<string | null>((latest, row) => {
-      const updatedAt =
-        typeof row.updated_at === "string" ? row.updated_at : (row.updated_at as string | null);
+      const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
       if (!updatedAt) return latest;
       if (!latest || new Date(updatedAt).getTime() > new Date(latest).getTime()) {
         return updatedAt;
