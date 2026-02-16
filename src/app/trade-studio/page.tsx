@@ -330,11 +330,11 @@ const buildAiProfile = (
   const gapLabel = weakestMetric ? metricLabels[weakestMetric] : needPosition ? `${needPosition} starters` : "priority need";
   const gapBand = weakestMetric ? rankBandLabel(teamRanking?.ranks?.[weakestMetric], bandTeamCount) : null;
 
-  const firstSentence = `${teamName} profiles as a ${recommendedTimeline}/${recommendedPosture} team${
+  const profileSentence = `${teamName} profiles as a ${recommendedTimeline}/${recommendedPosture} team${
     teamCount ? ` in a ${teamCount}-team league` : ""
   }.`;
 
-  const secondSentence = teamRanking?.ranks
+  const strategyGuidanceSentence = teamRanking?.ranks
     ? `${bestLabel} is ${bestBand || DEFAULT_STRENGTH_BAND}, but ${gapLabel} sits ${gapBand || DEFAULT_GAP_BAND}; ${
         totalPicks > 0
           ? `use ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to balance it.`
@@ -344,7 +344,7 @@ const buildAiProfile = (
       ? `${topPosition} value leads the way; ${totalPicks > 0 ? `deploy ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to smooth gaps.` : "leverage depth to smooth gaps."}`
       : "Roster data is loading.";
 
-  const summary = `${firstSentence} ${secondSentence}`;
+  const summary = `${profileSentence} ${strategyGuidanceSentence}`;
 
   const formatStrength = (metric: MetricKey, rank?: number) => {
     const band = rankBandLabel(rank, bandTeamCount);
