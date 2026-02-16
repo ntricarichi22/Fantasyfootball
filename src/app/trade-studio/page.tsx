@@ -77,6 +77,27 @@ const PANEL_MAX_HEIGHT_CLASS = "max-h-[calc(100vh-220px)]";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 
+type TimelineLane = "Contend" | "Re-tool" | "Rebuild";
+type Posture = "Buyer" | "Seller";
+
+interface AiProfileContext {
+  topPosition?: string;
+  needPosition?: string;
+  primaryPickSeason?: string;
+  nearTermPicks: number;
+  totalPicks: number;
+}
+
+interface AiProfile {
+  summary: string;
+  strengths: string[];
+  risks: string[];
+  recommendedTimeline: TimelineLane;
+  recommendedPosture: Posture;
+  primaryPlan: string;
+  context: AiProfileContext;
+}
+
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
 
@@ -115,6 +136,171 @@ const availabilityKeyForPick = (pick: DraftPick) =>
     pick.roster_id || pick.original_roster_id || "roster"
   }`;
 
+const parseAge = (ageLabel: string) => {
+  const parsed = parseInt(ageLabel, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const buildPrimaryPlan = (timeline: TimelineLane, posture: Posture, ctx: AiProfileContext) => {
+  const targetNeed = ctx.needPosition || "priority spots";
+  const coreStrength = ctx.topPosition || "core lineup";
+  const seasonLabel = ctx.primaryPickSeason || PICK_SLOT_SEASON;
+  const capitalPhrase =
+    ctx.nearTermPicks > 0
+      ? `${ctx.nearTermPicks} pick${ctx.nearTermPicks === 1 ? "" : "s"} in ${seasonLabel}`
+      : "limited near-term picks";
+
+  if (timeline === "Contend" && posture === "Buyer") {
+    return `Package depth and ${capitalPhrase} to land a startable ${targetNeed} without gutting the ${coreStrength}.`;
+  }
+  if (timeline === "Contend") {
+    return `Trim fringe pieces, hold ${capitalPhrase}, and stream upgrades at ${targetNeed} to keep the ${coreStrength} stable.`;
+  }
+  if (timeline === "Rebuild") {
+    return `Move veterans for ${capitalPhrase.replace("limited ", "")} and build around young ${coreStrength} while stockpiling future shots.`;
+  }
+  if (posture === "Seller") {
+    return `Flip aging contributors for picks, then re-route surplus ${coreStrength} depth toward ${targetNeed}.`;
+  }
+  return `Use ${capitalPhrase} to balance ${targetNeed} while protecting the ${coreStrength} you already have.`;
+};
+
+const buildAiProfile = (
+  teamName: string,
+  players: { position: string; ageLabel: string }[],
+  picks: DraftPick[]
+): AiProfile => {
+  const fallbackSummary = `${teamName} profile will refresh as roster data loads.`;
+  if (!players.length && !picks.length) {
+    return {
+      summary: fallbackSummary,
+      strengths: ["Flexible starting point", "Clean slate for trades", "No bad contracts"],
+      risks: ["Need roster data", "Draft board unsettled", "Awaiting Sleeper sync"],
+      recommendedTimeline: "Re-tool",
+      recommendedPosture: "Buyer",
+      primaryPlan: buildPrimaryPlan("Re-tool", "Buyer", {
+        nearTermPicks: 0,
+        totalPicks: 0,
+      }),
+      context: {
+        nearTermPicks: 0,
+        totalPicks: 0,
+      },
+    };
+  }
+
+  const positionFocus = ["QB", "RB", "WR", "TE"];
+  const positionCounts: Record<string, number> = Object.fromEntries(
+    positionFocus.map((pos) => [pos, 0])
+  );
+  players.forEach((p) => {
+    positionCounts[p.position] = (positionCounts[p.position] ?? 0) + 1;
+  });
+
+  const sortedPositions = Object.entries(positionCounts).sort(([, a], [, b]) => b - a);
+  const topPosition = sortedPositions[0]?.[0];
+  const needPosition = sortedPositions.reduce((weakest, entry) => {
+    if (!weakest) return entry;
+    return entry[1] < weakest[1] ? entry : weakest;
+  }, sortedPositions[0] as [string, number] | undefined)?.[0];
+
+  const ages = players
+    .map((p) => parseAge(p.ageLabel))
+    .filter((age): age is number => age != null);
+  const youngCount = ages.filter((age) => age <= 25).length;
+  const veteranCount = ages.filter((age) => age >= 29).length;
+
+  const picksBySeason = picks.reduce<Record<string, number>>((acc, pick) => {
+    const season = pick.season ?? "Future";
+    acc[season] = (acc[season] ?? 0) + 1;
+    return acc;
+  }, {});
+  const totalPicks = picks.length;
+  const nearTermPicks = picksBySeason[PICK_SLOT_SEASON] ?? 0;
+  const primaryPickSeason =
+    nearTermPicks > 0
+      ? PICK_SLOT_SEASON
+      : Object.keys(picksBySeason).sort((a, b) => a.localeCompare(b))[0];
+
+  let recommendedTimeline: TimelineLane = "Re-tool";
+  if (youngCount >= veteranCount + 2 && totalPicks >= 3) {
+    recommendedTimeline = "Rebuild";
+  } else if (veteranCount >= youngCount && nearTermPicks <= 2) {
+    recommendedTimeline = "Contend";
+  }
+
+  let recommendedPosture: Posture = "Buyer";
+  if (recommendedTimeline === "Rebuild") {
+    recommendedPosture = "Seller";
+  } else if (recommendedTimeline === "Contend" && totalPicks <= 1) {
+    recommendedPosture = "Buyer";
+  } else if (recommendedTimeline === "Re-tool") {
+    recommendedPosture = veteranCount > youngCount ? "Seller" : "Buyer";
+  }
+
+  const summaryParts = [
+    topPosition
+      ? `${teamName} leans on its ${topPosition} room (${positionCounts[topPosition]} on roster)`
+      : `${teamName} is taking shape`,
+    totalPicks
+      ? `Holding ${totalPicks} pick${totalPicks === 1 ? "" : "s"} including ${nearTermPicks || "no"} in ${PICK_SLOT_SEASON}`
+      : "With minimal draft capital on hand",
+  ];
+  const summary = `${summaryParts[0]}. ${summaryParts[1]}.`;
+
+  const strengths: string[] = [];
+  strengths.push(
+    topPosition
+      ? `Strength at ${topPosition}: ${positionCounts[topPosition]} on roster`
+      : "Balanced positional mix"
+  );
+  strengths.push(
+    youngCount > 0
+      ? `Youth movement: ${youngCount} player${youngCount === 1 ? "" : "s"} age 25 or younger`
+      : "Veteran stability across the lineup"
+  );
+  strengths.push(
+    totalPicks > 0
+      ? `Draft ammo: ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to deploy`
+      : "Clear runway to pursue trades without pick constraints"
+  );
+
+  const risks: string[] = [];
+  risks.push(
+    veteranCount > 0
+      ? `Aging core: ${veteranCount} veteran${veteranCount === 1 ? "" : "s"} 29+ need an exit plan`
+      : "Unproven core still needs reliable producers"
+  );
+  risks.push(
+    needPosition
+      ? `Positional gap: ${needPosition} depth is thin (${positionCounts[needPosition]} on roster)`
+      : "Need to identify priority position gaps"
+  );
+  risks.push(
+    nearTermPicks > 0
+      ? `${nearTermPicks} pick${nearTermPicks === 1 ? "" : "s"} in ${PICK_SLOT_SEASON} are the main leverage points`
+      : "Limited near-term picks may slow a pivot"
+  );
+
+  const context: AiProfileContext = {
+    topPosition,
+    needPosition,
+    primaryPickSeason,
+    nearTermPicks,
+    totalPicks,
+  };
+
+  return {
+    summary,
+    strengths,
+    risks,
+    recommendedTimeline,
+    recommendedPosture,
+    primaryPlan: buildPrimaryPlan(recommendedTimeline, recommendedPosture, context),
+    context,
+  };
+};
+
 export default function TradeStudioPage() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [rosters, setRosters] = useState<Roster[]>([]);
@@ -125,6 +311,9 @@ export default function TradeStudioPage() {
   const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
   const [availability, setAvailability] = useState<Record<string, boolean>>({});
   const [tradeBlock, setTradeBlock] = useState<TradeAsset[]>([]);
+  const [timelineChoice, setTimelineChoice] = useState<TimelineLane>("Re-tool");
+  const [postureChoice, setPostureChoice] = useState<Posture>("Buyer");
+  const lastTeamRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -423,6 +612,30 @@ export default function TradeStudioPage() {
     [selectedTeam, teams]
   );
 
+  const aiProfile = useMemo(
+    () =>
+      buildAiProfile(
+        teamName,
+        rosterPlayers.map((p) => ({ position: p.position, ageLabel: p.ageLabel })),
+        draftPicks
+      ),
+    [teamName, rosterPlayers, draftPicks]
+  );
+
+  useEffect(() => {
+    if (!aiProfile) return;
+    if (lastTeamRef.current !== selectedTeam) {
+      setTimelineChoice(aiProfile.recommendedTimeline);
+      setPostureChoice(aiProfile.recommendedPosture);
+      lastTeamRef.current = selectedTeam;
+    }
+  }, [aiProfile, selectedTeam]);
+
+  const selectedPrimaryPlan = useMemo(
+    () => buildPrimaryPlan(timelineChoice, postureChoice, aiProfile.context),
+    [aiProfile.context, postureChoice, timelineChoice]
+  );
+
   return (
     <main className="h-screen overflow-hidden bg-black text-gray-100">
       <div className="mx-auto flex h-full max-w-7xl flex-col px-4 py-10">
@@ -643,22 +856,95 @@ export default function TradeStudioPage() {
               </div>
               <div className="space-y-4 text-sm text-gray-200">
                 <div className="rounded-lg border border-gray-800 bg-black/60 p-4">
-                  <p className="text-gray-400">Persona</p>
-                  <p className="text-base font-semibold text-white">Evaluator</p>
-                  <p className="mt-1 text-gray-400">Tracks roster health, trends, and leverage spots.</p>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-white">Team Snapshot</h3>
+                    <span className="rounded-full border border-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                      AI stub
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-300">{aiProfile.summary}</p>
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+                      <p className="text-xs uppercase tracking-wide text-emerald-300">Strengths</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
+                        {aiProfile.strengths.slice(0, 3).map((item, idx) => (
+                          <li key={`strength-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+                      <p className="text-xs uppercase tracking-wide text-amber-300">Risks / Gaps</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
+                        {aiProfile.risks.slice(0, 3).map((item, idx) => (
+                          <li key={`risk-${idx}`}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2">
+                    <div>
+                      <p className="text-xs text-gray-400">Timeline</p>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {(["Contend", "Re-tool", "Rebuild"] as TimelineLane[]).map((lane) => {
+                          const selected = timelineChoice === lane;
+                          return (
+                            <button
+                              key={lane}
+                              type="button"
+                              onClick={() => setTimelineChoice(lane)}
+                              className={[
+                                "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                                selected
+                                  ? "border-emerald-500 bg-emerald-900 text-emerald-50"
+                                  : "border-gray-700 bg-gray-800 text-gray-300 hover:border-emerald-500/60 hover:text-white",
+                              ].join(" ")}
+                            >
+                              {lane}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-400">Posture</p>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {(["Buyer", "Seller"] as Posture[]).map((lane) => {
+                          const selected = postureChoice === lane;
+                          return (
+                            <button
+                              key={lane}
+                              type="button"
+                              onClick={() => setPostureChoice(lane)}
+                              className={[
+                                "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                                selected
+                                  ? "border-indigo-500 bg-indigo-900 text-indigo-50"
+                                  : "border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
+                              ].join(" ")}
+                            >
+                              {lane}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
                 </div>
+
                 <div className="rounded-lg border border-gray-800 bg-black/60 p-4">
-                  <p className="text-gray-400">Priority</p>
-                  <p className="text-base font-semibold text-white">Build trade suggestions</p>
-                  <p className="mt-1 text-gray-400">Waiting for targets, assets, and constraints.</p>
-                </div>
-                <div className="rounded-lg border border-gray-800 bg-black/60 p-4">
-                  <p className="text-gray-400">Next up</p>
-                  <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-300">
-                    <li>Import roster and pick context</li>
-                    <li>Flag team needs and surplus</li>
-                    <li>Draft trade packages</li>
-                  </ul>
+                  <div className="mb-2 flex items-center justify-between">
+                    <h3 className="text-base font-semibold text-white">Game Plan</h3>
+                    <span className="text-[11px] text-gray-400">
+                      {timelineChoice} · {postureChoice}
+                    </span>
+                  </div>
+                  <p className="text-base font-semibold text-white">
+                    <span className="font-bold">Primary Plan:</span> {selectedPrimaryPlan}
+                  </p>
+                  <p className="mt-2 text-xs text-gray-500">
+                    Deterministic AI stub grounded in the selected roster and picks. Update the chips to
+                    override the recommendation.
+                  </p>
                 </div>
               </div>
             </section>
