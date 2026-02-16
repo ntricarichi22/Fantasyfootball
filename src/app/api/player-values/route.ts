@@ -37,7 +37,7 @@ const fetchPlayerValuesLastRefresh = async (client: SupabaseClient) => {
     .maybeSingle();
 
   if (error) {
-    console.warn("Failed to read player_values_last_refresh from app_state", error);
+    console.warn("Failed to read player_values_last_refresh from app_state", { error });
     return null;
   }
 
@@ -77,11 +77,7 @@ export async function GET() {
 
   const { data, error } = await client
     .from("player_values")
-    .select(
-      lastUpdatedFromAppState === null
-        ? "sleeper_id, value, updated_at"
-        : "sleeper_id, value",
-    );
+    .select("sleeper_id, value, updated_at");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
