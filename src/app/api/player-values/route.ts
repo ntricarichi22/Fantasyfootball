@@ -37,7 +37,7 @@ const fetchLastUpdated = async (client: SupabaseClient) => {
     .maybeSingle();
 
   if (error) {
-    console.warn("Unable to read player values last refresh timestamp", error.message);
+    console.warn("Failed to read player_values_last_refresh from app_state", error);
     return null;
   }
 
@@ -57,31 +57,36 @@ const toValueMap = (rows: Array<{ sleeper_id: string | null; value: number | nul
 export async function GET() {
   const { client, error: clientError } = getSupabaseAdminClient();
 
-  if (!client || clientError) {
+  if (!client) {
     return NextResponse.json(
-      { error: clientError },
+      { error: clientError ?? "Missing Supabase configuration" },
       { status: 500 },
     );
   }
 
+  const lastUpdatedFromAppState = await fetchLastUpdated(client);
+  const selectColumns =
+    lastUpdatedFromAppState === null ? "sleeper_id, value, updated_at" : "sleeper_id, value";
+
   const { data, error } = await client
     .from("player_values")
-    .select("sleeper_id, value, updated_at");
+    .select(selectColumns);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdatedFromAppState = await fetchLastUpdated(client);
   const lastUpdatedFromRows =
-    data?.reduce<string | null>((latest, row) => {
-      const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
-      if (!updatedAt) return latest;
-      if (!latest || new Date(updatedAt).getTime() > new Date(latest).getTime()) {
-        return updatedAt;
-      }
-      return latest;
-    }, null) ?? null;
+    lastUpdatedFromAppState !== null
+      ? null
+      : data?.reduce<string | null>((latest, row) => {
+          const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
+          if (!updatedAt) return latest;
+          if (!latest || new Date(updatedAt).getTime() > new Date(latest).getTime()) {
+            return updatedAt;
+          }
+          return latest;
+        }, null) ?? null;
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
