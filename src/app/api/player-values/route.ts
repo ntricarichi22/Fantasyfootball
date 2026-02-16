@@ -65,28 +65,26 @@ export async function GET() {
   }
 
   const lastUpdatedFromAppState = await fetchLastUpdated(client);
-  const selectColumns =
-    lastUpdatedFromAppState === null ? "sleeper_id, value, updated_at" : "sleeper_id, value";
 
   const { data, error } = await client
     .from("player_values")
-    .select(selectColumns);
+    .select("sleeper_id, value, updated_at");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
   const lastUpdatedFromRows =
-    lastUpdatedFromAppState !== null
-      ? null
-      : data?.reduce<string | null>((latest, row) => {
+    lastUpdatedFromAppState === null
+      ? data?.reduce<string | null>((latest, row) => {
           const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
           if (!updatedAt) return latest;
           if (!latest || new Date(updatedAt).getTime() > new Date(latest).getTime()) {
             return updatedAt;
           }
           return latest;
-        }, null) ?? null;
+        }, null) ?? null
+      : null;
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
