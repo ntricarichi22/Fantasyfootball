@@ -88,9 +88,7 @@ export async function GET() {
   }
 
   const lastUpdated =
-    lastUpdatedFromAppState ??
-    (lastUpdatedFromAppState === null ? computeLastUpdatedFromRows(data ?? []) : null) ??
-    null;
+    lastUpdatedFromAppState ?? computeLastUpdatedFromRows(data ?? []) ?? null;
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
