@@ -29,7 +29,7 @@ const getSupabaseAdminClient = (): SupabaseClientResult => {
   return { client: supabaseAdminClient, error: null };
 };
 
-const fetchLastUpdated = async (client: SupabaseClient) => {
+const fetchPlayerValuesLastRefresh = async (client: SupabaseClient) => {
   const { data, error } = await client
     .from("app_state")
     .select("value, updated_at")
@@ -54,7 +54,7 @@ const toValueMap = (rows: Array<{ sleeper_id: string | null; value: number | nul
   }, {});
 };
 
-const computeLastUpdatedFromRows = (rows: Array<{ updated_at?: string | null }>) => {
+const findLatestUpdateTimestamp = (rows: Array<{ updated_at?: string | null }>) => {
   return rows.reduce<string | null>((latest, row) => {
     const updatedAt = typeof row.updated_at === "string" ? row.updated_at : null;
     if (!updatedAt) return latest;
@@ -73,7 +73,7 @@ export async function GET() {
   }
 
   const client = clientResult.client;
-  const lastUpdatedFromAppState = await fetchLastUpdated(client);
+  const lastUpdatedFromAppState = await fetchPlayerValuesLastRefresh(client);
 
   const { data, error } = await client
     .from("player_values")
@@ -87,7 +87,7 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdated = lastUpdatedFromAppState ?? computeLastUpdatedFromRows(data ?? []);
+  const lastUpdated = lastUpdatedFromAppState ?? findLatestUpdateTimestamp(data ?? []);
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
