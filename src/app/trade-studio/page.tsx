@@ -86,6 +86,9 @@ const REBUILD_YOUNG_ADVANTAGE = 2;
 const REBUILD_PICK_THRESHOLD = 3;
 const CONTEND_NEAR_TERM_PICK_MAX = 2;
 const BUYER_PICK_THRESHOLD = 1;
+const TE_VALUE_MULTIPLIER = 0.7;
+const getPositionLimit = (position: string, limits: Record<string, number>) =>
+  limits[position as keyof typeof limits] ?? 0;
 
 interface AiProfileContext {
   topPosition?: string;
@@ -151,6 +154,10 @@ const parseAgeFromLabel = (ageLabel: string) => {
 
 const buildPrimaryPlan = (timeline: TimelineLane, posture: Posture, ctx: AiProfileContext) => {
   const targetNeed = ctx.needPosition || "priority needs";
+  const startableNeed =
+    targetNeed.toLowerCase().includes("upgrade") || targetNeed.toLowerCase().includes("flex")
+      ? targetNeed
+      : `startable ${targetNeed}`;
   const coreStrength = ctx.topPosition || "core group";
   const seasonLabel = ctx.primaryPickSeason || PICK_SLOT_SEASON;
   const capitalPhrase =
@@ -159,7 +166,7 @@ const buildPrimaryPlan = (timeline: TimelineLane, posture: Posture, ctx: AiProfi
       : "limited near-term picks";
 
   if (timeline === "Contend" && posture === "Buyer") {
-    return `Package depth and ${capitalPhrase} to land a startable ${targetNeed} without gutting the ${coreStrength}.`;
+    return `Package depth and ${capitalPhrase} to land a ${startableNeed} without gutting the ${coreStrength}.`;
   }
   if (timeline === "Contend") {
     return `Trim fringe pieces, hold ${capitalPhrase}, and stream upgrades at ${targetNeed} to keep the ${coreStrength} stable.`;
@@ -177,8 +184,9 @@ const buildPrimaryPlan = (timeline: TimelineLane, posture: Posture, ctx: AiProfi
 
 const buildAiProfile = (
   teamName: string,
-  players: { position: string; ageLabel: string }[],
-  picks: DraftPick[]
+  players: { position: string; ageLabel: string; value: number }[],
+  picks: DraftPick[],
+  options?: { teStartableThreshold?: number }
 ): AiProfile => {
   const fallbackSummary = `${teamName} profile will refresh as roster data loads.`;
   if (!players.length && !picks.length) {
@@ -199,17 +207,44 @@ const buildAiProfile = (
     };
   }
 
-  const positionFocus = ["QB", "RB", "WR", "TE"];
-  const positionCounts: Record<string, number> = Object.fromEntries(
-    positionFocus.map((pos) => [pos, 0])
+  // Limits mirror typical startable cores (QB2/RB3/WR4) with TE treated separately (flex-oriented).
+  const positionLimits: Record<string, number> = { QB: 2, RB: 3, WR: 4, TE: 1 };
+  const teStartableThreshold = options?.teStartableThreshold ?? 0;
+
+  const positionValues: Record<string, number[]> = Object.fromEntries(
+    Object.keys(positionLimits).map((pos) => [pos, [] as number[]])
   );
+
   players.forEach((p) => {
-    positionCounts[p.position] = (positionCounts[p.position] ?? 0) + 1;
+    const position = p.position?.toUpperCase();
+    if (!position || !positionValues[position]) return;
+    const adjustedValue = position === "TE" ? p.value * TE_VALUE_MULTIPLIER : p.value;
+    positionValues[position]?.push(adjustedValue);
   });
 
-  const sortedPositions = Object.entries(positionCounts).sort(([, a], [, b]) => b - a);
-  const topPosition = sortedPositions[0]?.[0];
-  const needPosition = sortedPositions[sortedPositions.length - 1]?.[0];
+  const positionStrengths: Record<string, number> = {};
+  Object.entries(positionLimits).forEach(([position, limit]) => {
+    const values = [...(positionValues[position] ?? [])].sort((a, b) => b - a);
+    const capped = values.slice(0, limit);
+    positionStrengths[position] = capped.reduce((sum, value) => sum + value, 0);
+  });
+
+  const strengthOrdered = Object.entries(positionStrengths).sort(([, a], [, b]) => b - a);
+  const topPosition = strengthOrdered.find(([, strength]) => strength > 0)?.[0];
+
+  // TE excluded from corePositions because it's discounted and often a flex-only upgrade.
+  const corePositions: Array<"QB" | "RB" | "WR"> = ["QB", "RB", "WR"];
+  const coreStrengths = corePositions
+    .map((pos) => [pos, positionStrengths[pos] ?? 0] as const)
+    .sort(([, a], [, b]) => a - b);
+  const needPosition = coreStrengths[0]?.[0];
+
+  const teValues = [...(positionValues.TE ?? [])].sort((a, b) => b - a);
+  const topTeValue = teValues[0] ?? 0;
+  const needsTeFlexUpgrade =
+    teStartableThreshold > 0 &&
+    topTeValue < teStartableThreshold &&
+    (positionStrengths.RB > 0 || positionStrengths.WR > 0);
 
   const ages = players
     .map((p) => parseAgeFromLabel(p.ageLabel))
@@ -249,8 +284,13 @@ const buildAiProfile = (
 
   const summaryParts = [
     topPosition
-      ? `${teamName} leans on its ${topPosition} room (${positionCounts[topPosition]} on roster)`
-      : `${teamName} is taking shape`,
+      ? `${teamName} leans on ${topPosition} value (top ${getPositionLimit(
+          topPosition,
+          positionLimits
+        )} sum ≈ ${Math.round(
+          positionStrengths[topPosition] ?? 0
+        )})`
+      : `${teamName} is taking shape with value data loading`,
     totalPicks
       ? `Holding ${totalPicks} pick${totalPicks === 1 ? "" : "s"} including ${nearTermPicks || "no"} in ${PICK_SLOT_SEASON}`
       : "With minimal draft capital on hand",
@@ -260,8 +300,10 @@ const buildAiProfile = (
   const strengths: string[] = [];
   strengths.push(
     topPosition
-      ? `Strength at ${topPosition}: ${positionCounts[topPosition]} on roster`
-      : "Balanced positional mix"
+      ? `${topPosition} value leads: top ${getPositionLimit(topPosition, positionLimits)} sum ≈ ${Math.round(
+          positionStrengths[topPosition] ?? 0
+        )}`
+      : "Balanced positional value mix"
   );
   strengths.push(
     youngCount > 0
@@ -282,9 +324,16 @@ const buildAiProfile = (
   );
   risks.push(
     needPosition
-      ? `Positional gap: ${needPosition} depth is thin (${positionCounts[needPosition]} on roster)`
-      : "Need to identify priority position gaps"
+      ? `Value gap: ${needPosition} lags (top ${getPositionLimit(needPosition, positionLimits)} sum ≈ ${Math.round(
+          positionStrengths[needPosition] ?? 0
+        )})`
+      : "Need to identify priority value gaps"
   );
+  if (needsTeFlexUpgrade) {
+    risks.push(
+      `Flex TE upgrade: no TE above startable threshold (~${Math.round(teStartableThreshold)})`
+    );
+  }
   risks.push(
     nearTermPicks > 0
       ? `${nearTermPicks} pick${nearTermPicks === 1 ? "" : "s"} in ${PICK_SLOT_SEASON} are the main leverage points`
@@ -293,7 +342,7 @@ const buildAiProfile = (
 
   const context: AiProfileContext = {
     topPosition,
-    needPosition,
+    needPosition: needsTeFlexUpgrade ? "flex TE upgrade" : needPosition,
     primaryPickSeason,
     nearTermPicks,
     totalPicks,
@@ -315,6 +364,8 @@ export default function TradeStudioPage() {
   const [rosters, setRosters] = useState<Roster[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
+  const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
+  const [playerValuesMeta, setPlayerValuesMeta] = useState<{ lastUpdated?: string | null }>({});
   const [selectedTeam, setSelectedTeam] = useState(() => getStoredSelectedTeam());
   const [errorMessage, setErrorMessage] = useState("");
   const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
@@ -543,6 +594,32 @@ export default function TradeStudioPage() {
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPlayerValues() {
+      try {
+        const res = await fetch("/api/player-values");
+        if (!res.ok) throw new Error("Failed to fetch player values");
+        const json = await res.json();
+        if (!isMounted) return;
+        setPlayerValues(json.data ?? {});
+        setPlayerValuesMeta(json.meta ?? {});
+      } catch (error) {
+        console.warn("Unable to load player values", error);
+        if (!isMounted) return;
+        setPlayerValues({});
+        setPlayerValuesMeta({});
+      }
+    }
+
+    loadPlayerValues();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
     [rosters, selectedTeam]
@@ -555,6 +632,7 @@ export default function TradeStudioPage() {
       .map((player) => {
         const playerId = toId(player);
         const info = playerDictionary[playerId];
+        const value = playerValues[playerId] ?? 0;
         const name =
           info?.full_name ||
           [info?.first_name, info?.last_name].filter(Boolean).join(" ").trim() ||
@@ -572,10 +650,11 @@ export default function TradeStudioPage() {
           position,
           team: info?.team || "FA",
           ageLabel: age ? String(age) : "–",
+          value,
         };
       })
       .filter((p) => p.id);
-  }, [activeRoster?.players, playerDictionary]);
+  }, [activeRoster?.players, playerDictionary, playerValues]);
 
   const draftPicks = useMemo(() => activeRoster?.draft_picks || [], [activeRoster?.draft_picks]);
 
@@ -602,6 +681,39 @@ export default function TradeStudioPage() {
     hasLoggedPickLabelCheck.current = true;
   }, [draftPicks, draftPickText]);
 
+  const teStartableThreshold = useMemo(() => {
+    const teValues: number[] = [];
+    Object.entries(playerValues).forEach(([playerId, value]) => {
+      if (typeof value !== "number") return;
+      const info = playerDictionary[playerId];
+      const position =
+        info?.position?.toUpperCase() || info?.fantasy_positions?.[0]?.toUpperCase();
+      if (position === "TE") {
+        teValues.push(value * TE_VALUE_MULTIPLIER);
+      }
+    });
+    if (!teValues.length) return 0;
+    const sorted = [...teValues].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    if (sorted.length % 2 === 0) {
+      return (sorted[mid - 1] + sorted[mid]) / 2;
+    }
+    return sorted[mid];
+  }, [playerDictionary, playerValues]);
+
+  const playerValuesLoadedLabel = useMemo(() => {
+    const count = Object.keys(playerValues).length;
+    const updated = playerValuesMeta?.lastUpdated;
+    let suffix = "";
+    if (updated) {
+      const parsed = new Date(updated);
+      if (!Number.isNaN(parsed.getTime())) {
+        suffix = ` (updated ${parsed.toLocaleString()})`;
+      }
+    }
+    return `${count} ${count === 1 ? "entry" : "entries"}${suffix}`;
+  }, [playerValues, playerValuesMeta]);
+
   const setAvailabilityForKey = useCallback((key: string, value: boolean) => {
     setAvailability((prev) => ({
       ...prev,
@@ -625,10 +737,11 @@ export default function TradeStudioPage() {
     () =>
       buildAiProfile(
         teamName,
-        rosterPlayers.map((p) => ({ position: p.position, ageLabel: p.ageLabel })),
-        draftPicks
+        rosterPlayers.map((p) => ({ position: p.position, ageLabel: p.ageLabel, value: p.value })),
+        draftPicks,
+        { teStartableThreshold }
       ),
-    [teamName, rosterPlayers, draftPicks]
+    [teamName, rosterPlayers, draftPicks, teStartableThreshold]
   );
 
   useEffect(() => {
@@ -871,6 +984,7 @@ export default function TradeStudioPage() {
                     </span>
                   </div>
                   <p className="text-sm text-gray-300">{aiProfile.summary}</p>
+                  <p className="mt-1 text-xs text-gray-500">Values loaded: {playerValuesLoadedLabel}</p>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2">
                     <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
                       <p className="text-xs uppercase tracking-wide text-emerald-300">Strengths</p>
