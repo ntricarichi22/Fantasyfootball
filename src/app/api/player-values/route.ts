@@ -66,15 +66,13 @@ const computeLastUpdatedFromRows = (rows: Array<{ updated_at?: string | null }>)
 };
 
 export async function GET() {
-  const { client, error: clientError } = getSupabaseAdminClient();
+  const clientResult = getSupabaseAdminClient();
 
-  if (!client) {
-    return NextResponse.json(
-      { error: clientError ?? "Missing Supabase configuration" },
-      { status: 500 },
-    );
+  if (!clientResult.client) {
+    return NextResponse.json({ error: clientResult.error }, { status: 500 });
   }
 
+  const client = clientResult.client;
   const lastUpdatedFromAppState = await fetchLastUpdated(client);
   const needsFallbackTimestamp = lastUpdatedFromAppState === null;
 
@@ -89,9 +87,13 @@ export async function GET() {
   const lastUpdatedFromRows = needsFallbackTimestamp
     ? computeLastUpdatedFromRows(data ?? [])
     : null;
+  const lastUpdated = lastUpdatedFromAppState ?? lastUpdatedFromRows ?? null;
 
   return NextResponse.json({
     data: toValueMap(data ?? []),
-    meta: { lastUpdated: lastUpdatedFromAppState ?? lastUpdatedFromRows },
+    meta: {
+      lastUpdated,
+      lastUpdatedAvailable: lastUpdated !== null,
+    },
   });
 }
