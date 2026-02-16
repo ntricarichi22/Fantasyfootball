@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   formatDraftPickLabel,
   logDraftPickDistribution,
@@ -381,6 +381,29 @@ export default function TradeStudioPage() {
 
   const draftPicks = useMemo(() => activeRoster?.draft_picks || [], [activeRoster?.draft_picks]);
 
+  const draftPickText = useCallback(
+    (pick: DraftPick) =>
+      formatDraftPickLabel(pick, {
+        teamCount: rosters.length || teams.length || 1,
+        originalTeamNames: rosterNames,
+        draftOrderAvailable: draftOrderAvailable === true,
+        slotSeason: PICK_SLOT_SEASON,
+      }),
+    [draftOrderAvailable, rosterNames, rosters.length, teams.length]
+  );
+
+  const hasLoggedPickLabelCheck = useRef(false);
+
+  useEffect(() => {
+    if (hasLoggedPickLabelCheck.current || !draftPicks.length) return;
+    const sample = draftPicks.find((pick) => pick.season === PICK_SLOT_SEASON);
+    if (!sample) return;
+    if (process.env.NODE_ENV !== "production") {
+      console.log("[Trade Studio] Draft pick label check:", draftPickText(sample));
+    }
+    hasLoggedPickLabelCheck.current = true;
+  }, [draftPicks, draftPickText]);
+
   const setAvailabilityForKey = useCallback((key: string, value: boolean) => {
     setAvailability((prev) => ({
       ...prev,
@@ -550,12 +573,7 @@ export default function TradeStudioPage() {
                         const key = availabilityKeyForPick(pick);
                         const isAvailable = availability[key] || false;
                         const isInBlock = tradeBlock.some((asset) => asset.id === key);
-                        const label = formatDraftPickLabel(pick, {
-                          teamCount: rosters.length || teams.length || 1,
-                          originalTeamNames: rosterNames,
-                          draftOrderAvailable: draftOrderAvailable === true,
-                          slotSeason: PICK_SLOT_SEASON,
-                        });
+                        const label = draftPickText(pick);
                         return (
                           <div
                             key={key}
