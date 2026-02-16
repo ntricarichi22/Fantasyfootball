@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
 const FANTASYCALC_URL =
   "https://api.fantasycalc.com/values/current?isDynasty=true&numTeams=12&numQbs=2&ppr=0.5";
 
+const TE_POSITION = "TE";
+// Tight ends are discounted 30% because the league does not require a TE slot.
 const TE_MULTIPLIER = 0.7;
 
 type FantasyCalcPlayer = {
@@ -24,7 +26,7 @@ type FantasyCalcRow = {
   positions?: string[] | null;
 };
 
-const toStringId = (value: string | number | null | undefined) => {
+const normalizeId = (value: string | number | null | undefined) => {
   if (typeof value === "string") return value.trim();
   if (typeof value === "number") return String(value);
   return "";
@@ -40,16 +42,16 @@ const normalizeRows = (data: unknown) => {
   return rows
     .map((row) => {
       const sleeperId =
-        toStringId(row.player?.sleeperId) ||
-        toStringId(row.player?.sleeper_id) ||
-        toStringId(row.sleeperId) ||
-        toStringId(row.sleeper_id);
+        normalizeId(row.player?.sleeperId) ||
+        normalizeId(row.player?.sleeper_id) ||
+        normalizeId(row.sleeperId) ||
+        normalizeId(row.sleeper_id);
 
       const rawValue =
         typeof row.value === "number"
           ? row.value
           : typeof row.value === "string"
-            ? Number.parseFloat(row.value)
+            ? Number(row.value)
             : null;
 
       if (!sleeperId || rawValue === null || Number.isNaN(rawValue)) {
@@ -63,11 +65,11 @@ const normalizeRows = (data: unknown) => {
         (row.position ? [row.position] : undefined) ??
         [];
 
-      const isTightEnd = positions?.some(
-        (pos) => typeof pos === "string" && pos.trim().toUpperCase() === "TE",
+      const hasTEPosition = positions?.some(
+        (pos) => typeof pos === "string" && pos.trim().toUpperCase() === TE_POSITION,
       );
 
-      const adjustedValue = isTightEnd ? rawValue * TE_MULTIPLIER : rawValue;
+      const adjustedValue = hasTEPosition ? rawValue * TE_MULTIPLIER : rawValue;
 
       return {
         sleeper_id: sleeperId,
@@ -81,22 +83,39 @@ const normalizeRows = (data: unknown) => {
     );
 };
 
-const upsertPlayerValues = async (rows: ReturnType<typeof normalizeRows>) => {
+let supabaseAdminClient: SupabaseClient | null = null;
+
+type SupabaseClientResult =
+  | { client: SupabaseClient; error: null }
+  | { client: null; error: string };
+
+const getSupabaseAdminClient = (): SupabaseClientResult => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    return { error: "Missing Supabase configuration" as const };
+    return { client: null, error: "Missing Supabase configuration" };
   }
 
-  const supabase = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
+  if (!supabaseAdminClient) {
+    supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+  }
 
-  const { error } = await supabase
+  return { client: supabaseAdminClient, error: null };
+};
+
+const upsertPlayerValues = async (rows: ReturnType<typeof normalizeRows>) => {
+  const { client, error: clientError } = getSupabaseAdminClient();
+  if (!client || clientError) {
+    return { error: clientError ?? "Missing Supabase configuration" };
+  }
+
+  const { error } = await client
     .from("player_values")
     .upsert(rows, { onConflict: "sleeper_id" });
 
@@ -105,9 +124,21 @@ const upsertPlayerValues = async (rows: ReturnType<typeof normalizeRows>) => {
   }
 
   const now = new Date().toISOString();
-  await supabase
+  // app_state schema uses updated_at to track the last modification time for each key; set explicitly
+  // so the refresh timestamp advances on upsert conflicts.
+  const { error: appStateError } = await client
     .from("app_state")
-    .upsert({ key: "player_values_last_refresh", value: { refreshedAt: now }, updated_at: now });
+    .upsert(
+      { key: "player_values_last_refresh", value: { refreshed_at: now }, updated_at: now },
+      { onConflict: "key" },
+    );
+
+  if (appStateError) {
+    console.warn(
+      "Non-critical: Unable to update app_state refresh timestamp",
+      appStateError.message,
+    );
+  }
 
   return { error: null };
 };
@@ -145,7 +176,8 @@ const refreshValues = async () => {
     }
 
     return NextResponse.json({ updated: rows.length });
-  } catch {
+  } catch (error) {
+    console.error("Unexpected error refreshing player values", error);
     return NextResponse.json(
       { error: "Unexpected error refreshing player values" },
       { status: 500 },
