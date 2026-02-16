@@ -198,6 +198,8 @@ const metricLabels: Record<MetricKey, string> = {
   qbDepth: "QB depth",
   skillDepth: "Skill depth",
 };
+const STRONG_RANK_THRESHOLD = 4;
+const WEAK_RANK_THRESHOLD = 9;
 
 const buildAiProfile = (
   teamName: string,
@@ -229,6 +231,7 @@ const buildAiProfile = (
   const teStartableThreshold = options?.teStartableThreshold ?? 0;
   const teamRanking = options?.teamRanking;
   const teamCount = options?.teamCount ?? 0;
+  const bandTeamCount = teamCount || 12;
 
   const positionValues: Record<string, number[]> = Object.fromEntries(
     Object.keys(positionLimits).map((pos) => [pos, [] as number[]])
@@ -320,9 +323,9 @@ const buildAiProfile = (
   const weakestMetric = worstCoreMetric(teamRanking?.ranks, coreMetricOrder);
 
   const bestLabel = bestMetric ? metricLabels[bestMetric] : topPosition ? `${topPosition} core` : "Core group";
-  const bestBand = bestMetric ? rankBandLabel(teamRanking?.ranks?.[bestMetric]) : null;
+  const bestBand = bestMetric ? rankBandLabel(teamRanking?.ranks?.[bestMetric], bandTeamCount) : null;
   const gapLabel = weakestMetric ? metricLabels[weakestMetric] : needPosition ? `${needPosition} starters` : "priority need";
-  const gapBand = weakestMetric ? rankBandLabel(teamRanking?.ranks?.[weakestMetric]) : null;
+  const gapBand = weakestMetric ? rankBandLabel(teamRanking?.ranks?.[weakestMetric], bandTeamCount) : null;
 
   const firstSentence = `${teamName} profiles as a ${recommendedTimeline}/${recommendedPosture} team${
     teamCount ? ` in a ${teamCount}-team league` : ""
@@ -341,7 +344,7 @@ const buildAiProfile = (
   const summary = `${firstSentence} ${secondSentence}`;
 
   const formatStrength = (metric: MetricKey, rank?: number) => {
-    const band = rankBandLabel(rank);
+    const band = rankBandLabel(rank, bandTeamCount);
     if (metric === "skillDepth") {
       return `Strong ${metricLabels[metric].toLowerCase()} (${band}) gives you trade leverage.`;
     }
@@ -352,7 +355,7 @@ const buildAiProfile = (
   };
 
   const formatRisk = (metric: MetricKey, rank?: number) => {
-    const band = rankBandLabel(rank);
+    const band = rankBandLabel(rank, bandTeamCount);
     if (metric === "qbDepth") {
       return `QB depth is ${band}; add a reliable QB3 to stabilize.`; 
     }
@@ -377,10 +380,10 @@ const buildAiProfile = (
 
     const ranks = teamRanking.ranks;
     const strongCore = coreMetricOrder
-      .filter((m) => (ranks[m] ?? 99) <= 4)
+      .filter((m) => (ranks[m] ?? 99) <= STRONG_RANK_THRESHOLD)
       .sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
     const strongDepth = depthMetricOrder
-      .filter((m) => (ranks[m] ?? 99) <= 4)
+      .filter((m) => (ranks[m] ?? 99) <= STRONG_RANK_THRESHOLD)
       .sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
     const fillPool = [...coreMetricOrder, ...depthMetricOrder].sort(
       (a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99)
@@ -426,10 +429,10 @@ const buildAiProfile = (
 
     const ranks = teamRanking.ranks;
     const weakCore = coreMetricOrder
-      .filter((m) => (ranks[m] ?? 0) >= 9)
+      .filter((m) => (ranks[m] ?? 0) >= WEAK_RANK_THRESHOLD)
       .sort((a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0));
     const weakDepth = depthMetricOrder
-      .filter((m) => (ranks[m] ?? 0) >= 9)
+      .filter((m) => (ranks[m] ?? 0) >= WEAK_RANK_THRESHOLD)
       .sort((a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0));
     const fillPool = [...coreMetricOrder, ...depthMetricOrder].sort(
       (a, b) => (ranks[b] ?? 0) - (ranks[a] ?? 0)
