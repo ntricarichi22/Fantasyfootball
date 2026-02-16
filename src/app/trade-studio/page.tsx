@@ -203,6 +203,8 @@ const STRONG_RANK_THRESHOLD = 4;
 const WEAK_RANK_THRESHOLD = 9;
 const DEFAULT_STRENGTH_BAND = "solid";
 const DEFAULT_GAP_BAND = "behind the pack";
+const pluralize = (count: number, singular: string, plural?: string) =>
+  `${count} ${count === 1 ? singular : plural ?? `${singular}s`}`;
 
 const buildAiProfile = (
   teamName: string,
@@ -310,19 +312,19 @@ const buildAiProfile = (
   const coreMetricOrder: MetricKey[] = ["startingQBs", "startingRBs", "startingWRs", "remainingStarters"];
   const depthMetricOrder: MetricKey[] = ["skillDepth", "qbDepth"];
 
-  const pickMetricByRank = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
-    if (!ranks) return undefined;
-    const sorted = [...order].sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
-    return sorted[0];
-  };
+const getTopRankedMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
+  if (!ranks) return undefined;
+  const sorted = [...order].sort((a, b) => (ranks[a] ?? 99) - (ranks[b] ?? 99));
+  return sorted[0];
+};
 
-  const worstCoreMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
-    if (!ranks) return undefined;
-    const sorted = [...order].sort((a, b) => (ranks[b] ?? -1) - (ranks[a] ?? -1));
-    return sorted[0];
-  };
+const worstCoreMetric = (ranks: Record<MetricKey, number> | undefined, order: MetricKey[]) => {
+  if (!ranks) return undefined;
+  const sorted = [...order].sort((a, b) => (ranks[b] ?? 999) - (ranks[a] ?? 999));
+  return sorted[0];
+};
 
-  const bestMetric = pickMetricByRank(teamRanking?.ranks, [...coreMetricOrder, ...depthMetricOrder]);
+  const bestMetric = getTopRankedMetric(teamRanking?.ranks, [...coreMetricOrder, ...depthMetricOrder]);
   const weakestMetric = worstCoreMetric(teamRanking?.ranks, coreMetricOrder);
 
   const bestLabel = bestMetric ? metricLabels[bestMetric] : topPosition ? `${topPosition} core` : "Core group";
@@ -337,11 +339,15 @@ const buildAiProfile = (
   const strategyGuidanceSentence = teamRanking?.ranks
     ? `${bestLabel} is ${bestBand || DEFAULT_STRENGTH_BAND}, but ${gapLabel} sits ${gapBand || DEFAULT_GAP_BAND}; ${
         totalPicks > 0
-          ? `use ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to balance it.`
+          ? `use ${pluralize(totalPicks, "pick")} to balance it.`
           : `leverage roster depth to shore it up.`
       }`
     : topPosition
-      ? `${topPosition} value leads the way; ${totalPicks > 0 ? `deploy ${totalPicks} pick${totalPicks === 1 ? "" : "s"} to smooth gaps.` : "leverage depth to smooth gaps."}`
+      ? `${topPosition} value leads the way; ${
+          totalPicks > 0
+            ? `deploy ${pluralize(totalPicks, "pick")} to smooth gaps.`
+            : "leverage depth to smooth gaps."
+        }`
       : "Roster data is loading.";
 
   const summary = `${profileSentence} ${strategyGuidanceSentence}`;
@@ -424,9 +430,6 @@ const buildAiProfile = (
           ? `${nearTermPicks} pick${nearTermPicks === 1 ? "" : "s"} in ${PICK_SLOT_SEASON} are the main leverage points`
           : "Limited near-term picks may slow a pivot"
       );
-      while (baseRisks.length < 3) {
-        baseRisks.push("Monitor weekly waivers to backfill depth.");
-      }
       return baseRisks.slice(0, 3);
     }
 
