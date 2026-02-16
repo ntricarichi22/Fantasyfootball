@@ -53,7 +53,9 @@ const fetchPlayerValuesLastRefresh = async (client: SupabaseClient) => {
   return refreshedAt ?? data?.updated_at ?? null;
 };
 
-const buildPlayerValueMap = (rows: Array<{ sleeper_id: string | null; value: number | null }>) => {
+const buildPlayerValueMapBySleeperId = (
+  rows: Array<{ sleeper_id: string | null; value: number | null }>,
+) => {
   return rows.reduce<Record<string, number>>((acc, row) => {
     if (row.sleeper_id && typeof row.value === "number") {
       acc[row.sleeper_id] = row.value;
@@ -62,7 +64,7 @@ const buildPlayerValueMap = (rows: Array<{ sleeper_id: string | null; value: num
   }, {});
 };
 
-const findLatestUpdateTimestamp = (rows: Array<{ updated_at?: string | null }>) => {
+const findLatestUpdatedAt = (rows: Array<{ updated_at?: string | null }>) => {
   let latest: string | null = null;
   let latestTime = -Infinity;
 
@@ -97,10 +99,10 @@ export async function GET() {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdated = lastUpdatedFromAppState ?? findLatestUpdateTimestamp(data ?? []);
+  const lastUpdated = lastUpdatedFromAppState ?? findLatestUpdatedAt(data ?? []);
 
   return NextResponse.json({
-    data: buildPlayerValueMap(data ?? []),
+    data: buildPlayerValueMapBySleeperId(data ?? []),
     meta: { lastUpdated },
   });
 }
