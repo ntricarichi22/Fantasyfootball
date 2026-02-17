@@ -53,6 +53,8 @@ interface SleeperPlayer {
   fantasy_positions?: string[];
   team?: string;
   status?: string;
+  active?: boolean;
+  years_exp?: number;
   birth_date?: string;
   age?: number;
 }
@@ -97,7 +99,7 @@ const DRAFTED_CACHE_KEY = "drafted_players_state";
 const DRAFT_LOG_CACHE_KEY = "draft_log_state";
 const LINEUP_CACHE_KEY = "lineup_overrides_state";
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
 const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
@@ -105,6 +107,10 @@ const DROPPABLE_BORDER_CLASS = "border border-blue-600/50";
 const MIN_TEAM_COUNT = 1;
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
+let playerDictCacheTime = 0;
+
+const isCacheTimestampFresh = (timestamp: number | null | undefined) =>
+  typeof timestamp === "number" && timestamp > 0 && Date.now() - timestamp < CACHE_TTL_MS;
 
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
@@ -511,7 +517,7 @@ export default function Home() {
     let isMounted = true;
 
     async function loadPlayerDictionary() {
-      if (playerDictCache) {
+      if (playerDictCache && isCacheTimestampFresh(playerDictCacheTime)) {
         setPlayerDictionary(playerDictCache);
         return;
       }
@@ -520,13 +526,12 @@ export default function Home() {
         const cachedDict = localStorage.getItem(PLAYER_CACHE_KEY);
         const cachedTime = localStorage.getItem(PLAYER_CACHE_TIME_KEY);
         const parsedTime = cachedTime ? parseInt(cachedTime, 10) : NaN;
-        const isFresh =
-          !Number.isNaN(parsedTime) &&
-          Date.now() - parsedTime < CACHE_TTL_MS;
+        const isFresh = isCacheTimestampFresh(Number.isNaN(parsedTime) ? null : parsedTime);
         if (cachedDict && isFresh) {
           try {
             const parsed = JSON.parse(cachedDict);
             playerDictCache = parsed;
+            playerDictCacheTime = parsedTime;
             setPlayerDictionary(parsed);
             return;
           } catch {
@@ -540,12 +545,14 @@ export default function Home() {
         if (!res.ok) throw new Error("Failed to fetch player dictionary");
         const dict = await res.json();
         if (!isMounted) return;
+        const fetchedAt = Date.now();
         playerDictCache = dict;
+        playerDictCacheTime = fetchedAt;
         setPlayerDictionary(dict);
         if (typeof window !== "undefined") {
           try {
             localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify(dict));
-            localStorage.setItem(PLAYER_CACHE_TIME_KEY, String(Date.now()));
+            localStorage.setItem(PLAYER_CACHE_TIME_KEY, String(fetchedAt));
           } catch (storageError) {
             console.warn("Unable to cache player dictionary", storageError);
           }
@@ -674,13 +681,21 @@ export default function Home() {
     Object.entries(playerDictionary).forEach(([playerId, player]) => {
       if (unavailablePlayers.has(playerId)) return;
 
-      const position =
-        player.position?.toUpperCase() || player.fantasy_positions?.[0]?.toUpperCase() || "";
-      if (!position || !SKILL_POSITIONS.includes(position)) return;
+      const normalizedPositions = normalizePositions(player.fantasy_positions, player.position).map(
+        (pos) => pos.toUpperCase()
+      );
+      const hasSkillPosition = normalizedPositions.some((pos) => SKILL_POSITIONS.includes(pos));
+      if (!hasSkillPosition) return;
 
-      // Limit to active NFL skill-position players with team context to keep the player pool relevant
-      if (!player.team) return;
-      if (player.status && player.status.toLowerCase() !== "active") return;
+      const value = playerValues[playerId];
+      const hasValue = Number.isFinite(value);
+      const isActive = player.active === true || player.status?.toLowerCase() === "active";
+      const isRookie =
+        player.years_exp !== undefined &&
+        player.years_exp !== null &&
+        Number(player.years_exp) === 0;
+
+      if (!(isActive || isRookie || hasValue)) return;
 
       const name =
         player.full_name ||
@@ -693,8 +708,8 @@ export default function Home() {
       players.push({
         id: playerId,
         name,
-        position,
-        team: player.team,
+        position: normalizedPositions[0] || "",
+        team: player.team || "FA",
         ageLabel: ageValue ? String(ageValue) : "–",
       });
     });
@@ -1172,7 +1187,7 @@ export default function Home() {
                   <div>
                     <h3 className="text-2xl font-semibold">Available Players</h3>
                     <p className="text-sm text-gray-400">
-                      Active QB / RB / WR / TE players not currently rostered.
+                      Eligible QB / RB / WR / TE players not currently rostered.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
