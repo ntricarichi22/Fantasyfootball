@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
-export const ACTIVE_WINDOW_MS = 5 * 60 * 1000;
+export const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
 let supabaseAdminClient: SupabaseClient | null = null;
 
@@ -28,4 +28,4 @@ export const getSupabaseAdminClient = (): SupabaseClientResult => {
   return { client: supabaseAdminClient, error: null };
 };
 
-export const activeCutoffIso = () => new Date(Date.now() - ACTIVE_WINDOW_MS).toISOString();
+export const activeCutoffIso = () => new Date(Date.now() - SESSION_TIMEOUT_MS).toISOString();

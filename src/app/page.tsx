@@ -144,7 +144,7 @@ const generateSessionId = () => {
     return `session-${Array.from(values).map((n) => n.toString(16)).join("")}`;
   }
 
-  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  throw new Error("Secure random generation unavailable");
 };
 
 const getStoredSessionSelection = () => {
@@ -479,10 +479,16 @@ export default function Home() {
 
   const ensureSession = useCallback(() => {
     if (sessionId) return sessionId;
-    const next = generateSessionId();
-    setSessionId(next);
-    return next;
-  }, [sessionId]);
+    try {
+      const next = generateSessionId();
+      setSessionId(next);
+      return next;
+    } catch (error) {
+      console.error("Unable to generate session id", error);
+      setErrorMessage("Unable to start a session. Please refresh and try again.");
+      return "";
+    }
+  }, [sessionId, setErrorMessage]);
 
   const fetchActiveTeams = useCallback(async () => {
     try {
@@ -511,8 +517,8 @@ export default function Home() {
 
   useEffect(() => {
     if (selectedTeam) return;
-    const interval = setInterval(fetchActiveTeams, ACTIVE_TEAMS_REFRESH_MS);
     fetchActiveTeams();
+    const interval = setInterval(fetchActiveTeams, ACTIVE_TEAMS_REFRESH_MS);
     return () => clearInterval(interval);
   }, [fetchActiveTeams, selectedTeam]);
 
@@ -1079,6 +1085,8 @@ export default function Home() {
     }
 
     const activeSessionId = ensureSession();
+    if (!activeSessionId) return;
+
     setClaimingTeam(true);
     try {
       const res = await fetch("/api/active-teams/claim", {
