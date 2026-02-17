@@ -85,6 +85,18 @@ interface DraftLogEntry {
   nflTeam?: string;
 }
 
+type ActiveTeamRecord = {
+  rosterId: string;
+  sessionId: string;
+};
+
+type ActiveTeamApiRow = {
+  rosterId?: string;
+  roster_id?: string;
+  sessionId?: string;
+  session_id?: string;
+};
+
 const DEMO_TEAM_ID = 0;
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
@@ -376,9 +388,7 @@ export default function Home() {
     selection: string;
     alreadyRecorded?: boolean;
   } | null>(null);
-  const [activeTeams, setActiveTeams] = useState<Array<{ rosterId: string; sessionId: string }>>(
-    []
-  );
+  const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
   const startDraftHandler = useRef<(() => void) | null>(null);
 
@@ -466,18 +476,20 @@ export default function Home() {
       const res = await fetch(`/api/active-teams?leagueId=${LEAGUE_ID}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch active teams");
       const json = await res.json();
-      const rows = Array.isArray(json?.data) ? json.data : [];
+      const rows: ActiveTeamApiRow[] = Array.isArray(json?.data) ? json.data : [];
       const normalized = rows
-        .map((row: { rosterId?: string; roster_id?: string; sessionId?: string; session_id?: string }) => ({
-          rosterId: toId(row?.rosterId ?? row?.roster_id),
-          sessionId:
-            typeof row?.sessionId === "string"
-              ? row.sessionId
-              : typeof row?.session_id === "string"
-                ? row.session_id
-                : "",
-        }))
-        .filter((row) => row.rosterId);
+        .map(
+          (row): ActiveTeamRecord => ({
+            rosterId: toId(row?.rosterId ?? row?.roster_id),
+            sessionId:
+              typeof row?.sessionId === "string"
+                ? row.sessionId
+                : typeof row?.session_id === "string"
+                  ? row.session_id
+                  : "",
+          })
+        )
+        .filter((row): row is ActiveTeamRecord => Boolean(row.rosterId));
       setActiveTeams(normalized);
     } catch (error) {
       console.warn("Unable to load active teams", error);
