@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { ACTIVE_TEAM_TIMEOUT_MS } from "../../../lib/activeTeams";
 
-export const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+export const SESSION_TIMEOUT_MS = ACTIVE_TEAM_TIMEOUT_MS;
 
 type SupabaseClientResult =
   | { client: SupabaseClient; error: null }

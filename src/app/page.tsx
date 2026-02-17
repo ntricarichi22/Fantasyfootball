@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
 import {
   formatDraftPickLabel,
   logDraftPickDistribution,
@@ -141,7 +142,10 @@ const generateSessionId = () => {
 
   if (webCrypto?.getRandomValues) {
     const values = webCrypto.getRandomValues(new Uint32Array(4));
-    return `session-${Array.from(values).map((n) => n.toString(16)).join("")}`;
+    const hex = Array.from(values)
+      .map((n) => n.toString(16).padStart(8, "0"))
+      .join("");
+    return `session-${hex}`;
   }
 
   throw new Error("Secure random generation unavailable");
@@ -553,27 +557,7 @@ export default function Home() {
           body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
         });
 
-        if (res.ok) return;
-
-        if (res.status === 404) {
-          const claimRes = await fetch("/api/active-teams/claim", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
-          });
-          if (claimRes.ok) return;
-          if (!cancelled) {
-            setErrorMessage(
-              claimRes.status === 409
-                ? "That team is now claimed by another session."
-                : "Unable to restore your session. Please pick a team again."
-            );
-            await releaseAndClearSession();
-          }
-          return;
-        }
-
-        if (!cancelled) {
+        if (!res.ok && !cancelled) {
           setErrorMessage(
             res.status === 409
               ? "Another session is using this team. Please pick again."
@@ -603,7 +587,10 @@ export default function Home() {
         const payload = JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId });
         const blob = new Blob([payload], { type: "application/json" });
         // Best-effort release; some browsers may ignore beacons during unload.
-        navigator.sendBeacon("/api/active-teams/release", blob);
+        const queued = navigator.sendBeacon("/api/active-teams/release", blob);
+        if (!queued) {
+          console.warn("Release beacon was not queued before unload.");
+        }
       } catch {
         // ignore
       }
@@ -1193,7 +1180,8 @@ export default function Home() {
               {claimingTeam ? "Joining..." : "Enter Draft Room"}
             </button>
             <p className="mt-3 text-xs text-gray-500">
-              Teams are hidden while in use and for 5 minutes after their last activity.
+              Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES} minute
+              {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "" : "s"} after their last activity.
             </p>
           </div>
         </div>
