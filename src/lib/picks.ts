@@ -21,6 +21,8 @@ export interface SleeperDraft {
   type?: string;
   draft_order?: Record<string, number>;
   slot_to_roster_id?: Record<string, number>;
+  draft_id?: string;
+  status?: string;
 }
 
 export const DEFAULT_PICK_SEASONS = ["2026", "2027"];
@@ -29,8 +31,14 @@ export const DRAFT_ORDER_UNAVAILABLE_MESSAGE = "Draft order unavailable";
 const DEFAULT_ROUNDS = 3;
 const DEFAULT_TEAM_COUNT = 12;
 
+const ACTIVE_DRAFT_STATUSES = new Set(["pre_draft", "drafting"]);
+const SLOT_PAD_LENGTH = 2;
+
 const pickKey = (season: string, round: number, originalRosterId: number) =>
   `${season}-${round}-${originalRosterId}`;
+
+const pickKeyForSlot = (season: string, round: number, slot: number) =>
+  `${season}-${round}-${String(slot).padStart(SLOT_PAD_LENGTH, "0")}`;
 
 const ensureTeamCount = (teamCount?: number) =>
   teamCount && teamCount > 0 ? teamCount : DEFAULT_TEAM_COUNT;
@@ -133,17 +141,141 @@ export const deriveDraftOrderForSeason = (
   drafts: SleeperDraft[] | undefined,
   season: string = PICK_SLOT_SEASON
 ) => {
-  if (!drafts?.length) return { draftOrder: undefined, available: false };
+  if (!drafts?.length) return { draftOrder: undefined, available: false, draftId: undefined };
   const matchingDraft =
-    drafts.find((draft) => draft.season === season && draft.type === "rookie") ||
+    drafts.find(
+      (draft) =>
+        draft.season === season &&
+        draft.type === "rookie" &&
+        (draft.status ? ACTIVE_DRAFT_STATUSES.has(draft.status) : true)
+    ) ||
+    drafts.find(
+      (draft) => draft.season === season && (draft.status ? ACTIVE_DRAFT_STATUSES.has(draft.status) : true)
+    ) ||
     drafts.find((draft) => draft.season === season);
   const draftOrder =
     parseRosterDraftOrder(matchingDraft?.draft_order) ||
     invertSlotMap(matchingDraft?.slot_to_roster_id);
   return {
+    draftId: matchingDraft?.draft_id,
     draftOrder,
     // Convenience boolean for consumers deciding whether to display slot numbers.
     available: !!draftOrder,
+    season: matchingDraft?.season ?? season,
+  };
+};
+
+export type PickMetadata = {
+  season: string;
+  round: number;
+  slot: number;
+  originalRosterId: number;
+};
+
+export type DraftState = {
+  draftId?: string;
+  season: string;
+  draftOrder?: Record<string, number>;
+  draftOrderAvailable: boolean;
+  teamCount: number;
+  pickOwnerByPickKey: Record<string, number>;
+  pickMetadataByPickKey: Record<string, PickMetadata>;
+};
+
+const invertDraftOrder = (draftOrder?: Record<string, number>) => {
+  if (!draftOrder) return undefined;
+  const entries = Object.entries(draftOrder)
+    .map(([rosterId, slot]) => [Number(slot), Number(rosterId)] as const)
+    .filter(
+      ([slot, rosterId]) =>
+        Number.isFinite(slot) && slot > 0 && Number.isFinite(rosterId) && rosterId > 0
+    );
+  if (!entries.length) return undefined;
+  return Object.fromEntries(entries);
+};
+
+export const buildDraftState = (
+  rosters: { roster_id: number }[],
+  drafts: SleeperDraft[] | undefined,
+  tradedPicks: TradedPick[],
+  slotSeason: string = PICK_SLOT_SEASON,
+  maxRound: number = DEFAULT_ROUNDS,
+  fallbackDraftOrder?: Record<string, number>
+): DraftState => {
+  const derivedOrder = deriveDraftOrderForSeason(drafts, slotSeason);
+  const draftOrder = derivedOrder.draftOrder ?? fallbackDraftOrder;
+  const draftSeason = derivedOrder?.season ?? slotSeason;
+  const slotToRosterFromOrder = invertDraftOrder(draftOrder);
+  const fallbackSlotToRoster: Record<number, number> = slotToRosterFromOrder
+    ? { ...slotToRosterFromOrder }
+    : Object.fromEntries(rosters.map((roster, index) => [index + 1, roster.roster_id]));
+  const rosterToSlot: Record<number, number> = draftOrder
+    ? Object.fromEntries(
+        Object.entries(draftOrder)
+          .map(([rosterId, slot]) => [Number(rosterId), Number(slot)])
+          .filter(
+            ([rosterId, slot]) =>
+              Number.isFinite(rosterId) && rosterId > 0 && Number.isFinite(slot) && slot > 0
+          )
+      )
+    : Object.fromEntries(
+        rosters.map((roster, index) => [roster.roster_id, index + 1])
+      );
+  const teamCount =
+    Object.keys(fallbackSlotToRoster).length || rosters.length || DEFAULT_TEAM_COUNT;
+  const pickOwnerByPickKey: Record<string, number> = {};
+  const pickMetadataByPickKey: Record<string, PickMetadata> = {};
+
+  for (let round = 1; round <= maxRound; round += 1) {
+    Object.entries(fallbackSlotToRoster).forEach(([slotStr, originalRosterId]) => {
+      const slot = Number(slotStr);
+      if (!Number.isFinite(slot) || !originalRosterId) return;
+      const key = pickKeyForSlot(draftSeason, round, slot);
+      pickOwnerByPickKey[key] = originalRosterId;
+      pickMetadataByPickKey[key] = {
+        season: draftSeason,
+        round,
+        slot,
+        originalRosterId,
+      };
+    });
+  }
+
+  tradedPicks.forEach((trade) => {
+    const tradeSeason = trade.season ? String(trade.season) : draftSeason;
+    if (tradeSeason !== draftSeason) return;
+    if (!trade.round || trade.round < 1 || trade.round > maxRound) return;
+    if (!trade.roster_id || !trade.owner_id) return;
+
+    const originalRosterId = Number(trade.roster_id);
+    const newOwnerId = Number(trade.owner_id);
+    if (!Number.isFinite(originalRosterId) || !Number.isFinite(newOwnerId)) return;
+
+    const slot =
+      rosterToSlot[originalRosterId] ??
+      rosterToSlot[String(originalRosterId) as unknown as number];
+    if (!slot) return;
+
+    const key = pickKeyForSlot(draftSeason, trade.round, slot);
+    pickOwnerByPickKey[key] = newOwnerId;
+    if (!pickMetadataByPickKey[key]) {
+      pickMetadataByPickKey[key] = {
+        season: draftSeason,
+        round: trade.round,
+        slot,
+        originalRosterId,
+      };
+    }
+  });
+
+  return {
+    draftId: derivedOrder.draftId,
+    season: draftSeason,
+    draftOrder,
+    draftOrderAvailable: derivedOrder.available || !!fallbackDraftOrder,
+    teamCount,
+    pickOwnerByPickKey,
+    pickMetadataByPickKey,
   };
 };
 
@@ -273,6 +405,38 @@ export const withComputedDraftPicks = <
     draft_picks: pickMap[roster.roster_id] ?? [],
   }));
 };
+
+export const applyDraftStateToRosters = <
+  Roster extends { roster_id: number; draft_picks?: DraftPick[] },
+>(
+  rosters: Roster[],
+  draftState: DraftState
+): Roster[] => {
+  const byOwner: Record<number, DraftPick[]> = {};
+
+  Object.entries(draftState.pickOwnerByPickKey).forEach(([key, ownerId]) => {
+    const meta = draftState.pickMetadataByPickKey[key];
+    if (!meta || ownerId == null) return;
+    if (!byOwner[ownerId]) byOwner[ownerId] = [];
+    byOwner[ownerId].push({
+      season: meta.season,
+      round: meta.round,
+      pick_no: meta.slot,
+      roster_id: ownerId,
+      original_roster_id: meta.originalRosterId,
+    });
+  });
+
+  Object.values(byOwner).forEach((list) => list.sort(sortPicks(draftState.teamCount)));
+
+  return rosters.map((roster) => ({
+    ...roster,
+    draft_picks: byOwner[roster.roster_id] ?? [],
+  }));
+};
+
+export const formatPickKey = (season: string, round: number, slot: number) =>
+  pickKeyForSlot(season, round, slot);
 
 export const logDraftPickDistribution = <
   Roster extends { roster_id: number; draft_picks?: DraftPick[] },

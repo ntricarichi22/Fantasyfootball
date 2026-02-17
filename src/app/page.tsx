@@ -7,11 +7,13 @@ import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
 import {
   formatDraftPickLabel,
   logDraftPickDistribution,
-  withComputedDraftPicks,
-  deriveDraftOrderForSeason,
+  buildDraftState,
+  applyDraftStateToRosters,
+  formatPickKey,
   PICK_SLOT_SEASON,
   DRAFT_ORDER_UNAVAILABLE_MESSAGE,
   type DraftPick,
+  type DraftState,
   type SleeperDraft,
   type TradedPick,
 } from "../lib/picks";
@@ -29,6 +31,7 @@ interface Team {
 interface League {
   roster_positions: string[];
   draft_order?: Record<string, number>;
+  season?: string;
 }
 
 interface Roster {
@@ -467,6 +470,7 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [leagueData, setLeagueData] = useState<League | null>(null);
+  const [draftState, setDraftState] = useState<DraftState | null>(null);
   const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
   const [rosters, setRosters] = useState<Roster[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
@@ -505,11 +509,45 @@ export default function Home() {
     }
   }, []);
 
+  const teamCountForDraft = useMemo(
+    () => draftState?.teamCount ?? Math.max(teams.length, MIN_TEAM_COUNT),
+    [draftState?.teamCount, teams.length]
+  );
+
+  const activeDraftSeason = draftState?.season ?? PICK_SLOT_SEASON;
+
+  const currentPickKey = useMemo(() => {
+    if (!draftState) return "";
+    const round = Math.floor(nextPickIndex / teamCountForDraft) + 1;
+    const slot = (nextPickIndex % teamCountForDraft) + 1;
+    return formatPickKey(activeDraftSeason, round, slot);
+  }, [activeDraftSeason, draftState, nextPickIndex, teamCountForDraft]);
+
+  const onClockRosterId = useMemo(() => {
+    if (!currentPickKey || !draftState) return "";
+    const owner = draftState.pickOwnerByPickKey[currentPickKey];
+    return owner != null ? toId(owner) : "";
+  }, [currentPickKey, draftState]);
+
+  const onClockTeamName = useMemo(() => {
+    if (!onClockRosterId) return "";
+    const numericId = Number(onClockRosterId);
+    return rosterNames[numericId] || `Roster ${onClockRosterId}`;
+  }, [onClockRosterId, rosterNames]);
+
+  const currentPickLabel = useMemo(
+    () => calculatePickNumber(nextPickIndex, teamCountForDraft),
+    [nextPickIndex, teamCountForDraft]
+  );
+
   useEffect(() => {
     if (!statusMessage) return;
     const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
+  useEffect(() => {
+    setCurrentClockTeam(onClockTeamName);
+  }, [onClockTeamName]);
   useEffect(() => {
     if (!selectedTeam || !sessionId || isDraftRoute) return;
     router.replace(draftRoute);
@@ -748,13 +786,13 @@ export default function Home() {
     async function fetchSleeperData() {
       const loadDemoData = (message: string) => {
         const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
-        const demoRosters = withComputedDraftPicks(DEMO_ROSTERS, [], {
-          teamCountOverride: DEMO_ROSTERS.length || 1,
-        });
+        const demoDraftState = buildDraftState(DEMO_ROSTERS, [], [], PICK_SLOT_SEASON);
+        const demoRosters = applyDraftStateToRosters(DEMO_ROSTERS, demoDraftState);
         setTeams(DEMO_TEAMS);
         setCommissionerRosterId("");
         setLeagueData(DEMO_LEAGUE);
-        setDraftOrderAvailable(false);
+        setDraftState(demoDraftState);
+        setDraftOrderAvailable(demoDraftState.draftOrderAvailable);
         setRosters(demoRosters);
         setRosterNames(demoNameMap);
         logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
@@ -787,8 +825,6 @@ export default function Home() {
         const tradedJson: TradedPick[] = await tradedRes.json();
         const draftsJson: SleeperDraft[] = await draftsRes.json();
 
-        const rosterOwnerMap: Record<number, string | number | null | undefined> =
-          Object.fromEntries(rosterJson.map((roster) => [roster.roster_id, roster.owner_id] as const));
         let detectedCommissionerRosterId = "";
         const mappedTeams: Team[] = rosterJson.map((roster) => {
           const user = roster.owner_id
@@ -815,34 +851,43 @@ export default function Home() {
         });
         const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
 
-        const { draftOrder, available } = deriveDraftOrderForSeason(draftsJson, PICK_SLOT_SEASON);
-        // TODO: Remove once draft slot mapping has been verified in production.
-        // Temporary debug to verify draft slot mapping against Sleeper Draft Settings.
-        console.log(
-          `Derived ${PICK_SLOT_SEASON} draft slots (team -> slot):`,
-          Object.fromEntries(
-            mappedTeams.map((team) => {
-              const ownerKey = team.ownerId != null ? String(team.ownerId) : null;
-              const rosterKey = String(team.id);
-              return [
-                team.name,
-                ownerKey != null
-                  ? draftOrder?.[ownerKey] ?? draftOrder?.[rosterKey]
-                  : draftOrder?.[rosterKey],
-              ];
-            })
-          )
+        const activeSeason = leagueJson?.season ?? PICK_SLOT_SEASON;
+        const draftState = buildDraftState(
+          rosterJson,
+          draftsJson,
+          tradedJson,
+          activeSeason,
+          undefined,
+          leagueJson.draft_order
         );
-        const rostersWithPicks = withComputedDraftPicks(rosterJson, tradedJson, {
-          teamCountOverride: rosterJson.length,
-          draftOrder: draftOrder ?? leagueJson.draft_order,
-          rosterOwnerMap,
-        });
+        const rostersWithPicks = applyDraftStateToRosters(rosterJson, draftState);
+
+        if (process.env.NODE_ENV !== "production") {
+          const roundOneOwners = Array.from({ length: draftState.teamCount }, (_, idx) => {
+            const slot = idx + 1;
+            const key = formatPickKey(draftState.season, 1, slot);
+            const ownerId = draftState.pickOwnerByPickKey[key];
+            const ownerName =
+              ownerId != null
+                ? nameMap[ownerId] ?? `Roster ${ownerId}`
+                : "Unknown";
+            return `${String(slot).padStart(2, "0")}: ${ownerName}`;
+          });
+          console.log(
+            "[DraftState] draft",
+            draftState.draftId ?? "unknown",
+            "season",
+            draftState.season,
+            "round1 owners",
+            roundOneOwners
+          );
+        }
 
         setTeams(mappedTeams);
         setCommissionerRosterId(detectedCommissionerRosterId);
         setLeagueData(leagueJson);
-        setDraftOrderAvailable(available);
+        setDraftState(draftState);
+        setDraftOrderAvailable(draftState.draftOrderAvailable);
         setRosterNames(nameMap);
         setRosters(rostersWithPicks);
         setErrorMessage("");
@@ -1133,10 +1178,11 @@ export default function Home() {
 
     const matchingTeam = teams.find((team) => team.name === teamName);
     const rosterKey =
-      matchingTeam ? toId(matchingTeam.id) : teamName || `team-${Date.now()}`;
+      onClockRosterId ||
+      (matchingTeam ? toId(matchingTeam.id) : teamName || `team-${Date.now()}`);
     const drafted = resolveDraftedPlayer(selection, playerDictionary);
-    const teamDisplayName = matchingTeam?.name || teamName;
-    const teamCount = Math.max(teams.length, MIN_TEAM_COUNT);
+    const teamDisplayName = onClockTeamName || matchingTeam?.name || teamName;
+    const teamCount = Math.max(teamCountForDraft, MIN_TEAM_COUNT);
     const pickIndex = nextPickIndex;
     const pickNumber = calculatePickNumber(pickIndex, teamCount);
     const entry: DraftLogEntry = {
@@ -1258,11 +1304,27 @@ export default function Home() {
 
   const draftPickText = (pick: DraftPick) =>
     formatDraftPickLabel(pick, {
-      teamCount: rosters.length || teams.length || 1,
+      teamCount: draftState?.teamCount ?? (rosters.length || teams.length || 1),
       originalTeamNames: rosterNames,
       draftOrderAvailable: draftOrderAvailable === true,
-      slotSeason: PICK_SLOT_SEASON,
+      slotSeason: draftState?.season ?? PICK_SLOT_SEASON,
     });
+
+  const draftTimerTeams = useMemo(() => {
+    if (!draftState) return teams;
+    return Array.from({ length: draftState.teamCount }, (_, idx) => {
+      const slot = idx + 1;
+      const key = formatPickKey(draftState.season, 1, slot);
+      const ownerId = draftState.pickOwnerByPickKey[key];
+      const name =
+        ownerId != null
+          ? rosterNames[ownerId] ??
+            teams.find((team) => team.id === ownerId)?.name ??
+            `Roster ${ownerId}`
+          : teams[idx]?.name ?? `Roster ${slot}`;
+      return { name };
+    });
+  }, [draftState, rosterNames, teams]);
 
   const handleRegisterStart = useCallback((handler: () => void) => {
     startDraftHandler.current = handler;
@@ -1396,12 +1458,17 @@ export default function Home() {
   }, [selectedTeam, sessionId, teams]);
 
   const handleAvailablePlayerSelect = (player: AvailablePlayer) => {
-    if (!currentClockTeam) {
+    if (!onClockRosterId) {
       setStatusMessage("Start the draft to make picks.");
       return;
     }
 
-    handlePickMade(currentClockTeam, player.id);
+    if (!selectedTeam || selectedTeam !== onClockRosterId) {
+      setStatusMessage("Only the team on the clock can make this pick.");
+      return;
+    }
+
+    handlePickMade(onClockTeamName || currentClockTeam, player.id);
     setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
   };
 
@@ -1784,10 +1851,12 @@ export default function Home() {
 
             <div className="flex-1 flex flex-col gap-4 overflow-hidden bg-transparent">
               <DraftTimer
-                teams={teams}
+                teams={draftTimerTeams}
                 nextPickIndex={nextPickIndex}
                 onPickMade={handlePickMade}
                 onTeamChange={setCurrentClockTeam}
+                currentTeamNameOverride={onClockTeamName}
+                currentPickLabelOverride={currentPickLabel}
                 externalPick={queuedExternalPick}
                 onExternalPickHandled={() => setQueuedExternalPick(null)}
                 registerStartHandler={handleRegisterStart}
@@ -1808,7 +1877,7 @@ export default function Home() {
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
-                    {!currentClockTeam && (
+                    {!onClockRosterId && (
                       <span className="text-xs text-amber-300">
                         Start the draft to enable selections.
                       </span>
@@ -1847,7 +1916,7 @@ export default function Home() {
                               <td className="px-4 py-3 text-right">
                                 <button
                                   className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
-                                  disabled={!currentClockTeam}
+                                  disabled={!onClockRosterId || selectedTeam !== onClockRosterId}
                                   onClick={() => handleAvailablePlayerSelect(player)}
                                 >
                                   Select

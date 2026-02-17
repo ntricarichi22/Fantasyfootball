@@ -19,6 +19,8 @@ type DraftTimerProps = {
   registerStartHandler?: (handler: () => void) => void;
   onStart?: () => void;
   nextPickIndex?: number;
+  currentTeamNameOverride?: string;
+  currentPickLabelOverride?: string;
 };
 
 export default function DraftTimer({
@@ -30,6 +32,8 @@ export default function DraftTimer({
   registerStartHandler,
   onStart,
   nextPickIndex,
+  currentTeamNameOverride,
+  currentPickLabelOverride,
 }: DraftTimerProps) {
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
   const [isRunning, setIsRunning] = useState(false);
@@ -70,12 +74,13 @@ export default function DraftTimer({
     : pickNumber;
 
   const pickLabel = useMemo(() => {
+    if (currentPickLabelOverride) return currentPickLabelOverride;
     const teamCount = Math.max(teamsForDraft.length, 1);
     const round = Math.floor((displayedPickNumber - 1) / teamCount) + 1;
     const pickInRound = ((displayedPickNumber - 1) % teamCount) + 1;
 
     return `${round}.${String(pickInRound).padStart(2, "0")}`;
-  }, [displayedPickNumber, teamsForDraft.length]);
+  }, [currentPickLabelOverride, displayedPickNumber, teamsForDraft.length]);
 
   const safeTeamIndex = teamsForDraft.length
     ? currentTeamIndex % teamsForDraft.length
@@ -86,7 +91,9 @@ export default function DraftTimer({
       : safeTeamIndex;
 
   const currentTeamName =
-    teamsForDraft[derivedTeamIndex]?.name || "Team on the clock";
+    currentTeamNameOverride ||
+    teamsForDraft[derivedTeamIndex]?.name ||
+    "Team on the clock";
 
   const initializeDraft = useCallback(() => {
     if (hasStartedRef.current) return;
@@ -151,7 +158,7 @@ export default function DraftTimer({
     <div className="w-full max-w-4xl space-y-4">
       <div className="flex items-center justify-between rounded-xl bg-slate-900 px-6 py-4 shadow-lg">
         <div className="text-sm uppercase tracking-widest text-slate-400">
-          On the Clock
+          On the clock: {currentTeamName} Pick {pickLabel}
         </div>
         <div className="flex items-center gap-4 text-lg font-semibold text-white">
           <span className="rounded-lg bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
