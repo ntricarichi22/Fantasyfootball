@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
 import {
@@ -158,17 +159,18 @@ const generateSessionId = () => {
 };
 
 const getStoredSessionSelection = () => {
-  if (typeof window === "undefined") return { rosterId: "", sessionId: "" };
+  if (typeof window === "undefined") return { rosterId: "", sessionId: "", teamName: "" };
   try {
     const saved = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!saved) return { rosterId: "", sessionId: "" };
+    if (!saved) return { rosterId: "", sessionId: "", teamName: "" };
     const parsed = JSON.parse(saved);
     return {
       rosterId: toId(parsed?.rosterId),
       sessionId: typeof parsed?.sessionId === "string" ? parsed.sessionId : "",
+      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : "",
     };
   } catch {
-    return { rosterId: "", sessionId: "" };
+    return { rosterId: "", sessionId: "", teamName: "" };
   }
 };
 
@@ -452,6 +454,10 @@ const normalizeDraftLogPayload = (entry: Partial<DraftLogEntry> & Record<string,
 };
 
 export default function Home() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const isDraftRoute = pathname?.startsWith("/draft");
+  const draftRoute = "/draft";
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState(() => getStoredSessionSelection().rosterId);
   const [sessionId, setSessionId] = useState(() => getStoredSessionSelection().sessionId);
@@ -505,6 +511,17 @@ export default function Home() {
     const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
+  useEffect(() => {
+    if (!selectedTeam || !sessionId || isDraftRoute) return;
+    router.replace(draftRoute);
+  }, [draftRoute, isDraftRoute, router, selectedTeam, sessionId]);
+  useEffect(() => {
+    if (!isDraftRoute || selectedTeam) return;
+    const stored = getStoredSessionSelection();
+    if (!stored.rosterId) {
+      router.replace("/");
+    }
+  }, [isDraftRoute, router, selectedTeam]);
   useEffect(() => {
     if (selectedTeam || typeof window === "undefined") return;
     const stored = getStoredSessionSelection();
@@ -1264,7 +1281,10 @@ export default function Home() {
     setDraftStarted(false);
     setStartReady(false);
     setStatusMessage("");
-  }, [clearSessionSelection, releaseActiveTeam]);
+    if (isDraftRoute) {
+      router.replace("/");
+    }
+  }, [clearSessionSelection, isDraftRoute, releaseActiveTeam, router]);
 
   const handleEnterDraftRoom = useCallback(async () => {
     if (!teamSelectionInput) {
@@ -1307,13 +1327,14 @@ export default function Home() {
       setSelectedTeam(teamSelectionInput);
       setErrorMessage("");
       setStatusMessage("");
+      router.replace(draftRoute);
     } catch (error) {
       console.warn("Unable to claim team", error);
       setErrorMessage("Unable to enter the draft room. Please try again.");
     } finally {
       setClaimingTeam(false);
     }
-  }, [ensureSession, fetchActiveTeams, leagueId, leagueIdError, teamSelectionInput]);
+  }, [draftRoute, ensureSession, fetchActiveTeams, leagueId, leagueIdError, router, teamSelectionInput]);
 
   const persistDraftLogEntry = useCallback(async (entry: DraftLogEntry) => {
     try {
@@ -1359,18 +1380,21 @@ export default function Home() {
       return;
     }
 
+    const selectedTeamName = teams.find((t) => toId(t.id) === selectedTeam)?.name;
+
     try {
       sessionStorage.setItem(
         SELECTED_TEAM_CACHE_KEY,
         JSON.stringify({
           rosterId: selectedTeam,
           sessionId,
+          teamName: selectedTeamName || "",
         })
       );
     } catch {
       // ignore storage failures
     }
-  }, [selectedTeam, sessionId]);
+  }, [selectedTeam, sessionId, teams]);
 
   const handleAvailablePlayerSelect = (player: AvailablePlayer) => {
     if (!currentClockTeam) {
@@ -1398,6 +1422,11 @@ export default function Home() {
     [deleteDraftLogEntry, nextPickIndex]
   );
 
+  const hasActiveSession = !!selectedTeam && !!sessionId;
+  const redirectingToDraft = !isDraftRoute && hasActiveSession;
+  const redirectingToWelcome = isDraftRoute && !hasActiveSession;
+  const showWelcome = !isDraftRoute && !selectedTeam;
+
   return (
     <main className="relative min-h-screen overflow-hidden text-white">
       {leagueIdError && (
@@ -1405,7 +1434,15 @@ export default function Home() {
           {leagueIdError} Live Sleeper data is unavailable until it is set.
         </div>
       )}
-      {!selectedTeam ? (
+      {redirectingToDraft ? (
+        <div className="flex min-h-screen items-center justify-center bg-black/80">
+          <p className="text-lg font-semibold text-gray-100">Entering Draft Room...</p>
+        </div>
+      ) : redirectingToWelcome ? (
+        <div className="flex min-h-screen items-center justify-center bg-black/80">
+          <p className="text-lg font-semibold text-gray-100">Returning to team select...</p>
+        </div>
+      ) : showWelcome ? (
         <div className="relative flex min-h-screen flex-col overflow-hidden px-4 pb-10 pt-6 sm:px-8 lg:px-12">
           <Image
             src="/welcome-bg.png"

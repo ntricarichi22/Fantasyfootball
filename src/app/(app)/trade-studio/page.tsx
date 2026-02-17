@@ -12,14 +12,14 @@ import {
   type DraftPick,
   type SleeperDraft,
   type TradedPick,
-} from "../../lib/picks";
-import { getLeagueId } from "../../lib/config";
+} from "../../../lib/picks";
+import { getLeagueId } from "../../../lib/config";
 import {
   computeLeagueRankings,
   rankBandLabel,
   type MetricKey,
   type TeamRanking,
-} from "../../lib/leagueRankings";
+} from "../../../lib/leagueRankings";
 
 interface Team {
   id: number;
@@ -94,7 +94,7 @@ let offerIdCounter = 0;
 
 type TimelineLane = "Contend" | "Re-tool" | "Rebuild";
 type Posture = "Buyer" | "Seller";
-type WorkbenchTabKey = "trade-block" | "manual" | "incoming" | "chat";
+type WorkbenchTabKey = "trade-block" | "incoming" | "chat";
 
 const YOUNG_PLAYER_AGE_THRESHOLD = 25;
 const VETERAN_PLAYER_AGE_THRESHOLD = 29;
@@ -127,17 +127,23 @@ interface AiProfile {
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
 
-const getStoredSelectedTeam = () => {
-  if (typeof window === "undefined") return "";
+const getStoredSessionSelection = () => {
+  if (typeof window === "undefined") return { rosterId: "", sessionId: "", teamName: "" };
   try {
     const saved = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!saved) return "";
+    if (!saved) return { rosterId: "", sessionId: "", teamName: "" };
     const parsed = JSON.parse(saved);
-    return toId(parsed?.rosterId);
+    return {
+      rosterId: toId(parsed?.rosterId),
+      sessionId: typeof parsed?.sessionId === "string" ? parsed.sessionId : "",
+      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : "",
+    };
   } catch {
-    return "";
+    return { rosterId: "", sessionId: "", teamName: "" };
   }
 };
+
+const getStoredSelectedTeam = () => getStoredSessionSelection().rosterId;
 
 const computeAge = (player: SleeperPlayer) => {
   if (typeof player.age === "number") return player.age;
@@ -613,6 +619,7 @@ export default function TradeStudioPage() {
 
     const team = teams.find((t) => toId(t.id) === selectedTeam);
     if (!team) return;
+    const existing = getStoredSessionSelection();
 
     try {
       sessionStorage.setItem(
@@ -621,6 +628,7 @@ export default function TradeStudioPage() {
           rosterId: toId(team.id),
           ownerId: team.ownerId || null,
           teamName: team.name,
+          sessionId: existing.sessionId || "",
         })
       );
     } catch {
@@ -1313,18 +1321,17 @@ export default function TradeStudioPage() {
                     </div>
                     <span className="text-xs text-gray-400">Live board</span>
                   </div>
-                  <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                    <div className="mb-3 flex flex-wrap items-center gap-2">
-                      {([
-                        { key: "trade-block" as WorkbenchTabKey, label: "Trade Block" },
-                        { key: "manual" as WorkbenchTabKey, label: "Manual Trade" },
-                        { key: "incoming" as WorkbenchTabKey, label: "Incoming" },
-                        { key: "chat" as WorkbenchTabKey, label: "Chat" },
-                      ] satisfies Array<{ key: WorkbenchTabKey; label: string }>).map((tab) => {
-                        const selected = activeWorkbenchTab === tab.key;
-                        return (
-                          <button
-                            key={tab.key}
+                    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                      <div className="mb-3 flex flex-wrap items-center gap-2">
+                        {([
+                          { key: "trade-block" as WorkbenchTabKey, label: "Trade Block" },
+                          { key: "incoming" as WorkbenchTabKey, label: "Incoming Offers" },
+                          { key: "chat" as WorkbenchTabKey, label: "Trade Chat" },
+                        ] satisfies Array<{ key: WorkbenchTabKey; label: string }>).map((tab) => {
+                          const selected = activeWorkbenchTab === tab.key;
+                          return (
+                            <button
+                              key={tab.key}
                             type="button"
                             onClick={() => setActiveWorkbenchTab(tab.key)}
                             className={[
@@ -1509,10 +1516,6 @@ export default function TradeStudioPage() {
                               </div>
                             )}
                           </div>
-                        </div>
-                      ) : activeWorkbenchTab === "manual" ? (
-                        <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
-                          Manual Trade workspace coming soon.
                         </div>
                       ) : activeWorkbenchTab === "incoming" ? (
                         <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
