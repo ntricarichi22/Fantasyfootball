@@ -340,6 +340,7 @@ export default function Home() {
   const [rosters, setRosters] = useState<Roster[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
+  const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
   const [draftedPlayersState, setDraftedPlayersState] = useState<Record<string, DraftedPlayer[]>>(
     {}
   );
@@ -561,6 +562,30 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPlayerValues() {
+      try {
+        const res = await fetch("/api/player-values");
+        if (!res.ok) throw new Error("Failed to fetch player values");
+        const json = await res.json();
+        if (!isMounted) return;
+        setPlayerValues(json.data ?? {});
+      } catch (error) {
+        console.warn("Unable to load player values", error);
+        if (!isMounted) return;
+        setPlayerValues({});
+      }
+    }
+
+    loadPlayerValues();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
     [rosters, selectedTeam]
@@ -675,10 +700,20 @@ export default function Home() {
     });
 
     return players.sort((a, b) => {
-      if (a.position !== b.position) return a.position.localeCompare(b.position);
+      const aValue = playerValues[a.id];
+      const bValue = playerValues[b.id];
+      const aHasValue = typeof aValue === "number" && Number.isFinite(aValue);
+      const bHasValue = typeof bValue === "number" && Number.isFinite(bValue);
+
+      if (aHasValue && bHasValue && aValue !== bValue) {
+        return bValue - aValue;
+      }
+
+      if (aHasValue && !bHasValue) return -1;
+      if (!aHasValue && bHasValue) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [playerDictionary, searchTerm, unavailablePlayers]);
+  }, [playerDictionary, playerValues, searchTerm, unavailablePlayers]);
 
   const handlePickMade = (teamName: string, selection: string) => {
     if (!teamName || !selection) return;
