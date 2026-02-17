@@ -1180,8 +1180,8 @@ export default function Home() {
               {claimingTeam ? "Joining..." : "Enter Draft Room"}
             </button>
             <p className="mt-3 text-xs text-gray-500">
-              Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES} minute
-              {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "" : "s"} after their last activity.
+              Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES}{" "}
+              {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "minute" : "minutes"} after their last activity.
             </p>
           </div>
         </div>
