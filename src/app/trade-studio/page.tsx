@@ -76,6 +76,7 @@ interface OfferSuggestion {
 }
 
 const DEMO_TEAM_ID = 0;
+const DEFAULT_TRADE_BLOCK_ITEMS = ["Bench depth", "Future flexibility"];
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
   { roster_id: DEMO_TEAM_ID, owner_id: null, starters: [], players: [], draft_picks: [] },
@@ -87,7 +88,9 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const AVAILABILITY_CACHE_KEY = "trade_studio_availability";
 const TRADE_BLOCK_CACHE_KEY = "trade_studio_trade_block";
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
+const SNAPSHOT_FOOTER_PADDING_CLASS = "pb-24";
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
+let offerIdCounter = 0;
 
 type TimelineLane = "Contend" | "Re-tool" | "Rebuild";
 type Posture = "Buyer" | "Seller";
@@ -160,35 +163,34 @@ const availabilityKeyForPick = (pick: DraftPick) =>
   }`;
 
 const buildOfferSuggestions = (tradeBlock: TradeAsset[]): OfferSuggestion[] => {
-  const baseGive =
-    tradeBlock.length > 0 ? tradeBlock.map((asset) => asset.label) : ["Bench depth", "Future flexibility"];
-  const defaultGive = baseGive.length ? baseGive : ["Trade chip"];
+  const baseGive = tradeBlock.length > 0 ? tradeBlock.map((asset) => asset.label) : DEFAULT_TRADE_BLOCK_ITEMS;
+  const offerIdBase = `offer-seed-${Date.now()}-${offerIdCounter++}`;
 
   const scenarios = [
     {
       partner: "Manager Vega",
-      give: defaultGive.slice(0, 2),
+      give: baseGive.slice(0, 2),
       get: ["2025 2nd", "WR3 upgrade"],
       note: "Balanced return for present value",
     },
     {
       partner: "GM Ellis",
-      give: defaultGive.slice(0, 1),
+      give: baseGive.slice(0, 1),
       get: ["2026 1st", "Upside RB"],
       note: "Adds future capital with a dart throw",
     },
     {
       partner: "Commish AI",
-      give: defaultGive.slice(0, 3),
+      give: baseGive.slice(0, 3),
       get: ["Contender's 2025 3rd", "Buy-low TE"],
       note: "Depth consolidation for picks + upside",
     },
   ];
 
   return scenarios.map((scenario, idx) => ({
-    id: `offer-${Date.now()}-${idx}`,
+    id: `offer-${offerIdBase}-${idx}`,
     partner: scenario.partner,
-    give: scenario.give.length ? scenario.give : defaultGive,
+    give: scenario.give.length ? scenario.give : baseGive,
     get: scenario.get,
     note: scenario.note,
   }));
@@ -942,8 +944,9 @@ export default function TradeStudioPage() {
   }, [offerSuggestions.length]);
 
   useEffect(() => {
-    regenerateOffers();
-  }, [regenerateOffers]);
+    setOfferSuggestions(buildOfferSuggestions(tradeBlock));
+    setActiveOfferIndex(0);
+  }, [tradeBlock]);
 
   const teamName = useMemo(
     () => teams.find((t) => toId(t.id) === selectedTeam)?.name || "Selected Team",
@@ -973,10 +976,9 @@ export default function TradeStudioPage() {
     }
   }, [aiProfile, selectedTeam]);
 
-  const currentOffer =
-    offerSuggestions.length && activeOfferIndex < offerSuggestions.length
-      ? offerSuggestions[activeOfferIndex]
-      : offerSuggestions[0] ?? null;
+  const currentOffer = offerSuggestions[activeOfferIndex] ?? offerSuggestions[0] ?? null;
+  const offerTotal = offerSuggestions.length;
+  const offerPosition = offerTotal ? activeOfferIndex + 1 : 0;
 
   return (
     <main className="h-screen overflow-hidden bg-black text-gray-100">
@@ -1199,7 +1201,7 @@ export default function TradeStudioPage() {
                     </span>
                   </div>
                   <div className="relative flex h-full flex-col overflow-hidden text-sm text-gray-200">
-                    <div className="flex-1 space-y-4 overflow-y-auto pr-1 pb-24">
+                    <div className={`flex-1 space-y-4 overflow-y-auto pr-1 ${SNAPSHOT_FOOTER_PADDING_CLASS}`}>
                       <p className="text-sm text-gray-300">{aiProfile.summary}</p>
                       <p className="text-xs text-gray-500">Values loaded: {playerValuesLoadedLabel}</p>
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -1221,7 +1223,7 @@ export default function TradeStudioPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="sticky bottom-0 -mx-4 mt-3 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
+                    <div className="sticky bottom-0 mt-3 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
                       <div className="flex flex-wrap items-start gap-6">
                         <div className="min-w-[180px] flex-1">
                           <p className="text-xs text-gray-400">Timeline</p>
@@ -1373,8 +1375,7 @@ export default function TradeStudioPage() {
                               <div>
                                 <p className="text-xs uppercase tracking-wide text-gray-400">Offer Suggestions</p>
                                 <p className="text-sm font-semibold text-white">
-                                  Offer {offerSuggestions.length ? activeOfferIndex + 1 : 0} of{" "}
-                                  {offerSuggestions.length || 0}
+                                  Offer {offerPosition} of {offerTotal}
                                 </p>
                               </div>
                               <div className="flex items-center gap-2">
@@ -1401,7 +1402,9 @@ export default function TradeStudioPage() {
                               <>
                                 <div className="mb-3 rounded-lg border border-gray-800 bg-black/40 p-3">
                                   <p className="text-[11px] uppercase tracking-wide text-gray-400">Partner</p>
-                                  <p className="text-base font-semibold text-white">{currentOffer?.partner}</p>
+                                  <p className="text-base font-semibold text-white">
+                                    {currentOffer?.partner ?? ""}
+                                  </p>
                                   {currentOffer?.note ? (
                                     <p className="text-xs text-gray-400">{currentOffer.note}</p>
                                   ) : null}
@@ -1411,7 +1414,7 @@ export default function TradeStudioPage() {
                                     className="flex items-center justify-between text-xs text-gray-400"
                                     htmlFor="aggression-slider"
                                   >
-                                    <span>Conservative ↔ Aggressive</span>
+                                    <span>Conservative to Aggressive</span>
                                     <span className="text-[11px] text-gray-500">{offerAggression}%</span>
                                   </label>
                                   <input
@@ -1433,9 +1436,9 @@ export default function TradeStudioPage() {
                                     <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
                                       <p className="text-xs uppercase tracking-wide text-gray-400">You Give</p>
                                       <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                        {currentOffer?.give?.map((item, idx) => (
+                                        {currentOffer?.give?.map((item) => (
                                           <li
-                                            key={`${currentOffer?.id}-give-${idx}`}
+                                            key={`${currentOffer?.id}-give-${item}`}
                                             className="rounded-md border border-gray-800 bg-gray-900 px-2 py-1"
                                           >
                                             {item}
@@ -1446,9 +1449,9 @@ export default function TradeStudioPage() {
                                     <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
                                       <p className="text-xs uppercase tracking-wide text-gray-400">You Get</p>
                                       <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                        {currentOffer?.get?.map((item, idx) => (
+                                        {currentOffer?.get?.map((item) => (
                                           <li
-                                            key={`${currentOffer?.id}-get-${idx}`}
+                                            key={`${currentOffer?.id}-get-${item}`}
                                             className="rounded-md border border-gray-800 bg-gray-900 px-2 py-1"
                                           >
                                             {item}
@@ -1467,8 +1470,7 @@ export default function TradeStudioPage() {
                                     Generate again
                                   </button>
                                   <span className="text-xs text-gray-400">
-                                    Offer carousel {offerSuggestions.length ? activeOfferIndex + 1 : 0} of{" "}
-                                    {offerSuggestions.length || 0}
+                                    Offer carousel {offerPosition} of {offerTotal}
                                   </span>
                                 </div>
                               </>
