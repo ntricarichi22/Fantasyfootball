@@ -532,8 +532,10 @@ export default function Home() {
   const onClockTeamName = useMemo(() => {
     if (!onClockRosterId) return "";
     const numericId = Number(onClockRosterId);
-    return rosterNames[numericId] || `Roster ${onClockRosterId}`;
-  }, [onClockRosterId, rosterNames]);
+    const byRosterId = rosterNames[numericId];
+    const byTeamList = teams.find((team) => toId(team.id) === onClockRosterId)?.name;
+    return byRosterId || byTeamList || `Roster ${onClockRosterId}`;
+  }, [onClockRosterId, rosterNames, teams]);
 
   const currentPickLabel = useMemo(
     () => calculatePickNumber(nextPickIndex, teamCountForDraft),
