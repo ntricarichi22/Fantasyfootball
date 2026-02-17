@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
 import {
   formatDraftPickLabel,
   logDraftPickDistribution,
@@ -85,6 +86,18 @@ interface DraftLogEntry {
   nflTeam?: string;
 }
 
+type ActiveTeamRecord = {
+  rosterId: string;
+  sessionId: string;
+};
+
+type ActiveTeamApiRow = {
+  rosterId?: string;
+  roster_id?: string;
+  sessionId?: string;
+  session_id?: string;
+};
+
 const DEMO_TEAM_ID = 0;
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
@@ -99,6 +112,8 @@ const DRAFTED_CACHE_KEY = "drafted_players_state";
 const DRAFT_LOG_CACHE_KEY = "draft_log_state";
 const LINEUP_CACHE_KEY = "lineup_overrides_state";
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
+const HEARTBEAT_INTERVAL_MS = 30_000;
+const ACTIVE_TEAMS_REFRESH_MS = 12_000;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const EMPTY_SLOT = "";
 const STATUS_MESSAGE_TIMEOUT_MS = 3000;
@@ -115,15 +130,39 @@ const isCacheTimestampFresh = (timestamp: number | null | undefined) =>
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
 
-const getStoredSelectedTeam = () => {
-  if (typeof window === "undefined") return "";
+const generateSessionId = () => {
+  const webCrypto: Crypto | undefined =
+    typeof globalThis !== "undefined" && "crypto" in globalThis
+      ? (globalThis.crypto as Crypto | undefined)
+      : undefined;
+
+  if (webCrypto?.randomUUID) {
+    return webCrypto.randomUUID();
+  }
+
+  if (webCrypto?.getRandomValues) {
+    const values = webCrypto.getRandomValues(new Uint32Array(8));
+    const hex = Array.from(values)
+      .map((n) => n.toString(16).padStart(8, "0"))
+      .join("");
+    return hex;
+  }
+
+  throw new Error("Secure random generation unavailable");
+};
+
+const getStoredSessionSelection = () => {
+  if (typeof window === "undefined") return { rosterId: "", sessionId: "" };
   try {
-    const saved = localStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!saved) return "";
+    const saved = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
+    if (!saved) return { rosterId: "", sessionId: "" };
     const parsed = JSON.parse(saved);
-    return toId(parsed?.rosterId);
+    return {
+      rosterId: toId(parsed?.rosterId),
+      sessionId: typeof parsed?.sessionId === "string" ? parsed.sessionId : "",
+    };
   } catch {
-    return "";
+    return { rosterId: "", sessionId: "" };
   }
 };
 
@@ -338,7 +377,11 @@ const normalizeDraftLogEntry = (entry: Partial<DraftLogEntry>): DraftLogEntry | 
 
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
-  const [selectedTeam, setSelectedTeam] = useState(() => getStoredSelectedTeam());
+  const [selectedTeam, setSelectedTeam] = useState(() => getStoredSessionSelection().rosterId);
+  const [sessionId, setSessionId] = useState(() => getStoredSessionSelection().sessionId);
+  const [teamSelectionInput, setTeamSelectionInput] = useState(
+    () => getStoredSessionSelection().rosterId
+  );
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [leagueData, setLeagueData] = useState<League | null>(null);
@@ -362,6 +405,8 @@ export default function Home() {
     selection: string;
     alreadyRecorded?: boolean;
   } | null>(null);
+  const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
+  const [claimingTeam, setClaimingTeam] = useState(false);
   const startDraftHandler = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -371,8 +416,12 @@ export default function Home() {
   }, [statusMessage]);
   useEffect(() => {
     if (selectedTeam || typeof window === "undefined") return;
-    const stored = getStoredSelectedTeam();
-    if (stored) setSelectedTeam(stored);
+    const stored = getStoredSessionSelection();
+    if (stored.rosterId) {
+      setSelectedTeam(stored.rosterId);
+      setSessionId(stored.sessionId);
+      setTeamSelectionInput(stored.rosterId);
+    }
   }, [selectedTeam]);
 
   useEffect(() => {
@@ -422,6 +471,140 @@ export default function Home() {
     if (typeof window === "undefined") return;
     localStorage.setItem(LINEUP_CACHE_KEY, JSON.stringify(lineupOverrides));
   }, [lineupOverrides]);
+
+  const clearSessionSelection = useCallback(() => {
+    setSelectedTeam("");
+    setTeamSelectionInput("");
+    setSessionId("");
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
+    }
+  }, []);
+
+  const releaseActiveTeam = useCallback(async () => {
+    if (!selectedTeam || !sessionId) return;
+    try {
+      await fetch("/api/active-teams/release", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
+        keepalive: true,
+      });
+    } catch (error) {
+      console.warn("Unable to release team", error);
+    }
+  }, [selectedTeam, sessionId]);
+
+  const releaseAndClearSession = useCallback(async () => {
+    await releaseActiveTeam();
+    clearSessionSelection();
+  }, [clearSessionSelection, releaseActiveTeam]);
+
+  const ensureSession = useCallback(() => {
+    if (sessionId) return sessionId;
+    try {
+      const next = generateSessionId();
+      setSessionId(next);
+      return next;
+    } catch (error) {
+      console.error("Unable to generate session id", error);
+      setErrorMessage("Unable to generate secure session ID. Please refresh and try again.");
+      return "";
+    }
+  }, [sessionId, setErrorMessage]);
+
+  const fetchActiveTeams = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/active-teams?leagueId=${LEAGUE_ID}`, { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch active teams");
+      const json = await res.json();
+      const rows: ActiveTeamApiRow[] = Array.isArray(json?.data) ? json.data : [];
+      const normalized = rows
+        .map(
+          (row): ActiveTeamRecord => ({
+            rosterId: toId(row?.rosterId ?? row?.roster_id),
+            sessionId:
+              typeof row?.sessionId === "string"
+                ? row.sessionId
+                : typeof row?.session_id === "string"
+                  ? row.session_id
+                  : "",
+          })
+        )
+        .filter((row): row is ActiveTeamRecord => Boolean(row.rosterId));
+      setActiveTeams(normalized);
+    } catch (error) {
+      console.warn("Unable to load active teams", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedTeam) return;
+    fetchActiveTeams();
+    const interval = setInterval(fetchActiveTeams, ACTIVE_TEAMS_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [fetchActiveTeams, selectedTeam]);
+
+  useEffect(() => {
+    if (!selectedTeam || !sessionId) return;
+    let cancelled = false;
+
+    const sendHeartbeat = async () => {
+      try {
+        const res = await fetch("/api/active-teams/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
+        });
+
+        if (!res.ok && !cancelled) {
+          setErrorMessage(
+            res.status === 409
+              ? "Another session is using this team. Please pick again."
+              : "Your session ended. Please pick a team again."
+          );
+          await releaseAndClearSession();
+        }
+      } catch (error) {
+        console.warn("Heartbeat failed", error);
+      }
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [releaseAndClearSession, selectedTeam, sessionId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedTeam || !sessionId) return;
+
+    const handleUnload = () => {
+      try {
+        const payload = JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId });
+        const blob = new Blob([payload], { type: "application/json" });
+        // Best-effort release; some browsers may ignore beacons during unload.
+        const queued = navigator.sendBeacon("/api/active-teams/release", blob);
+        if (!queued) {
+          console.warn("Release beacon was not queued before unload.");
+          fetch("/api/active-teams/release", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
+        }
+      } catch {
+        // ignore
+      }
+    };
+
+    window.addEventListener("unload", handleUnload);
+    return () => window.removeEventListener("unload", handleUnload);
+  }, [selectedTeam, sessionId]);
 
   useEffect(() => {
     async function fetchSleeperData() {
@@ -596,6 +779,17 @@ export default function Home() {
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
     [rosters, selectedTeam]
+  );
+
+  const availableTeams = useMemo(
+    () =>
+      teams.filter((team) => {
+        const rosterId = toId(team.id);
+        const activeRecord = activeTeams.find((row) => row.rosterId === rosterId);
+        if (!activeRecord) return true;
+        return activeRecord.sessionId === sessionId;
+      }),
+    [activeTeams, sessionId, teams]
   );
 
   const rosterPositions = useMemo(
@@ -878,29 +1072,75 @@ export default function Home() {
     startDraftHandler.current();
   };
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!selectedTeam) {
-      localStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
+  const handleLeaveDraftRoom = useCallback(async () => {
+    await releaseActiveTeam();
+    clearSessionSelection();
+    setDraftStarted(false);
+    setStartReady(false);
+    setStatusMessage("");
+  }, [clearSessionSelection, releaseActiveTeam]);
+
+  const handleEnterDraftRoom = useCallback(async () => {
+    if (!teamSelectionInput) {
+      setErrorMessage("Please choose a team.");
       return;
     }
 
-    const team = teams.find((t) => toId(t.id) === selectedTeam);
-    if (!team) return;
+    const activeSessionId = ensureSession();
+    if (!activeSessionId) return;
+
+    setClaimingTeam(true);
+    try {
+      const res = await fetch("/api/active-teams/claim", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leagueId: LEAGUE_ID,
+          rosterId: teamSelectionInput,
+          sessionId: activeSessionId,
+        }),
+      });
+
+      if (!res.ok) {
+        await fetchActiveTeams();
+        setErrorMessage(
+          res.status === 409
+            ? "That team is currently taken. Please choose another team."
+            : "Unable to enter the draft room. Please try again."
+        );
+        return;
+      }
+
+      setSelectedTeam(teamSelectionInput);
+      setErrorMessage("");
+      setStatusMessage("");
+    } catch (error) {
+      console.warn("Unable to claim team", error);
+      setErrorMessage("Unable to enter the draft room. Please try again.");
+    } finally {
+      setClaimingTeam(false);
+    }
+  }, [ensureSession, fetchActiveTeams, teamSelectionInput]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!selectedTeam || !sessionId) {
+      sessionStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
+      return;
+    }
 
     try {
-      localStorage.setItem(
+      sessionStorage.setItem(
         SELECTED_TEAM_CACHE_KEY,
         JSON.stringify({
-          rosterId: toId(team.id),
-          ownerId: team.ownerId || null,
-          teamName: team.name,
+          rosterId: selectedTeam,
+          sessionId,
         })
       );
     } catch {
       // ignore storage failures
     }
-  }, [selectedTeam, teams]);
+  }, [selectedTeam, sessionId]);
 
   const handleAvailablePlayerSelect = (player: AvailablePlayer) => {
     if (!currentClockTeam) {
@@ -928,27 +1168,45 @@ export default function Home() {
 
             <select
               className="bg-black border border-gray-700 p-3 rounded-lg text-white w-64"
-              value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
+              value={teamSelectionInput}
+              onChange={(e) => setTeamSelectionInput(e.target.value)}
             >
               <option value="">-- Choose Team --</option>
-              {teams.map((team) => (
+              {availableTeams.map((team) => (
                 <option key={team.id} value={toId(team.id)}>
                   {team.name}
                 </option>
               ))}
             </select>
+            <button
+              className="mt-4 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-green-800"
+              onClick={handleEnterDraftRoom}
+              disabled={!teamSelectionInput || claimingTeam}
+            >
+              {claimingTeam ? "Joining..." : "Enter Draft Room"}
+            </button>
+            <p className="mt-3 text-xs text-gray-500">
+              Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES}{" "}
+              {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "minute" : "minutes"} after their last activity.
+            </p>
           </div>
         </div>
       ) : (
         <div className="flex-1 flex flex-col gap-4 px-4 pb-6 overflow-hidden">
-          <div className="flex items-center justify-start">
+          <div className="flex items-center justify-start gap-3">
             <button
               className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-green-800"
               onClick={handleStartDraftClick}
               disabled={!startReady || draftStarted}
             >
               Start Draft
+            </button>
+            <button
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-red-900"
+              onClick={handleLeaveDraftRoom}
+              disabled={!selectedTeam}
+            >
+              Leave Draft Room
             </button>
           </div>
           <div className="flex flex-1 gap-4 overflow-hidden">
@@ -969,7 +1227,9 @@ export default function Home() {
                   id="team-switcher"
                   className="w-full bg-black border border-gray-700 p-2 rounded-lg text-white"
                   value={selectedTeam}
-                  onChange={(e) => setSelectedTeam(e.target.value)}
+                  disabled
+                  aria-label="Team selection is locked. Use Leave Draft Room to switch teams."
+                  aria-describedby="team-switcher-helper"
                 >
                   <option value="">-- Choose Team --</option>
                   {teams.map((team) => (
@@ -978,6 +1238,9 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
+                <p id="team-switcher-helper" className="mt-1 text-[11px] text-gray-500">
+                  Leave the draft room to switch teams.
+                </p>
               </div>
               {errorMessage && (
                 <p className="mb-3 text-sm text-red-400">{errorMessage}</p>

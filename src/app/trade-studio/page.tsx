@@ -130,7 +130,7 @@ const toId = (value: string | number | null | undefined) =>
 const getStoredSelectedTeam = () => {
   if (typeof window === "undefined") return "";
   try {
-    const saved = localStorage.getItem(SELECTED_TEAM_CACHE_KEY);
+    const saved = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
     if (!saved) return "";
     const parsed = JSON.parse(saved);
     return toId(parsed?.rosterId);
@@ -594,7 +594,7 @@ export default function TradeStudioPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!selectedTeam) {
-      localStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
+      sessionStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
       return;
     }
 
@@ -602,7 +602,7 @@ export default function TradeStudioPage() {
     if (!team) return;
 
     try {
-      localStorage.setItem(
+      sessionStorage.setItem(
         SELECTED_TEAM_CACHE_KEY,
         JSON.stringify({
           rosterId: toId(team.id),
