@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findCommissionerRosterId } from "../../../lib/commissioner";
+import { getLeagueId } from "../../../lib/config";
 import { getSupabaseAdminClient } from "../active-teams/shared";
 
 type SleeperUser = {
@@ -25,7 +26,7 @@ type DraftLogPayload = {
   nflTeam?: string | null;
 };
 
-const LEAGUE_ID = "1328902558617473024";
+const LEAGUE_ID = getLeagueId();
 
 export const dynamic = "force-dynamic";
 

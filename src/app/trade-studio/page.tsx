@@ -13,6 +13,7 @@ import {
   type SleeperDraft,
   type TradedPick,
 } from "../../lib/picks";
+import { getLeagueId } from "../../lib/config";
 import {
   computeLeagueRankings,
   rankBandLabel,
@@ -81,7 +82,6 @@ const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
   { roster_id: DEMO_TEAM_ID, owner_id: null, starters: [], players: [], draft_picks: [] },
 ];
-const LEAGUE_ID = "1328902558617473024";
 const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -545,6 +545,19 @@ export default function TradeStudioPage() {
   const [activeOfferIndex, setActiveOfferIndex] = useState(0);
   const [offerAggression, setOfferAggression] = useState(50);
   const lastTeamRef = useRef<string | null>(null);
+  const { leagueId, leagueIdError } = useMemo(() => {
+    try {
+      return { leagueId: getLeagueId(), leagueIdError: "" };
+    } catch (error) {
+      return {
+        leagueId: "",
+        leagueIdError:
+          error instanceof Error
+            ? error.message
+            : "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID.",
+      };
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -619,13 +632,34 @@ export default function TradeStudioPage() {
     let isMounted = true;
 
     async function fetchSleeperData() {
+      const loadDemoData = (message: string) => {
+        if (!isMounted) return;
+        const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
+        const demoRosters = withComputedDraftPicks(DEMO_ROSTERS, [], {
+          teamCountOverride: DEMO_ROSTERS.length || 1,
+        });
+        setTeams(DEMO_TEAMS);
+        setRosters(demoRosters);
+        setDraftOrderAvailable(false);
+        setRosterNames(demoNameMap);
+        logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
+        setErrorMessage(message);
+      };
+
+      if (!leagueId) {
+        loadDemoData(
+          leagueIdError || "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID."
+        );
+        return;
+      }
+
       try {
         const [leagueRes, rosterRes, userRes, tradedRes, draftsRes] = await Promise.all([
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/traded_picks`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/drafts`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/users`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/drafts`),
         ]);
 
         if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok || !draftsRes.ok) {
@@ -691,17 +725,7 @@ export default function TradeStudioPage() {
         logDraftPickDistribution(rostersWithPicks, nameMap, rosterJson.length);
       } catch (error) {
         console.error("Error fetching Sleeper data:", error);
-        if (!isMounted) return;
-        const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
-        const demoRosters = withComputedDraftPicks(DEMO_ROSTERS, [], {
-          teamCountOverride: DEMO_ROSTERS.length || 1,
-        });
-        setTeams(DEMO_TEAMS);
-        setRosters(demoRosters);
-        setDraftOrderAvailable(false);
-        setRosterNames(demoNameMap);
-        logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
-        setErrorMessage("Unable to reach Sleeper API. Showing demo data instead.");
+        loadDemoData("Unable to reach Sleeper API. Showing demo data instead.");
       }
     }
 
@@ -710,7 +734,7 @@ export default function TradeStudioPage() {
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [leagueId, leagueIdError]);
 
   useEffect(() => {
     let isMounted = true;
@@ -982,6 +1006,11 @@ export default function TradeStudioPage() {
 
   return (
     <main className="h-screen overflow-hidden bg-black text-gray-100">
+      {leagueIdError && (
+        <div className="mx-auto mb-4 mt-4 w-[calc(100%-2rem)] max-w-3xl rounded-lg border border-amber-400/60 bg-amber-500/15 px-4 py-3 text-sm text-amber-50">
+          {leagueIdError} Live Sleeper data is unavailable until it is set.
+        </div>
+      )}
       <div className="mx-auto flex h-full max-w-7xl flex-col px-4 py-8">
         <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="text-4xl font-bold text-white">Trade Studio</h1>
