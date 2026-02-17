@@ -1260,7 +1260,7 @@ export default function TradeStudioPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="sticky bottom-0 mt-3 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
+                    <div className="sticky bottom-0 mt-3 flex-shrink-0 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
                       <div className="flex flex-wrap items-start gap-6">
                         <div className="min-w-[180px] flex-1">
                           <p className="text-xs text-gray-400">Timeline</p>
