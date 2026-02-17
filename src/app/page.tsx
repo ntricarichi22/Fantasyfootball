@@ -408,32 +408,46 @@ const normalizeDraftLogPayload = (entry: Partial<DraftLogEntry> & Record<string,
     pickNumber:
       typeof entry.pickNumber === "string"
         ? entry.pickNumber
-        : (entry as Record<string, unknown>).pick_number,
+        : typeof (entry as Record<string, unknown>).pick_number === "string"
+          ? ((entry as Record<string, unknown>).pick_number as string)
+          : undefined,
     teamCount:
       typeof teamCountValue === "string" ? Number(teamCountValue) : (teamCountValue as number),
     teamName:
       typeof entry.teamName === "string"
         ? entry.teamName
-        : (entry as Record<string, unknown>).team_name,
+        : typeof (entry as Record<string, unknown>).team_name === "string"
+          ? ((entry as Record<string, unknown>).team_name as string)
+          : undefined,
     rosterId:
       typeof entry.rosterId === "string"
         ? entry.rosterId
-        : (entry as Record<string, unknown>).roster_id,
+        : typeof (entry as Record<string, unknown>).roster_id === "string"
+          ? ((entry as Record<string, unknown>).roster_id as string)
+          : undefined,
     playerId:
       typeof entry.playerId === "string"
         ? entry.playerId
-        : (entry as Record<string, unknown>).player_id,
+        : typeof (entry as Record<string, unknown>).player_id === "string"
+          ? ((entry as Record<string, unknown>).player_id as string)
+          : undefined,
     playerName:
       typeof entry.playerName === "string"
         ? entry.playerName
-        : (entry as Record<string, unknown>).player_name,
+        : typeof (entry as Record<string, unknown>).player_name === "string"
+          ? ((entry as Record<string, unknown>).player_name as string)
+          : undefined,
     positions: Array.isArray(entry.positions)
       ? entry.positions
-      : (entry as Record<string, unknown>).positions,
+      : Array.isArray((entry as Record<string, unknown>).positions)
+        ? ((entry as Record<string, unknown>).positions as string[])
+        : undefined,
     nflTeam:
       typeof entry.nflTeam === "string"
         ? entry.nflTeam
-        : (entry as Record<string, unknown>).nfl_team,
+        : typeof (entry as Record<string, unknown>).nfl_team === "string"
+          ? ((entry as Record<string, unknown>).nfl_team as string)
+          : undefined,
   });
 };
 
@@ -882,6 +896,22 @@ export default function Home() {
     };
   }, []);
 
+  const fetchDraftLogFromApi = useCallback(async () => {
+    try {
+      const res = await fetch("/api/draft-log", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      const rows: Array<Record<string, unknown>> = Array.isArray(json?.data) ? json.data : [];
+      const normalized = rows
+        .map((row) => normalizeDraftLogPayload(row))
+        .filter((entry): entry is DraftLogEntry => entry !== null)
+        .sort((a, b) => a.pickIndex - b.pickIndex);
+      setDraftLog(normalized);
+    } catch (error) {
+      console.warn("Unable to fetch draft log", error);
+    }
+  }, []);
+
   useEffect(() => {
     fetchDraftLogFromApi();
   }, [fetchDraftLogFromApi]);
@@ -1253,22 +1283,6 @@ export default function Home() {
       setClaimingTeam(false);
     }
   }, [ensureSession, fetchActiveTeams, teamSelectionInput]);
-
-  const fetchDraftLogFromApi = useCallback(async () => {
-    try {
-      const res = await fetch("/api/draft-log", { cache: "no-store" });
-      if (!res.ok) return;
-      const json = await res.json();
-      const rows: Array<Record<string, unknown>> = Array.isArray(json?.data) ? json.data : [];
-      const normalized = rows
-        .map((row) => normalizeDraftLogPayload(row))
-        .filter((entry): entry is DraftLogEntry => entry !== null)
-        .sort((a, b) => a.pickIndex - b.pickIndex);
-      setDraftLog(normalized);
-    } catch (error) {
-      console.warn("Unable to fetch draft log", error);
-    }
-  }, []);
 
   const persistDraftLogEntry = useCallback(async (entry: DraftLogEntry) => {
     try {
