@@ -16,6 +16,8 @@ import {
   type TradedPick,
 } from "../lib/picks";
 import DraftTimer from "../components/DraftTimer";
+import { supabase } from "../lib/supabaseClient";
+import { isCommissionerTeamName } from "../lib/commissioner";
 
 interface Team {
   id: number;
@@ -81,6 +83,7 @@ interface DraftLogEntry {
   pickNumber: string;
   teamCount: number; // number of teams at the time of the pick, used to rebuild pick order from cache
   teamName: string;
+  rosterId?: string;
   playerId: string;
   playerName: string;
   positions: string[];
@@ -352,6 +355,7 @@ const normalizeDraftLogEntry = (entry: Partial<DraftLogEntry>): DraftLogEntry | 
       pickNumber: entry.pickNumber,
       teamCount,
       teamName: entry.teamName,
+      rosterId: entry.rosterId ? toId(entry.rosterId) : undefined,
       playerId: entry.playerId,
       playerName: entry.playerName,
       positions,
@@ -367,6 +371,7 @@ const normalizeDraftLogEntry = (entry: Partial<DraftLogEntry>): DraftLogEntry | 
         pickNumber: entry.pickNumber,
         teamCount,
         teamName: entry.teamName,
+        rosterId: entry.rosterId ? toId(entry.rosterId) : undefined,
         playerId: entry.playerId,
         playerName: entry.playerName,
         positions,
@@ -378,6 +383,60 @@ const normalizeDraftLogEntry = (entry: Partial<DraftLogEntry>): DraftLogEntry | 
   return null;
 };
 
+const nextPickIndexFromLog = (log: DraftLogEntry[]) => {
+  const maxIndex = log.reduce((max, entry) => {
+    if (typeof entry.pickIndex === "number" && Number.isFinite(entry.pickIndex)) {
+      return Math.max(max, entry.pickIndex);
+    }
+    return max;
+  }, -1);
+  return maxIndex + 1;
+};
+
+const normalizeDraftLogPayload = (entry: Partial<DraftLogEntry> & Record<string, unknown>) => {
+  const pickIndexValue =
+    typeof entry.pickIndex === "number"
+      ? entry.pickIndex
+      : (entry as Record<string, unknown>).pick_index;
+  const teamCountValue =
+    typeof entry.teamCount === "number"
+      ? entry.teamCount
+      : (entry as Record<string, unknown>).team_count;
+  return normalizeDraftLogEntry({
+    pickIndex:
+      typeof pickIndexValue === "string" ? Number(pickIndexValue) : (pickIndexValue as number),
+    pickNumber:
+      typeof entry.pickNumber === "string"
+        ? entry.pickNumber
+        : (entry as Record<string, unknown>).pick_number,
+    teamCount:
+      typeof teamCountValue === "string" ? Number(teamCountValue) : (teamCountValue as number),
+    teamName:
+      typeof entry.teamName === "string"
+        ? entry.teamName
+        : (entry as Record<string, unknown>).team_name,
+    rosterId:
+      typeof entry.rosterId === "string"
+        ? entry.rosterId
+        : (entry as Record<string, unknown>).roster_id,
+    playerId:
+      typeof entry.playerId === "string"
+        ? entry.playerId
+        : (entry as Record<string, unknown>).player_id,
+    playerName:
+      typeof entry.playerName === "string"
+        ? entry.playerName
+        : (entry as Record<string, unknown>).player_name,
+    positions: Array.isArray(entry.positions)
+      ? entry.positions
+      : (entry as Record<string, unknown>).positions,
+    nflTeam:
+      typeof entry.nflTeam === "string"
+        ? entry.nflTeam
+        : (entry as Record<string, unknown>).nfl_team,
+  });
+};
+
 export default function Home() {
   const [teams, setTeams] = useState<Team[]>([]);
   const [selectedTeam, setSelectedTeam] = useState(() => getStoredSessionSelection().rosterId);
@@ -385,6 +444,7 @@ export default function Home() {
   const [teamSelectionInput, setTeamSelectionInput] = useState(
     () => getStoredSessionSelection().rosterId
   );
+  const [commissionerRosterId, setCommissionerRosterId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
   const [leagueData, setLeagueData] = useState<League | null>(null);
@@ -411,6 +471,7 @@ export default function Home() {
   const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
   const startDraftHandler = useRef<(() => void) | null>(null);
+  const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
 
   useEffect(() => {
     if (!statusMessage) return;
@@ -444,7 +505,8 @@ export default function Home() {
         // Backward compatibility: normalize entries that predate pickIndex/teamCount fields
         const normalizedLog = parsed
           .map((entry) => normalizeDraftLogEntry(entry))
-          .filter((entry): entry is DraftLogEntry => entry !== null);
+          .filter((entry): entry is DraftLogEntry => entry !== null)
+          .sort((a, b) => a.pickIndex - b.pickIndex);
         setDraftLog(normalizedLog);
       } catch {
         // ignore corrupted cache
@@ -474,6 +536,35 @@ export default function Home() {
     if (typeof window === "undefined") return;
     localStorage.setItem(LINEUP_CACHE_KEY, JSON.stringify(lineupOverrides));
   }, [lineupOverrides]);
+
+  const buildDraftedPlayersFromLog = useCallback(
+    (log: DraftLogEntry[]) => {
+      const next: Record<string, DraftedPlayer[]> = {};
+      const sorted = [...log].sort((a, b) => a.pickIndex - b.pickIndex);
+      sorted.forEach((entry) => {
+        const rosterKey =
+          entry.rosterId ||
+          toId(teams.find((team) => team.name === entry.teamName)?.id);
+        if (!rosterKey) return;
+        const list = next[rosterKey] ?? [];
+        if (!list.some((player) => player.id === entry.playerId)) {
+          list.push({
+            id: entry.playerId,
+            name: entry.playerName,
+            positions: entry.positions || [],
+            team: entry.nflTeam,
+          });
+        }
+        next[rosterKey] = list;
+      });
+      return next;
+    },
+    [teams]
+  );
+
+  useEffect(() => {
+    setDraftedPlayersState(buildDraftedPlayersFromLog(draftLog));
+  }, [buildDraftedPlayersFromLog, draftLog]);
 
   const clearSessionSelection = useCallback(() => {
     setSelectedTeam("");
@@ -633,18 +724,28 @@ export default function Home() {
         const rosterOwnerMap: Record<number, string | number | null | undefined> = Object.fromEntries(
           rosterJson.map((roster) => [roster.roster_id, roster.owner_id] as const)
         );
+        let detectedCommissionerRosterId = "";
         const mappedTeams: Team[] = rosterJson.map((roster) => {
           const user = roster.owner_id
             ? userJson.find((u) => u.user_id === roster.owner_id)
             : undefined;
+          const preferredName =
+            user?.metadata?.team_name ||
+            user?.display_name ||
+            `Roster ${roster.roster_id}`;
+          if (!detectedCommissionerRosterId) {
+            const commissionerMatch = [user?.metadata?.team_name, user?.display_name].some(
+              (name) => isCommissionerTeamName(name)
+            );
+            if (commissionerMatch) {
+              detectedCommissionerRosterId = toId(roster.roster_id);
+            }
+          }
 
           return {
             id: roster.roster_id,
             ownerId: roster.owner_id,
-            name:
-              user?.metadata?.team_name ||
-              user?.display_name ||
-              `Roster ${roster.roster_id}`,
+            name: preferredName,
           };
         });
         const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
@@ -674,6 +775,7 @@ export default function Home() {
         });
 
         setTeams(mappedTeams);
+        setCommissionerRosterId(detectedCommissionerRosterId);
         setLeagueData(leagueJson);
         setDraftOrderAvailable(available);
         setRosterNames(nameMap);
@@ -687,6 +789,7 @@ export default function Home() {
           teamCountOverride: DEMO_ROSTERS.length || 1,
         });
         setTeams(DEMO_TEAMS);
+        setCommissionerRosterId("");
         setLeagueData(DEMO_LEAGUE);
         setDraftOrderAvailable(false);
         setRosters(demoRosters);
@@ -779,10 +882,38 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    fetchDraftLogFromApi();
+  }, [fetchDraftLogFromApi]);
+
+  useEffect(() => {
+    let channel = supabase.channel("draft-log-updates");
+    channel = channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "draft_log" },
+      () => {
+        fetchDraftLogFromApi();
+      }
+    );
+
+    try {
+      channel.subscribe();
+    } catch (error) {
+      console.warn("Unable to subscribe to draft log updates", error);
+    }
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [fetchDraftLogFromApi]);
+
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
     [rosters, selectedTeam]
   );
+
+  const isCommissionerSelected =
+    !!commissionerRosterId && selectedTeam === commissionerRosterId;
 
   const availableTeams = useMemo(
     () =>
@@ -936,29 +1067,27 @@ export default function Home() {
     const drafted = resolveDraftedPlayer(selection, playerDictionary);
     const teamDisplayName = matchingTeam?.name || teamName;
     const teamCount = Math.max(teams.length, MIN_TEAM_COUNT);
+    const pickIndex = nextPickIndex;
+    const pickNumber = calculatePickNumber(pickIndex, teamCount);
+    const entry: DraftLogEntry = {
+      pickIndex,
+      pickNumber,
+      teamCount,
+      teamName: teamDisplayName || rosterKey,
+      rosterId: rosterKey,
+      playerId: drafted.id,
+      playerName: drafted.name,
+      positions: drafted.positions,
+      nflTeam: drafted.team,
+    };
 
     setDraftedPlayersState((prev) => ({
       ...prev,
       [rosterKey]: [...(prev[rosterKey] || []), drafted],
     }));
 
-    setDraftLog((prev) => {
-      const nextPickIndex = prev.length;
-      const pickNumber = calculatePickNumber(nextPickIndex, teamCount);
-      return [
-        ...prev,
-        {
-          pickIndex: nextPickIndex,
-          pickNumber,
-          teamCount,
-          teamName: teamDisplayName || rosterKey,
-          playerId: drafted.id,
-          playerName: drafted.name,
-          positions: drafted.positions,
-          nflTeam: drafted.team,
-        },
-      ];
-    });
+    setDraftLog((prev) => [...prev, entry].sort((a, b) => a.pickIndex - b.pickIndex));
+    persistDraftLogEntry(entry);
   };
 
   const assignPlayerToSlot = (
@@ -1125,6 +1254,59 @@ export default function Home() {
     }
   }, [ensureSession, fetchActiveTeams, teamSelectionInput]);
 
+  const fetchDraftLogFromApi = useCallback(async () => {
+    try {
+      const res = await fetch("/api/draft-log", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = await res.json();
+      const rows: Array<Record<string, unknown>> = Array.isArray(json?.data) ? json.data : [];
+      const normalized = rows
+        .map((row) => normalizeDraftLogPayload(row))
+        .filter((entry): entry is DraftLogEntry => entry !== null)
+        .sort((a, b) => a.pickIndex - b.pickIndex);
+      setDraftLog(normalized);
+    } catch (error) {
+      console.warn("Unable to fetch draft log", error);
+    }
+  }, []);
+
+  const persistDraftLogEntry = useCallback(async (entry: DraftLogEntry) => {
+    try {
+      await fetch("/api/draft-log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(entry),
+      });
+    } catch (error) {
+      console.warn("Unable to persist draft log entry", error);
+    }
+  }, []);
+
+  const deleteDraftLogEntry = useCallback(
+    async (pickIndex: number) => {
+      try {
+        const res = await fetch("/api/draft-log", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pickIndex, rosterId: selectedTeam }),
+        });
+        if (!res.ok) {
+          const message =
+            res.status === 403
+              ? "Only the commissioner can undo picks."
+              : "Unable to undo pick. Please try again.";
+          setErrorMessage(message);
+          fetchDraftLogFromApi();
+        }
+      } catch (error) {
+        console.warn("Unable to delete draft log entry", error);
+        setErrorMessage("Unable to undo pick. Please try again.");
+        fetchDraftLogFromApi();
+      }
+    },
+    [fetchDraftLogFromApi, selectedTeam]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!selectedTeam || !sessionId) {
@@ -1154,6 +1336,22 @@ export default function Home() {
     handlePickMade(currentClockTeam, player.id);
     setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
   };
+
+  const handleUndoPick = useCallback(
+    (entry: DraftLogEntry) => {
+      if (typeof window !== "undefined") {
+        const confirmed = window.confirm("Undo this pick?");
+        if (!confirmed) return;
+      }
+
+      setDraftLog((prev) => prev.filter((item) => item.pickIndex !== entry.pickIndex));
+      deleteDraftLogEntry(entry.pickIndex);
+      if (entry.pickIndex === nextPickIndex - 1) {
+        setStatusMessage("Rewound to the previous pick.");
+      }
+    },
+    [deleteDraftLogEntry, nextPickIndex]
+  );
 
   return (
     <main className="relative min-h-screen overflow-hidden text-white">
@@ -1501,6 +1699,7 @@ export default function Home() {
             <div className="flex-1 flex flex-col gap-4 overflow-hidden bg-transparent">
               <DraftTimer
                 teams={teams}
+                nextPickIndex={nextPickIndex}
                 onPickMade={handlePickMade}
                 onTeamChange={setCurrentClockTeam}
                 externalPick={queuedExternalPick}
@@ -1603,7 +1802,7 @@ export default function Home() {
                       return (
                         <div
                           key={entry.pickIndex}
-                          className="flex items-center gap-3 px-1 py-2 text-sm text-gray-200"
+                          className="group flex items-center gap-3 px-1 py-2 text-sm text-gray-200"
                         >
                           <span className="text-xs text-gray-400 w-14 shrink-0">
                             {entry.pickNumber}
@@ -1617,6 +1816,16 @@ export default function Home() {
                           <span className="text-xs text-gray-300 uppercase shrink-0">
                             {positionLabel || "—"}
                           </span>
+                          {isCommissionerSelected ? (
+                            <button
+                              type="button"
+                              className="ml-1 shrink-0 rounded-full px-2 text-xs text-gray-400 opacity-0 transition group-hover:opacity-100 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                              aria-label={`Undo pick ${entry.pickNumber}`}
+                              onClick={() => handleUndoPick(entry)}
+                            >
+                              ✕
+                            </button>
+                          ) : null}
                         </div>
                       );
                     })}
