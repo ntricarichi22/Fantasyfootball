@@ -1465,7 +1465,7 @@ export default function Home() {
       return;
     }
 
-    if (!selectedTeam || selectedTeam !== onClockRosterId) {
+    if (!isCommissionerSelected && (!selectedTeam || selectedTeam !== onClockRosterId)) {
       setStatusMessage("Only the team on the clock can make this pick.");
       return;
     }
@@ -1918,7 +1918,10 @@ export default function Home() {
                               <td className="px-4 py-3 text-right">
                                 <button
                                   className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
-                                  disabled={!onClockRosterId || selectedTeam !== onClockRosterId}
+                                  disabled={
+                                    !onClockRosterId ||
+                                    (!isCommissionerSelected && selectedTeam !== onClockRosterId)
+                                  }
                                   onClick={() => handleAvailablePlayerSelect(player)}
                                 >
                                   Select

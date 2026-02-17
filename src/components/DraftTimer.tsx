@@ -156,24 +156,22 @@ export default function DraftTimer({
 
   return (
     <div className="w-full max-w-4xl space-y-4">
-      <div className="flex items-center justify-between rounded-xl bg-slate-900 px-6 py-4 shadow-lg">
-        <div className="text-sm uppercase tracking-widest text-slate-400">
-          On the clock: {currentTeamName} Pick {pickLabel}
-        </div>
-        <div className="flex items-center gap-4 text-lg font-semibold text-white">
-          <span className="rounded-lg bg-slate-800 px-3 py-1 text-sm font-medium text-slate-200">
-            Pick {pickLabel}
-          </span>
-          <span className="text-slate-200">{currentTeamName}</span>
-          <span
-            className={`font-mono text-3xl tabular-nums ${
-              isCritical ? "text-red-300" : "text-white"
-            }`}
-          >
-            {String(minutes).padStart(2, "0")}:
-            {String(seconds).padStart(2, "0")}
-          </span>
-        </div>
+      <div className="flex flex-wrap items-center gap-4 rounded-xl bg-slate-900 px-6 py-4 shadow-lg">
+        <span className="text-base font-bold uppercase tracking-wide text-white">
+          ON THE CLOCK:
+        </span>
+        <span className="text-lg font-semibold text-white">{currentTeamName}</span>
+        <span className="rounded-full bg-slate-800 px-3 py-1 text-sm font-semibold text-slate-100">
+          {pickLabel}
+        </span>
+        <span
+          className={`ml-auto font-mono text-3xl tabular-nums ${
+            isCritical ? "text-red-300" : "text-white"
+          }`}
+        >
+          {String(minutes).padStart(2, "0")}:
+          {String(seconds).padStart(2, "0")}
+        </span>
       </div>
 
     </div>
