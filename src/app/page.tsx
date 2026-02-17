@@ -1,7 +1,6 @@
 "use client";
 
 import Image from "next/image";
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
@@ -1873,13 +1872,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="w-1/4 flex flex-col gap-4 h-full">
-              <Link
-                href="/trade-studio"
-                className="flex h-1/4 min-h-[120px] items-center justify-center rounded-xl bg-red-600 text-lg font-semibold text-white shadow-lg transition hover:bg-red-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-300"
-              >
-                Open Trade Studio
-              </Link>
+            <div className="w-1/4 flex flex-col h-full">
               <div className="flex-1 bg-gray-900 p-4 border-l border-gray-800 rounded-xl flex flex-col overflow-hidden">
                 <h2 className="text-xl font-bold">Draft Log</h2>
                 {draftLog.length ? (
