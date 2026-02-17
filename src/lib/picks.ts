@@ -115,11 +115,8 @@ export const formatDraftPickLabel = (
 const parseRosterDraftOrder = (order?: Record<string, number>) => {
   if (!order) return undefined;
   const entries = Object.entries(order)
-    .map(([key, slotNumber]) => [Number(key), Number(slotNumber)] as const)
-    .filter(
-      ([rosterId, slotNumber]) =>
-        Number.isFinite(rosterId) && rosterId > 0 && Number.isFinite(slotNumber) && slotNumber > 0
-    );
+    .map(([key, slotNumber]) => [key, Number(slotNumber)] as const)
+    .filter(([, slotNumber]) => Number.isFinite(slotNumber) && slotNumber > 0);
   if (!entries.length) return undefined;
   return Object.fromEntries(entries);
 };
@@ -194,8 +191,37 @@ const invertDraftOrder = (draftOrder?: Record<string, number>) => {
   return Object.fromEntries(entries);
 };
 
+const mapDraftOrderToRosters = (
+  draftOrder: Record<string, number> | undefined,
+  rosters: Array<{ roster_id: number; owner_id?: string | number | null | undefined }>
+) => {
+  if (!draftOrder) return undefined;
+
+  const ownerToRosterId = new Map<string, number>();
+  rosters.forEach((roster) => {
+    if (roster.owner_id !== undefined && roster.owner_id !== null) {
+      ownerToRosterId.set(String(roster.owner_id), roster.roster_id);
+    }
+  });
+
+  const entries = Object.entries(draftOrder)
+    .map(([key, slot]) => {
+      const slotNumber = Number(slot);
+      if (!Number.isFinite(slotNumber) || slotNumber <= 0) return null;
+      const rosterId =
+        ownerToRosterId.get(key) ??
+        (Number.isFinite(Number(key)) && Number(key) > 0 ? Number(key) : undefined);
+      if (!rosterId) return null;
+      return [rosterId, slotNumber] as const;
+    })
+    .filter((entry): entry is readonly [number, number] => entry !== null);
+
+  if (!entries.length) return undefined;
+  return Object.fromEntries(entries);
+};
+
 export const buildDraftState = (
-  rosters: { roster_id: number }[],
+  rosters: Array<{ roster_id: number; owner_id?: string | number | null | undefined }>,
   drafts: SleeperDraft[] | undefined,
   tradedPicks: TradedPick[],
   slotSeason: string = PICK_SLOT_SEASON,
@@ -203,7 +229,10 @@ export const buildDraftState = (
   fallbackDraftOrder?: Record<string, number>
 ): DraftState => {
   const derivedOrder = deriveDraftOrderForSeason(drafts, slotSeason);
-  const draftOrder = derivedOrder.draftOrder ?? fallbackDraftOrder;
+  const draftOrder = mapDraftOrderToRosters(
+    derivedOrder.draftOrder ?? fallbackDraftOrder,
+    rosters
+  );
   const draftSeason = derivedOrder?.season ?? slotSeason;
   const slotToRosterFromOrder = invertDraftOrder(draftOrder);
   const fallbackSlotToRoster: Record<number, number> = slotToRosterFromOrder
@@ -272,7 +301,7 @@ export const buildDraftState = (
     draftId: derivedOrder.draftId,
     season: draftSeason,
     draftOrder,
-    draftOrderAvailable: derivedOrder.available || !!fallbackDraftOrder,
+    draftOrderAvailable: derivedOrder.available || !!draftOrder,
     teamCount,
     pickOwnerByPickKey,
     pickMetadataByPickKey,
