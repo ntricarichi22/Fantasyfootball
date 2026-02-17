@@ -41,6 +41,7 @@ export async function POST(request: Request) {
     .eq("roster_id", rosterId)
     .maybeSingle();
 
+  // PGRST116 indicates no rows were found for maybeSingle; treat as missing claim.
   if (readError && readError.code !== "PGRST116") {
     return NextResponse.json({ error: readError.message }, { status: 500 });
   }

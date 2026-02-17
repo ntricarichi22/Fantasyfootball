@@ -129,10 +129,23 @@ const isCacheTimestampFresh = (timestamp: number | null | undefined) =>
 const toId = (value: string | number | null | undefined) =>
   value !== undefined && value !== null ? String(value) : "";
 
-const generateSessionId = () =>
-  typeof crypto !== "undefined" && "randomUUID" in crypto
-    ? crypto.randomUUID()
-    : `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const generateSessionId = () => {
+  const webCrypto: Crypto | undefined =
+    typeof globalThis !== "undefined" && "crypto" in globalThis
+      ? (globalThis.crypto as Crypto | undefined)
+      : undefined;
+
+  if (webCrypto?.randomUUID) {
+    return webCrypto.randomUUID();
+  }
+
+  if (webCrypto?.getRandomValues) {
+    const values = webCrypto.getRandomValues(new Uint32Array(4));
+    return `session-${Array.from(values).map((n) => n.toString(16)).join("")}`;
+  }
+
+  return `session-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
 
 const getStoredSessionSelection = () => {
   if (typeof window === "undefined") return { rosterId: "", sessionId: "" };
@@ -524,11 +537,24 @@ export default function Home() {
             body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
           });
           if (claimRes.ok) return;
+          if (!cancelled) {
+            setErrorMessage(
+              claimRes.status === 409
+                ? "That team is now claimed by another session."
+                : "Unable to restore your session. Please pick a team again."
+            );
+            clearSessionSelection();
+          }
+          return;
         }
 
         if (!cancelled) {
+          setErrorMessage(
+            res.status === 409
+              ? "Another session is using this team. Please pick again."
+              : "Your session ended. Please pick a team again."
+          );
           clearSessionSelection();
-          setErrorMessage("Your session ended. Please pick a team again.");
         }
       } catch (error) {
         console.warn("Heartbeat failed", error);
