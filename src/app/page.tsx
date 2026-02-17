@@ -145,7 +145,7 @@ const generateSessionId = () => {
     const hex = Array.from(values)
       .map((n) => n.toString(16).padStart(8, "0"))
       .join("");
-    return `session-${hex}`;
+    return hex;
   }
 
   throw new Error("Secure random generation unavailable");
@@ -590,7 +590,12 @@ export default function Home() {
         const queued = navigator.sendBeacon("/api/active-teams/release", blob);
         if (!queued) {
           console.warn("Release beacon was not queued before unload.");
-          void releaseActiveTeam();
+          fetch("/api/active-teams/release", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: payload,
+            keepalive: true,
+          }).catch(() => {});
         }
       } catch {
         // ignore
@@ -599,7 +604,7 @@ export default function Home() {
 
     window.addEventListener("unload", handleUnload);
     return () => window.removeEventListener("unload", handleUnload);
-  }, [releaseActiveTeam, selectedTeam, sessionId]);
+  }, [selectedTeam, sessionId]);
 
   useEffect(() => {
     async function fetchSleeperData() {
@@ -1225,7 +1230,6 @@ export default function Home() {
                   disabled
                   aria-label="Team selection is locked. Use Leave Draft Room to switch teams."
                   aria-describedby="team-switcher-helper"
-                  title="Team selection is locked. Use Leave Draft Room to switch teams."
                 >
                   <option value="">-- Choose Team --</option>
                   {teams.map((team) => (
