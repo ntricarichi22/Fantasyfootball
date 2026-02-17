@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
@@ -120,6 +121,8 @@ const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
 const DROPPABLE_BORDER_CLASS = "border border-blue-600/50";
 const MIN_TEAM_COUNT = 1;
+const NOISE_OVERLAY_DATA_URI =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='0.18'/%3E%3C/svg%3E";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 let playerDictCacheTime = 0;
@@ -1155,38 +1158,68 @@ export default function Home() {
   return (
     <main className="relative min-h-screen overflow-hidden text-white">
       {!selectedTeam ? (
-        <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-10">
-          <div className="absolute inset-0 bg-[url('/welcome-bg.png')] bg-cover bg-center" />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/65 to-black/80" />
+        <div className="relative flex min-h-screen flex-col overflow-hidden px-4 pb-10 pt-6 sm:px-8 lg:px-12">
+          <Image
+            src="/welcome-bg.png"
+            alt="CFC Draft welcome background"
+            fill
+            priority
+            sizes="100vw"
+            style={{ objectFit: "cover", objectPosition: "center top" }}
+          />
+          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/20 via-black/35 to-black/60" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0)_48%,rgba(0,0,0,0.58)_100%)]" />
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(0,0,0,0.3),transparent_46%),radial-gradient(circle_at_82%_10%,rgba(0,0,0,0.3),transparent_44%),radial-gradient(circle_at_50%_82%,rgba(0,0,0,0.32),transparent_55%)]" />
+          <div
+            className="pointer-events-none absolute inset-0 opacity-25 mix-blend-soft-light"
+            style={{ backgroundImage: `url("${NOISE_OVERLAY_DATA_URI}")` }}
+          />
 
-          <div className="relative z-10 w-full max-w-5xl space-y-8">
-            <div className="flex items-start justify-between gap-4">
-              <h1 className="text-3xl font-semibold uppercase tracking-[0.35em] text-gray-100 sm:text-4xl md:text-5xl">
-                WELCOME TO THE 2026 CFC DRAFT
-              </h1>
-              <span className="flex items-center gap-2 rounded-full bg-red-600/85 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-red-900/60">
-                <span className="h-2.5 w-2.5 rounded-full bg-white shadow-[0_0_0_6px_rgba(255,255,255,0.15)]" />
-                Live
-              </span>
+          <div className="relative z-10 flex min-h-screen flex-col justify-between">
+            <div className="relative mx-auto w-full max-w-6xl pt-4 text-center">
+              <div className="absolute right-1 top-1 sm:right-4 sm:top-4 md:right-6">
+                <span className="flex items-center gap-2 rounded-full bg-red-600/90 px-4 py-2 text-[11px] font-black uppercase tracking-[0.32em] text-white shadow-[0_0_24px_rgba(255,56,56,0.45)] ring-1 ring-white/20">
+                  <span className="h-2.5 w-2.5 rounded-full bg-white shadow-[0_0_0_6px_rgba(255,255,255,0.2)]" />
+                  Live
+                </span>
+              </div>
+
+              <div className="mx-auto flex max-w-4xl flex-col items-center space-y-3 sm:space-y-4 lg:space-y-5">
+                <p className="text-[28px] font-semibold uppercase tracking-[0.5em] text-gray-100/90 drop-shadow-[0_6px_20px_rgba(0,0,0,0.65)] sm:text-[34px] md:text-[42px]">
+                  WELCOME TO THE
+                </p>
+                <p className="text-[64px] font-black uppercase tracking-[0.16em] text-white drop-shadow-[0_10px_32px_rgba(0,0,0,0.65)] sm:text-[78px] md:text-[92px] lg:text-[104px]">
+                  2026
+                </p>
+                <p className="text-[70px] font-black uppercase tracking-[0.18em] drop-shadow-[0_12px_34px_rgba(0,0,0,0.7)] sm:text-[86px] md:text-[102px] lg:text-[114px]">
+                  <span className="text-[#ff2d2d] drop-shadow-[0_0_24px_rgba(255,45,45,0.55)]">CFC</span>{" "}
+                  <span className="bg-[linear-gradient(120deg,#ffffff,#d7dde7,#ffffff)] bg-clip-text text-transparent drop-shadow-[0_0_28px_rgba(255,255,255,0.45)]">
+                    DRAFT
+                  </span>
+                </p>
+                <p className="text-lg font-semibold uppercase tracking-[0.35em] text-gray-100/85 drop-shadow-[0_5px_18px_rgba(0,0,0,0.6)] sm:text-xl md:text-2xl">
+                  One Round. No Mercy.
+                </p>
+              </div>
             </div>
 
-            <div className="mx-auto w-full max-w-2xl rounded-[30px] border border-white/15 bg-white/10 px-6 py-7 shadow-2xl shadow-emerald-500/20 backdrop-blur-2xl sm:px-10 sm:py-10">
-              <div className="flex items-center justify-between pb-4">
-                <p className="text-sm uppercase tracking-[0.3em] text-emerald-200/80">
+            <div className="mx-auto w-full max-w-3xl rounded-[32px] border border-cyan-100/35 bg-white/12 px-7 py-8 shadow-[0_0_38px_rgba(59,130,246,0.32),0_10px_45px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:px-9 sm:py-10">
+              <div className="flex items-center justify-between pb-5">
+                <p className="text-sm uppercase tracking-[0.32em] text-cyan-100/85">
                   Choose your squad
                 </p>
-                <div className="h-1 w-16 rounded-full bg-emerald-400/60 shadow-[0_0_18px_2px_rgba(52,211,153,0.45)]" />
+                <div className="h-1 w-16 rounded-full bg-cyan-200/70 shadow-[0_0_24px_3px_rgba(125,249,255,0.5)]" />
               </div>
 
               {errorMessage && (
-                <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                <p className="mb-4 rounded-lg border border-red-500/35 bg-red-500/15 px-3 py-2 text-sm text-red-100">
                   {errorMessage}
                 </p>
               )}
 
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <select
-                  className="w-full appearance-none rounded-2xl border border-white/20 bg-black/50 px-4 py-3 text-base font-semibold text-white shadow-inner shadow-black/30 outline-none ring-1 ring-white/5 transition focus:border-emerald-400/70 focus:ring-emerald-400/60 backdrop-blur"
+                  className="w-full appearance-none rounded-2xl border border-white/25 bg-black/45 px-5 py-4 text-lg font-semibold text-white shadow-inner shadow-black/40 outline-none ring-1 ring-white/10 transition focus:border-cyan-300/70 focus:ring-cyan-300/60 backdrop-blur"
                   value={teamSelectionInput}
                   onChange={(e) => setTeamSelectionInput(e.target.value)}
                 >
@@ -1199,7 +1232,7 @@ export default function Home() {
                 </select>
 
                 <button
-                  className="mt-3 w-full rounded-2xl bg-emerald-500 px-6 py-4 text-lg font-bold uppercase tracking-wide text-black shadow-xl shadow-emerald-500/30 transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-400 hover:shadow-emerald-400/40 disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-emerald-800 disabled:text-emerald-100/80"
+                  className="w-full rounded-2xl bg-gradient-to-r from-red-600 via-orange-500 to-yellow-400 px-6 py-4 text-lg font-extrabold uppercase tracking-wide text-black shadow-[0_15px_35px_rgba(0,0,0,0.45),0_0_36px_rgba(255,125,69,0.45)] transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_38px_rgba(0,0,0,0.5),0_0_42px_rgba(255,150,90,0.5)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-gray-700/70 disabled:text-gray-200/90 disabled:shadow-none"
                   onClick={handleEnterDraftRoom}
                   disabled={!teamSelectionInput || claimingTeam}
                 >
@@ -1207,13 +1240,13 @@ export default function Home() {
                 </button>
               </div>
 
-              <p className="mt-4 text-xs text-gray-200/80">
+              <p className="mt-4 text-xs text-gray-200/85">
                 Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES}{" "}
                 {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "minute" : "minutes"} after their last activity.
               </p>
             </div>
 
-            <p className="text-center text-sm font-semibold tracking-[0.25em] text-emerald-100/85">
+            <p className="mt-5 text-center text-xs font-semibold uppercase tracking-[0.35em] text-emerald-100/85 drop-shadow-[0_6px_18px_rgba(0,0,0,0.55)] sm:text-sm">
               12 TEAMS CONNECTED
             </p>
           </div>
