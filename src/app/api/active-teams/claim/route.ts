@@ -48,9 +48,10 @@ export async function POST(request: Request) {
 
   const cutoff = new Date(activeCutoffIso()).getTime();
   const lastSeenTime = existing?.last_seen ? new Date(existing.last_seen).getTime() : 0;
-  const isActive = lastSeenTime >= cutoff && existing?.session_id;
+  const existingSession = existing?.session_id ?? "";
+  const isActive = lastSeenTime >= cutoff;
 
-  if (isActive && existing?.session_id !== sessionId) {
+  if (isActive && existingSession && existingSession !== sessionId) {
     return NextResponse.json({ error: "Team already claimed" }, { status: 409 });
   }
 

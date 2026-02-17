@@ -477,6 +477,25 @@ export default function Home() {
     }
   }, []);
 
+  const releaseActiveTeam = useCallback(async () => {
+    if (!selectedTeam || !sessionId) return;
+    try {
+      await fetch("/api/active-teams/release", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
+        keepalive: true,
+      });
+    } catch (error) {
+      console.warn("Unable to release team", error);
+    }
+  }, [selectedTeam, sessionId]);
+
+  const releaseAndClearSession = useCallback(async () => {
+    await releaseActiveTeam();
+    clearSessionSelection();
+  }, [clearSessionSelection, releaseActiveTeam]);
+
   const ensureSession = useCallback(() => {
     if (sessionId) return sessionId;
     try {
@@ -485,7 +504,7 @@ export default function Home() {
       return next;
     } catch (error) {
       console.error("Unable to generate session id", error);
-      setErrorMessage("Unable to start a session. Please refresh and try again.");
+      setErrorMessage("Unable to generate secure session ID. Please refresh and try again.");
       return "";
     }
   }, [sessionId, setErrorMessage]);
@@ -549,7 +568,7 @@ export default function Home() {
                 ? "That team is now claimed by another session."
                 : "Unable to restore your session. Please pick a team again."
             );
-            clearSessionSelection();
+            await releaseAndClearSession();
           }
           return;
         }
@@ -560,7 +579,7 @@ export default function Home() {
               ? "Another session is using this team. Please pick again."
               : "Your session ended. Please pick a team again."
           );
-          clearSessionSelection();
+          await releaseAndClearSession();
         }
       } catch (error) {
         console.warn("Heartbeat failed", error);
@@ -573,7 +592,7 @@ export default function Home() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [clearSessionSelection, selectedTeam, sessionId]);
+  }, [releaseAndClearSession, selectedTeam, sessionId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1060,23 +1079,12 @@ export default function Home() {
   };
 
   const handleLeaveDraftRoom = useCallback(async () => {
-    if (selectedTeam && sessionId) {
-      try {
-        await fetch("/api/active-teams/release", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
-          keepalive: true,
-        });
-      } catch (error) {
-        console.warn("Unable to release team", error);
-      }
-    }
+    await releaseActiveTeam();
     clearSessionSelection();
     setDraftStarted(false);
     setStartReady(false);
     setStatusMessage("");
-  }, [clearSessionSelection, selectedTeam, sessionId]);
+  }, [clearSessionSelection, releaseActiveTeam]);
 
   const handleEnterDraftRoom = useCallback(async () => {
     if (!teamSelectionInput) {
@@ -1184,7 +1192,7 @@ export default function Home() {
               {claimingTeam ? "Joining..." : "Enter Draft Room"}
             </button>
             <p className="mt-3 text-xs text-gray-500">
-              Teams in an active session are hidden for 5 minutes.
+              Teams are hidden while in use and for 5 minutes after their last activity.
             </p>
           </div>
         </div>
