@@ -16,6 +16,7 @@ import {
   type TradedPick,
 } from "../lib/picks";
 import DraftTimer from "../components/DraftTimer";
+import { getLeagueId } from "../lib/config";
 import { supabase } from "../lib/supabaseClient";
 import { isCommissionerTeamName } from "../lib/commissioner";
 
@@ -109,7 +110,6 @@ const DEMO_ROSTERS: Roster[] = [
 ];
 const DEMO_LEAGUE: League = { roster_positions: ["QB", "RB", "WR", "TE", "FLEX"] };
 
-const LEAGUE_ID = "1328902558617473024";
 const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const DRAFTED_CACHE_KEY = "drafted_players_state";
@@ -486,6 +486,19 @@ export default function Home() {
   const [claimingTeam, setClaimingTeam] = useState(false);
   const startDraftHandler = useRef<(() => void) | null>(null);
   const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
+  const { leagueId, leagueIdError } = useMemo(() => {
+    try {
+      return { leagueId: getLeagueId(), leagueIdError: "" };
+    } catch (error) {
+      return {
+        leagueId: "",
+        leagueIdError:
+          error instanceof Error
+            ? error.message
+            : "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID.",
+      };
+    }
+  }, []);
 
   useEffect(() => {
     if (!statusMessage) return;
@@ -590,18 +603,18 @@ export default function Home() {
   }, []);
 
   const releaseActiveTeam = useCallback(async () => {
-    if (!selectedTeam || !sessionId) return;
+    if (!selectedTeam || !sessionId || !leagueId) return;
     try {
       await fetch("/api/active-teams/release", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
+        body: JSON.stringify({ leagueId, rosterId: selectedTeam, sessionId }),
         keepalive: true,
       });
     } catch (error) {
       console.warn("Unable to release team", error);
     }
-  }, [selectedTeam, sessionId]);
+  }, [leagueId, selectedTeam, sessionId]);
 
   const releaseAndClearSession = useCallback(async () => {
     await releaseActiveTeam();
@@ -622,8 +635,9 @@ export default function Home() {
   }, [sessionId, setErrorMessage]);
 
   const fetchActiveTeams = useCallback(async () => {
+    if (!leagueId) return;
     try {
-      const res = await fetch(`/api/active-teams?leagueId=${LEAGUE_ID}`, { cache: "no-store" });
+      const res = await fetch(`/api/active-teams?leagueId=${leagueId}`, { cache: "no-store" });
       if (!res.ok) throw new Error("Failed to fetch active teams");
       const json = await res.json();
       const rows: ActiveTeamApiRow[] = Array.isArray(json?.data) ? json.data : [];
@@ -644,17 +658,17 @@ export default function Home() {
     } catch (error) {
       console.warn("Unable to load active teams", error);
     }
-  }, []);
+  }, [leagueId]);
 
   useEffect(() => {
-    if (selectedTeam) return;
+    if (selectedTeam || !leagueId) return;
     fetchActiveTeams();
     const interval = setInterval(fetchActiveTeams, ACTIVE_TEAMS_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [fetchActiveTeams, selectedTeam]);
+  }, [fetchActiveTeams, leagueId, selectedTeam]);
 
   useEffect(() => {
-    if (!selectedTeam || !sessionId) return;
+    if (!selectedTeam || !sessionId || !leagueId) return;
     let cancelled = false;
 
     const sendHeartbeat = async () => {
@@ -662,7 +676,7 @@ export default function Home() {
         const res = await fetch("/api/active-teams/heartbeat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId }),
+          body: JSON.stringify({ leagueId, rosterId: selectedTeam, sessionId }),
         });
 
         if (!res.ok && !cancelled) {
@@ -684,15 +698,15 @@ export default function Home() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [releaseAndClearSession, selectedTeam, sessionId]);
+  }, [leagueId, releaseAndClearSession, selectedTeam, sessionId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    if (!selectedTeam || !sessionId) return;
+    if (!selectedTeam || !sessionId || !leagueId) return;
 
     const handleUnload = () => {
       try {
-        const payload = JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId });
+        const payload = JSON.stringify({ leagueId, rosterId: selectedTeam, sessionId });
         const blob = new Blob([payload], { type: "application/json" });
         // Best-effort release; some browsers may ignore beacons during unload.
         const queued = navigator.sendBeacon("/api/active-teams/release", blob);
@@ -712,17 +726,39 @@ export default function Home() {
 
     window.addEventListener("unload", handleUnload);
     return () => window.removeEventListener("unload", handleUnload);
-  }, [selectedTeam, sessionId]);
+  }, [leagueId, selectedTeam, sessionId]);
 
   useEffect(() => {
     async function fetchSleeperData() {
+      const loadDemoData = (message: string) => {
+        const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
+        const demoRosters = withComputedDraftPicks(DEMO_ROSTERS, [], {
+          teamCountOverride: DEMO_ROSTERS.length || 1,
+        });
+        setTeams(DEMO_TEAMS);
+        setCommissionerRosterId("");
+        setLeagueData(DEMO_LEAGUE);
+        setDraftOrderAvailable(false);
+        setRosters(demoRosters);
+        setRosterNames(demoNameMap);
+        logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
+        setErrorMessage(message);
+      };
+
+      if (!leagueId) {
+        loadDemoData(
+          leagueIdError || "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID."
+        );
+        return;
+      }
+
       try {
         const [leagueRes, rosterRes, userRes, tradedRes, draftsRes] = await Promise.all([
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/traded_picks`),
-          fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/drafts`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/users`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`),
+          fetch(`https://api.sleeper.app/v1/league/${leagueId}/drafts`),
         ]);
 
         if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok || !draftsRes.ok) {
@@ -735,9 +771,8 @@ export default function Home() {
         const tradedJson: TradedPick[] = await tradedRes.json();
         const draftsJson: SleeperDraft[] = await draftsRes.json();
 
-        const rosterOwnerMap: Record<number, string | number | null | undefined> = Object.fromEntries(
-          rosterJson.map((roster) => [roster.roster_id, roster.owner_id] as const)
-        );
+        const rosterOwnerMap: Record<number, string | number | null | undefined> =
+          Object.fromEntries(rosterJson.map((roster) => [roster.roster_id, roster.owner_id] as const));
         let detectedCommissionerRosterId = "";
         const mappedTeams: Team[] = rosterJson.map((roster) => {
           const user = roster.owner_id
@@ -798,23 +833,12 @@ export default function Home() {
         logDraftPickDistribution(rostersWithPicks, nameMap, rosterJson.length);
       } catch (error) {
         console.error("Error fetching Sleeper data:", error);
-        const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
-        const demoRosters = withComputedDraftPicks(DEMO_ROSTERS, [], {
-          teamCountOverride: DEMO_ROSTERS.length || 1,
-        });
-        setTeams(DEMO_TEAMS);
-        setCommissionerRosterId("");
-        setLeagueData(DEMO_LEAGUE);
-        setDraftOrderAvailable(false);
-        setRosters(demoRosters);
-        setRosterNames(demoNameMap);
-        logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
-        setErrorMessage("Unable to reach Sleeper API. Showing demo data instead.");
+        loadDemoData("Unable to reach Sleeper API. Showing demo data instead.");
       }
     }
 
     fetchSleeperData();
-  }, []);
+  }, [leagueId, leagueIdError]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1248,6 +1272,13 @@ export default function Home() {
       return;
     }
 
+    if (!leagueId) {
+      setErrorMessage(
+        leagueIdError || "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID."
+      );
+      return;
+    }
+
     const activeSessionId = ensureSession();
     if (!activeSessionId) return;
 
@@ -1257,7 +1288,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          leagueId: LEAGUE_ID,
+          leagueId,
           rosterId: teamSelectionInput,
           sessionId: activeSessionId,
         }),
@@ -1282,7 +1313,7 @@ export default function Home() {
     } finally {
       setClaimingTeam(false);
     }
-  }, [ensureSession, fetchActiveTeams, teamSelectionInput]);
+  }, [ensureSession, fetchActiveTeams, leagueId, leagueIdError, teamSelectionInput]);
 
   const persistDraftLogEntry = useCallback(async (entry: DraftLogEntry) => {
     try {
@@ -1369,6 +1400,11 @@ export default function Home() {
 
   return (
     <main className="relative min-h-screen overflow-hidden text-white">
+      {leagueIdError && (
+        <div className="relative z-20 mx-auto mb-4 mt-4 w-[calc(100%-2rem)] max-w-4xl rounded-xl border border-amber-400/60 bg-amber-500/20 px-4 py-3 text-sm text-amber-50 backdrop-blur">
+          {leagueIdError} Live Sleeper data is unavailable until it is set.
+        </div>
+      )}
       {!selectedTeam ? (
         <div className="relative flex min-h-screen flex-col overflow-hidden px-4 pb-10 pt-6 sm:px-8 lg:px-12">
           <Image
