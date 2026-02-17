@@ -18,6 +18,7 @@ type DraftTimerProps = {
   onExternalPickHandled?: () => void;
   registerStartHandler?: (handler: () => void) => void;
   onStart?: () => void;
+  nextPickIndex?: number;
 };
 
 export default function DraftTimer({
@@ -28,6 +29,7 @@ export default function DraftTimer({
   onExternalPickHandled,
   registerStartHandler,
   onStart,
+  nextPickIndex,
 }: DraftTimerProps) {
   const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
   const [isRunning, setIsRunning] = useState(false);
@@ -61,20 +63,30 @@ export default function DraftTimer({
   const seconds = secondsLeft % 60;
   const isCritical = secondsLeft > 0 && secondsLeft < 30;
 
+  const hasExternalPickIndex =
+    typeof nextPickIndex === "number" && nextPickIndex >= 0;
+  const displayedPickNumber = hasExternalPickIndex
+    ? nextPickIndex + 1
+    : pickNumber;
+
   const pickLabel = useMemo(() => {
     const teamCount = Math.max(teamsForDraft.length, 1);
-    const round = Math.floor((pickNumber - 1) / teamCount) + 1;
-    const pickInRound = ((pickNumber - 1) % teamCount) + 1;
+    const round = Math.floor((displayedPickNumber - 1) / teamCount) + 1;
+    const pickInRound = ((displayedPickNumber - 1) % teamCount) + 1;
 
     return `${round}.${String(pickInRound).padStart(2, "0")}`;
-  }, [pickNumber, teamsForDraft.length]);
+  }, [displayedPickNumber, teamsForDraft.length]);
 
   const safeTeamIndex = teamsForDraft.length
     ? currentTeamIndex % teamsForDraft.length
     : 0;
+  const derivedTeamIndex =
+    hasExternalPickIndex && teamsForDraft.length
+      ? nextPickIndex % teamsForDraft.length
+      : safeTeamIndex;
 
   const currentTeamName =
-    teamsForDraft[safeTeamIndex]?.name || "Team on the clock";
+    teamsForDraft[derivedTeamIndex]?.name || "Team on the clock";
 
   const initializeDraft = useCallback(() => {
     if (hasStartedRef.current) return;
