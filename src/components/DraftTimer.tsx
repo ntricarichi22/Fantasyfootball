@@ -157,11 +157,13 @@ export default function DraftTimer({
   return (
     <div className="w-full max-w-4xl space-y-4">
       <div className="flex flex-wrap items-center gap-4 rounded-xl bg-slate-900 px-6 py-4 shadow-lg">
-        <span className="text-base font-bold uppercase tracking-wide text-white">
+        <span className="font-mono text-3xl font-bold uppercase tracking-wide text-white">
           ON THE CLOCK:
         </span>
-        <span className="text-lg font-semibold text-white">{currentTeamName}</span>
-        <span className="rounded-full bg-slate-800 px-3 py-1 text-sm font-semibold text-slate-100">
+        <span className="font-mono text-3xl font-semibold text-white">
+          {currentTeamName}
+        </span>
+        <span className="rounded-full bg-slate-800 px-3 py-1 font-mono text-3xl font-semibold text-slate-100">
           {pickLabel}
         </span>
         <span
