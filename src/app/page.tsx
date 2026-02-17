@@ -1153,46 +1153,76 @@ export default function Home() {
   };
 
   return (
-    <main className="h-screen bg-black text-white flex flex-col overflow-hidden">
-      <div className="mb-4 flex w-full max-w-6xl flex-col items-start gap-2 px-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <h1 className="text-5xl font-bold">CFC Offseason Draft</h1>
-      </div>
-
+    <main className="relative min-h-screen overflow-hidden text-white">
       {!selectedTeam ? (
-        <div className="flex flex-1 items-center justify-center px-4 pb-8 overflow-hidden">
-          <div className="bg-gray-900 p-8 rounded-xl shadow-lg">
-            <p className="mb-4 text-gray-400">Select Your Team</p>
-            {errorMessage && (
-              <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
-            )}
+        <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-10">
+          <div className="absolute inset-0 bg-[url('/welcome-bg.png')] bg-cover bg-center" />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-black/65 to-black/80" />
 
-            <select
-              className="bg-black border border-gray-700 p-3 rounded-lg text-white w-64"
-              value={teamSelectionInput}
-              onChange={(e) => setTeamSelectionInput(e.target.value)}
-            >
-              <option value="">-- Choose Team --</option>
-              {availableTeams.map((team) => (
-                <option key={team.id} value={toId(team.id)}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
-            <button
-              className="mt-4 w-full rounded-lg bg-green-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-green-800"
-              onClick={handleEnterDraftRoom}
-              disabled={!teamSelectionInput || claimingTeam}
-            >
-              {claimingTeam ? "Joining..." : "Enter Draft Room"}
-            </button>
-            <p className="mt-3 text-xs text-gray-500">
-              Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES}{" "}
-              {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "minute" : "minutes"} after their last activity.
+          <div className="relative z-10 w-full max-w-5xl space-y-8">
+            <div className="flex items-start justify-between gap-4">
+              <h1 className="text-3xl font-semibold uppercase tracking-[0.35em] text-gray-100 sm:text-4xl md:text-5xl">
+                WELCOME TO THE 2026 CFC DRAFT
+              </h1>
+              <span className="flex items-center gap-2 rounded-full bg-red-600/85 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-red-900/60">
+                <span className="h-2.5 w-2.5 rounded-full bg-white shadow-[0_0_0_6px_rgba(255,255,255,0.15)]" />
+                Live
+              </span>
+            </div>
+
+            <div className="mx-auto w-full max-w-2xl rounded-[30px] border border-white/15 bg-white/10 px-6 py-7 shadow-2xl shadow-emerald-500/20 backdrop-blur-2xl sm:px-10 sm:py-10">
+              <div className="flex items-center justify-between pb-4">
+                <p className="text-sm uppercase tracking-[0.3em] text-emerald-200/80">
+                  Choose your squad
+                </p>
+                <div className="h-1 w-16 rounded-full bg-emerald-400/60 shadow-[0_0_18px_2px_rgba(52,211,153,0.45)]" />
+              </div>
+
+              {errorMessage && (
+                <p className="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                  {errorMessage}
+                </p>
+              )}
+
+              <div className="space-y-3">
+                <select
+                  className="w-full appearance-none rounded-2xl border border-white/20 bg-black/50 px-4 py-3 text-base font-semibold text-white shadow-inner shadow-black/30 outline-none ring-1 ring-white/5 transition focus:border-emerald-400/70 focus:ring-emerald-400/60 backdrop-blur"
+                  value={teamSelectionInput}
+                  onChange={(e) => setTeamSelectionInput(e.target.value)}
+                >
+                  <option value="">-- Choose Team --</option>
+                  {availableTeams.map((team) => (
+                    <option key={team.id} value={toId(team.id)}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  className="mt-3 w-full rounded-2xl bg-emerald-500 px-6 py-4 text-lg font-bold uppercase tracking-wide text-black shadow-xl shadow-emerald-500/30 transition duration-200 hover:-translate-y-0.5 hover:bg-emerald-400 hover:shadow-emerald-400/40 disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-emerald-800 disabled:text-emerald-100/80"
+                  onClick={handleEnterDraftRoom}
+                  disabled={!teamSelectionInput || claimingTeam}
+                >
+                  {claimingTeam ? "Joining..." : "Enter at Your Own Peril"}
+                </button>
+              </div>
+
+              <p className="mt-4 text-xs text-gray-200/80">
+                Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES}{" "}
+                {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "minute" : "minutes"} after their last activity.
+              </p>
+            </div>
+
+            <p className="text-center text-sm font-semibold tracking-[0.25em] text-emerald-100/85">
+              12 TEAMS CONNECTED
             </p>
           </div>
         </div>
       ) : (
-        <div className="flex-1 flex flex-col gap-4 px-4 pb-6 overflow-hidden">
+        <div className="flex h-screen flex-col gap-4 bg-black px-4 pb-6 overflow-hidden">
+          <div className="mb-4 flex w-full max-w-6xl flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <h1 className="text-5xl font-bold">CFC Offseason Draft</h1>
+          </div>
           <div className="flex items-center justify-start gap-3">
             <button
               className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-green-800"
