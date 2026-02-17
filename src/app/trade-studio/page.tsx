@@ -67,7 +67,16 @@ interface TradeAsset {
   type: "player" | "pick";
 }
 
+interface OfferSuggestion {
+  id: string;
+  partner: string;
+  give: string[];
+  get: string[];
+  note?: string;
+}
+
 const DEMO_TEAM_ID = 0;
+const DEFAULT_TRADE_BLOCK_ITEMS = ["Bench depth", "Future flexibility"];
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
   { roster_id: DEMO_TEAM_ID, owner_id: null, starters: [], players: [], draft_picks: [] },
@@ -79,10 +88,13 @@ const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const AVAILABILITY_CACHE_KEY = "trade_studio_availability";
 const TRADE_BLOCK_CACHE_KEY = "trade_studio_trade_block";
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
+const SNAPSHOT_FOOTER_PADDING_CLASS = "pb-24";
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
+let offerIdCounter = 0;
 
 type TimelineLane = "Contend" | "Re-tool" | "Rebuild";
 type Posture = "Buyer" | "Seller";
+type WorkbenchTabKey = "trade-block" | "manual" | "incoming" | "chat";
 
 const YOUNG_PLAYER_AGE_THRESHOLD = 25;
 const VETERAN_PLAYER_AGE_THRESHOLD = 29;
@@ -149,6 +161,40 @@ const availabilityKeyForPick = (pick: DraftPick) =>
   `pick:${pick.season || "future"}-${pick.round || "r"}-${pick.pick_no || "p"}-${
     pick.roster_id || pick.original_roster_id || "roster"
   }`;
+
+const buildOfferSuggestions = (tradeBlock: TradeAsset[]): OfferSuggestion[] => {
+  const baseGive = tradeBlock.length > 0 ? tradeBlock.map((asset) => asset.label) : DEFAULT_TRADE_BLOCK_ITEMS;
+  const offerIdBase = `offer-seed-${Date.now()}-${offerIdCounter++}`;
+
+  const scenarios = [
+    {
+      partner: "Manager Vega",
+      give: baseGive.slice(0, 2),
+      get: ["2025 2nd", "WR3 upgrade"],
+      note: "Balanced return for present value",
+    },
+    {
+      partner: "GM Ellis",
+      give: baseGive.slice(0, 1),
+      get: ["2026 1st", "Upside RB"],
+      note: "Adds future capital with a dart throw",
+    },
+    {
+      partner: "Commish AI",
+      give: baseGive.slice(0, 3),
+      get: ["Contender's 2025 3rd", "Buy-low TE"],
+      note: "Depth consolidation for picks + upside",
+    },
+  ];
+
+  return scenarios.map((scenario, idx) => ({
+    id: `offer-${offerIdBase}-${idx}`,
+    partner: scenario.partner,
+    give: scenario.give.length ? scenario.give : baseGive,
+    get: scenario.get,
+    note: scenario.note,
+  }));
+};
 
 const parseAgeFromLabel = (ageLabel: string) => {
   if (!ageLabel || !ageLabel.trim()) return null;
@@ -494,6 +540,10 @@ export default function TradeStudioPage() {
   const [tradeBlock, setTradeBlock] = useState<TradeAsset[]>([]);
   const [timelineChoice, setTimelineChoice] = useState<TimelineLane>("Re-tool");
   const [postureChoice, setPostureChoice] = useState<Posture>("Buyer");
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTabKey>("trade-block");
+  const [offerSuggestions, setOfferSuggestions] = useState<OfferSuggestion[]>(() => buildOfferSuggestions([]));
+  const [activeOfferIndex, setActiveOfferIndex] = useState(0);
+  const [offerAggression, setOfferAggression] = useState(50);
   const lastTeamRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -866,6 +916,38 @@ export default function TradeStudioPage() {
     });
   }, []);
 
+  const handleRemoveFromTradeBlock = useCallback((assetId: string) => {
+    setTradeBlock((prev) => prev.filter((asset) => asset.id !== assetId));
+  }, []);
+
+  const handleClearTradeBlock = useCallback(() => {
+    setTradeBlock([]);
+  }, []);
+
+  const regenerateOffers = useCallback(() => {
+    setOfferSuggestions(buildOfferSuggestions(tradeBlock));
+    setActiveOfferIndex(0);
+  }, [tradeBlock]);
+
+  const goToNextOffer = useCallback(() => {
+    setActiveOfferIndex((prev) => {
+      if (!offerSuggestions.length) return 0;
+      return (prev + 1) % offerSuggestions.length;
+    });
+  }, [offerSuggestions.length]);
+
+  const goToPreviousOffer = useCallback(() => {
+    setActiveOfferIndex((prev) => {
+      if (!offerSuggestions.length) return 0;
+      return (prev - 1 + offerSuggestions.length) % offerSuggestions.length;
+    });
+  }, [offerSuggestions.length]);
+
+  useEffect(() => {
+    setOfferSuggestions(buildOfferSuggestions(tradeBlock));
+    setActiveOfferIndex(0);
+  }, [tradeBlock]);
+
   const teamName = useMemo(
     () => teams.find((t) => toId(t.id) === selectedTeam)?.name || "Selected Team",
     [selectedTeam, teams]
@@ -894,10 +976,9 @@ export default function TradeStudioPage() {
     }
   }, [aiProfile, selectedTeam]);
 
-  const selectedPrimaryPlan = useMemo(
-    () => buildPrimaryPlan(timelineChoice, postureChoice, aiProfile.context),
-    [aiProfile.context, postureChoice, timelineChoice]
-  );
+  const currentOffer = offerSuggestions[activeOfferIndex] ?? offerSuggestions[0] ?? null;
+  const offerTotal = offerSuggestions.length;
+  const offerPosition = offerTotal ? activeOfferIndex + 1 : 0;
 
   return (
     <main className="h-screen overflow-hidden bg-black text-gray-100">
@@ -1119,8 +1200,8 @@ export default function TradeStudioPage() {
                       AI stub
                     </span>
                   </div>
-                  <div className="flex h-full flex-col overflow-hidden text-sm text-gray-200">
-                    <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+                  <div className="relative flex h-full flex-col overflow-hidden text-sm text-gray-200">
+                    <div className={`flex-1 space-y-4 overflow-y-auto pr-1 ${SNAPSHOT_FOOTER_PADDING_CLASS}`}>
                       <p className="text-sm text-gray-300">{aiProfile.summary}</p>
                       <p className="text-xs text-gray-500">Values loaded: {playerValuesLoadedLabel}</p>
                       <div className="grid gap-3 sm:grid-cols-2">
@@ -1142,116 +1223,280 @@ export default function TradeStudioPage() {
                         </div>
                       </div>
                     </div>
-                    <div className="mt-3 space-y-2 border-t border-gray-800 pt-3">
-                      <div>
-                        <p className="text-xs text-gray-400">Timeline</p>
-                        <div className="mt-1 flex flex-wrap gap-2">
-                          {(["Contend", "Re-tool", "Rebuild"] as TimelineLane[]).map((lane) => {
-                            const selected = timelineChoice === lane;
-                            return (
-                              <button
-                                key={lane}
-                                type="button"
-                                onClick={() => setTimelineChoice(lane)}
-                                className={[
-                                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                                  selected
-                                    ? "border-emerald-500 bg-emerald-900 text-emerald-50"
-                                    : "border-gray-700 bg-gray-800 text-gray-300 hover:border-emerald-500/60 hover:text-white",
-                                ].join(" ")}
-                              >
-                                {lane}
-                              </button>
-                            );
-                          })}
+                    <div className="sticky bottom-0 mt-3 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
+                      <div className="flex flex-wrap items-start gap-6">
+                        <div className="min-w-[180px] flex-1">
+                          <p className="text-xs text-gray-400">Timeline</p>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {(["Contend", "Re-tool", "Rebuild"] as TimelineLane[]).map((lane) => {
+                              const selected = timelineChoice === lane;
+                              return (
+                                <button
+                                  key={lane}
+                                  type="button"
+                                  onClick={() => setTimelineChoice(lane)}
+                                  className={[
+                                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                                    selected
+                                      ? "border-emerald-500 bg-emerald-900 text-emerald-50"
+                                      : "border-gray-700 bg-gray-800 text-gray-300 hover:border-emerald-500/60 hover:text-white",
+                                  ].join(" ")}
+                                >
+                                  {lane}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                      <div>
-                        <p className="text-xs text-gray-400">Posture</p>
-                        <div className="mt-1 flex flex-wrap gap-2">
-                          {(["Buyer", "Seller"] as Posture[]).map((posture) => {
-                            const selected = postureChoice === posture;
-                            return (
-                              <button
-                                key={posture}
-                                type="button"
-                                onClick={() => setPostureChoice(posture)}
-                                className={[
-                                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                                  selected
-                                    ? "border-indigo-500 bg-indigo-900 text-indigo-50"
-                                    : "border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
-                                ].join(" ")}
-                              >
-                                {posture}
-                              </button>
-                            );
-                          })}
+                        <div className="min-w-[180px] flex-1">
+                          <p className="text-xs text-gray-400">Posture</p>
+                          <div className="mt-1 flex flex-wrap gap-2">
+                            {(["Buyer", "Seller"] as Posture[]).map((posture) => {
+                              const selected = postureChoice === posture;
+                              return (
+                                <button
+                                  key={posture}
+                                  type="button"
+                                  onClick={() => setPostureChoice(posture)}
+                                  className={[
+                                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                                    selected
+                                      ? "border-indigo-500 bg-indigo-900 text-indigo-50"
+                                      : "border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
+                                  ].join(" ")}
+                                >
+                                  {posture}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
                 </section>
 
-                <section className="flex-[2] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-black p-4 shadow-lg">
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="text-base font-semibold text-white">Game Plan</h3>
-                    <span className="text-[11px] text-gray-400">
-                      {timelineChoice} · {postureChoice}
-                    </span>
-                  </div>
-                  <div className="flex h-full flex-col overflow-hidden">
-                    <div className="flex-1 space-y-3 overflow-y-auto pr-1">
-                      <p className="text-base font-semibold text-white">
-                        <span className="font-bold">Primary Plan:</span> {selectedPrimaryPlan}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        Deterministic AI stub grounded in the selected roster and picks. Update the chips to
-                        override the recommendation.
-                      </p>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="flex-[3] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                <section className="flex-[5] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
                   <div className="mb-3 flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-white">Trade Block + Offers</h2>
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-lg font-semibold text-white">Trade Workbench</h2>
+                      <span className="rounded-full bg-indigo-900 px-3 py-1 text-xs font-semibold text-indigo-200">Beta</span>
+                    </div>
                     <span className="text-xs text-gray-400">Live board</span>
                   </div>
-                  <div className="flex h-full min-h-0 flex-col gap-3 text-sm text-gray-300">
-                    <div className="flex min-h-0 flex-col rounded-lg border border-gray-800 bg-gray-950 p-3">
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="font-semibold text-white">Trade Block</span>
-                        <span className="text-xs text-gray-400">
-                          {tradeBlock.length} {tradeBlock.length === 1 ? "item" : "items"}
-                        </span>
-                      </div>
-                      <div className="flex-1 overflow-y-auto pr-1">
-                        {tradeBlock.length ? (
-                          <ul className="space-y-2">
-                            {tradeBlock.map((asset) => (
-                              <li
-                                key={asset.id}
-                                className="flex items-center justify-between rounded-md border border-gray-800 bg-black/60 px-3 py-2 text-xs sm:text-sm"
-                              >
-                                <span className="font-semibold text-white">{asset.label}</span>
-                                <span className="rounded-full border border-gray-700 px-2 py-1 text-[11px] uppercase tracking-wide text-gray-300">
-                                  {asset.type}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="text-xs text-gray-400">
-                            Add roster players or picks to see them listed here.
-                          </p>
-                        )}
-                      </div>
+                  <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                    <div className="mb-3 flex flex-wrap items-center gap-2">
+                      {([
+                        { key: "trade-block" as WorkbenchTabKey, label: "Trade Block" },
+                        { key: "manual" as WorkbenchTabKey, label: "Manual Trade" },
+                        { key: "incoming" as WorkbenchTabKey, label: "Incoming" },
+                        { key: "chat" as WorkbenchTabKey, label: "Chat" },
+                      ] satisfies Array<{ key: WorkbenchTabKey; label: string }>).map((tab) => {
+                        const selected = activeWorkbenchTab === tab.key;
+                        return (
+                          <button
+                            key={tab.key}
+                            type="button"
+                            onClick={() => setActiveWorkbenchTab(tab.key)}
+                            className={[
+                              "rounded-full px-3 py-1 text-xs font-semibold transition",
+                              selected
+                                ? "bg-indigo-700 text-white"
+                                : "border border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
+                            ].join(" ")}
+                          >
+                            {tab.label}
+                          </button>
+                        );
+                      })}
                     </div>
-                    <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">
-                      Incoming offers and counters
+                    <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-gray-800 bg-gray-950/70 p-3">
+                      {activeWorkbenchTab === "trade-block" ? (
+                        <div className="grid h-full min-h-0 gap-3 md:grid-cols-2">
+                          <div className="flex min-h-0 flex-col rounded-lg border border-gray-800 bg-gray-950 p-3">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-gray-400">Block Builder</p>
+                                <p className="text-sm font-semibold text-white">
+                                  Trade Block{" "}
+                                  <span className="text-xs font-normal text-gray-400">
+                                    ({tradeBlock.length} {tradeBlock.length === 1 ? "item" : "items"})
+                                  </span>
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleClearTradeBlock}
+                                  disabled={!tradeBlock.length}
+                                  className="rounded-md border border-gray-700 px-3 py-2 text-xs font-semibold text-gray-200 transition hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                                >
+                                  Clear
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={regenerateOffers}
+                                  className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:bg-emerald-600"
+                                >
+                                  Generate Offers
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto rounded-md border border-gray-900 bg-black/40 p-2">
+                              {tradeBlock.length ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {tradeBlock.map((asset) => (
+                                    <span
+                                      key={asset.id}
+                                      className="inline-flex items-center gap-2 rounded-full border border-gray-800 bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
+                                    >
+                                      <span className="truncate">{asset.label}</span>
+                                      <button
+                                        type="button"
+                                        aria-label={`Remove ${asset.label}`}
+                                        onClick={() => handleRemoveFromTradeBlock(asset.id)}
+                                        className="rounded-full bg-gray-800 px-2 py-1 text-[11px] font-bold text-gray-200 transition hover:bg-red-700 hover:text-white"
+                                      >
+                                        ×
+                                      </button>
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-xs text-gray-400">
+                                  Use the Add buttons on roster players and picks to populate your trade block.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex min-h-0 flex-col rounded-lg border border-gray-800 bg-gray-950 p-3">
+                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                              <div>
+                                <p className="text-xs uppercase tracking-wide text-gray-400">Offer Suggestions</p>
+                                <p className="text-sm font-semibold text-white">
+                                  Offer {offerPosition} of {offerTotal}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={goToPreviousOffer}
+                                  disabled={!offerSuggestions.length}
+                                  className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                                >
+                                  Prev
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={goToNextOffer}
+                                  disabled={!offerSuggestions.length}
+                                  className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                                >
+                                  Next
+                                </button>
+                              </div>
+                            </div>
+
+                            {offerSuggestions.length ? (
+                              <>
+                                <div className="mb-3 rounded-lg border border-gray-800 bg-black/40 p-3">
+                                  <p className="text-[11px] uppercase tracking-wide text-gray-400">Partner</p>
+                                  <p className="text-base font-semibold text-white">
+                                    {currentOffer?.partner ?? ""}
+                                  </p>
+                                  {currentOffer?.note ? (
+                                    <p className="text-xs text-gray-400">{currentOffer.note}</p>
+                                  ) : null}
+                                </div>
+                                <div className="mb-3">
+                                  <label
+                                    className="flex items-center justify-between text-xs text-gray-400"
+                                    htmlFor="aggression-slider"
+                                  >
+                                    <span>Conservative to Aggressive</span>
+                                    <span className="text-[11px] text-gray-500">{offerAggression}%</span>
+                                  </label>
+                                  <input
+                                    id="aggression-slider"
+                                    type="range"
+                                    min={0}
+                                    max={100}
+                                    value={offerAggression}
+                                    onChange={(e) => setOfferAggression(Number(e.target.value))}
+                                    className="mt-1 h-2 w-full cursor-pointer accent-indigo-500"
+                                  />
+                                  <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                                    <span>Conservative</span>
+                                    <span>Aggressive</span>
+                                  </div>
+                                </div>
+                                <div className="flex-1 overflow-y-auto">
+                                  <div className="grid gap-3 sm:grid-cols-2">
+                                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
+                                      <p className="text-xs uppercase tracking-wide text-gray-400">You Give</p>
+                                      <ul className="mt-2 space-y-2 text-sm text-gray-200">
+                                        {currentOffer?.give?.map((item) => (
+                                          <li
+                                            key={`${currentOffer?.id}-give-${item}`}
+                                            className="rounded-md border border-gray-800 bg-gray-900 px-2 py-1"
+                                          >
+                                            {item}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
+                                      <p className="text-xs uppercase tracking-wide text-gray-400">You Get</p>
+                                      <ul className="mt-2 space-y-2 text-sm text-gray-200">
+                                        {currentOffer?.get?.map((item) => (
+                                          <li
+                                            key={`${currentOffer?.id}-get-${item}`}
+                                            className="rounded-md border border-gray-800 bg-gray-900 px-2 py-1"
+                                          >
+                                            {item}
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    </div>
+                                  </div>
+                                </div>
+                                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={regenerateOffers}
+                                    className="rounded-md border border-indigo-700 bg-indigo-900 px-3 py-2 text-xs font-semibold text-indigo-50 transition hover:border-indigo-500 hover:text-white"
+                                  >
+                                    Generate again
+                                  </button>
+                                  <span className="text-xs text-gray-400">
+                                    Offer carousel {offerPosition} of {offerTotal}
+                                  </span>
+                                </div>
+                              </>
+                            ) : (
+                              <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/40 p-4 text-sm text-gray-400">
+                                Add assets and generate to see suggestions.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ) : activeWorkbenchTab === "manual" ? (
+                        <div className="flex h-full items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
+                          Manual Trade workspace coming soon.
+                        </div>
+                      ) : activeWorkbenchTab === "incoming" ? (
+                        <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
+                          <p>No incoming offers yet.</p>
+                          <p className="text-xs text-gray-500">Generate offers or await league activity.</p>
+                        </div>
+                      ) : (
+                        <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
+                          <p>Chat coming soon.</p>
+                          <p className="text-xs text-gray-500">Collaborate with league mates here.</p>
+                        </div>
+                      )}
                     </div>
-                    <div className="rounded-lg border border-gray-800 bg-gray-950 p-3">Notes & constraints</div>
                   </div>
                 </section>
               </div>
