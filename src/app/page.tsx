@@ -109,7 +109,7 @@ const MIN_TEAM_COUNT = 1;
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 let playerDictCacheTime = 0;
 
-const isCacheFresh = (timestamp: number | null | undefined) =>
+const isCacheTimestampFresh = (timestamp: number | null | undefined) =>
   typeof timestamp === "number" && timestamp > 0 && Date.now() - timestamp < CACHE_TTL_MS;
 
 const toId = (value: string | number | null | undefined) =>
@@ -517,7 +517,7 @@ export default function Home() {
     let isMounted = true;
 
     async function loadPlayerDictionary() {
-      if (playerDictCache && isCacheFresh(playerDictCacheTime)) {
+      if (playerDictCache && isCacheTimestampFresh(playerDictCacheTime)) {
         setPlayerDictionary(playerDictCache);
         return;
       }
@@ -526,7 +526,7 @@ export default function Home() {
         const cachedDict = localStorage.getItem(PLAYER_CACHE_KEY);
         const cachedTime = localStorage.getItem(PLAYER_CACHE_TIME_KEY);
         const parsedTime = cachedTime ? parseInt(cachedTime, 10) : NaN;
-        const isFresh = isCacheFresh(Number.isNaN(parsedTime) ? null : parsedTime);
+        const isFresh = isCacheTimestampFresh(Number.isNaN(parsedTime) ? null : parsedTime);
         if (cachedDict && isFresh) {
           try {
             const parsed = JSON.parse(cachedDict);
@@ -688,9 +688,12 @@ export default function Home() {
       if (!hasSkillPosition) return;
 
       const value = playerValues[playerId];
-      const hasValue = typeof value === "number" && Number.isFinite(value);
+      const hasValue = Number.isFinite(value);
       const isActive = player.active === true || player.status?.toLowerCase() === "active";
-      const isRookie = Number(player.years_exp) === 0;
+      const isRookie =
+        player.years_exp !== undefined &&
+        player.years_exp !== null &&
+        Number(player.years_exp) === 0;
 
       if (!(isActive || isRookie || hasValue)) return;
 
