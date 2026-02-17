@@ -602,6 +602,7 @@ export default function Home() {
       try {
         const payload = JSON.stringify({ leagueId: LEAGUE_ID, rosterId: selectedTeam, sessionId });
         const blob = new Blob([payload], { type: "application/json" });
+        // Best-effort release; some browsers may ignore beacons during unload.
         navigator.sendBeacon("/api/active-teams/release", blob);
       } catch {
         // ignore
@@ -1233,6 +1234,8 @@ export default function Home() {
                   className="w-full bg-black border border-gray-700 p-2 rounded-lg text-white"
                   value={selectedTeam}
                   disabled
+                  aria-label="Team selection is locked. Use Leave Draft Room to switch teams."
+                  title="Team selection is locked. Use Leave Draft Room to switch teams."
                 >
                   <option value="">-- Choose Team --</option>
                   {teams.map((team) => (

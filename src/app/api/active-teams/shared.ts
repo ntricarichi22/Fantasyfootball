@@ -2,8 +2,6 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 export const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
 
-let supabaseAdminClient: SupabaseClient | null = null;
-
 type SupabaseClientResult =
   | { client: SupabaseClient; error: null }
   | { client: null; error: string };
@@ -16,16 +14,14 @@ export const getSupabaseAdminClient = (): SupabaseClientResult => {
     return { client: null, error: "Missing Supabase configuration" };
   }
 
-  if (!supabaseAdminClient) {
-    supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-  }
+  const client = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 
-  return { client: supabaseAdminClient, error: null };
+  return { client, error: null };
 };
 
 export const activeCutoffIso = () => new Date(Date.now() - SESSION_TIMEOUT_MS).toISOString();
