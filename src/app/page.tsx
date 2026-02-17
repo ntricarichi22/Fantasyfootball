@@ -141,7 +141,7 @@ const generateSessionId = () => {
   }
 
   if (webCrypto?.getRandomValues) {
-    const values = webCrypto.getRandomValues(new Uint32Array(4));
+    const values = webCrypto.getRandomValues(new Uint32Array(8));
     const hex = Array.from(values)
       .map((n) => n.toString(16).padStart(8, "0"))
       .join("");
@@ -590,6 +590,7 @@ export default function Home() {
         const queued = navigator.sendBeacon("/api/active-teams/release", blob);
         if (!queued) {
           console.warn("Release beacon was not queued before unload.");
+          void releaseActiveTeam();
         }
       } catch {
         // ignore
@@ -598,7 +599,7 @@ export default function Home() {
 
     window.addEventListener("unload", handleUnload);
     return () => window.removeEventListener("unload", handleUnload);
-  }, [selectedTeam, sessionId]);
+  }, [releaseActiveTeam, selectedTeam, sessionId]);
 
   useEffect(() => {
     async function fetchSleeperData() {
@@ -1223,6 +1224,7 @@ export default function Home() {
                   value={selectedTeam}
                   disabled
                   aria-label="Team selection is locked. Use Leave Draft Room to switch teams."
+                  aria-describedby="team-switcher-helper"
                   title="Team selection is locked. Use Leave Draft Room to switch teams."
                 >
                   <option value="">-- Choose Team --</option>
@@ -1232,7 +1234,7 @@ export default function Home() {
                     </option>
                   ))}
                 </select>
-                <p className="mt-1 text-[11px] text-gray-500">
+                <p id="team-switcher-helper" className="mt-1 text-[11px] text-gray-500">
                   Leave the draft room to switch teams.
                 </p>
               </div>
