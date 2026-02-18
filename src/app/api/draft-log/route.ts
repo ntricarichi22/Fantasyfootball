@@ -26,7 +26,15 @@ type DraftLogPayload = {
   nflTeam?: string | null;
 };
 
-const LEAGUE_ID = getLeagueId();
+const safeLeagueId = () => {
+  try {
+    return getLeagueId();
+  } catch {
+    return "";
+  }
+};
+
+const LEAGUE_ID = safeLeagueId();
 
 export const dynamic = "force-dynamic";
 

@@ -19,7 +19,7 @@ import {
 } from "../lib/picks";
 import DraftTimer from "../components/DraftTimer";
 import { getLeagueId } from "../lib/config";
-import { supabase } from "../lib/supabaseClient";
+import { getSupabaseClient, supabase } from "../lib/supabaseClient";
 import { isCommissionerTeamName } from "../lib/commissioner";
 
 interface Team {
@@ -1004,7 +1004,10 @@ export default function Home() {
   }, [fetchDraftLogFromApi]);
 
   useEffect(() => {
-    let channel = supabase.channel("draft-log-updates");
+    const supabaseClient = supabase ?? getSupabaseClient();
+    if (!supabaseClient) return undefined;
+
+    let channel = supabaseClient.channel("draft-log-updates");
     channel = channel.on(
       "postgres_changes",
       { event: "*", schema: "public", table: "draft_log" },
@@ -1020,7 +1023,7 @@ export default function Home() {
     }
 
     return () => {
-      supabase.removeChannel(channel);
+      supabaseClient.removeChannel(channel);
     };
   }, [fetchDraftLogFromApi]);
 
