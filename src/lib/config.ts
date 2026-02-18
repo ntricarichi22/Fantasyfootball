@@ -10,4 +10,4 @@ export const getLeagueId = () => {
   return leagueIdEnv;
 };
 
-export const LEAGUE_ID = getLeagueId();
+export const LEAGUE_ID = leagueIdEnv || "";

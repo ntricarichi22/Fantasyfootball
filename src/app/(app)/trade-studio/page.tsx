@@ -1298,7 +1298,7 @@ export default function TradeStudioPage() {
       return;
     }
     const selectedRosterId = Number(selectedTeam);
-    const profilesWithOverride =
+    const profilesWithOverride: Record<string | number, TradeProfile> | undefined =
       tradeProfiles && selectedTeam
         ? {
             ...tradeProfiles,
@@ -1326,9 +1326,9 @@ export default function TradeStudioPage() {
                   : postureChoice === "Seller"
                     ? "seller"
                     : tradeProfiles[selectedRosterId]?.posture ?? "neutral",
-            },
+            } as TradeProfile,
           }
-        : tradeProfiles;
+        : tradeProfiles ?? undefined;
     const offers = buildOfferSuggestions(tradeBlock, {
       rosters,
       rosterNames,
