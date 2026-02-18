@@ -15,6 +15,11 @@ import {
 } from "../../../lib/picks";
 import { getLeagueId } from "../../../lib/config";
 import {
+  buildLeagueProfiles,
+  type TeamProfile as TradeProfile,
+} from "../../../lib/trade/profile";
+import { getPickValue, getPlayerValue } from "../../../lib/trade/value";
+import {
   computeLeagueRankings,
   rankBandLabel,
   type MetricKey,
@@ -68,16 +73,34 @@ interface TradeAsset {
   type: "player" | "pick";
 }
 
+type FairnessGrade = "Fair" | "Slight Overpay" | "Overpay" | "Slight Underpay" | "Underpay";
+
+interface OfferAssetDetail {
+  id: string;
+  label: string;
+  type: "player" | "pick";
+  position?: string;
+  team?: string;
+  ageLabel?: string;
+  value: number;
+  isUnvalued?: boolean;
+  rosterId?: number;
+}
+
 interface OfferSuggestion {
   id: string;
+  partnerId: number | string;
   partner: string;
-  give: string[];
-  get: string[];
-  note?: string;
+  send: OfferAssetDetail[];
+  receive: OfferAssetDetail[];
+  tags: string[];
+  fairness: FairnessGrade;
+  explanation: string;
+  valueSent: number;
+  valueReceived: number;
 }
 
 const DEMO_TEAM_ID = 0;
-const DEFAULT_TRADE_BLOCK_ITEMS = ["Bench depth", "Future flexibility"];
 const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
   { roster_id: DEMO_TEAM_ID, owner_id: null, starters: [], players: [], draft_picks: [] },
@@ -168,38 +191,324 @@ const availabilityKeyForPick = (pick: DraftPick) =>
     pick.roster_id || pick.original_roster_id || "roster"
   }`;
 
-const buildOfferSuggestions = (tradeBlock: TradeAsset[]): OfferSuggestion[] => {
-  const baseGive = tradeBlock.length > 0 ? tradeBlock.map((asset) => asset.label) : DEFAULT_TRADE_BLOCK_ITEMS;
-  const offerIdBase = `offer-seed-${Date.now()}-${offerIdCounter++}`;
+const normalizePickSlot = (pickNo: number | undefined, teamCount: number) => {
+  const teams = Math.max(teamCount, 1);
+  if (!pickNo || pickNo <= 0) return undefined;
+  if (pickNo > teams) return ((pickNo - 1) % teams) + 1;
+  return pickNo;
+};
 
-  const scenarios = [
-    {
-      partner: "Manager Vega",
-      give: baseGive.slice(0, 2),
-      get: ["2025 2nd", "WR3 upgrade"],
-      note: "Balanced return for present value",
-    },
-    {
-      partner: "GM Ellis",
-      give: baseGive.slice(0, 1),
-      get: ["2026 1st", "Upside RB"],
-      note: "Adds future capital with a dart throw",
-    },
-    {
-      partner: "Commish AI",
-      give: baseGive.slice(0, 3),
-      get: ["Contender's 2025 3rd", "Buy-low TE"],
-      note: "Depth consolidation for picks + upside",
-    },
-  ];
+const shortPickLabel = (pick: DraftPick, teamCount: number) => {
+  const slot = normalizePickSlot(pick.pick_no, Math.max(teamCount, 1));
+  const slotLabel =
+    pick.round && slot
+      ? `${pick.round}.${String(slot).padStart(2, "0")}`
+      : pick.round
+        ? `${pick.round}.--`
+        : "pick";
+  return `${pick.season ?? "Future"} ${slotLabel}`;
+};
 
-  return scenarios.map((scenario, idx) => ({
-    id: `offer-${offerIdBase}-${idx}`,
-    partner: scenario.partner,
-    give: scenario.give.length ? scenario.give : baseGive,
-    get: scenario.get,
-    note: scenario.note,
-  }));
+const fairnessFromValues = (sent: number, received: number): FairnessGrade => {
+  if (sent === 0 && received === 0) return "Fair";
+  if (sent === 0) return "Overpay";
+  const ratio = received / sent;
+  if (ratio >= 1.25) return "Overpay";
+  if (ratio >= 1.1) return "Slight Overpay";
+  if (ratio <= 0.8) return "Underpay";
+  if (ratio <= 0.9) return "Slight Underpay";
+  return "Fair";
+};
+
+const fairnessStyles: Record<FairnessGrade, string> = {
+  Fair: "border-emerald-600/60 bg-emerald-900 text-emerald-100",
+  "Slight Overpay": "border-amber-600/60 bg-amber-900 text-amber-100",
+  Overpay: "border-red-700/60 bg-red-900 text-red-100",
+  "Slight Underpay": "border-sky-700/60 bg-sky-900 text-sky-100",
+  Underpay: "border-gray-700 bg-gray-900 text-gray-100",
+};
+
+const collectRosterAssets = (
+  roster: Roster,
+  teamCount: number,
+  playerDictionary: Record<string, SleeperPlayer>,
+  playerValues: Record<string, number>
+) => {
+  const players: OfferAssetDetail[] = [];
+  const picks: OfferAssetDetail[] = [];
+
+  (roster.players ?? []).forEach((player) => {
+    const playerId = toId(player);
+    if (!playerId) return;
+    const info = playerDictionary[playerId];
+    const age = info ? computeAge(info) : null;
+    const value = getPlayerValue(playerId, playerValues);
+    const position =
+      info?.position?.toUpperCase() ||
+      info?.fantasy_positions?.[0]?.toUpperCase() ||
+      undefined;
+    const labelParts = [
+      info?.full_name ||
+        [info?.first_name, info?.last_name].filter(Boolean).join(" ").trim() ||
+        playerId,
+      position,
+      info?.team || "FA",
+      age ? `${age}` : "–",
+    ];
+
+    players.push({
+      id: availabilityKeyForPlayer(playerId),
+      label: `${labelParts[0]} (${labelParts[1]} • ${labelParts[2]} • ${labelParts[3]})`,
+      type: "player",
+      position,
+      team: info?.team || "FA",
+      ageLabel: age ? String(age) : "–",
+      value: value ?? 0,
+      isUnvalued: value == null,
+      rosterId: roster.roster_id,
+    });
+  });
+
+  (roster.draft_picks ?? []).forEach((pick) => {
+    const value = getPickValue(pick, { teamCount });
+    picks.push({
+      id: availabilityKeyForPick(pick),
+      label: shortPickLabel(pick, teamCount),
+      type: "pick",
+      value,
+      rosterId: roster.roster_id,
+    });
+  });
+
+  return { players, picks };
+};
+
+const tagLabelForPosition = (position?: string) => {
+  if (!position) return null;
+  return `${position} need match`;
+};
+
+const buildOfferTags = (
+  sendAssets: OfferAssetDetail[],
+  receiveAssets: OfferAssetDetail[],
+  userProfile?: TradeProfile,
+  partnerProfile?: TradeProfile
+) => {
+  const tags = new Set<string>();
+  const sendPositions = sendAssets.map((asset) => asset.position).filter(Boolean) as string[];
+  const receivePositions = receiveAssets.map((asset) => asset.position).filter(Boolean) as string[];
+
+  sendPositions.forEach((pos) => {
+    const tag = tagLabelForPosition(pos);
+    if (tag) tags.add(tag);
+  });
+  receivePositions.forEach((pos) => tags.add(`Adds ${pos} help`));
+  if (userProfile?.mode === "rebuild" && partnerProfile?.mode === "contend") {
+    tags.add("Rebuild fit");
+  }
+  if (userProfile?.posture === "buyer" && partnerProfile?.posture === "seller") {
+    tags.add("Buyer/Seller match");
+  }
+  if (userProfile?.posture === "seller" && partnerProfile?.posture === "buyer") {
+    tags.add("Seller/Buyer balance");
+  }
+  if (tags.size === 0 && userProfile?.needs?.length) {
+    tags.add(userProfile.needs[0]);
+  }
+  return Array.from(tags);
+};
+
+const explanationForOffer = (
+  teamName: string,
+  partnerName: string,
+  fairness: FairnessGrade,
+  sendAssets: OfferAssetDetail[],
+  receiveAssets: OfferAssetDetail[],
+  userProfile?: TradeProfile,
+  partnerProfile?: TradeProfile
+) => {
+  const sendFocus =
+    sendAssets.find((asset) => asset.position)?.position ??
+    (sendAssets[0]?.type === "pick" ? "future picks" : "depth");
+  const receiveFocus =
+    receiveAssets.find((asset) => asset.position)?.position ??
+    (receiveAssets[0]?.type === "pick" ? "draft capital" : "help");
+  const partnerMode = partnerProfile?.mode ?? "contend";
+  const userMode = userProfile?.mode ?? "retool";
+  return `${partnerName} gets ${sendFocus} to support a ${partnerMode} push; ${teamName} gains ${receiveFocus} for a ${userMode} path (${fairness.toLowerCase()}).`;
+};
+
+const pickAssetsForPartner = (
+  targetValue: number,
+  userNeeds: string[],
+  partnerAssets: { players: OfferAssetDetail[]; picks: OfferAssetDetail[] }
+) => {
+  const normalizedNeeds = userNeeds.map((need) => {
+    if (need.toLowerCase().includes("qb")) return "QB";
+    if (need.toLowerCase().includes("rb")) return "RB";
+    if (need.toLowerCase().includes("wr")) return "WR";
+    if (need.toLowerCase().includes("te")) return "TE";
+    return need;
+  });
+  const preferredPlayers = partnerAssets.players
+    .filter((player) => normalizedNeeds.some((need) => player.position === need))
+    .sort((a, b) => b.value - a.value);
+  const otherPlayers = partnerAssets.players
+    .filter((player) => !preferredPlayers.includes(player))
+    .sort((a, b) => b.value - a.value);
+  const picks = [...partnerAssets.picks].sort((a, b) => b.value - a.value);
+
+  const candidates = [...preferredPlayers, ...picks, ...otherPlayers];
+  const selected: OfferAssetDetail[] = [];
+  const minTarget = targetValue * 0.9;
+  const maxTarget = targetValue * 1.1;
+
+  for (const candidate of candidates) {
+    const current = selected.reduce((sum, asset) => sum + asset.value, 0);
+    if (current >= minTarget && selected.length > 0) break;
+    if (selected.length >= 4) break;
+    selected.push(candidate);
+    const updated = current + candidate.value;
+    if (updated >= minTarget && updated <= maxTarget) break;
+  }
+
+  if (!selected.length && candidates.length) {
+    selected.push(candidates[0]);
+  }
+
+  return selected;
+};
+
+const buildOfferSuggestions = (
+  tradeBlock: TradeAsset[],
+  context: {
+    rosters: Roster[];
+    rosterNames: Record<number, string>;
+    playerDictionary: Record<string, SleeperPlayer>;
+    playerValues: Record<string, number>;
+    selectedTeam: string;
+    teamCount: number;
+    profiles?: Record<string | number, TradeProfile>;
+    aggression: number;
+  }
+): OfferSuggestion[] => {
+  if (!context.selectedTeam) return [];
+
+  const rosterAssets = new Map<number, { players: OfferAssetDetail[]; picks: OfferAssetDetail[] }>();
+  const assetLookup = new Map<string, OfferAssetDetail>();
+
+  context.rosters.forEach((roster) => {
+    const assets = collectRosterAssets(
+      roster,
+      context.teamCount,
+      context.playerDictionary,
+      context.playerValues
+    );
+    rosterAssets.set(roster.roster_id, assets);
+    [...assets.players, ...assets.picks].forEach((asset) => assetLookup.set(asset.id, asset));
+  });
+
+  const selectedRosterId = Number(context.selectedTeam);
+  const userAssets = tradeBlock.map((asset) => {
+    const resolved = assetLookup.get(asset.id);
+    if (resolved) return resolved;
+    return {
+      id: asset.id,
+      label: asset.label,
+      type: asset.type,
+      value: 0,
+      isUnvalued: asset.type === "player",
+    } as OfferAssetDetail;
+  });
+
+  const fallbackUserAssets =
+    rosterAssets.get(selectedRosterId)?.players
+      .filter((p) => p.value > 0)
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 2) ?? [];
+
+  const sendAssets = userAssets.length ? userAssets : fallbackUserAssets;
+  const valueSent = sendAssets.reduce((sum, asset) => sum + asset.value, 0);
+  const userProfile = context.profiles?.[context.selectedTeam] ?? context.profiles?.[selectedRosterId];
+  const userNeeds = userProfile?.needs ?? [];
+  const aggressionFactor = (context.aggression - 50) / 200;
+  const targetMultiplier = 1 + aggressionFactor;
+  const partners = context.rosters
+    .filter((roster) => toId(roster.roster_id) !== context.selectedTeam)
+    .map((roster) => {
+      const profile = context.profiles?.[roster.roster_id];
+      let score = 0;
+      if (profile?.posture === "buyer" && userProfile?.posture === "seller") score += 3;
+      if (profile?.mode === "contend" && userProfile?.mode === "rebuild") score += 3;
+      if (profile?.mode === "retool") score += 1;
+      return { roster, score };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 4);
+
+  const offers: OfferSuggestion[] = [];
+
+  partners.forEach(({ roster }) => {
+    const partnerAssets = rosterAssets.get(roster.roster_id);
+    if (!partnerAssets) return;
+    const targetValue = valueSent * targetMultiplier || partnerAssets.picks[0]?.value || 0;
+    const receiveAssets = pickAssetsForPartner(targetValue, userNeeds, partnerAssets);
+    const chosenReceive =
+      receiveAssets.length > 0
+        ? receiveAssets
+        : partnerAssets.picks.length
+          ? [partnerAssets.picks[0]]
+          : partnerAssets.players.slice(0, 1);
+    const valueReceived = chosenReceive.reduce((sum, asset) => sum + asset.value, 0);
+    const fairness = fairnessFromValues(valueSent, valueReceived);
+    const partnerName = context.rosterNames[roster.roster_id] || `Roster ${roster.roster_id}`;
+    const tags = buildOfferTags(sendAssets, chosenReceive, userProfile, context.profiles?.[roster.roster_id]);
+    const explanation = explanationForOffer(
+      context.rosterNames[selectedRosterId] || "Your team",
+      partnerName,
+      fairness,
+      sendAssets,
+      chosenReceive,
+      userProfile,
+      context.profiles?.[roster.roster_id]
+    );
+
+    offers.push({
+      id: `offer-${Date.now()}-${offerIdCounter++}-${roster.roster_id}`,
+      partnerId: roster.roster_id,
+      partner: partnerName,
+      send: sendAssets,
+      receive: chosenReceive,
+      tags,
+      fairness,
+      explanation,
+      valueSent: Math.round(valueSent),
+      valueReceived: Math.round(valueReceived),
+    });
+  });
+
+  if (!offers.length && context.rosters.length) {
+    const partner = context.rosters.find((r) => toId(r.roster_id) !== context.selectedTeam);
+    if (partner) {
+      offers.push({
+        id: `offer-${Date.now()}-${offerIdCounter++}-${partner.roster_id}`,
+        partnerId: partner.roster_id,
+        partner: context.rosterNames[partner.roster_id] || `Roster ${partner.roster_id}`,
+        send: sendAssets.length ? sendAssets : fallbackUserAssets,
+        receive: rosterAssets.get(partner.roster_id)?.picks.slice(0, 1) ?? [],
+        tags: ["Value placeholder"],
+        fairness: "Fair",
+        explanation: "Draft data is still loading; try regenerating in a moment.",
+        valueSent: Math.round(valueSent),
+        valueReceived: Math.round(
+          (rosterAssets.get(partner.roster_id)?.picks[0]?.value ?? 0) +
+            (rosterAssets.get(partner.roster_id)?.players[0]?.value ?? 0)
+        ),
+      });
+    }
+  }
+
+  return offers;
 };
 
 const parseAgeFromLabel = (ageLabel: string) => {
@@ -547,7 +856,7 @@ export default function TradeStudioPage() {
   const [timelineChoice, setTimelineChoice] = useState<TimelineLane>("Re-tool");
   const [postureChoice, setPostureChoice] = useState<Posture>("Buyer");
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTabKey>("trade-block");
-  const [offerSuggestions, setOfferSuggestions] = useState<OfferSuggestion[]>(() => buildOfferSuggestions([]));
+  const [offerSuggestions, setOfferSuggestions] = useState<OfferSuggestion[]>([]);
   const [activeOfferIndex, setActiveOfferIndex] = useState(0);
   const [offerAggression, setOfferAggression] = useState(50);
   const lastTeamRef = useRef<string | null>(null);
@@ -920,6 +1229,32 @@ export default function TradeStudioPage() {
   }, [playerDictionary, playerValues, rosters]);
 
   const selectedTeamRanking = leagueRankings?.teams?.[toId(selectedTeam)];
+  const teamCount = useMemo(() => rosters.length || teams.length || 12, [rosters.length, teams.length]);
+
+  const tradeProfiles = useMemo(() => {
+    if (!rosters.length || !Object.keys(playerDictionary).length) return null;
+    const profileTeams = rosters.map((roster) => ({
+      rosterId: roster.roster_id,
+      players: (roster.players ?? []).map((player) => {
+        const id = toId(player);
+        const info = playerDictionary[id];
+        const position =
+          info?.position?.toUpperCase() || info?.fantasy_positions?.[0]?.toUpperCase();
+        return {
+          id,
+          position,
+          value: getPlayerValue(id, playerValues),
+          age: info ? computeAge(info) : null,
+        };
+      }),
+      picks: roster.draft_picks ?? [],
+    }));
+    return buildLeagueProfiles(profileTeams, {
+      superflex: true,
+      teDiscount: TE_VALUE_MULTIPLIER,
+      teamCount,
+    });
+  }, [playerDictionary, playerValues, rosters, teamCount]);
 
   const playerValuesLoadedLabel = useMemo(() => {
     const count = Object.keys(playerValues).length;
@@ -957,9 +1292,72 @@ export default function TradeStudioPage() {
   }, []);
 
   const regenerateOffers = useCallback(() => {
-    setOfferSuggestions(buildOfferSuggestions(tradeBlock));
+    if (!selectedTeam || !rosters.length) {
+      setOfferSuggestions([]);
+      setActiveOfferIndex(0);
+      return;
+    }
+    const selectedRosterId = Number(selectedTeam);
+    const profilesWithOverride =
+      tradeProfiles && selectedTeam
+        ? {
+            ...tradeProfiles,
+            [selectedRosterId]: {
+              ...(tradeProfiles[selectedRosterId] ??
+                tradeProfiles[selectedTeam] ?? {
+                  rosterId: selectedRosterId,
+                  mode: "retool",
+                  posture: "neutral",
+                  positionRanks: { QB: teamCount, RB: teamCount, WR: teamCount, TE: teamCount },
+                  positionBands: { QB: "middle tier", RB: "middle tier", WR: "middle tier", TE: "middle tier" },
+                  needs: [],
+                  totalValue: 0,
+                  averageAge: null,
+                }),
+              mode:
+                timelineChoice === "Contend"
+                  ? "contend"
+                  : timelineChoice === "Rebuild"
+                    ? "rebuild"
+                    : "retool",
+              posture:
+                postureChoice === "Buyer"
+                  ? "buyer"
+                  : postureChoice === "Seller"
+                    ? "seller"
+                    : tradeProfiles[selectedRosterId]?.posture ?? "neutral",
+            },
+          }
+        : tradeProfiles;
+    const offers = buildOfferSuggestions(tradeBlock, {
+      rosters,
+      rosterNames,
+      playerDictionary,
+      playerValues,
+      selectedTeam,
+      teamCount,
+      profiles: profilesWithOverride ?? undefined,
+      aggression: offerAggression,
+    });
+    setOfferSuggestions(offers);
     setActiveOfferIndex(0);
-  }, [tradeBlock]);
+  }, [
+    offerAggression,
+    playerDictionary,
+    playerValues,
+    rosterNames,
+    rosters,
+    selectedTeam,
+    teamCount,
+    timelineChoice,
+    tradeBlock,
+    tradeProfiles,
+    postureChoice,
+  ]);
+
+  const handleSendOffer = useCallback(() => {
+    window.alert("Send Offer is coming soon.");
+  }, []);
 
   const goToNextOffer = useCallback(() => {
     setActiveOfferIndex((prev) => {
@@ -976,9 +1374,8 @@ export default function TradeStudioPage() {
   }, [offerSuggestions.length]);
 
   useEffect(() => {
-    setOfferSuggestions(buildOfferSuggestions(tradeBlock));
-    setActiveOfferIndex(0);
-  }, [tradeBlock]);
+    regenerateOffers();
+  }, [regenerateOffers]);
 
   const teamName = useMemo(
     () => teams.find((t) => toId(t.id) === selectedTeam)?.name || "Selected Team",
@@ -1436,75 +1833,147 @@ export default function TradeStudioPage() {
 
                             {offerSuggestions.length ? (
                               <>
-                                <div className="mb-3 rounded-lg border border-gray-800 bg-black/40 p-3">
-                                  <p className="text-[11px] uppercase tracking-wide text-gray-400">Partner</p>
-                                  <p className="text-base font-semibold text-white">
-                                    {currentOffer?.partner ?? ""}
-                                  </p>
-                                  {currentOffer?.note ? (
-                                    <p className="text-xs text-gray-400">{currentOffer.note}</p>
-                                  ) : null}
-                                </div>
-                                <div className="mb-3">
-                                  <label
-                                    className="flex items-center justify-between text-xs text-gray-400"
-                                    htmlFor="aggression-slider"
-                                  >
-                                    <span>Conservative to Aggressive</span>
-                                    <span className="text-[11px] text-gray-500">{offerAggression}%</span>
-                                  </label>
-                                  <input
-                                    id="aggression-slider"
-                                    type="range"
-                                    min={0}
-                                    max={100}
-                                    value={offerAggression}
-                                    onChange={(e) => setOfferAggression(Number(e.target.value))}
-                                    className="mt-1 h-2 w-full cursor-pointer accent-indigo-500"
-                                  />
-                                  <div className="mt-1 flex justify-between text-[11px] text-gray-500">
-                                    <span>Conservative</span>
-                                    <span>Aggressive</span>
+                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-wide text-gray-400">Partner</p>
+                                    <p className="text-base font-semibold text-white">
+                                      {currentOffer?.partner ?? ""}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                      {currentOffer
+                                        ? `You send ${Math.round(currentOffer.valueSent)} • You receive ${Math.round(currentOffer.valueReceived)}`
+                                        : null}
+                                    </p>
+                                  </div>
+                                  <div className="min-w-[200px] flex-1 sm:flex-none">
+                                    <label
+                                      className="flex items-center justify-between text-xs text-gray-400"
+                                      htmlFor="aggression-slider"
+                                    >
+                                      <span>Conservative to Aggressive</span>
+                                      <span className="text-[11px] text-gray-500">{offerAggression}%</span>
+                                    </label>
+                                    <input
+                                      id="aggression-slider"
+                                      type="range"
+                                      min={0}
+                                      max={100}
+                                      value={offerAggression}
+                                      onChange={(e) => setOfferAggression(Number(e.target.value))}
+                                      className="mt-1 h-2 w-full cursor-pointer accent-indigo-500"
+                                    />
+                                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                                      <span>Conservative</span>
+                                      <span>Aggressive</span>
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="flex-1 overflow-y-auto">
                                   <div className="grid gap-3 sm:grid-cols-2">
                                     <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
-                                      <p className="text-xs uppercase tracking-wide text-gray-400">You Give</p>
+                                      <p className="text-xs uppercase tracking-wide text-gray-400">
+                                        You send ({teamName})
+                                      </p>
                                       <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                        {currentOffer?.give?.map((item) => (
-                                          <li
-                                            key={`${currentOffer?.id}-give-${item}`}
-                                            className="rounded-md border border-gray-800 bg-gray-900 px-2 py-1"
-                                          >
-                                            {item}
+                                        {currentOffer?.send?.map((item) => (
+                                          <li key={`${currentOffer?.id}-send-${item.id}`} className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <div className="min-w-0">
+                                                <p className="truncate font-semibold text-white">{item.label}</p>
+                                                <p className="text-[11px] text-gray-500">
+                                                  {item.type === "player"
+                                                    ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
+                                                    : "Draft pick"}
+                                                </p>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                {item.isUnvalued ? (
+                                                  <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                                                    Unvalued
+                                                  </span>
+                                                ) : null}
+                                                <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
+                                                  {Math.round(item.value)}
+                                                </span>
+                                              </div>
+                                            </div>
                                           </li>
                                         ))}
                                       </ul>
                                     </div>
                                     <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
-                                      <p className="text-xs uppercase tracking-wide text-gray-400">You Get</p>
+                                      <p className="text-xs uppercase tracking-wide text-gray-400">
+                                        You receive ({currentOffer?.partner ?? ""})
+                                      </p>
                                       <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                        {currentOffer?.get?.map((item) => (
-                                          <li
-                                            key={`${currentOffer?.id}-get-${item}`}
-                                            className="rounded-md border border-gray-800 bg-gray-900 px-2 py-1"
-                                          >
-                                            {item}
+                                        {currentOffer?.receive?.map((item) => (
+                                          <li key={`${currentOffer?.id}-receive-${item.id}`} className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2">
+                                            <div className="flex items-center justify-between gap-3">
+                                              <div className="min-w-0">
+                                                <p className="truncate font-semibold text-white">{item.label}</p>
+                                                <p className="text-[11px] text-gray-500">
+                                                  {item.type === "player"
+                                                    ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
+                                                    : "Draft pick"}
+                                                </p>
+                                              </div>
+                                              <div className="flex items-center gap-2">
+                                                {item.isUnvalued ? (
+                                                  <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                                                    Unvalued
+                                                  </span>
+                                                ) : null}
+                                                <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
+                                                  {Math.round(item.value)}
+                                                </span>
+                                              </div>
+                                            </div>
                                           </li>
                                         ))}
                                       </ul>
                                     </div>
                                   </div>
+                                  <div className="mt-3 space-y-2">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      {currentOffer?.tags?.map((tag) => (
+                                        <span
+                                          key={`${currentOffer.id}-tag-${tag}`}
+                                          className="rounded-full border border-indigo-700/60 bg-indigo-900/60 px-3 py-1 text-[11px] font-semibold text-indigo-50"
+                                        >
+                                          {tag}
+                                        </span>
+                                      ))}
+                                      {currentOffer ? (
+                                        <span
+                                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                                            fairnessStyles[currentOffer.fairness] ??
+                                            "border-gray-700 bg-gray-800 text-gray-200"
+                                          }`}
+                                        >
+                                          {currentOffer.fairness}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-sm text-gray-200">{currentOffer?.explanation ?? ""}</p>
+                                  </div>
                                 </div>
                                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={regenerateOffers}
-                                    className="rounded-md border border-indigo-700 bg-indigo-900 px-3 py-2 text-xs font-semibold text-indigo-50 transition hover:border-indigo-500 hover:text-white"
-                                  >
-                                    Generate again
-                                  </button>
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={regenerateOffers}
+                                      className="rounded-md border border-indigo-700 bg-indigo-900 px-3 py-2 text-xs font-semibold text-indigo-50 transition hover:border-indigo-500 hover:text-white"
+                                    >
+                                      Generate again
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={handleSendOffer}
+                                      className="rounded-md border border-emerald-700 bg-emerald-800 px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:border-emerald-600 hover:text-white"
+                                    >
+                                      Send Offer
+                                    </button>
+                                  </div>
                                   <span className="text-xs text-gray-400">
                                     Offer carousel {offerPosition} of {offerTotal}
                                   </span>
