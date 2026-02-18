@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const TOTAL_SECONDS = 5 * 60;
+import { DRAFT_TOTAL_SECONDS } from "../lib/draftClock";
 const FALLBACK_TEAMS = [
   { name: "Team 1" },
   { name: "Team 2" },
@@ -21,6 +20,9 @@ type DraftTimerProps = {
   nextPickIndex?: number;
   currentTeamNameOverride?: string;
   currentPickLabelOverride?: string;
+  secondsLeftOverride?: number;
+  isRunningExternal?: boolean;
+  paused?: boolean;
 };
 
 export default function DraftTimer({
@@ -34,21 +36,36 @@ export default function DraftTimer({
   nextPickIndex,
   currentTeamNameOverride,
   currentPickLabelOverride,
+  secondsLeftOverride,
+  isRunningExternal,
+  paused: pausedProp,
 }: DraftTimerProps) {
-  const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
+  const [secondsLeft, setSecondsLeft] = useState(DRAFT_TOTAL_SECONDS);
   const [isRunning, setIsRunning] = useState(false);
   const [pickNumber, setPickNumber] = useState(1);
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
   const hasStartedRef = useRef(false);
   const lastExternalPick = useRef<string | null>(null);
+  const paused = pausedProp === true;
 
   const teamsForDraft = useMemo(
     () => (teams.length ? teams : FALLBACK_TEAMS),
     [teams]
   );
 
+  const hasExternalClock =
+    typeof secondsLeftOverride === "number" && Number.isFinite(secondsLeftOverride);
+  const effectiveSeconds = hasExternalClock
+    ? Math.max(0, Math.round(secondsLeftOverride ?? 0))
+    : secondsLeft;
+  const timerRunning = paused
+    ? false
+    : hasExternalClock
+      ? Boolean(isRunningExternal)
+      : isRunning;
+
   useEffect(() => {
-    if (!isRunning) return;
+    if (!timerRunning || paused || hasExternalClock) return;
 
     const intervalId = setInterval(() => {
       setSecondsLeft((prev) => {
@@ -61,11 +78,17 @@ export default function DraftTimer({
     }, 1000);
 
     return () => clearInterval(intervalId);
-  }, [isRunning]);
+  }, [hasExternalClock, paused, timerRunning]);
 
-  const minutes = Math.floor(secondsLeft / 60);
-  const seconds = secondsLeft % 60;
-  const isCritical = secondsLeft > 0 && secondsLeft < 30;
+  useEffect(() => {
+    if (hasExternalClock && isRunningExternal && !hasStartedRef.current) {
+      hasStartedRef.current = true;
+    }
+  }, [hasExternalClock, isRunningExternal]);
+
+  const minutes = Math.floor(effectiveSeconds / 60);
+  const seconds = effectiveSeconds % 60;
+  const isCritical = effectiveSeconds > 0 && effectiveSeconds < 30;
 
   const hasExternalPickIndex =
     typeof nextPickIndex === "number" && nextPickIndex >= 0;
@@ -101,7 +124,7 @@ export default function DraftTimer({
     onStart?.();
     setPickNumber(1);
     setCurrentTeamIndex(0);
-    setSecondsLeft(TOTAL_SECONDS);
+    setSecondsLeft(DRAFT_TOTAL_SECONDS);
     setIsRunning(true);
     onTeamChange?.(teamsForDraft[0]?.name || "Team on the clock");
   }, [onStart, onTeamChange, teamsForDraft]);
@@ -123,7 +146,7 @@ export default function DraftTimer({
       setCurrentTeamIndex((prev) =>
         teamsForDraft.length ? (prev + 1) % teamsForDraft.length : 0
       );
-      setSecondsLeft(TOTAL_SECONDS);
+      setSecondsLeft(DRAFT_TOTAL_SECONDS);
       setIsRunning(true);
     },
     [currentTeamName, initializeDraft, onPickMade, teamsForDraft]
@@ -166,6 +189,11 @@ export default function DraftTimer({
         <span className="rounded-full bg-slate-800 px-3 py-1 font-mono text-3xl font-semibold text-slate-100">
           {pickLabel}
         </span>
+        {paused ? (
+          <span className="rounded-full border border-amber-300/40 bg-amber-500/15 px-3 py-1 text-sm font-semibold text-amber-100">
+            Draft Paused
+          </span>
+        ) : null}
         <span
           className={`ml-auto font-mono text-3xl tabular-nums ${
             isCritical ? "text-red-300" : "text-white"

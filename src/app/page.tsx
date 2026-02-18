@@ -19,6 +19,14 @@ import {
 } from "../lib/picks";
 import DraftTimer from "../components/DraftTimer";
 import { getLeagueId } from "../lib/config";
+import {
+  DRAFT_TOTAL_SECONDS,
+  computeClockRemaining,
+  defaultDraftClockState,
+  normalizeDraftClockState,
+  type DraftClockState,
+  type DraftStateRow,
+} from "../lib/draftClock";
 import { supabase } from "../lib/supabaseClient";
 import { isCommissionerTeamName } from "../lib/commissioner";
 
@@ -493,6 +501,8 @@ export default function Home() {
   } | null>(null);
   const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
+  const [draftClockState, setDraftClockState] = useState<DraftClockState | null>(null);
+  const [displaySecondsLeft, setDisplaySecondsLeft] = useState(DRAFT_TOTAL_SECONDS);
   const startDraftHandler = useRef<(() => void) | null>(null);
   const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
   const { leagueId, leagueIdError } = useMemo(() => {
@@ -512,6 +522,13 @@ export default function Home() {
   const teamCountForDraft = useMemo(
     () => draftState?.teamCount ?? Math.max(teams.length, MIN_TEAM_COUNT),
     [draftState?.teamCount, teams.length]
+  );
+
+  const draftPaused = (draftClockState?.status ?? "paused") === "paused";
+  const draftHasStarted = Boolean(draftClockState?.updatedAt);
+  const currentClockSeconds = useMemo(
+    () => (draftClockState ? computeClockRemaining(draftClockState) : DRAFT_TOTAL_SECONDS),
+    [draftClockState]
   );
 
   const activeDraftSeason = draftState?.season ?? PICK_SLOT_SEASON;
@@ -548,8 +565,24 @@ export default function Home() {
     return () => clearTimeout(timer);
   }, [statusMessage]);
   useEffect(() => {
+    setDraftStarted(draftHasStarted);
+  }, [draftHasStarted]);
+  useEffect(() => {
+    setDisplaySecondsLeft(currentClockSeconds);
+    if (!draftClockState || draftClockState.status !== "running") return;
+    const interval = setInterval(
+      () => setDisplaySecondsLeft(computeClockRemaining(draftClockState)),
+      1000
+    );
+    return () => clearInterval(interval);
+  }, [currentClockSeconds, draftClockState]);
+  useEffect(() => {
     setCurrentClockTeam(onClockTeamName);
   }, [onClockTeamName]);
+  useEffect(() => {
+    if (!leagueId || draftClockState) return;
+    setDraftClockState(defaultDraftClockState(leagueId));
+  }, [draftClockState, leagueId]);
   useEffect(() => {
     if (!selectedTeam || !sessionId || isDraftRoute) return;
     router.replace(draftRoute);
@@ -999,9 +1032,27 @@ export default function Home() {
     }
   }, []);
 
+  const fetchDraftClockFromApi = useCallback(async () => {
+    if (!leagueId) return;
+    try {
+      const res = await fetch("/api/draft-state", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch draft state");
+      const json = await res.json();
+      const row: DraftStateRow | null = (json?.data as DraftStateRow | null) ?? null;
+      setDraftClockState(normalizeDraftClockState(row, leagueId));
+    } catch (error) {
+      console.warn("Unable to fetch draft state", error);
+      setDraftClockState((prev) => prev ?? defaultDraftClockState(leagueId));
+    }
+  }, [leagueId]);
+
   useEffect(() => {
     fetchDraftLogFromApi();
   }, [fetchDraftLogFromApi]);
+
+  useEffect(() => {
+    fetchDraftClockFromApi();
+  }, [fetchDraftClockFromApi]);
 
   useEffect(() => {
     let channel = supabase.channel("draft-log-updates");
@@ -1023,6 +1074,35 @@ export default function Home() {
       supabase.removeChannel(channel);
     };
   }, [fetchDraftLogFromApi]);
+
+  useEffect(() => {
+    if (!leagueId) return;
+    let channel = supabase.channel("draft-state-updates");
+    channel = channel.on(
+      "postgres_changes",
+      {
+        event: "*",
+        schema: "public",
+        table: "draft_state",
+        filter: `league_id=eq.${leagueId}`,
+      },
+      (payload) => {
+        const row = (payload.new ?? payload.old) as DraftStateRow | null;
+        if (!row) return;
+        setDraftClockState(normalizeDraftClockState(row, leagueId));
+      }
+    );
+
+    try {
+      channel.subscribe();
+    } catch (error) {
+      console.warn("Unable to subscribe to draft state updates", error);
+    }
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [leagueId]);
 
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
@@ -1177,6 +1257,10 @@ export default function Home() {
 
   const handlePickMade = (teamName: string, selection: string) => {
     if (!teamName || !selection) return;
+    if (draftPaused) {
+      setStatusMessage("Draft is paused. Resume to make picks.");
+      return;
+    }
 
     const matchingTeam = teams.find((team) => team.name === teamName);
     const rosterKey =
@@ -1328,15 +1412,69 @@ export default function Home() {
     });
   }, [draftState, rosterNames, teams]);
 
+  const updateDraftClock = useCallback(
+    async (action: "start" | "pause" | "resume") => {
+      if (!leagueId) {
+        setErrorMessage(
+          leagueIdError || "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID."
+        );
+        return null;
+      }
+
+      try {
+        const res = await fetch("/api/draft-state", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action, rosterId: selectedTeam }),
+        });
+
+        if (!res.ok) {
+          const message =
+            res.status === 403
+              ? "Only the commissioner can pause or resume the draft."
+              : res.status === 409
+                ? "Draft is currently paused. Resume to make picks."
+                : "Unable to update draft clock. Please try again.";
+          setErrorMessage(message);
+          fetchDraftClockFromApi();
+          return null;
+        }
+
+        const json = await res.json().catch(() => null);
+        const row: DraftStateRow | null = (json?.data as DraftStateRow | null) ?? null;
+        const normalized = normalizeDraftClockState(row, leagueId);
+        setDraftClockState(normalized);
+        return normalized;
+      } catch (error) {
+        console.warn("Unable to update draft clock", error);
+        setErrorMessage("Unable to update draft clock. Please try again.");
+        return null;
+      }
+    },
+    [fetchDraftClockFromApi, leagueId, leagueIdError, selectedTeam]
+  );
+
   const handleRegisterStart = useCallback((handler: () => void) => {
     startDraftHandler.current = handler;
     setStartReady(true);
   }, []);
 
-  const handleStartDraftClick = () => {
+  const handleStartDraftClick = async () => {
     if (!startDraftHandler.current) return;
-    startDraftHandler.current();
+    const nextState = await updateDraftClock("start");
+    if (nextState) {
+      startDraftHandler.current();
+      setStatusMessage("Draft started.");
+    }
   };
+
+  const handleTogglePause = useCallback(async () => {
+    const action = draftPaused ? "resume" : "pause";
+    const nextState = await updateDraftClock(action);
+    if (nextState) {
+      setStatusMessage(action === "pause" ? "Draft paused." : "Draft resumed.");
+    }
+  }, [draftPaused, updateDraftClock]);
 
   const handleLeaveDraftRoom = useCallback(async () => {
     await releaseActiveTeam();
@@ -1399,17 +1537,42 @@ export default function Home() {
     }
   }, [draftRoute, ensureSession, fetchActiveTeams, leagueId, leagueIdError, router, teamSelectionInput]);
 
-  const persistDraftLogEntry = useCallback(async (entry: DraftLogEntry) => {
-    try {
-      await fetch("/api/draft-log", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(entry),
-      });
-    } catch (error) {
-      console.warn("Unable to persist draft log entry", error);
-    }
-  }, []);
+  const persistDraftLogEntry = useCallback(
+    async (entry: DraftLogEntry) => {
+      try {
+        const res = await fetch("/api/draft-log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entry),
+        });
+
+        if (!res.ok) {
+          const message =
+            res.status === 409
+              ? "Draft is paused. Resume the clock to make picks."
+              : "Unable to record pick. Please try again.";
+          setErrorMessage(message);
+          fetchDraftLogFromApi();
+          return false;
+        }
+
+        const json = await res.json().catch(() => null);
+        const row: DraftStateRow | null =
+          ((json as Record<string, unknown> | null)?.clockState as DraftStateRow | null) ??
+          null;
+        if (row && leagueId) {
+          setDraftClockState(normalizeDraftClockState(row, leagueId));
+        }
+        return true;
+      } catch (error) {
+        console.warn("Unable to persist draft log entry", error);
+        setErrorMessage("Unable to record pick. Please try again.");
+        fetchDraftLogFromApi();
+        return false;
+      }
+    },
+    [fetchDraftLogFromApi, leagueId]
+  );
 
   const deleteDraftLogEntry = useCallback(
     async (pickIndex: number) => {
@@ -1462,6 +1625,11 @@ export default function Home() {
   const handleAvailablePlayerSelect = (player: AvailablePlayer) => {
     if (!onClockRosterId) {
       setStatusMessage("Start the draft to make picks.");
+      return;
+    }
+
+    if (draftPaused) {
+      setStatusMessage("Draft is paused. Resume to continue.");
       return;
     }
 
@@ -1617,6 +1785,15 @@ export default function Home() {
             >
               Start Draft
             </button>
+            {isCommissionerSelected ? (
+              <button
+                className="rounded-lg bg-amber-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:cursor-not-allowed disabled:bg-amber-900"
+                onClick={handleTogglePause}
+                disabled={!draftStarted}
+              >
+                {draftPaused ? "Resume Draft" : "Pause Draft"}
+              </button>
+            ) : null}
             <button
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-red-900"
               onClick={handleLeaveDraftRoom}
@@ -1624,6 +1801,11 @@ export default function Home() {
             >
               Leave Draft Room
             </button>
+            {draftPaused ? (
+              <span className="rounded-md border border-amber-400/60 bg-amber-500/15 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-amber-100">
+                Draft Paused
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-1 gap-4 overflow-hidden">
             <div className="w-1/4 bg-gray-900 p-4 border-r border-gray-800 flex flex-col overflow-hidden">
@@ -1863,6 +2045,9 @@ export default function Home() {
                 onExternalPickHandled={() => setQueuedExternalPick(null)}
                 registerStartHandler={handleRegisterStart}
                 onStart={() => setDraftStarted(true)}
+                secondsLeftOverride={displaySecondsLeft}
+                isRunningExternal={!draftPaused}
+                paused={draftPaused}
               />
               <div className="flex-1 w-full bg-gray-900 rounded-xl p-6 space-y-4 shadow-lg border border-gray-800 flex flex-col overflow-hidden">
                 <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
@@ -1920,6 +2105,7 @@ export default function Home() {
                                   className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
                                   disabled={
                                     !onClockRosterId ||
+                                    draftPaused ||
                                     (!isCommissionerSelected && selectedTeam !== onClockRosterId)
                                   }
                                   onClick={() => handleAvailablePlayerSelect(player)}

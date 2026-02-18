@@ -1,4 +1,6 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
+import { DRAFT_TOTAL_SECONDS, normalizeDraftClockState, type DraftStateRow } from "../../../lib/draftClock";
 import { findCommissionerRosterId } from "../../../lib/commissioner";
 import { getLeagueId } from "../../../lib/config";
 import { getSupabaseAdminClient } from "../active-teams/shared";
@@ -86,6 +88,31 @@ const fetchCommissionerRosterId = async () => {
   }
 };
 
+const selectDraftClock = (client: SupabaseClient) =>
+  client
+    .from("draft_state")
+    .select("league_id, status, seconds_remaining, clock_started_at, updated_at")
+    .eq("league_id", LEAGUE_ID)
+    .maybeSingle();
+
+const upsertRunningClock = (client: SupabaseClient) => {
+  const nowIso = new Date().toISOString();
+  return client
+    .from("draft_state")
+    .upsert(
+      {
+        league_id: LEAGUE_ID,
+        status: "running",
+        seconds_remaining: DRAFT_TOTAL_SECONDS,
+        clock_started_at: nowIso,
+        updated_at: nowIso,
+      },
+      { onConflict: "league_id" }
+    )
+    .select("league_id, status, seconds_remaining, clock_started_at, updated_at")
+    .single();
+};
+
 export async function GET() {
   const { client, error } = getSupabaseAdminClient();
 
@@ -121,13 +148,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
 
+  const { data: draftClockRow, error: draftClockError } = await selectDraftClock(client);
+
+  if (draftClockError && draftClockError.code !== "PGRST116") {
+    return NextResponse.json({ error: draftClockError.message }, { status: 500 });
+  }
+
+  const draftClockState = draftClockRow
+    ? normalizeDraftClockState(draftClockRow as DraftStateRow, LEAGUE_ID)
+    : null;
+
+  if (draftClockState?.status === "paused") {
+    return NextResponse.json({ error: "Draft is paused" }, { status: 409 });
+  }
+
   const { error: insertError } = await client.from("draft_log").upsert([normalized]);
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ success: true });
+  const { data: clockState, error: clockError } = await upsertRunningClock(client);
+
+  if (clockError) {
+    return NextResponse.json({ error: clockError.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true, clockState });
 }
 
 export async function DELETE(request: NextRequest) {
