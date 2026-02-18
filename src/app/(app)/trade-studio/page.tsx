@@ -34,6 +34,7 @@ interface Team {
 
 interface League {
   draft_order?: Record<string, number>;
+  roster_positions?: string[];
 }
 
 interface Roster {
@@ -43,6 +44,15 @@ interface Roster {
   players?: (string | number | null)[];
   draft_picks?: DraftPick[];
 }
+
+type RosterPlayer = {
+  id: string;
+  name: string;
+  position: string;
+  team: string;
+  ageLabel: string;
+  value: number;
+};
 
 interface UserMetadata {
   team_name?: string;
@@ -105,6 +115,7 @@ const DEMO_TEAMS: Team[] = [{ id: DEMO_TEAM_ID, name: "Demo Team" }];
 const DEMO_ROSTERS: Roster[] = [
   { roster_id: DEMO_TEAM_ID, owner_id: null, starters: [], players: [], draft_picks: [] },
 ];
+const DEMO_ROSTER_POSITIONS = ["QB", "RB", "RB", "WR", "WR", "TE", "FLEX", "SUPERFLEX", "BN", "BN", "BN", "BN", "BN"];
 const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
@@ -191,6 +202,11 @@ const availabilityKeyForPick = (pick: DraftPick) =>
     pick.roster_id || pick.original_roster_id || "roster"
   }`;
 
+const isBenchSlot = (slot: string) => {
+  const normalized = slot.trim().toUpperCase();
+  return normalized === "BN" || normalized === "BENCH";
+};
+
 const normalizePickSlot = (pickNo: number | undefined, teamCount: number) => {
   const teams = Math.max(teamCount, 1);
   if (!pickNo || pickNo <= 0) return undefined;
@@ -210,13 +226,10 @@ const shortPickLabel = (pick: DraftPick, teamCount: number) => {
 };
 
 const fairnessFromValues = (sent: number, received: number): FairnessGrade => {
-  if (sent === 0 && received === 0) return "Fair";
-  if (sent === 0) return "Overpay";
+  if (sent <= 0 || received <= 0) return "Fair";
   const ratio = received / sent;
-  if (ratio >= 1.25) return "Overpay";
-  if (ratio >= 1.1) return "Slight Overpay";
-  if (ratio <= 0.8) return "Underpay";
-  if (ratio <= 0.9) return "Slight Underpay";
+  if (ratio > 1.02) return "Slight Underpay";
+  if (ratio < 0.98) return "Slight Overpay";
   return "Fair";
 };
 
@@ -226,6 +239,17 @@ const fairnessStyles: Record<FairnessGrade, string> = {
   Overpay: "border-red-700/60 bg-red-900 text-red-100",
   "Slight Underpay": "border-sky-700/60 bg-sky-900 text-sky-100",
   Underpay: "border-gray-700 bg-gray-900 text-gray-100",
+};
+
+const isOfferWithinBounds = (giveValue: number, receiveAssets: OfferAssetDetail[]) => {
+  if (giveValue <= 0) return false;
+  const receiveValue = receiveAssets.reduce((sum, asset) => sum + asset.value, 0);
+  const ratio = receiveValue / giveValue;
+  if (ratio < 0.9 || ratio > 1.1) return false;
+  if (Math.abs(receiveValue - giveValue) > Math.max(300, giveValue * 0.1)) return false;
+  const largest = receiveAssets.reduce((max, asset) => Math.max(max, asset.value), 0);
+  if (giveValue < 500 && largest > giveValue * 3) return false;
+  return true;
 };
 
 const collectRosterAssets = (
@@ -247,6 +271,8 @@ const collectRosterAssets = (
       info?.position?.toUpperCase() ||
       info?.fantasy_positions?.[0]?.toUpperCase() ||
       undefined;
+    const adjustedValue =
+      position === "TE" && typeof value === "number" ? value * TE_VALUE_MULTIPLIER : value ?? 0;
     const labelParts = [
       info?.full_name ||
         [info?.first_name, info?.last_name].filter(Boolean).join(" ").trim() ||
@@ -263,7 +289,7 @@ const collectRosterAssets = (
       position,
       team: info?.team || "FA",
       ageLabel: age ? String(age) : "–",
-      value: value ?? 0,
+      value: adjustedValue,
       isUnvalued: value == null,
       rosterId: roster.roster_id,
     });
@@ -339,10 +365,15 @@ const explanationForOffer = (
 };
 
 const pickAssetsForPartner = (
-  targetValue: number,
+  giveValue: number,
+  aggression: number,
   userNeeds: string[],
   partnerAssets: { players: OfferAssetDetail[]; picks: OfferAssetDetail[] }
 ) => {
+  if (giveValue <= 0) return [];
+  const targetMultiplier = 1 + (aggression - 50) / 200;
+  const targetValue = giveValue * targetMultiplier;
+  const maxSingleValue = giveValue * 1.2;
   const normalizedNeeds = userNeeds.map((need) => {
     if (need.toLowerCase().includes("qb")) return "QB";
     if (need.toLowerCase().includes("rb")) return "RB";
@@ -351,32 +382,58 @@ const pickAssetsForPartner = (
     return need;
   });
   const preferredPlayers = partnerAssets.players
-    .filter((player) => normalizedNeeds.some((need) => player.position === need))
+    .filter(
+      (player) =>
+        player.value > 0 &&
+        player.value <= maxSingleValue &&
+        normalizedNeeds.some((need) => player.position === need)
+    )
     .sort((a, b) => b.value - a.value);
+  const preferredIds = new Set(preferredPlayers.map((p) => p.id));
   const otherPlayers = partnerAssets.players
-    .filter((player) => !preferredPlayers.includes(player))
+    .filter(
+      (player) =>
+        !preferredIds.has(player.id) && player.value > 0 && player.value <= maxSingleValue
+    )
     .sort((a, b) => b.value - a.value);
-  const picks = [...partnerAssets.picks].sort((a, b) => b.value - a.value);
+  const picks = [...partnerAssets.picks]
+    .filter((pick) => pick.value > 0 && pick.value <= maxSingleValue)
+    .sort((a, b) => b.value - a.value);
 
-  const candidates = [...preferredPlayers, ...picks, ...otherPlayers];
-  const selected: OfferAssetDetail[] = [];
-  const minTarget = targetValue * 0.9;
-  const maxTarget = targetValue * 1.1;
-
-  for (const candidate of candidates) {
-    const current = selected.reduce((sum, asset) => sum + asset.value, 0);
-    if (current >= minTarget && selected.length > 0) break;
-    if (selected.length >= 4) break;
-    selected.push(candidate);
-    const updated = current + candidate.value;
-    if (updated >= minTarget && updated <= maxTarget) break;
+  const candidates = [...preferredPlayers, ...picks, ...otherPlayers].slice(0, 12);
+  const combos: OfferAssetDetail[][] = [];
+  candidates.forEach((candidate) => combos.push([candidate]));
+  for (let i = 0; i < candidates.length; i += 1) {
+    for (let j = i + 1; j < Math.min(candidates.length, 8); j += 1) {
+      combos.push([candidates[i], candidates[j]]);
+    }
   }
 
-  if (!selected.length && candidates.length) {
-    selected.push(candidates[0]);
+  let best: OfferAssetDetail[] = [];
+  let bestDiff = Number.POSITIVE_INFINITY;
+  const considerCombo = (combo: OfferAssetDetail[]) => {
+    if (!isOfferWithinBounds(giveValue, combo)) return;
+    const comboValue = combo.reduce((sum, asset) => sum + asset.value, 0);
+    const diff = Math.abs(comboValue - targetValue);
+    if (diff < bestDiff || (diff === bestDiff && combo.length < best.length)) {
+      best = combo;
+      bestDiff = diff;
+    }
+  };
+
+  combos.forEach(considerCombo);
+
+  if (!best.length) {
+    for (let i = 0; i < Math.min(candidates.length, 6); i += 1) {
+      for (let j = i + 1; j < Math.min(candidates.length, 8); j += 1) {
+        for (let k = j + 1; k < Math.min(candidates.length, 10); k += 1) {
+          considerCombo([candidates[i], candidates[j], candidates[k]]);
+        }
+      }
+    }
   }
 
-  return selected;
+  return best;
 };
 
 const buildOfferSuggestions = (
@@ -429,10 +486,9 @@ const buildOfferSuggestions = (
 
   const sendAssets = userAssets.length ? userAssets : fallbackUserAssets;
   const valueSent = sendAssets.reduce((sum, asset) => sum + asset.value, 0);
+  if (valueSent <= 0) return [];
   const userProfile = context.profiles?.[context.selectedTeam] ?? context.profiles?.[selectedRosterId];
   const userNeeds = userProfile?.needs ?? [];
-  const aggressionFactor = (context.aggression - 50) / 200;
-  const targetMultiplier = 1 + aggressionFactor;
   const partners = context.rosters
     .filter((roster) => toId(roster.roster_id) !== context.selectedTeam)
     .map((roster) => {
@@ -447,20 +503,17 @@ const buildOfferSuggestions = (
     .slice(0, 4);
 
   const offers: OfferSuggestion[] = [];
+  const allowedFairness = new Set<FairnessGrade>(["Fair", "Slight Overpay", "Slight Underpay"]);
 
   partners.forEach(({ roster }) => {
     const partnerAssets = rosterAssets.get(roster.roster_id);
     if (!partnerAssets) return;
-    const targetValue = valueSent * targetMultiplier || partnerAssets.picks[0]?.value || 0;
-    const receiveAssets = pickAssetsForPartner(targetValue, userNeeds, partnerAssets);
-    const chosenReceive =
-      receiveAssets.length > 0
-        ? receiveAssets
-        : partnerAssets.picks.length
-          ? [partnerAssets.picks[0]]
-          : partnerAssets.players.slice(0, 1);
+    const chosenReceive = pickAssetsForPartner(valueSent, context.aggression, userNeeds, partnerAssets);
+    if (!chosenReceive.length) return;
     const valueReceived = chosenReceive.reduce((sum, asset) => sum + asset.value, 0);
+    if (!isOfferWithinBounds(valueSent, chosenReceive)) return;
     const fairness = fairnessFromValues(valueSent, valueReceived);
+    if (!allowedFairness.has(fairness)) return;
     const partnerName = context.rosterNames[roster.roster_id] || `Roster ${roster.roster_id}`;
     const tags = buildOfferTags(sendAssets, chosenReceive, userProfile, context.profiles?.[roster.roster_id]);
     const explanation = explanationForOffer(
@@ -486,27 +539,6 @@ const buildOfferSuggestions = (
       valueReceived: Math.round(valueReceived),
     });
   });
-
-  if (!offers.length && context.rosters.length) {
-    const partner = context.rosters.find((r) => toId(r.roster_id) !== context.selectedTeam);
-    if (partner) {
-      offers.push({
-        id: `offer-${Date.now()}-${offerIdCounter++}-${partner.roster_id}`,
-        partnerId: partner.roster_id,
-        partner: context.rosterNames[partner.roster_id] || `Roster ${partner.roster_id}`,
-        send: sendAssets.length ? sendAssets : fallbackUserAssets,
-        receive: rosterAssets.get(partner.roster_id)?.picks.slice(0, 1) ?? [],
-        tags: ["Value placeholder"],
-        fairness: "Fair",
-        explanation: "Draft data is still loading; try regenerating in a moment.",
-        valueSent: Math.round(valueSent),
-        valueReceived: Math.round(
-          (rosterAssets.get(partner.roster_id)?.picks[0]?.value ?? 0) +
-            (rosterAssets.get(partner.roster_id)?.players[0]?.value ?? 0)
-        ),
-      });
-    }
-  }
 
   return offers;
 };
@@ -851,6 +883,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
   const [teams, setTeams] = useState<Team[]>([]);
   const [rosters, setRosters] = useState<Roster[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
+  const [rosterPositions, setRosterPositions] = useState<string[]>([]);
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
   const [playerValuesMeta, setPlayerValuesMeta] = useState<{ lastUpdated?: string | null }>({});
@@ -944,6 +977,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
         });
         setTeams(DEMO_TEAMS);
         setRosters(demoRosters);
+        setRosterPositions(DEMO_ROSTER_POSITIONS);
         setDraftOrderAvailable(false);
         setRosterNames(demoNameMap);
         logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
@@ -1023,6 +1057,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
 
         setTeams(mappedTeams);
         setRosterNames(nameMap);
+        setRosterPositions(leagueJson.roster_positions || []);
         setRosters(rostersWithPicks);
         setDraftOrderAvailable(available);
         setErrorMessage("");
@@ -1124,7 +1159,23 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
     [rosters, selectedTeam]
   );
 
-  const rosterPlayers = useMemo(() => {
+  const visibleLineupSlots = useMemo(
+    () => rosterPositions.filter((slot) => Boolean(slot) && !isBenchSlot(slot)),
+    [rosterPositions]
+  );
+
+  const startingLineupIds = useMemo(() => {
+    const starters = activeRoster?.starters ?? [];
+    if (!starters.length) return [];
+    if (!visibleLineupSlots.length) {
+      return starters.map((starter) => toId(starter)).filter(Boolean);
+    }
+    return visibleLineupSlots
+      .map((_, idx) => toId(starters[idx]))
+      .filter(Boolean);
+  }, [activeRoster?.starters, visibleLineupSlots]);
+
+  const rosterPlayers = useMemo<RosterPlayer[]>(() => {
     if (!activeRoster?.players?.length) return [];
 
     return activeRoster.players
@@ -1154,6 +1205,26 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
       })
       .filter((p) => p.id);
   }, [activeRoster?.players, playerDictionary, playerValues]);
+
+  const rosterPlayersById = useMemo(
+    () => new Map(rosterPlayers.map((player) => [player.id, player] as const)),
+    [rosterPlayers]
+  );
+
+  const startingPlayers = useMemo(
+    () =>
+      startingLineupIds
+        .map((id) => rosterPlayersById.get(id))
+        .filter((player): player is NonNullable<typeof player> => Boolean(player)),
+    [rosterPlayersById, startingLineupIds]
+  );
+
+  const startingIdSet = useMemo(() => new Set(startingLineupIds), [startingLineupIds]);
+
+  const benchPlayers = useMemo(
+    () => rosterPlayers.filter((player) => !startingIdSet.has(player.id)),
+    [rosterPlayers, startingIdSet]
+  );
 
   const draftPicks = useMemo(() => activeRoster?.draft_picks || [], [activeRoster?.draft_picks]);
 
@@ -1287,6 +1358,61 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
       [key]: value,
     }));
   }, []);
+
+  const renderPlayerRow = (player: RosterPlayer) => {
+    const key = availabilityKeyForPlayer(player.id);
+    const isAvailable = availability[key] || false;
+    const rowClasses = [
+      "flex items-center gap-3 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
+      isAvailable
+        ? "border-emerald-500/80 bg-emerald-900/50 shadow-[0_0_0_1px_rgba(16,185,129,0.6)]"
+        : "border-gray-800 bg-gray-950",
+    ].join(" ");
+    return (
+      <div key={player.id} className={rowClasses}>
+        <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <span className="font-semibold text-white break-words">{player.name}</span>
+            {isAvailable ? (
+              <span className="rounded-full bg-emerald-600/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50">
+                Shop
+              </span>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300 sm:text-xs">
+            <span>{player.position}</span>
+            <span className="text-gray-600">•</span>
+            <span className="whitespace-nowrap">{player.team}</span>
+            <span className="text-gray-600">•</span>
+            <span className="whitespace-nowrap">{player.ageLabel}</span>
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+          <span className="text-[11px] text-gray-400 sm:text-xs">Shop?</span>
+          <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
+            <button
+              type="button"
+              onClick={() => setAvailabilityForKey(key, true)}
+              className={`px-2 py-1 font-semibold ${
+                isAvailable ? "bg-emerald-700 text-white" : "text-gray-300 hover:bg-gray-800"
+              }`}
+            >
+              Y
+            </button>
+            <button
+              type="button"
+              onClick={() => setAvailabilityForKey(key, false)}
+              className={`px-2 py-1 font-semibold ${
+                !isAvailable ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800"
+              }`}
+            >
+              N
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   const regenerateOffers = useCallback(() => {
     if (!selectedTeam || !rosters.length) {
@@ -1553,7 +1679,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
           ) : (
             <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[520px_1fr]">
               <div className="flex h-full min-h-0 flex-col gap-4">
-                <section className="flex-[3] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                <section className="flex h-full flex-[3] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
                   <div className="mb-2 flex items-center justify-between">
                     <div>
                       <h2 className="text-lg font-semibold text-white">Roster</h2>
@@ -1563,69 +1689,26 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                     </div>
                     <span className="text-xs text-gray-400">{teamName}</span>
                   </div>
-                  <div className="flex-1 space-y-2 overflow-y-auto pr-1">
-                    {rosterPlayers.length ? (
-                      rosterPlayers.map((player) => {
-                        const key = availabilityKeyForPlayer(player.id);
-                        const isAvailable = availability[key] || false;
-                        const rowClasses = [
-                          "flex items-center gap-3 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
-                          isAvailable
-                            ? "border-emerald-500/80 bg-emerald-900/50 shadow-[0_0_0_1px_rgba(16,185,129,0.6)]"
-                            : "border-gray-800 bg-gray-950",
-                        ].join(" ");
-                        return (
-                          <div key={player.id} className={rowClasses}>
-                            <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                <span className="font-semibold text-white break-words">{player.name}</span>
-                                {isAvailable ? (
-                                  <span className="rounded-full bg-emerald-600/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50">
-                                    Shop
-                                  </span>
-                                ) : null}
-                              </div>
-                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300 sm:text-xs">
-                                <span>{player.position}</span>
-                                <span className="text-gray-600">•</span>
-                                <span className="whitespace-nowrap">{player.team}</span>
-                                <span className="text-gray-600">•</span>
-                                <span className="whitespace-nowrap">{player.ageLabel}</span>
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-                              <span className="text-[11px] text-gray-400 sm:text-xs">Shop?</span>
-                              <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
-                                <button
-                                  type="button"
-                                  onClick={() => setAvailabilityForKey(key, true)}
-                                  className={`px-2 py-1 font-semibold ${
-                                    isAvailable ? "bg-emerald-700 text-white" : "text-gray-300 hover:bg-gray-800"
-                                  }`}
-                                >
-                                  Y
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setAvailabilityForKey(key, false)}
-                                  className={`px-2 py-1 font-semibold ${
-                                    !isAvailable ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800"
-                                  }`}
-                                >
-                                  N
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })
-                    ) : (
+                  <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
+                    {startingPlayers.length ? (
+                      <div className="space-y-2">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-400">Starting lineup</p>
+                        {startingPlayers.map(renderPlayerRow)}
+                      </div>
+                    ) : null}
+                    {benchPlayers.length ? (
+                      <div className="space-y-2">
+                        <p className="text-[11px] uppercase tracking-wide text-gray-400">Bench</p>
+                        {benchPlayers.map(renderPlayerRow)}
+                      </div>
+                    ) : null}
+                    {!startingPlayers.length && !benchPlayers.length ? (
                       <p className="text-sm text-gray-400">No players loaded.</p>
-                    )}
+                    ) : null}
                   </div>
                 </section>
 
-                <section className="flex-[2] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                <section className="flex h-full flex-[2] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
                   <div className="mb-2 flex items-center justify-between">
                     <div>
                       <h2 className="text-lg font-semibold text-white">Draft Picks</h2>
@@ -1636,7 +1719,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                   {draftOrderAvailable === false ? (
                     <p className="mb-2 text-xs text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
                   ) : null}
-                  <div className="flex-1 space-y-2 overflow-y-auto pr-1">
+                  <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
                     {draftPicks.length ? (
                       draftPicks.map((pick) => {
                         const key = availabilityKeyForPick(pick);
@@ -1737,11 +1820,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                           <div>
                             <p className="text-xs uppercase tracking-wide text-gray-400">Offer Suggestions</p>
-                            <p className="text-sm font-semibold text-white">
-                              {tradeBlock.length
-                                ? `Shop list: ${tradeBlock.length} ${tradeBlock.length === 1 ? "asset" : "assets"}`
-                                : "No assets in shop"}
-                            </p>
+                            <p className="text-sm font-semibold text-white">Offers refresh as you mark Shop items.</p>
                           </div>
                           <div className="flex items-center gap-2">
                             <span className="rounded-full border border-emerald-700/60 bg-emerald-900/60 px-3 py-1 text-[11px] font-semibold text-emerald-50">
@@ -1922,7 +2001,9 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                           </>
                         ) : (
                           <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/40 p-4 text-sm text-gray-400">
-                            Toggle Shop? on players or picks to see suggestions.
+                            {tradeBlock.length
+                              ? "No fair offers met the constraints. Adjust your Shop list or aggression to try again."
+                              : "Toggle Shop? on players or picks to see suggestions."}
                           </div>
                         )}
                       </div>
