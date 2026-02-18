@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bot, Compass, Hammer } from "lucide-react";
+import { Bot, Compass, Gauge, Hammer } from "lucide-react";
 
 import { getLeagueId } from "../lib/config";
 
@@ -60,6 +60,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const navItems = useMemo(
     () => [
       { href: "/draft", label: "Draft Room", icon: Compass },
+      { href: "/team-snapshot", label: "Team Snapshot", icon: Gauge },
       { href: "/trade-studio", label: "AI Trade Studio", icon: Bot },
       { href: "/trade-builder", label: "Manual Trade Builder", icon: Hammer },
     ],
