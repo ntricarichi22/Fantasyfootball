@@ -109,7 +109,6 @@ const PLAYER_CACHE_KEY = "sleeper_player_dict";
 const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const AVAILABILITY_CACHE_KEY = "trade_studio_availability";
-const TRADE_BLOCK_CACHE_KEY = "trade_studio_trade_block";
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 const SNAPSHOT_FOOTER_PADDING_CLASS = "pb-24";
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
@@ -118,6 +117,7 @@ let offerIdCounter = 0;
 type TimelineLane = "Contend" | "Re-tool" | "Rebuild";
 type Posture = "Buyer" | "Seller";
 type WorkbenchTabKey = "trade-block" | "incoming" | "chat";
+type TradeStudioMode = "studio" | "snapshot";
 
 const YOUNG_PLAYER_AGE_THRESHOLD = 25;
 const VETERAN_PLAYER_AGE_THRESHOLD = 29;
@@ -842,6 +842,12 @@ const buildAiProfile = (
 };
 
 export default function TradeStudioPage() {
+  return <TradeStudioView mode="studio" />;
+}
+
+export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode }) {
+  const isSnapshotOnly = mode === "snapshot";
+  const pageTitle = isSnapshotOnly ? "Team Snapshot" : "Trade Studio";
   const [teams, setTeams] = useState<Team[]>([]);
   const [rosters, setRosters] = useState<Roster[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
@@ -852,7 +858,6 @@ export default function TradeStudioPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
   const [availability, setAvailability] = useState<Record<string, boolean>>({});
-  const [tradeBlock, setTradeBlock] = useState<TradeAsset[]>([]);
   const [timelineChoice, setTimelineChoice] = useState<TimelineLane>("Re-tool");
   const [postureChoice, setPostureChoice] = useState<Posture>("Buyer");
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState<WorkbenchTabKey>("trade-block");
@@ -884,15 +889,6 @@ export default function TradeStudioPage() {
     } catch {
       // ignore corrupted cache
     }
-
-    try {
-      const savedBlock = localStorage.getItem(TRADE_BLOCK_CACHE_KEY);
-      if (savedBlock) {
-        setTradeBlock(JSON.parse(savedBlock));
-      }
-    } catch {
-      // ignore corrupted cache
-    }
   }, []);
 
   useEffect(() => {
@@ -909,15 +905,6 @@ export default function TradeStudioPage() {
       // ignore
     }
   }, [availability]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      localStorage.setItem(TRADE_BLOCK_CACHE_KEY, JSON.stringify(tradeBlock));
-    } catch {
-      // ignore
-    }
-  }, [tradeBlock]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1193,6 +1180,31 @@ export default function TradeStudioPage() {
     hasLoggedPickLabelCheck.current = true;
   }, [draftPicks, draftPickText]);
 
+  const tradeBlock = useMemo(() => {
+    const assets: TradeAsset[] = [];
+    rosterPlayers.forEach((player) => {
+      const key = availabilityKeyForPlayer(player.id);
+      if (availability[key]) {
+        assets.push({
+          id: key,
+          label: `${player.name} (${player.position} • ${player.team})`,
+          type: "player",
+        });
+      }
+    });
+    draftPicks.forEach((pick) => {
+      const key = availabilityKeyForPick(pick);
+      if (availability[key]) {
+        assets.push({
+          id: key,
+          label: draftPickText(pick),
+          type: "pick",
+        });
+      }
+    });
+    return assets;
+  }, [availability, draftPickText, draftPicks, rosterPlayers]);
+
   const teStartableThreshold = useMemo(() => {
     const teValues: number[] = [];
     Object.entries(playerValues).forEach(([playerId, value]) => {
@@ -1274,21 +1286,6 @@ export default function TradeStudioPage() {
       ...prev,
       [key]: value,
     }));
-  }, []);
-
-  const handleAddToTradeBlock = useCallback((asset: TradeAsset) => {
-    setTradeBlock((prev) => {
-      if (prev.some((entry) => entry.id === asset.id)) return prev;
-      return [...prev, asset];
-    });
-  }, []);
-
-  const handleRemoveFromTradeBlock = useCallback((assetId: string) => {
-    setTradeBlock((prev) => prev.filter((asset) => asset.id !== assetId));
-  }, []);
-
-  const handleClearTradeBlock = useCallback(() => {
-    setTradeBlock([]);
   }, []);
 
   const regenerateOffers = useCallback(() => {
@@ -1374,7 +1371,10 @@ export default function TradeStudioPage() {
   }, [offerSuggestions.length]);
 
   useEffect(() => {
-    regenerateOffers();
+    const timer = window.setTimeout(() => {
+      regenerateOffers();
+    }, 300);
+    return () => window.clearTimeout(timer);
   }, [regenerateOffers]);
 
   const teamName = useMemo(
@@ -1418,7 +1418,7 @@ export default function TradeStudioPage() {
       )}
       <div className="mx-auto flex h-full max-w-7xl flex-col px-4 py-8">
         <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-4xl font-bold text-white">Trade Studio</h1>
+          <h1 className="text-4xl font-bold text-white">{pageTitle}</h1>
           <Link
             href="/"
             className="inline-flex items-center justify-center rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700"
@@ -1438,9 +1438,7 @@ export default function TradeStudioPage() {
                 <p className="mt-2 text-sm text-gray-400">
                   We’ll load your roster and draft picks from Sleeper once you pick a team.
                 </p>
-                {errorMessage && (
-                  <p className="mt-3 text-sm text-red-400">{errorMessage}</p>
-                )}
+                {errorMessage ? <p className="mt-3 text-sm text-red-400">{errorMessage}</p> : null}
                 <div className="mt-4">
                   <label className="mb-3 block text-xs text-gray-400" htmlFor="team-picker">
                     Sleeper team
@@ -1464,543 +1462,484 @@ export default function TradeStudioPage() {
                 </div>
               </div>
             </div>
-          ) : (
-            <div className="grid h-full min-h-0 grid-cols-1 gap-6 md:grid-cols-[420px_1fr]">
-              <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+          ) : isSnapshotOnly ? (
+            <div className="flex h-full flex-col">
+              <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-indigo-800/60 bg-gradient-to-b from-gray-900 via-gray-900 to-black p-4 shadow-lg">
                 <div className="mb-3 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-white">Roster + Picks</h2>
-                  <span className="text-xs text-gray-400">{teamName}</span>
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-semibold text-white">Team Snapshot</h2>
+                    <span className="rounded-full bg-indigo-900 px-3 py-1 text-xs font-semibold text-indigo-200">Beta</span>
+                  </div>
+                  <span className="rounded-full border border-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                    AI stub
+                  </span>
                 </div>
-                <div className="mb-2 text-xs text-gray-500">
-                  Team selection is locked. Left panel scrolls independently.
+                <div className="relative flex h-full flex-col overflow-hidden text-sm text-gray-200">
+                  <div className={`flex-1 space-y-4 overflow-y-auto pr-1 ${SNAPSHOT_FOOTER_PADDING_CLASS}`}>
+                    <p className="text-sm text-gray-300">{aiProfile.summary}</p>
+                    <p className="text-xs text-gray-500">Values loaded: {playerValuesLoadedLabel}</p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+                        <p className="text-xs uppercase tracking-wide text-emerald-300">Strengths</p>
+                        <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
+                          {aiProfile.strengths.slice(0, 3).map((item, idx) => (
+                            <li key={idx}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
+                        <p className="text-xs uppercase tracking-wide text-amber-300">Risks / Gaps</p>
+                        <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
+                          {aiProfile.risks.slice(0, 3).map((item, idx) => (
+                            <li key={idx}>{item}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="sticky bottom-0 mt-3 flex-shrink-0 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
+                    <div className="flex flex-wrap items-start gap-6">
+                      <div className="min-w-[180px] flex-1">
+                        <p className="text-xs text-gray-400">Timeline</p>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {(["Contend", "Re-tool", "Rebuild"] as TimelineLane[]).map((lane) => {
+                            const selected = timelineChoice === lane;
+                            return (
+                              <button
+                                key={lane}
+                                type="button"
+                                onClick={() => setTimelineChoice(lane)}
+                                className={[
+                                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                                  selected
+                                    ? "border-emerald-500 bg-emerald-900 text-emerald-50"
+                                    : "border-gray-700 bg-gray-800 text-gray-300 hover:border-emerald-500/60 hover:text-white",
+                                ].join(" ")}
+                              >
+                                {lane}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="min-w-[180px] flex-1">
+                        <p className="text-xs text-gray-400">Posture</p>
+                        <div className="mt-1 flex flex-wrap gap-2">
+                          {(["Buyer", "Seller"] as Posture[]).map((posture) => {
+                            const selected = postureChoice === posture;
+                            return (
+                              <button
+                                key={posture}
+                                type="button"
+                                onClick={() => setPostureChoice(posture)}
+                                className={[
+                                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
+                                  selected
+                                    ? "border-indigo-500 bg-indigo-900 text-indigo-50"
+                                    : "border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
+                                ].join(" ")}
+                              >
+                                {posture}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex-1 space-y-5 overflow-y-auto pr-1">
-                  <div>
-                    <h3 className="mb-2 text-sm font-semibold text-gray-200">Roster</h3>
+              </section>
+            </div>
+          ) : (
+            <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[520px_1fr]">
+              <div className="flex h-full min-h-0 flex-col gap-4">
+                <section className="flex-[3] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white">Roster</h2>
+                      <p className="text-xs text-gray-500">
+                        Toggle Shop? to mark assets; offers update automatically.
+                      </p>
+                    </div>
+                    <span className="text-xs text-gray-400">{teamName}</span>
+                  </div>
+                  <div className="flex-1 space-y-2 overflow-y-auto pr-1">
                     {rosterPlayers.length ? (
-                      <div className="space-y-2">
-                        {rosterPlayers.map((player) => {
-                          const key = availabilityKeyForPlayer(player.id);
-                          const isAvailable = availability[key] || false;
-                          const isInBlock = tradeBlock.some((asset) => asset.id === key);
-                          return (
-                            <div
-                              key={player.id}
-                              className="flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs sm:text-sm"
-                            >
-                              <div className="flex min-w-0 flex-1 items-center gap-2">
-                                <span className="flex-1 truncate font-semibold text-white">{player.name}</span>
-                                <span className="text-gray-500">|</span>
-                                <span className="whitespace-nowrap text-gray-300">{player.position}</span>
-                                <span className="text-gray-500">|</span>
-                                <span className="whitespace-nowrap text-gray-300">{player.team}</span>
-                                <span className="text-gray-500">|</span>
-                                <span className="whitespace-nowrap text-gray-300">{player.ageLabel}</span>
+                      rosterPlayers.map((player) => {
+                        const key = availabilityKeyForPlayer(player.id);
+                        const isAvailable = availability[key] || false;
+                        const rowClasses = [
+                          "flex items-center gap-3 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
+                          isAvailable
+                            ? "border-emerald-500/80 bg-emerald-900/50 shadow-[0_0_0_1px_rgba(16,185,129,0.6)]"
+                            : "border-gray-800 bg-gray-950",
+                        ].join(" ");
+                        return (
+                          <div key={player.id} className={rowClasses}>
+                            <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <span className="font-semibold text-white break-words">{player.name}</span>
+                                {isAvailable ? (
+                                  <span className="rounded-full bg-emerald-600/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50">
+                                    Shop
+                                  </span>
+                                ) : null}
                               </div>
-                              <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
-                                <div className="flex items-center gap-1 text-[11px] sm:text-xs">
-                                  <span className="text-gray-400">Avail:</span>
-                                  <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
-                                    <button
-                                      type="button"
-                                      onClick={() => setAvailabilityForKey(key, true)}
-                                      className={`px-2 py-1 font-semibold ${
-                                        isAvailable
-                                          ? "bg-emerald-700 text-white"
-                                          : "text-gray-300 hover:bg-gray-800"
-                                      }`}
-                                    >
-                                      Y
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setAvailabilityForKey(key, false)}
-                                      className={`px-2 py-1 font-semibold ${
-                                        !isAvailable
-                                          ? "bg-gray-800 text-white"
-                                          : "text-gray-300 hover:bg-gray-800"
-                                      }`}
-                                    >
-                                      N
-                                    </button>
-                                  </div>
-                                </div>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300 sm:text-xs">
+                                <span>{player.position}</span>
+                                <span className="text-gray-600">•</span>
+                                <span className="whitespace-nowrap">{player.team}</span>
+                                <span className="text-gray-600">•</span>
+                                <span className="whitespace-nowrap">{player.ageLabel}</span>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                              <span className="text-[11px] text-gray-400 sm:text-xs">Shop?</span>
+                              <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
                                 <button
                                   type="button"
-                                  disabled={isInBlock}
-                                  onClick={() =>
-                                    handleAddToTradeBlock({
-                                      id: key,
-                                      label: `${player.name} (${player.position} • ${player.team})`,
-                                      type: "player",
-                                    })
-                                  }
-                                  className="rounded-md border border-indigo-700 bg-indigo-900 px-2 py-1 text-[11px] font-semibold text-indigo-100 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-400"
+                                  onClick={() => setAvailabilityForKey(key, true)}
+                                  className={`px-2 py-1 font-semibold ${
+                                    isAvailable ? "bg-emerald-700 text-white" : "text-gray-300 hover:bg-gray-800"
+                                  }`}
                                 >
-                                  {isInBlock ? "Added" : "Add"}
+                                  Y
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAvailabilityForKey(key, false)}
+                                  className={`px-2 py-1 font-semibold ${
+                                    !isAvailable ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800"
+                                  }`}
+                                >
+                                  N
                                 </button>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                          </div>
+                        );
+                      })
                     ) : (
                       <p className="text-sm text-gray-400">No players loaded.</p>
                     )}
                   </div>
+                </section>
 
-                  <div>
-                    <h3 className="mb-2 text-sm font-semibold text-gray-200">Draft Picks</h3>
-                    {draftOrderAvailable === false ? (
-                      <p className="mb-2 text-xs text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
-                    ) : null}
+                <section className="flex-[2] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                  <div className="mb-2 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-lg font-semibold text-white">Draft Picks</h2>
+                      <p className="text-xs text-gray-500">Shop picks separately; each scrolls inside this card.</p>
+                    </div>
+                    <span className="text-xs text-gray-400">{teamName}</span>
+                  </div>
+                  {draftOrderAvailable === false ? (
+                    <p className="mb-2 text-xs text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
+                  ) : null}
+                  <div className="flex-1 space-y-2 overflow-y-auto pr-1">
                     {draftPicks.length ? (
-                      <div className="space-y-2">
-                        {draftPicks.map((pick) => {
-                          const key = availabilityKeyForPick(pick);
-                          const isAvailable = availability[key] || false;
-                          const isInBlock = tradeBlock.some((asset) => asset.id === key);
-                          const label = draftPickText(pick);
-                          return (
-                            <div
-                              key={key}
-                              className="flex items-center gap-3 rounded-lg border border-gray-800 bg-gray-950 px-3 py-2 text-xs sm:text-sm"
-                            >
-                              <div className="flex min-w-0 flex-1 items-center gap-2">
-                                <span className="flex-1 truncate font-semibold text-white">{label}</span>
+                      draftPicks.map((pick) => {
+                        const key = availabilityKeyForPick(pick);
+                        const isAvailable = availability[key] || false;
+                        const label = draftPickText(pick);
+                        const rowClasses = [
+                          "flex items-center gap-3 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
+                          isAvailable
+                            ? "border-emerald-500/80 bg-emerald-900/50 shadow-[0_0_0_1px_rgba(16,185,129,0.6)]"
+                            : "border-gray-800 bg-gray-950",
+                        ].join(" ");
+                        return (
+                          <div key={key} className={rowClasses}>
+                            <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                <span className="font-semibold text-white break-words">{label}</span>
+                                {isAvailable ? (
+                                  <span className="rounded-full bg-emerald-600/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50">
+                                    Shop
+                                  </span>
+                                ) : null}
                               </div>
-                              <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
-                                <div className="flex items-center gap-1 text-[11px] sm:text-xs">
-                                  <span className="text-gray-400">Avail:</span>
-                                  <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
-                                    <button
-                                      type="button"
-                                      onClick={() => setAvailabilityForKey(key, true)}
-                                      className={`px-2 py-1 font-semibold ${
-                                        isAvailable
-                                          ? "bg-emerald-700 text-white"
-                                          : "text-gray-300 hover:bg-gray-800"
-                                      }`}
-                                    >
-                                      Y
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setAvailabilityForKey(key, false)}
-                                      className={`px-2 py-1 font-semibold ${
-                                        !isAvailable
-                                          ? "bg-gray-800 text-white"
-                                          : "text-gray-300 hover:bg-gray-800"
-                                      }`}
-                                    >
-                                      N
-                                    </button>
-                                  </div>
-                                </div>
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300 sm:text-xs">
+                                <span>{pick.season || "Future"}</span>
+                                <span className="text-gray-600">•</span>
+                                <span>{pick.round ? `Round ${pick.round}` : "Round tbd"}</span>
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
+                              <span className="text-[11px] text-gray-400 sm:text-xs">Shop?</span>
+                              <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
                                 <button
                                   type="button"
-                                  disabled={isInBlock}
-                                  onClick={() =>
-                                    handleAddToTradeBlock({
-                                      id: key,
-                                      label,
-                                      type: "pick",
-                                    })
-                                  }
-                                  className="rounded-md border border-indigo-700 bg-indigo-900 px-2 py-1 text-[11px] font-semibold text-indigo-100 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-700 disabled:bg-gray-800 disabled:text-gray-400"
+                                  onClick={() => setAvailabilityForKey(key, true)}
+                                  className={`px-2 py-1 font-semibold ${
+                                    isAvailable ? "bg-emerald-700 text-white" : "text-gray-300 hover:bg-gray-800"
+                                  }`}
                                 >
-                                  {isInBlock ? "Added" : "Add"}
+                                  Y
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setAvailabilityForKey(key, false)}
+                                  className={`px-2 py-1 font-semibold ${
+                                    !isAvailable ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800"
+                                  }`}
+                                >
+                                  N
                                 </button>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
+                          </div>
+                        );
+                      })
                     ) : (
                       <p className="text-sm text-gray-400">No draft picks found.</p>
                     )}
                   </div>
-                </div>
-              </section>
-
-              <div className="flex h-full min-h-0 flex-col gap-4 overflow-hidden">
-                <section className="flex-[5] min-h-0 overflow-hidden rounded-xl border border-indigo-800/60 bg-gradient-to-b from-gray-900 via-gray-900 to-black p-4 shadow-lg">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-lg font-semibold text-white">Team Snapshot</h2>
-                      <span className="rounded-full bg-indigo-900 px-3 py-1 text-xs font-semibold text-indigo-200">Beta</span>
-                    </div>
-                    <span className="rounded-full border border-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
-                      AI stub
-                    </span>
-                  </div>
-                  <div className="relative flex h-full flex-col overflow-hidden text-sm text-gray-200">
-                    <div className={`flex-1 space-y-4 overflow-y-auto pr-1 ${SNAPSHOT_FOOTER_PADDING_CLASS}`}>
-                      <p className="text-sm text-gray-300">{aiProfile.summary}</p>
-                      <p className="text-xs text-gray-500">Values loaded: {playerValuesLoadedLabel}</p>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
-                          <p className="text-xs uppercase tracking-wide text-emerald-300">Strengths</p>
-                          <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
-                            {aiProfile.strengths.slice(0, 3).map((item, idx) => (
-                              <li key={idx}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                        <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
-                          <p className="text-xs uppercase tracking-wide text-amber-300">Risks / Gaps</p>
-                          <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
-                            {aiProfile.risks.slice(0, 3).map((item, idx) => (
-                              <li key={idx}>{item}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="sticky bottom-0 mt-3 flex-shrink-0 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
-                      <div className="flex flex-wrap items-start gap-6">
-                        <div className="min-w-[180px] flex-1">
-                          <p className="text-xs text-gray-400">Timeline</p>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            {(["Contend", "Re-tool", "Rebuild"] as TimelineLane[]).map((lane) => {
-                              const selected = timelineChoice === lane;
-                              return (
-                                <button
-                                  key={lane}
-                                  type="button"
-                                  onClick={() => setTimelineChoice(lane)}
-                                  className={[
-                                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                                    selected
-                                      ? "border-emerald-500 bg-emerald-900 text-emerald-50"
-                                      : "border-gray-700 bg-gray-800 text-gray-300 hover:border-emerald-500/60 hover:text-white",
-                                  ].join(" ")}
-                                >
-                                  {lane}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <div className="min-w-[180px] flex-1">
-                          <p className="text-xs text-gray-400">Posture</p>
-                          <div className="mt-1 flex flex-wrap gap-2">
-                            {(["Buyer", "Seller"] as Posture[]).map((posture) => {
-                              const selected = postureChoice === posture;
-                              return (
-                                <button
-                                  key={posture}
-                                  type="button"
-                                  onClick={() => setPostureChoice(posture)}
-                                  className={[
-                                    "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                                    selected
-                                      ? "border-indigo-500 bg-indigo-900 text-indigo-50"
-                                      : "border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
-                                  ].join(" ")}
-                                >
-                                  {posture}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
                 </section>
+              </div>
 
-                <section className="flex-[5] min-h-0 overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
-                  <div className="mb-3 flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-lg font-semibold text-white">Trade Workbench</h2>
-                      <span className="rounded-full bg-indigo-900 px-3 py-1 text-xs font-semibold text-indigo-200">Beta</span>
-                    </div>
-                    <span className="text-xs text-gray-400">Live board</span>
+              <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-lg font-semibold text-white">Trade Workbench</h2>
+                    <span className="rounded-full bg-indigo-900 px-3 py-1 text-xs font-semibold text-indigo-200">Beta</span>
                   </div>
-                    <div className="flex h-full min-h-0 flex-col overflow-hidden">
-                      <div className="mb-3 flex flex-wrap items-center gap-2">
-                        {([
-                          { key: "trade-block" as WorkbenchTabKey, label: "Trade Block" },
-                          { key: "incoming" as WorkbenchTabKey, label: "Incoming Offers" },
-                          { key: "chat" as WorkbenchTabKey, label: "Trade Chat" },
-                        ] satisfies Array<{ key: WorkbenchTabKey; label: string }>).map((tab) => {
-                          const selected = activeWorkbenchTab === tab.key;
-                          return (
-                            <button
-                              key={tab.key}
-                            type="button"
-                            onClick={() => setActiveWorkbenchTab(tab.key)}
-                            className={[
-                              "rounded-full px-3 py-1 text-xs font-semibold transition",
-                              selected
-                                ? "bg-indigo-700 text-white"
-                                : "border border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
-                            ].join(" ")}
-                          >
-                            {tab.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="flex-1 min-h-0 overflow-hidden rounded-lg border border-gray-800 bg-gray-950/70 p-3">
-                      {activeWorkbenchTab === "trade-block" ? (
-                        <div className="grid h-full min-h-0 gap-3 md:grid-cols-2">
-                          <div className="flex min-h-0 flex-col rounded-lg border border-gray-800 bg-gray-950 p-3">
+                  <span className="text-xs text-gray-400">Offers auto-refresh</span>
+                </div>
+                <div className="flex h-full min-h-0 flex-col overflow-hidden">
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {([
+                      { key: "trade-block" as WorkbenchTabKey, label: "Trade Block" },
+                      { key: "incoming" as WorkbenchTabKey, label: "Incoming Offers" },
+                      { key: "chat" as WorkbenchTabKey, label: "Trade Chat" },
+                    ] satisfies Array<{ key: WorkbenchTabKey; label: string }>).map((tab) => {
+                      const selected = activeWorkbenchTab === tab.key;
+                      return (
+                        <button
+                          key={tab.key}
+                          type="button"
+                          onClick={() => setActiveWorkbenchTab(tab.key)}
+                          className={[
+                            "rounded-full px-3 py-1 text-xs font-semibold transition",
+                            selected
+                              ? "bg-indigo-700 text-white"
+                              : "border border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
+                          ].join(" ")}
+                        >
+                          {tab.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex-1 min-h-0">
+                    {activeWorkbenchTab === "trade-block" ? (
+                      <div className="flex h-full min-h-0 flex-col rounded-lg border border-gray-800 bg-gray-950/70 p-3">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-gray-400">Offer Suggestions</p>
+                            <p className="text-sm font-semibold text-white">
+                              {tradeBlock.length
+                                ? `Shop list: ${tradeBlock.length} ${tradeBlock.length === 1 ? "asset" : "assets"}`
+                                : "No assets in shop"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="rounded-full border border-emerald-700/60 bg-emerald-900/60 px-3 py-1 text-[11px] font-semibold text-emerald-50">
+                              Auto
+                            </span>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={goToPreviousOffer}
+                                disabled={!offerSuggestions.length}
+                                className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                              >
+                                Prev
+                              </button>
+                              <button
+                                type="button"
+                                onClick={goToNextOffer}
+                                disabled={!offerSuggestions.length}
+                                className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                              >
+                                Next
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {offerSuggestions.length ? (
+                          <>
                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                               <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-400">Block Builder</p>
-                                <p className="text-sm font-semibold text-white">
-                                  Trade Block{" "}
-                                  <span className="text-xs font-normal text-gray-400">
-                                    ({tradeBlock.length} {tradeBlock.length === 1 ? "item" : "items"})
-                                  </span>
+                                <p className="text-[11px] uppercase tracking-wide text-gray-400">Partner</p>
+                                <p className="text-base font-semibold text-white">{currentOffer?.partner ?? ""}</p>
+                                <p className="text-xs text-gray-500">
+                                  {currentOffer
+                                    ? `You send ${Math.round(currentOffer.valueSent)} • You receive ${Math.round(currentOffer.valueReceived)}`
+                                    : null}
                                 </p>
                               </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={handleClearTradeBlock}
-                                  disabled={!tradeBlock.length}
-                                  className="rounded-md border border-gray-700 px-3 py-2 text-xs font-semibold text-gray-200 transition hover:border-gray-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                              <div className="min-w-[200px] flex-1 sm:flex-none">
+                                <label
+                                  className="flex items-center justify-between text-xs text-gray-400"
+                                  htmlFor="aggression-slider"
                                 >
-                                  Clear
-                                </button>
+                                  <span>Conservative to Aggressive</span>
+                                  <span className="text-[11px] text-gray-500">{offerAggression}%</span>
+                                </label>
+                                <input
+                                  id="aggression-slider"
+                                  type="range"
+                                  min={0}
+                                  max={100}
+                                  value={offerAggression}
+                                  onChange={(e) => setOfferAggression(Number(e.target.value))}
+                                  className="mt-1 h-2 w-full cursor-pointer accent-indigo-500"
+                                />
+                                <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                                  <span>Conservative</span>
+                                  <span>Aggressive</span>
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex-1 overflow-y-auto">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
+                                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                                    You send ({teamName})
+                                  </p>
+                                  <ul className="mt-2 space-y-2 text-sm text-gray-200">
+                                    {currentOffer?.send?.map((item) => (
+                                      <li
+                                        key={`${currentOffer?.id}-send-${item.id}`}
+                                        className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2"
+                                      >
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div className="min-w-0">
+                                            <p className="truncate font-semibold text-white">{item.label}</p>
+                                            <p className="text-[11px] text-gray-500">
+                                              {item.type === "player"
+                                                ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
+                                                : "Draft pick"}
+                                            </p>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {item.isUnvalued ? (
+                                              <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                                                Unvalued
+                                              </span>
+                                            ) : null}
+                                            <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
+                                              {Math.round(item.value)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                                <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
+                                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                                    You receive ({currentOffer?.partner ?? ""})
+                                  </p>
+                                  <ul className="mt-2 space-y-2 text-sm text-gray-200">
+                                    {currentOffer?.receive?.map((item) => (
+                                      <li
+                                        key={`${currentOffer?.id}-receive-${item.id}`}
+                                        className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2"
+                                      >
+                                        <div className="flex items-center justify-between gap-3">
+                                          <div className="min-w-0">
+                                            <p className="truncate font-semibold text-white">{item.label}</p>
+                                            <p className="text-[11px] text-gray-500">
+                                              {item.type === "player"
+                                                ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
+                                                : "Draft pick"}
+                                            </p>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {item.isUnvalued ? (
+                                              <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                                                Unvalued
+                                              </span>
+                                            ) : null}
+                                            <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
+                                              {Math.round(item.value)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              </div>
+                              <div className="mt-3 space-y-2">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {currentOffer?.tags?.map((tag) => (
+                                    <span
+                                      key={`${currentOffer.id}-tag-${tag}`}
+                                      className="rounded-full border border-indigo-700/60 bg-indigo-900/60 px-3 py-1 text-[11px] font-semibold text-indigo-50"
+                                    >
+                                      {tag}
+                                    </span>
+                                  ))}
+                                  {currentOffer ? (
+                                    <span
+                                      className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                                        fairnessStyles[currentOffer.fairness] ??
+                                        "border-gray-700 bg-gray-800 text-gray-200"
+                                      }`}
+                                    >
+                                      {currentOffer.fairness}
+                                    </span>
+                                  ) : null}
+                                </div>
+                                <p className="text-sm text-gray-200">{currentOffer?.explanation ?? ""}</p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
                                 <button
                                   type="button"
                                   onClick={regenerateOffers}
-                                  className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:bg-emerald-600"
+                                  className="rounded-md border border-indigo-700 bg-indigo-900 px-3 py-2 text-xs font-semibold text-indigo-50 transition hover:border-indigo-500 hover:text-white"
                                 >
-                                  Generate Offers
-                                </button>
-                              </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto rounded-md border border-gray-900 bg-black/40 p-2">
-                              {tradeBlock.length ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {tradeBlock.map((asset) => (
-                                    <span
-                                      key={asset.id}
-                                      className="inline-flex items-center gap-2 rounded-full border border-gray-800 bg-gray-900 px-3 py-1 text-xs font-semibold text-white"
-                                    >
-                                      <span className="truncate">{asset.label}</span>
-                                      <button
-                                        type="button"
-                                        aria-label={`Remove ${asset.label}`}
-                                        onClick={() => handleRemoveFromTradeBlock(asset.id)}
-                                        className="rounded-full bg-gray-800 px-2 py-1 text-[11px] font-bold text-gray-200 transition hover:bg-red-700 hover:text-white"
-                                      >
-                                        ×
-                                      </button>
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : (
-                                <p className="text-xs text-gray-400">
-                                  Use the Add buttons on roster players and picks to populate your trade block.
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex min-h-0 flex-col rounded-lg border border-gray-800 bg-gray-950 p-3">
-                            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                              <div>
-                                <p className="text-xs uppercase tracking-wide text-gray-400">Offer Suggestions</p>
-                                <p className="text-sm font-semibold text-white">
-                                  Offer {offerPosition} of {offerTotal}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={goToPreviousOffer}
-                                  disabled={!offerSuggestions.length}
-                                  className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
-                                >
-                                  Prev
+                                  Generate again
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={goToNextOffer}
-                                  disabled={!offerSuggestions.length}
-                                  className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                                  onClick={handleSendOffer}
+                                  className="rounded-md border border-emerald-700 bg-emerald-800 px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:border-emerald-600 hover:text-white"
                                 >
-                                  Next
+                                  Send Offer
                                 </button>
                               </div>
+                              <span className="text-xs text-gray-400">
+                                Offer carousel {offerPosition} of {offerTotal}
+                              </span>
                             </div>
-
-                            {offerSuggestions.length ? (
-                              <>
-                                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                                  <div>
-                                    <p className="text-[11px] uppercase tracking-wide text-gray-400">Partner</p>
-                                    <p className="text-base font-semibold text-white">
-                                      {currentOffer?.partner ?? ""}
-                                    </p>
-                                    <p className="text-xs text-gray-500">
-                                      {currentOffer
-                                        ? `You send ${Math.round(currentOffer.valueSent)} • You receive ${Math.round(currentOffer.valueReceived)}`
-                                        : null}
-                                    </p>
-                                  </div>
-                                  <div className="min-w-[200px] flex-1 sm:flex-none">
-                                    <label
-                                      className="flex items-center justify-between text-xs text-gray-400"
-                                      htmlFor="aggression-slider"
-                                    >
-                                      <span>Conservative to Aggressive</span>
-                                      <span className="text-[11px] text-gray-500">{offerAggression}%</span>
-                                    </label>
-                                    <input
-                                      id="aggression-slider"
-                                      type="range"
-                                      min={0}
-                                      max={100}
-                                      value={offerAggression}
-                                      onChange={(e) => setOfferAggression(Number(e.target.value))}
-                                      className="mt-1 h-2 w-full cursor-pointer accent-indigo-500"
-                                    />
-                                    <div className="mt-1 flex justify-between text-[11px] text-gray-500">
-                                      <span>Conservative</span>
-                                      <span>Aggressive</span>
-                                    </div>
-                                  </div>
-                                </div>
-                                <div className="flex-1 overflow-y-auto">
-                                  <div className="grid gap-3 sm:grid-cols-2">
-                                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
-                                      <p className="text-xs uppercase tracking-wide text-gray-400">
-                                        You send ({teamName})
-                                      </p>
-                                      <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                        {currentOffer?.send?.map((item) => (
-                                          <li key={`${currentOffer?.id}-send-${item.id}`} className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2">
-                                            <div className="flex items-center justify-between gap-3">
-                                              <div className="min-w-0">
-                                                <p className="truncate font-semibold text-white">{item.label}</p>
-                                                <p className="text-[11px] text-gray-500">
-                                                  {item.type === "player"
-                                                    ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
-                                                    : "Draft pick"}
-                                                </p>
-                                              </div>
-                                              <div className="flex items-center gap-2">
-                                                {item.isUnvalued ? (
-                                                  <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
-                                                    Unvalued
-                                                  </span>
-                                                ) : null}
-                                                <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
-                                                  {Math.round(item.value)}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                    <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
-                                      <p className="text-xs uppercase tracking-wide text-gray-400">
-                                        You receive ({currentOffer?.partner ?? ""})
-                                      </p>
-                                      <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                        {currentOffer?.receive?.map((item) => (
-                                          <li key={`${currentOffer?.id}-receive-${item.id}`} className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2">
-                                            <div className="flex items-center justify-between gap-3">
-                                              <div className="min-w-0">
-                                                <p className="truncate font-semibold text-white">{item.label}</p>
-                                                <p className="text-[11px] text-gray-500">
-                                                  {item.type === "player"
-                                                    ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
-                                                    : "Draft pick"}
-                                                </p>
-                                              </div>
-                                              <div className="flex items-center gap-2">
-                                                {item.isUnvalued ? (
-                                                  <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
-                                                    Unvalued
-                                                  </span>
-                                                ) : null}
-                                                <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
-                                                  {Math.round(item.value)}
-                                                </span>
-                                              </div>
-                                            </div>
-                                          </li>
-                                        ))}
-                                      </ul>
-                                    </div>
-                                  </div>
-                                  <div className="mt-3 space-y-2">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      {currentOffer?.tags?.map((tag) => (
-                                        <span
-                                          key={`${currentOffer.id}-tag-${tag}`}
-                                          className="rounded-full border border-indigo-700/60 bg-indigo-900/60 px-3 py-1 text-[11px] font-semibold text-indigo-50"
-                                        >
-                                          {tag}
-                                        </span>
-                                      ))}
-                                      {currentOffer ? (
-                                        <span
-                                          className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
-                                            fairnessStyles[currentOffer.fairness] ??
-                                            "border-gray-700 bg-gray-800 text-gray-200"
-                                          }`}
-                                        >
-                                          {currentOffer.fairness}
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    <p className="text-sm text-gray-200">{currentOffer?.explanation ?? ""}</p>
-                                  </div>
-                                </div>
-                                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                                  <div className="flex items-center gap-2">
-                                    <button
-                                      type="button"
-                                      onClick={regenerateOffers}
-                                      className="rounded-md border border-indigo-700 bg-indigo-900 px-3 py-2 text-xs font-semibold text-indigo-50 transition hover:border-indigo-500 hover:text-white"
-                                    >
-                                      Generate again
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={handleSendOffer}
-                                      className="rounded-md border border-emerald-700 bg-emerald-800 px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:border-emerald-600 hover:text-white"
-                                    >
-                                      Send Offer
-                                    </button>
-                                  </div>
-                                  <span className="text-xs text-gray-400">
-                                    Offer carousel {offerPosition} of {offerTotal}
-                                  </span>
-                                </div>
-                              </>
-                            ) : (
-                              <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/40 p-4 text-sm text-gray-400">
-                                Add assets and generate to see suggestions.
-                              </div>
-                            )}
+                          </>
+                        ) : (
+                          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/40 p-4 text-sm text-gray-400">
+                            Toggle Shop? on players or picks to see suggestions.
                           </div>
-                        </div>
-                      ) : activeWorkbenchTab === "incoming" ? (
-                        <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
-                          <p>No incoming offers yet.</p>
-                          <p className="text-xs text-gray-500">Generate offers or await league activity.</p>
-                        </div>
-                      ) : (
-                        <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
-                          <p>Chat coming soon.</p>
-                          <p className="text-xs text-gray-500">Collaborate with league mates here.</p>
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    ) : activeWorkbenchTab === "incoming" ? (
+                      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
+                        <p>No incoming offers yet.</p>
+                        <p className="text-xs text-gray-500">Generate offers or await league activity.</p>
+                      </div>
+                    ) : (
+                      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
+                        <p>Chat coming soon.</p>
+                        <p className="text-xs text-gray-500">Collaborate with league mates here.</p>
+                      </div>
+                    )}
                   </div>
-                </section>
-              </div>
+                </div>
+              </section>
             </div>
           )}
         </div>
