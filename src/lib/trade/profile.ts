@@ -22,6 +22,7 @@ export type ProfileTeam = {
 export type LeagueProfileSettings = {
   superflex?: boolean;
   teDiscount?: number;
+  qbPremium?: number;
   teamCount?: number;
 };
 
@@ -51,13 +52,18 @@ const bandLabel = (rank: number, teamCount: number) => {
   return "middle tier";
 };
 
-const positionalScore = (players: ProfilePlayer[], position: PositionKey, teDiscount: number) => {
+const positionalScore = (players: ProfilePlayer[], position: PositionKey, teDiscount: number, qbPremium: number = 1) => {
   const limit = STARTER_LIMITS[position];
+  const adjustValue = (v: number) => {
+    if (position === "QB") return v * qbPremium;
+    if (position === "TE") return v * teDiscount;
+    return v;
+  };
   const sorted = players
     .filter((p) => (p.position || "").toUpperCase() === position)
     .map((p) => ({
       ...p,
-      adjusted: position === "TE" ? (p.value ?? 0) * teDiscount : p.value ?? 0,
+      adjusted: adjustValue(p.value ?? 0),
     }))
     .sort((a, b) => (b.adjusted ?? 0) - (a.adjusted ?? 0))
     .slice(0, limit);
@@ -110,7 +116,8 @@ export const buildLeagueProfiles = (
   settings?: LeagueProfileSettings
 ): Record<string | number, TeamProfile> => {
   const teamCount = settings?.teamCount ?? teams.length ?? 12;
-  const teDiscount = settings?.teDiscount ?? 0.7;
+  const teDiscount = settings?.teDiscount ?? 0.75;
+  const qbPremium = settings?.qbPremium ?? 1.25;
   const allTotals = teams.map((team) => {
     const pickTotal = (team.picks ?? []).reduce(
       (sum, pick) => sum + getPickValue(pick, { teamCount }),
@@ -127,10 +134,10 @@ export const buildLeagueProfiles = (
   const positionalStrengths: Record<string | number, Record<PositionKey, number>> = {};
   teams.forEach((team) => {
     const scores = {
-      QB: positionalScore(team.players, "QB", teDiscount),
-      RB: positionalScore(team.players, "RB", teDiscount),
-      WR: positionalScore(team.players, "WR", teDiscount),
-      TE: positionalScore(team.players, "TE", teDiscount),
+      QB: positionalScore(team.players, "QB", teDiscount, qbPremium),
+      RB: positionalScore(team.players, "RB", teDiscount, qbPremium),
+      WR: positionalScore(team.players, "WR", teDiscount, qbPremium),
+      TE: positionalScore(team.players, "TE", teDiscount, qbPremium),
     };
     positionalStrengths[team.rosterId] = scores;
   });

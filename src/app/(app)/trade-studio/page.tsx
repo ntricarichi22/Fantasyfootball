@@ -136,7 +136,9 @@ const REBUILD_YOUNG_ADVANTAGE = 2;
 const REBUILD_PICK_THRESHOLD = 3;
 const CONTEND_NEAR_TERM_PICK_MAX = 2;
 const BUYER_PICK_THRESHOLD = 1;
-const TE_VALUE_MULTIPLIER = 0.7;
+const QB_VALUE_MULTIPLIER = 1.25;
+const TE_VALUE_MULTIPLIER = 0.75;
+const STUD_PLAYER_THRESHOLD = 9000;
 
 interface AiProfileContext {
   topPosition?: string;
@@ -252,6 +254,14 @@ const isOfferWithinBounds = (giveValue: number, receiveAssets: OfferAssetDetail[
   return true;
 };
 
+/** Apply position-specific value multipliers: QB premium (1.25×) and TE discount (0.75×). */
+const applyPositionMultiplier = (value: number | null | undefined, position?: string): number => {
+  if (typeof value !== "number") return 0;
+  if (position === "QB") return value * QB_VALUE_MULTIPLIER;
+  if (position === "TE") return value * TE_VALUE_MULTIPLIER;
+  return value;
+};
+
 const collectRosterAssets = (
   roster: Roster,
   teamCount: number,
@@ -271,8 +281,7 @@ const collectRosterAssets = (
       info?.position?.toUpperCase() ||
       info?.fantasy_positions?.[0]?.toUpperCase() ||
       undefined;
-    const adjustedValue =
-      position === "TE" && typeof value === "number" ? value * TE_VALUE_MULTIPLIER : value ?? 0;
+    const adjustedValue = applyPositionMultiplier(value, position);
     const labelParts = [
       info?.full_name ||
         [info?.first_name, info?.last_name].filter(Boolean).join(" ").trim() ||
@@ -364,11 +373,21 @@ const explanationForOffer = (
   return `${partnerName} gets ${sendFocus} to support a ${partnerMode} push; ${teamName} gains ${receiveFocus} for a ${userMode} path (${fairness.toLowerCase()}).`;
 };
 
+interface PickAssetContext {
+  sendPositions: string[];
+  isStudTrade: boolean;
+  studPosition?: string;
+  qbProtectionNeeded: boolean;
+  teamValueTier: "low" | "mid" | "high";
+  sendIncludesPicks: boolean;
+}
+
 const pickAssetsForPartner = (
   giveValue: number,
   aggression: number,
   userNeeds: string[],
-  partnerAssets: { players: OfferAssetDetail[]; picks: OfferAssetDetail[] }
+  partnerAssets: { players: OfferAssetDetail[]; picks: OfferAssetDetail[] },
+  pickContext?: PickAssetContext
 ) => {
   if (giveValue <= 0) return [];
   const targetMultiplier = 1 + (aggression - 50) / 200;
@@ -381,6 +400,21 @@ const pickAssetsForPartner = (
     if (need.toLowerCase().includes("te")) return "TE";
     return need;
   });
+
+  // Augment needs based on trade context
+  if (pickContext?.qbProtectionNeeded && !normalizedNeeds.includes("QB")) {
+    normalizedNeeds.unshift("QB");
+  }
+  if (pickContext?.sendIncludesPicks && pickContext.sendPositions.length > 0) {
+    const upgradePos = pickContext.sendPositions[0];
+    if (upgradePos && !normalizedNeeds.includes(upgradePos)) {
+      normalizedNeeds.unshift(upgradePos);
+    }
+  }
+  if (pickContext?.isStudTrade && pickContext.studPosition && !normalizedNeeds.includes(pickContext.studPosition)) {
+    normalizedNeeds.unshift(pickContext.studPosition);
+  }
+
   const preferredPlayers = partnerAssets.players
     .filter(
       (player) =>
@@ -409,15 +443,72 @@ const pickAssetsForPartner = (
     }
   }
 
+  /**
+   * Score a candidate receive combo based on trade context.
+   * Higher scores are preferred. Criteria:
+   *  - QB protection (+1000 if returning a QB when team has ≤2 QBs)
+   *  - Stud trade (+200 for same-position downgrade + depth or picks)
+   *  - Position upgrade (+150 for single player at same position as sent player+picks)
+   *  - Team tier: low-value teams favor picks/youth, high-value teams favor star players
+   */
+  const scoreCombo = (combo: OfferAssetDetail[]): number => {
+    if (!pickContext) return 0;
+    let score = 0;
+
+    // QB Protection: strongly prefer combos with a QB when protection is needed
+    if (pickContext.qbProtectionNeeded) {
+      if (combo.some((a) => a.position === "QB" && a.value > 0)) score += 1000;
+    }
+
+    // Stud trade: prefer slight downgrade at same position + depth or picks
+    if (pickContext.isStudTrade && pickContext.studPosition) {
+      const samePos = combo.filter((a) => a.position === pickContext.studPosition);
+      const pickPieces = combo.filter((a) => a.type === "pick");
+      const otherPos = combo.filter(
+        (a) => a.type === "player" && a.position !== pickContext.studPosition
+      );
+      if (samePos.length > 0 && otherPos.length > 0) score += 200;
+      if (samePos.length > 0 && pickPieces.length > 0) score += 200;
+    }
+
+    // Position upgrade: if sending player + picks, prefer single upgrade at same position
+    if (pickContext.sendIncludesPicks && pickContext.sendPositions.length > 0) {
+      const mainPos = pickContext.sendPositions[0];
+      if (combo.length === 1 && combo[0].position === mainPos) score += 150;
+    }
+
+    // Team value tier preferences
+    if (pickContext.teamValueTier === "low") {
+      combo.forEach((a) => {
+        if (a.type === "pick") score += 50;
+        const age = a.ageLabel ? parseInt(a.ageLabel, 10) : null;
+        if (age !== null && age <= YOUNG_PLAYER_AGE_THRESHOLD) score += 30;
+      });
+    } else if (pickContext.teamValueTier === "high") {
+      combo.forEach((a) => {
+        if (a.type === "player" && a.value >= 3000) score += 40;
+      });
+    }
+
+    return score;
+  };
+
   let best: OfferAssetDetail[] = [];
   let bestDiff = Number.POSITIVE_INFINITY;
+  let bestScore = -1;
   const considerCombo = (combo: OfferAssetDetail[]) => {
     if (!isOfferWithinBounds(giveValue, combo)) return;
     const comboValue = combo.reduce((sum, asset) => sum + asset.value, 0);
     const diff = Math.abs(comboValue - targetValue);
-    if (diff < bestDiff || (diff === bestDiff && combo.length < best.length)) {
+    const comboScore = scoreCombo(combo);
+    if (
+      comboScore > bestScore ||
+      (comboScore === bestScore && diff < bestDiff) ||
+      (comboScore === bestScore && diff === bestDiff && combo.length < best.length)
+    ) {
       best = combo;
       bestDiff = diff;
+      bestScore = comboScore;
     }
   };
 
@@ -489,18 +580,80 @@ const buildOfferSuggestions = (
   if (valueSent <= 0) return [];
   const userProfile = context.profiles?.[context.selectedTeam] ?? context.profiles?.[selectedRosterId];
   const userNeeds = userProfile?.needs ?? [];
+
+  // --- Context-aware trade analysis ---
+  const sendPlayers = sendAssets.filter((a) => a.type === "player");
+  const sendPicks = sendAssets.filter((a) => a.type === "pick");
+  const sendPositions = sendPlayers.map((a) => a.position).filter(Boolean) as string[];
+  const sendIncludesPicks = sendPicks.length > 0;
+
+  // Stud detection (player with value > 9,000)
+  const studPlayer = sendPlayers.find((p) => p.value >= STUD_PLAYER_THRESHOLD);
+  const isStudTrade = !!studPlayer;
+  const studPosition = studPlayer?.position;
+
+  // QB protection: if sending a QB and team has ≤ 2 valuable QBs
+  const userRosterAssets = rosterAssets.get(selectedRosterId);
+  const userQBCount = (userRosterAssets?.players ?? []).filter(
+    (p) => p.position === "QB" && p.value > 0
+  ).length;
+  const sendingQB = sendPositions.includes("QB");
+  const qbProtectionNeeded = sendingQB && userQBCount <= 2;
+
+  // Team competitive value tier (starting lineup + best 3 bench)
+  const teamCompValues = context.rosters.map((roster) => {
+    const assets = rosterAssets.get(roster.roster_id);
+    if (!assets) return { rosterId: roster.roster_id, value: 0 };
+    const starterIds = new Set(
+      (roster.starters ?? [])
+        .map((s) => availabilityKeyForPlayer(toId(s)))
+        .filter((id) => id !== "player:")
+    );
+    const starterValue = assets.players
+      .filter((p) => starterIds.has(p.id))
+      .reduce((sum, p) => sum + p.value, 0);
+    const benchValue = assets.players
+      .filter((p) => !starterIds.has(p.id))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 3)
+      .reduce((sum, p) => sum + p.value, 0);
+    return { rosterId: roster.roster_id, value: starterValue + benchValue };
+  });
+  teamCompValues.sort((a, b) => b.value - a.value);
+  const userCompRank =
+    teamCompValues.findIndex((t) => t.rosterId === selectedRosterId) + 1;
+  const tierSize = Math.max(1, Math.ceil(teamCompValues.length / 3));
+  const teamValueTier: "low" | "mid" | "high" =
+    userCompRank <= tierSize
+      ? "high"
+      : userCompRank > teamCompValues.length - tierSize
+        ? "low"
+        : "mid";
+
+  const pickCtx: PickAssetContext = {
+    sendPositions,
+    isStudTrade,
+    studPosition,
+    qbProtectionNeeded,
+    teamValueTier,
+    sendIncludesPicks,
+  };
+
   const partners = context.rosters
     .filter((roster) => toId(roster.roster_id) !== context.selectedTeam)
     .map((roster) => {
       const profile = context.profiles?.[roster.roster_id];
       let score = 0;
-      if (profile?.posture === "buyer" && userProfile?.posture === "seller") score += 3;
+      // Prioritize Buyer posture teams regardless of user posture (+3 base);
+      // buyer+seller combo earns an additional +2 bonus (total +5) for best-fit pairing.
+      if (profile?.posture === "buyer") score += 3;
+      if (profile?.posture === "buyer" && userProfile?.posture === "seller") score += 2;
       if (profile?.mode === "contend" && userProfile?.mode === "rebuild") score += 3;
       if (profile?.mode === "retool") score += 1;
       return { roster, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 4);
+    .slice(0, 6);
 
   const offers: OfferSuggestion[] = [];
   const allowedFairness = new Set<FairnessGrade>(["Fair", "Slight Overpay", "Slight Underpay"]);
@@ -508,7 +661,7 @@ const buildOfferSuggestions = (
   partners.forEach(({ roster }) => {
     const partnerAssets = rosterAssets.get(roster.roster_id);
     if (!partnerAssets) return;
-    const chosenReceive = pickAssetsForPartner(valueSent, context.aggression, userNeeds, partnerAssets);
+    const chosenReceive = pickAssetsForPartner(valueSent, context.aggression, userNeeds, partnerAssets, pickCtx);
     if (!chosenReceive.length) return;
     const valueReceived = chosenReceive.reduce((sum, asset) => sum + asset.value, 0);
     if (!isOfferWithinBounds(valueSent, chosenReceive)) return;
@@ -648,7 +801,7 @@ const buildAiProfile = (
   players.forEach((p) => {
     const position = p.position?.toUpperCase();
     if (!position || !positionValues[position]) return;
-    const adjustedValue = position === "TE" ? p.value * TE_VALUE_MULTIPLIER : p.value;
+    const adjustedValue = applyPositionMultiplier(p.value, position);
     positionValues[position]?.push(adjustedValue);
   });
 
@@ -1308,7 +1461,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
         return { sleeperId: id, position };
       }),
     }));
-    return computeLeagueRankings(teamsInput, playerValues);
+    return computeLeagueRankings(teamsInput, playerValues, { qbPremium: QB_VALUE_MULTIPLIER });
   }, [playerDictionary, playerValues, rosters]);
 
   const selectedTeamRanking = leagueRankings?.teams?.[toId(selectedTeam)];
@@ -1335,6 +1488,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
     return buildLeagueProfiles(profileTeams, {
       superflex: true,
       teDiscount: TE_VALUE_MULTIPLIER,
+      qbPremium: QB_VALUE_MULTIPLIER,
       teamCount,
     });
   }, [playerDictionary, playerValues, rosters, teamCount]);
