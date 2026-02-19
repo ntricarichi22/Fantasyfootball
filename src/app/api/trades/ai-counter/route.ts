@@ -118,68 +118,82 @@ async function fetchSleeperRoster(
 }
 
 /* ------------------------------------------------------------------ */
-/*  Greedy knapsack: find a subset of assets close to target value     */
+/*  Sort picks by round preference (3rd > 2nd > 1st) then year        */
 /* ------------------------------------------------------------------ */
 
-function selectAssets(
-  pool: OfferAsset[],
-  targetValue: number,
-  preference: Preference,
-): OfferAsset[] {
-  // Sort pool by preference
-  const sorted = [...pool];
+function sortPicksByPreference(picks: OfferAsset[], preferredYear: string): OfferAsset[] {
+  return [...picks].sort((a, b) => {
+    // Key format: "pick:YYYY-ROUND-ROSTERID"
+    const aParts = a.key.split("-");
+    const bParts = b.key.split("-");
+    const aRound = Number(aParts[1]) || 99;
+    const bRound = Number(bParts[1]) || 99;
+    // Prefer higher round number first (3rd before 2nd before 1st)
+    if (aRound !== bRound) return bRound - aRound;
+    // Within same round, prefer the chosen year
+    const aYearPref = a.key.startsWith(`pick:${preferredYear}`) ? 1 : 0;
+    const bYearPref = b.key.startsWith(`pick:${preferredYear}`) ? 1 : 0;
+    if (aYearPref !== bYearPref) return bYearPref - aYearPref;
+    return a.value - b.value;
+  });
+}
 
-  if (preference === "more_picks") {
-    sorted.sort((a, b) => {
-      if (a.type === "pick" && b.type !== "pick") return -1;
-      if (a.type !== "pick" && b.type === "pick") return 1;
-      return b.value - a.value;
-    });
+/* ------------------------------------------------------------------ */
+/*  Build up to 3 add-on sets from the sender's pool                  */
+/*  Each set contains at most 2 assets to add to the sender's side    */
+/* ------------------------------------------------------------------ */
+
+function buildAddOnSets(senderPool: OfferAsset[], preference: Preference): OfferAsset[][] {
+  const preferredYear = preference === "prefer_2027" ? "2027" : "2026";
+  let candidates: OfferAsset[];
+
+  if (
+    preference === "more_picks" ||
+    preference === "prefer_2026" ||
+    preference === "prefer_2027"
+  ) {
+    // Picks only, sorted round-3-first then preferred year
+    candidates = sortPicksByPreference(
+      senderPool.filter((a) => a.type === "pick"),
+      preferredYear,
+    );
   } else if (preference === "more_depth") {
-    // Prefer lower-value assets (2-for-1 style)
-    sorted.sort((a, b) => a.value - b.value);
+    // Lower-value players/picks first (2-for-1 flavour)
+    candidates = [...senderPool].sort((a, b) => a.value - b.value);
   } else if (preference.startsWith("upgrade_at_")) {
     const pos = preference.replace("upgrade_at_", "").toUpperCase();
-    sorted.sort((a, b) => {
-      const aMatch = a.position === pos ? 1 : 0;
-      const bMatch = b.position === pos ? 1 : 0;
-      if (bMatch !== aMatch) return bMatch - aMatch;
-      return b.value - a.value;
-    });
-  } else if (preference === "prefer_2026") {
-    sorted.sort((a, b) => {
-      const aYear = a.key.includes("2026") ? 1 : 0;
-      const bYear = b.key.includes("2026") ? 1 : 0;
-      if (bYear !== aYear) return bYear - aYear;
-      return b.value - a.value;
-    });
-  } else if (preference === "prefer_2027") {
-    sorted.sort((a, b) => {
-      const aYear = a.key.includes("2027") ? 1 : 0;
-      const bYear = b.key.includes("2027") ? 1 : 0;
-      if (bYear !== aYear) return bYear - aYear;
-      return b.value - a.value;
-    });
-  } else {
-    // default: more_value – largest assets first
-    sorted.sort((a, b) => b.value - a.value);
-  }
-
-  const selected: OfferAsset[] = [];
-  let remaining = targetValue;
-
-  for (const asset of sorted) {
-    if (remaining <= 0) break;
-    // Allow up to 30 % overshoot on the remaining budget so we can always
-    // include at least one meaningful asset even when the remaining value
-    // is small relative to individual asset prices.
-    if (asset.value <= remaining * 1.3) {
-      selected.push(asset);
-      remaining -= asset.value;
+    candidates = senderPool.filter((a) => a.type === "player" && a.position === pos);
+    candidates.sort((a, b) => b.value - a.value);
+    // Fall back to picks if no matching players
+    if (candidates.length === 0) {
+      candidates = sortPicksByPreference(
+        senderPool.filter((a) => a.type === "pick"),
+        preferredYear,
+      );
     }
+  } else {
+    // more_value: highest-value assets first
+    candidates = [...senderPool].sort((a, b) => b.value - a.value);
   }
 
-  return selected;
+  if (candidates.length === 0) return [];
+
+  const sets: OfferAsset[][] = [];
+
+  // Option A: single best candidate
+  sets.push([candidates[0]]);
+
+  // Option B: second distinct candidate (different pick/player)
+  if (candidates.length >= 2) {
+    sets.push([candidates[1]]);
+  }
+
+  // Option C: two-asset combination (at most 2 assets)
+  if (candidates.length >= 2) {
+    sets.push([candidates[0], candidates[1]]);
+  }
+
+  return sets.slice(0, 3);
 }
 
 /* ------------------------------------------------------------------ */
@@ -257,15 +271,14 @@ export async function POST(request: NextRequest) {
 
   const latestOffer = offers[0];
 
-  // The counter team is the receiver of the current latest offer.
-  // They want to counter-propose:
-  //   - Keep what they receive (assets_from) unchanged (they still want those)
-  //   - Change what they send (assets_to) to different value targets
+  // The counter team is the RECEIVER of the current pending offer.
+  // When they counter, they want to adjust what the ORIGINAL SENDER gives them.
+  // We must preserve both sides of the base offer and only ADD assets to the
+  // sender's side (assets_from) based on the receiver's preference.
 
-  // What the original sender asked for (value the counter team will "receive"):
-  const originalFromValue: number = latestOffer.from_value ?? 0;
-  // What the counter team is currently asked to send:
-  // const originalToValue: number = latestOffer.to_value ?? 0;
+  const originalSenderId: string = latestOffer.from_team_id;
+  const originalFromValue: number = latestOffer.from_value ?? 0; // what receiver currently gets
+  const originalToValue: number = latestOffer.to_value ?? 0;     // what receiver currently sends
 
   // Fetch player values from DB
   const { data: pvData } = await client
@@ -278,29 +291,46 @@ export async function POST(request: NextRequest) {
     playerValues[row.player_id] = row.value;
   }
 
-  // Fetch counter team's available assets from Sleeper
-  const pool = await fetchSleeperRoster(counter_team_id, playerValues);
+  // Fetch SENDER's available assets (the team whose offer is being countered).
+  // The counter asks the sender to add assets, so we pull from their pool.
+  const senderPool = await fetchSleeperRoster(originalSenderId, playerValues);
 
-  // Target values for three quality levels (from counter team's perspective):
-  // "Fair" means the counter team sends ≈ same value as what they'd receive (originalFromValue)
-  const targets = [
-    { label: "Fair", multiplier: 1.0 },
-    { label: "Slight Overpay", multiplier: 1.12 }, // generous counter
-    { label: "Slight Underpay", multiplier: 0.88 }, // tighter counter
-  ];
+  // Remove assets already in the base offer from the pool to avoid duplicates
+  const baseFromKeys = new Set((latestOffer.assets_from ?? []).map((a: OfferAsset) => a.key));
+  const availablePool = senderPool.filter((a) => !baseFromKeys.has(a.key));
 
-  const suggestions = targets.map(({ label, multiplier }) => {
-    const targetValue = Math.round(originalFromValue * multiplier);
-    const selectedAssets = selectAssets(pool, targetValue, preference);
-    const totalValue = selectedAssets.reduce((s, a) => s + a.value, 0);
+  // Build up to 3 add-on sets (assets to append to the sender's side)
+  const addOnSets = buildAddOnSets(availablePool, preference);
+
+  if (addOnSets.length === 0) {
+    return NextResponse.json(
+      {
+        suggestions: [],
+        message:
+          "No suitable assets found in the sender's roster to build a counter. " +
+          "Try a different preference or use the manual counter instead.",
+      },
+      { status: 200 },
+    );
+  }
+
+  const suggestions = addOnSets.map((addOns) => {
+    const newFromAssets: OfferAsset[] = [...(latestOffer.assets_from ?? []), ...addOns];
+    const addOnValue = addOns.reduce((s, a) => s + a.value, 0);
+    const newFromValue = originalFromValue + addOnValue;
+
+    const gradeLabel =
+      addOns.length === 2
+        ? "Two-asset add-on"
+        : `${addOns[0].label} add-on`;
 
     return {
-      grade_label: label,
-      assets_from: latestOffer.assets_from, // counter team receives (unchanged)
-      assets_to: selectedAssets,            // counter team sends (new)
-      from_value: originalFromValue,
-      to_value: totalValue,
-      grade: classifyDeal(originalFromValue, totalValue),
+      grade_label: gradeLabel,
+      assets_from: newFromAssets,          // augmented sender's side (receiver gets this)
+      assets_to: latestOffer.assets_to,    // receiver's send side preserved
+      from_value: newFromValue,
+      to_value: originalToValue,
+      grade: classifyDeal(newFromValue, originalToValue),
     };
   });
 

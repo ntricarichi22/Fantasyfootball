@@ -755,15 +755,16 @@ export default function TradeThreadPage() {
                                     {s.grade}
                                   </span>
                                   <span className="ml-auto text-[10px] text-gray-400">
-                                    {s.to_value.toLocaleString()} pts
+                                    {s.from_value.toLocaleString()} pts
                                   </span>
                                 </div>
                                 <div className="text-[10px] text-gray-400">
-                                  {(s.assets_to ?? [])
+                                  You get:{" "}
+                                  {(s.assets_from ?? [])
                                     .slice(0, 3)
                                     .map((a) => a.label)
                                     .join(", ")}
-                                  {(s.assets_to?.length ?? 0) > 3 && " …"}
+                                  {(s.assets_from?.length ?? 0) > 3 && " …"}
                                 </div>
                               </button>
                             ))}
