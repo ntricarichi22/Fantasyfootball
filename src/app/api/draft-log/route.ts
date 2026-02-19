@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findCommissionerRosterId } from "../../../lib/commissioner";
 import { getLeagueId } from "../../../lib/config";
+import { INITIAL_PICK_SECONDS, normalizeDraftStateRow } from "../../../lib/draftState";
 import { getSupabaseAdminClient } from "../active-teams/shared";
 
 type SleeperUser = {
@@ -94,6 +95,20 @@ const fetchCommissionerRosterId = async () => {
   }
 };
 
+const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>["client"]) => {
+  if (!client || !LEAGUE_ID) return null;
+  const { data, error } = await client
+    .from("draft_state")
+    .select("league_id, status, seconds_remaining, clock_started_at, updated_at")
+    .eq("league_id", LEAGUE_ID)
+    .maybeSingle();
+  if (error) {
+    console.warn("Unable to load draft_state", error);
+    return null;
+  }
+  return normalizeDraftStateRow(data);
+};
+
 export async function GET() {
   const { client, error } = getSupabaseAdminClient();
 
@@ -129,10 +144,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
 
+  const draftState = await fetchDraftState(client);
+  if (draftState?.status === "paused") {
+    return NextResponse.json({ error: "Draft is paused" }, { status: 409 });
+  }
+
   const { error: insertError } = await client.from("draft_log").upsert([normalized]);
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
+  }
+
+  if (LEAGUE_ID) {
+    const nowIso = new Date().toISOString();
+    const { error: clockError } = await client.from("draft_state").upsert({
+      league_id: LEAGUE_ID,
+      status: "running",
+      seconds_remaining: INITIAL_PICK_SECONDS,
+      clock_started_at: nowIso,
+      updated_at: nowIso,
+    });
+    if (clockError) {
+      console.warn("Unable to update draft_state after pick", clockError);
+    }
   }
 
   return NextResponse.json({ success: true });

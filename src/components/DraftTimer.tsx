@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-const TOTAL_SECONDS = 5 * 60;
+import { INITIAL_PICK_SECONDS, type DraftClockStatus } from "../lib/draftState";
 const FALLBACK_TEAMS = [
   { name: "Team 1" },
   { name: "Team 2" },
@@ -12,7 +11,7 @@ const FALLBACK_TEAMS = [
 
 type DraftTimerProps = {
   teams: { name: string }[];
-  onPickMade?: (teamName: string, selection: string) => void;
+  onPickMade?: (teamName: string, selection: string) => void | Promise<void>;
   onTeamChange?: (teamName: string) => void;
   externalPick?: { selection: string; alreadyRecorded?: boolean } | null;
   onExternalPickHandled?: () => void;
@@ -21,6 +20,9 @@ type DraftTimerProps = {
   nextPickIndex?: number;
   currentTeamNameOverride?: string;
   currentPickLabelOverride?: string;
+  clockStatus?: DraftClockStatus;
+  clockSeconds?: number;
+  onStartRequest?: () => Promise<boolean> | boolean;
 };
 
 export default function DraftTimer({
@@ -34,9 +36,13 @@ export default function DraftTimer({
   nextPickIndex,
   currentTeamNameOverride,
   currentPickLabelOverride,
+  clockStatus,
+  clockSeconds,
+  onStartRequest,
 }: DraftTimerProps) {
-  const [secondsLeft, setSecondsLeft] = useState(TOTAL_SECONDS);
-  const [isRunning, setIsRunning] = useState(false);
+  const isExternalClock = clockStatus !== undefined && clockSeconds !== undefined;
+  const [secondsLeft, setSecondsLeft] = useState(clockSeconds ?? INITIAL_PICK_SECONDS);
+  const [isRunning, setIsRunning] = useState(clockStatus === "running");
   const [pickNumber, setPickNumber] = useState(1);
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
   const hasStartedRef = useRef(false);
@@ -48,6 +54,7 @@ export default function DraftTimer({
   );
 
   useEffect(() => {
+    if (isExternalClock) return;
     if (!isRunning) return;
 
     const intervalId = setInterval(() => {
@@ -61,11 +68,22 @@ export default function DraftTimer({
     }, 1000);
 
     return () => clearInterval(intervalId);
-  }, [isRunning]);
+  }, [isExternalClock, isRunning]);
 
-  const minutes = Math.floor(secondsLeft / 60);
-  const seconds = secondsLeft % 60;
-  const isCritical = secondsLeft > 0 && secondsLeft < 30;
+  useEffect(() => {
+    if (!isExternalClock) return;
+    if ((clockStatus === "running" || clockStatus === "paused") && !hasStartedRef.current) {
+      hasStartedRef.current = true;
+      onStart?.();
+    }
+  }, [clockStatus, isExternalClock, onStart]);
+
+  const effectiveSecondsLeft = isExternalClock
+    ? Math.max(0, Math.round(clockSeconds ?? 0))
+    : secondsLeft;
+  const minutes = Math.floor(effectiveSecondsLeft / 60);
+  const seconds = effectiveSecondsLeft % 60;
+  const isCritical = effectiveSecondsLeft > 0 && effectiveSecondsLeft < 30;
 
   const hasExternalPickIndex =
     typeof nextPickIndex === "number" && nextPickIndex >= 0;
@@ -95,16 +113,22 @@ export default function DraftTimer({
     teamsForDraft[derivedTeamIndex]?.name ||
     "Team on the clock";
 
-  const initializeDraft = useCallback(() => {
+  const initializeDraft = useCallback(async () => {
     if (hasStartedRef.current) return;
+    if (onStartRequest) {
+      const allowed = await onStartRequest();
+      if (!allowed) return;
+    }
     hasStartedRef.current = true;
     onStart?.();
     setPickNumber(1);
     setCurrentTeamIndex(0);
-    setSecondsLeft(TOTAL_SECONDS);
-    setIsRunning(true);
+    if (!isExternalClock) {
+      setSecondsLeft(INITIAL_PICK_SECONDS);
+      setIsRunning(true);
+    }
     onTeamChange?.(teamsForDraft[0]?.name || "Team on the clock");
-  }, [onStart, onTeamChange, teamsForDraft]);
+  }, [isExternalClock, onStart, onStartRequest, onTeamChange, teamsForDraft]);
 
   const completePick = useCallback(
     (selection: string, skipRecord?: boolean) => {
@@ -123,10 +147,12 @@ export default function DraftTimer({
       setCurrentTeamIndex((prev) =>
         teamsForDraft.length ? (prev + 1) % teamsForDraft.length : 0
       );
-      setSecondsLeft(TOTAL_SECONDS);
-      setIsRunning(true);
+      if (!isExternalClock) {
+        setSecondsLeft(INITIAL_PICK_SECONDS);
+        setIsRunning(true);
+      }
     },
-    [currentTeamName, initializeDraft, onPickMade, teamsForDraft]
+    [currentTeamName, initializeDraft, isExternalClock, onPickMade, teamsForDraft]
   );
 
   useEffect(() => {
