@@ -438,16 +438,28 @@ export default function TradeThreadPage() {
   // Send message
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !rosterId) return;
+    const trimmed = newMessage.trim();
     try {
-      await fetch(`/api/trades/threads/${encodeURIComponent(threadId)}/messages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ from_team_id: rosterId, message: newMessage.trim() }),
-      });
+      const res = await fetch(
+        `/api/trades/threads/${encodeURIComponent(threadId)}/messages`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ from_team_id: rosterId, message: trimmed }),
+        },
+      );
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error((json as { error?: string }).error || `Server error ${res.status}`);
+      }
+      const saved: TradeMessage = json.data;
+      // Optimistically append the message so the sender sees it immediately
+      setMessages((prev) => [...prev, saved]);
       setNewMessage("");
-      await fetchMessages();
-    } catch {
-      showToast("Failed to send message");
+      // Background refetch so the other team's polling picks up the persisted row
+      fetchMessages();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : "Failed to send message");
     }
   };
 
