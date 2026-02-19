@@ -141,7 +141,7 @@ export async function POST(request: NextRequest) {
       league_id: leagueId,
       status: "paused",
       seconds_remaining: normalizedSeconds,
-      clock_started_at: null,
+      clock_started_at: existing?.clock_started_at ?? nowIso,
       updated_at: nowIso,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
