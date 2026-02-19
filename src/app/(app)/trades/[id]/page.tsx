@@ -9,6 +9,9 @@ import {
   Undo2,
   RefreshCw,
   Send,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -37,18 +40,45 @@ interface TradeOffer {
   grade_label: string;
   status: string;
   parent_offer_id: string | null;
+  thread_id: string | null;
   created_at: string;
   updated_at: string;
   read_at: string | null;
 }
 
+interface TradeThread {
+  id: string;
+  league_id: string;
+  team_a_id: string;
+  team_b_id: string;
+  created_by_team_id: string;
+  status: string;
+  last_activity_at: string;
+}
+
 interface TradeMessage {
   id: string;
-  offer_id: string;
+  thread_id: string;
   from_team_id: string;
   message: string;
   created_at: string;
 }
+
+interface AISuggestion {
+  grade_label: string;
+  assets_from: OfferAsset[];
+  assets_to: OfferAsset[];
+  from_value: number;
+  to_value: number;
+  grade: string;
+}
+
+type Preference =
+  | "more_value"
+  | "more_picks"
+  | "more_depth"
+  | "prefer_2026"
+  | "prefer_2027";
 
 /* ------------------------------------------------------------------ */
 /*  Session helpers                                                     */
@@ -75,13 +105,20 @@ const getStoredTeam = () => {
 /*  Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-const statusColors: Record<string, string> = {
+const offerStatusColors: Record<string, string> = {
   pending: "bg-amber-600/80 text-amber-50",
   accepted: "bg-emerald-600/80 text-emerald-50",
   declined: "bg-red-600/80 text-red-50",
   withdrawn: "bg-gray-600/80 text-gray-50",
   countered: "bg-indigo-600/80 text-indigo-50",
-  expired: "bg-gray-700/80 text-gray-300",
+};
+
+const threadStatusColors: Record<string, string> = {
+  open: "bg-amber-600/80 text-amber-50",
+  accepted: "bg-emerald-600/80 text-emerald-50",
+  declined: "bg-red-600/80 text-red-50",
+  withdrawn: "bg-gray-600/80 text-gray-50",
+  closed: "bg-gray-700/80 text-gray-300",
 };
 
 const gradeColors: Record<string, string> = {
@@ -121,28 +158,216 @@ async function fetchRosterNames(): Promise<Record<string, string>> {
   }
 }
 
+const PREFERENCES: { value: Preference; label: string }[] = [
+  { value: "more_value", label: "More value" },
+  { value: "more_picks", label: "More picks" },
+  { value: "more_depth", label: "More depth (2-for-1)" },
+  { value: "prefer_2026", label: "Prefer 2026 picks" },
+  { value: "prefer_2027", label: "Prefer 2027 picks" },
+];
+
 /* ------------------------------------------------------------------ */
-/*  Component                                                           */
+/*  Offer card sub-component                                            */
+/* ------------------------------------------------------------------ */
+
+function OfferCard({
+  offer,
+  index,
+  isLatest,
+  senderName,
+  receiverName,
+  rosterId,
+  onAccept,
+  onDecline,
+  onWithdraw,
+  onCounter,
+  actionLoading,
+}: {
+  offer: TradeOffer;
+  index: number;
+  isLatest: boolean;
+  senderName: string;
+  receiverName: string;
+  rosterId: string;
+  onAccept: () => void;
+  onDecline: () => void;
+  onWithdraw: () => void;
+  onCounter: () => void;
+  actionLoading: boolean;
+}) {
+  const isReceiver = offer.to_team_id === rosterId;
+  const isSender = offer.from_team_id === rosterId;
+  const isPending = offer.status === "pending";
+
+  return (
+    <div
+      className={[
+        "rounded-xl border p-4",
+        isLatest && isPending
+          ? "border-indigo-700/60 bg-indigo-950/30"
+          : "border-gray-800 bg-gray-900/60",
+      ].join(" ")}
+    >
+      {/* Offer header */}
+      <div className="mb-3 flex items-center gap-2">
+        <span className="text-xs font-semibold text-gray-400">
+          #{index + 1} — {senderName} proposed
+        </span>
+        <span className="text-xs text-gray-600">
+          {new Date(offer.created_at).toLocaleString([], {
+            month: "short",
+            day: "numeric",
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+        <span
+          className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${offerStatusColors[offer.status] || "bg-gray-700 text-gray-300"}`}
+        >
+          {offer.status}
+        </span>
+        <span
+          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${gradeColors[offer.grade_label] || "bg-gray-700 text-gray-300"}`}
+        >
+          {offer.grade_label}
+        </span>
+      </div>
+
+      {/* Two-column assets */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+            {senderName} sends
+          </p>
+          <div className="space-y-1">
+            {(offer.assets_from ?? []).map((a) => (
+              <div
+                key={a.key}
+                className="flex items-center gap-1.5 rounded-md border border-gray-800 bg-gray-950 px-2 py-1 text-xs"
+              >
+                <span className="flex-1 text-white">{a.label}</span>
+                {a.position && (
+                  <span className="text-gray-500">
+                    {a.position}
+                    {a.team ? ` · ${a.team}` : ""}
+                  </span>
+                )}
+                <span className="font-medium text-gray-300">{a.value.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1 text-right text-[11px] font-semibold text-gray-300">
+            {offer.from_value.toLocaleString()}
+          </p>
+        </div>
+
+        <div>
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+            {receiverName} sends
+          </p>
+          <div className="space-y-1">
+            {(offer.assets_to ?? []).map((a) => (
+              <div
+                key={a.key}
+                className="flex items-center gap-1.5 rounded-md border border-gray-800 bg-gray-950 px-2 py-1 text-xs"
+              >
+                <span className="flex-1 text-white">{a.label}</span>
+                {a.position && (
+                  <span className="text-gray-500">
+                    {a.position}
+                    {a.team ? ` · ${a.team}` : ""}
+                  </span>
+                )}
+                <span className="font-medium text-gray-300">{a.value.toLocaleString()}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-1 text-right text-[11px] font-semibold text-gray-300">
+            {offer.to_value.toLocaleString()}
+          </p>
+        </div>
+      </div>
+
+      {/* Action buttons (only on latest pending offer) */}
+      {isLatest && isPending && (
+        <div className="mt-3 flex flex-wrap gap-2 border-t border-gray-800 pt-3">
+          {isReceiver && (
+            <>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={onAccept}
+                className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-40"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Accept
+              </button>
+              <button
+                type="button"
+                disabled={actionLoading}
+                onClick={onDecline}
+                className="flex items-center gap-1.5 rounded-lg bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-600 disabled:opacity-40"
+              >
+                <X className="h-3.5 w-3.5" />
+                Decline
+              </button>
+              <button
+                type="button"
+                onClick={onCounter}
+                className="flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-600"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                Counter
+              </button>
+            </>
+          )}
+          {isSender && (
+            <button
+              type="button"
+              disabled={actionLoading}
+              onClick={onWithdraw}
+              className="flex items-center gap-1.5 rounded-lg bg-gray-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-gray-600 disabled:opacity-40"
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              Withdraw
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main component                                                      */
 /* ------------------------------------------------------------------ */
 
 export default function TradeThreadPage() {
   const router = useRouter();
   const params = useParams();
-  const offerId = typeof params.id === "string" ? params.id : "";
+  const threadId = typeof params.id === "string" ? params.id : "";
 
   const { rosterId } = getStoredTeam();
 
-  const [offer, setOffer] = useState<TradeOffer | null>(null);
+  const [thread, setThread] = useState<TradeThread | null>(null);
+  const [offers, setOffers] = useState<TradeOffer[]>([]);
   const [messages, setMessages] = useState<TradeMessage[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
-  const [showCounter, setShowCounter] = useState(false);
+
+  // Counter panel state
+  const [showCounterPanel, setShowCounterPanel] = useState(false);
+  const [preference, setPreference] = useState<Preference>("more_value");
+  const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[] | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<number | null>(null);
+  const [sendingCounter, setSendingCounter] = useState(false);
+  const [showAiSuggestions, setShowAiSuggestions] = useState(false);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const chatPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -154,48 +379,40 @@ export default function TradeThreadPage() {
     [rosterNames],
   );
 
-  // Fetch roster names
   useEffect(() => {
     fetchRosterNames().then(setRosterNames);
   }, []);
 
-  // Fetch offer
-  const fetchOffer = useCallback(async () => {
-    if (!offerId) return;
+  // Fetch thread + offers
+  const fetchThread = useCallback(async () => {
+    if (!threadId) return;
     try {
-      const res = await fetch(`/api/trades/list?offerId=${encodeURIComponent(offerId)}`);
+      const res = await fetch(`/api/trades/threads/${encodeURIComponent(threadId)}`);
       if (res.ok) {
         const json = await res.json();
-        if (json.data) setOffer(json.data);
+        if (json.thread) setThread(json.thread);
+        if (json.offers) setOffers(json.offers);
       }
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, [offerId]);
+  }, [threadId]);
 
   useEffect(() => {
-    fetchOffer();
-  }, [fetchOffer]);
-
-  // Mark as read
-  useEffect(() => {
-    if (!offer || !rosterId) return;
-    if (offer.to_team_id === rosterId && !offer.read_at) {
-      fetch("/api/trades/mark-read", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ offer_id: offerId, team_id: rosterId }),
-      }).catch(() => {});
-    }
-  }, [offer, rosterId, offerId]);
+    fetchThread();
+    const interval = setInterval(fetchThread, 10_000);
+    return () => clearInterval(interval);
+  }, [fetchThread]);
 
   // Fetch messages
   const fetchMessages = useCallback(async () => {
-    if (!offerId) return;
+    if (!threadId) return;
     try {
-      const res = await fetch(`/api/trades/${encodeURIComponent(offerId)}/messages`);
+      const res = await fetch(
+        `/api/trades/threads/${encodeURIComponent(threadId)}/messages`,
+      );
       if (res.ok) {
         const json = await res.json();
         setMessages(json.data ?? []);
@@ -203,26 +420,26 @@ export default function TradeThreadPage() {
     } catch {
       // ignore
     }
-  }, [offerId]);
+  }, [threadId]);
 
   useEffect(() => {
     fetchMessages();
-    chatPollRef.current = setInterval(fetchMessages, 5_000);
-    return () => {
-      if (chatPollRef.current) clearInterval(chatPollRef.current);
-    };
+    const interval = setInterval(fetchMessages, 5_000);
+    return () => clearInterval(interval);
   }, [fetchMessages]);
 
-  // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // The latest pending offer is the "active" one
+  const latestPendingOffer = [...offers].reverse().find((o) => o.status === "pending") ?? null;
 
   // Send message
   const handleSendMessage = async () => {
     if (!newMessage.trim() || !rosterId) return;
     try {
-      await fetch(`/api/trades/${encodeURIComponent(offerId)}/messages`, {
+      await fetch(`/api/trades/threads/${encodeURIComponent(threadId)}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ from_team_id: rosterId, message: newMessage.trim() }),
@@ -236,14 +453,14 @@ export default function TradeThreadPage() {
 
   // Status actions
   const handleStatusChange = async (newStatus: string) => {
-    if (!rosterId || actionLoading) return;
+    if (!rosterId || actionLoading || !latestPendingOffer) return;
     setActionLoading(true);
     try {
       const res = await fetch("/api/trades/status", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          offer_id: offerId,
+          offer_id: latestPendingOffer.id,
           team_id: rosterId,
           status: newStatus,
         }),
@@ -256,7 +473,7 @@ export default function TradeThreadPage() {
               ? "Offer declined"
               : "Offer withdrawn",
         );
-        await fetchOffer();
+        await fetchThread();
       } else {
         const json = await res.json().catch(() => ({}));
         showToast(json.error || "Action failed");
@@ -268,9 +485,80 @@ export default function TradeThreadPage() {
     }
   };
 
-  // Counter flow
+  // Manual counter
   const handleManualCounter = () => {
-    router.push(`/trade-builder?mode=counter&offerId=${encodeURIComponent(offerId)}`);
+    router.push(
+      `/trade-builder?mode=counter&threadId=${encodeURIComponent(threadId)}`,
+    );
+  };
+
+  // AI counter suggestions
+  const handleGenerateAI = async () => {
+    if (!latestPendingOffer || !rosterId) return;
+    setAiLoading(true);
+    setAiSuggestions(null);
+    setSelectedSuggestion(null);
+    try {
+      const res = await fetch("/api/trades/ai-counter", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          thread_id: threadId,
+          counter_team_id: rosterId,
+          preference,
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        setAiSuggestions(json.suggestions ?? []);
+      } else {
+        const json = await res.json().catch(() => ({}));
+        showToast(json.error || "Failed to generate suggestions");
+      }
+    } catch {
+      showToast("Failed to generate suggestions");
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Submit selected AI counter
+  const handleSubmitAICounter = async () => {
+    if (selectedSuggestion === null || !aiSuggestions || !latestPendingOffer || !rosterId)
+      return;
+    const suggestion = aiSuggestions[selectedSuggestion];
+    setSendingCounter(true);
+    try {
+      const res = await fetch("/api/trades/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from_team_id: rosterId,
+          to_team_id: latestPendingOffer.from_team_id,
+          assets_from: suggestion.assets_to, // what counter team sends
+          assets_to: suggestion.assets_from, // what original sender sends back
+          from_value: suggestion.to_value,
+          to_value: suggestion.from_value,
+          grade_label: suggestion.grade_label,
+          parent_offer_id: latestPendingOffer.id,
+          thread_id: threadId,
+        }),
+      });
+      if (res.ok) {
+        showToast("Counter offer sent!");
+        setShowCounterPanel(false);
+        setAiSuggestions(null);
+        setSelectedSuggestion(null);
+        await fetchThread();
+      } else {
+        const json = await res.json().catch(() => ({}));
+        showToast(json.error || "Failed to send counter");
+      }
+    } catch {
+      showToast("Failed to send counter");
+    } finally {
+      setSendingCounter(false);
+    }
   };
 
   if (loading) {
@@ -281,10 +569,10 @@ export default function TradeThreadPage() {
     );
   }
 
-  if (!offer) {
+  if (!thread) {
     return (
       <main className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-gray-400">
-        <p>Offer not found</p>
+        <p>Thread not found</p>
         <button
           type="button"
           onClick={() => router.push("/trades")}
@@ -296,12 +584,8 @@ export default function TradeThreadPage() {
     );
   }
 
-  const isReceiver = offer.to_team_id === rosterId;
-  const isSender = offer.from_team_id === rosterId;
-  const isPending = offer.status === "pending";
-
-  const senderName = getTeamLabel(offer.from_team_id);
-  const receiverName = getTeamLabel(offer.to_team_id);
+  const counterpartId =
+    thread.team_a_id === rosterId ? thread.team_b_id : thread.team_a_id;
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-black text-gray-100">
@@ -322,167 +606,205 @@ export default function TradeThreadPage() {
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h1 className="text-lg font-bold text-white">Trade Thread</h1>
+          <h1 className="text-lg font-bold text-white">
+            Trade Thread · {getTeamLabel(counterpartId)}
+          </h1>
           <span
-            className={`rounded-full px-3 py-0.5 text-xs font-bold uppercase ${statusColors[offer.status] || "bg-gray-700 text-gray-300"}`}
+            className={`rounded-full px-3 py-0.5 text-xs font-bold uppercase ${threadStatusColors[thread.status] || "bg-gray-700 text-gray-300"}`}
           >
-            {offer.status}
+            {thread.status}
           </span>
-          <span
-            className={`rounded-full px-3 py-0.5 text-xs font-bold ${gradeColors[offer.grade_label] || "bg-gray-700 text-gray-300"}`}
-          >
-            {offer.grade_label}
+          <span className="ml-auto text-xs text-gray-500">
+            {offers.length} offer{offers.length !== 1 ? "s" : ""}
           </span>
         </header>
 
         {/* Main content: two panels */}
         <div className="flex flex-1 gap-4 overflow-hidden">
-          {/* Left panel: Offer details */}
+          {/* Left: Offer timeline */}
           <div className="flex w-1/2 flex-col gap-3 overflow-y-auto">
-            {/* Offer card */}
-            <div className="rounded-xl border border-gray-800 bg-gray-900/80 p-4">
-              <div className="grid grid-cols-2 gap-4">
-                {/* Sender gives */}
-                <div>
-                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">
-                    {senderName} sends
-                  </p>
-                  <div className="space-y-1">
-                    {(offer.assets_from ?? []).map((a) => (
-                      <div
-                        key={a.key}
-                        className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-2 py-1.5 text-xs"
-                      >
-                        <span className="flex-1 text-white">{a.label}</span>
-                        {a.position && (
-                          <span className="text-gray-500">
-                            {a.position}
-                            {a.team ? ` • ${a.team}` : ""}
-                          </span>
-                        )}
-                        <span className="font-medium text-gray-300">
-                          {a.value.toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-right text-xs font-semibold text-gray-300">
-                    Total: {offer.from_value.toLocaleString()}
-                  </p>
-                </div>
-
-                {/* Receiver gives */}
-                <div>
-                  <p className="mb-2 text-xs font-bold uppercase tracking-wide text-gray-400">
-                    {receiverName} sends
-                  </p>
-                  <div className="space-y-1">
-                    {(offer.assets_to ?? []).map((a) => (
-                      <div
-                        key={a.key}
-                        className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-2 py-1.5 text-xs"
-                      >
-                        <span className="flex-1 text-white">{a.label}</span>
-                        {a.position && (
-                          <span className="text-gray-500">
-                            {a.position}
-                            {a.team ? ` • ${a.team}` : ""}
-                          </span>
-                        )}
-                        <span className="font-medium text-gray-300">
-                          {a.value.toLocaleString()}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-right text-xs font-semibold text-gray-300">
-                    Total: {offer.to_value.toLocaleString()}
-                  </p>
-                </div>
+            {offers.length === 0 ? (
+              <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 text-center text-sm text-gray-500">
+                No offers yet.
               </div>
-            </div>
-
-            {/* Action buttons */}
-            {isPending && (
-              <div className="flex gap-2">
-                {isReceiver && (
-                  <>
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => handleStatusChange("accepted")}
-                      className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-40"
-                    >
-                      <Check className="h-4 w-4" />
-                      Accept
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionLoading}
-                      onClick={() => handleStatusChange("declined")}
-                      className="flex items-center gap-1.5 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-600 disabled:opacity-40"
-                    >
-                      <X className="h-4 w-4" />
-                      Decline
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCounter(!showCounter)}
-                      className="flex items-center gap-1.5 rounded-lg bg-indigo-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      Counter
-                    </button>
-                  </>
-                )}
-                {isSender && (
-                  <button
-                    type="button"
-                    disabled={actionLoading}
-                    onClick={() => handleStatusChange("withdrawn")}
-                    className="flex items-center gap-1.5 rounded-lg bg-gray-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-600 disabled:opacity-40"
-                  >
-                    <Undo2 className="h-4 w-4" />
-                    Withdraw
-                  </button>
-                )}
-              </div>
+            ) : (
+              offers.map((offer, idx) => {
+                const isLatest = idx === offers.length - 1;
+                const senderName = getTeamLabel(offer.from_team_id);
+                const receiverName = getTeamLabel(offer.to_team_id);
+                return (
+                  <OfferCard
+                    key={offer.id}
+                    offer={offer}
+                    index={idx}
+                    isLatest={isLatest}
+                    senderName={senderName}
+                    receiverName={receiverName}
+                    rosterId={rosterId}
+                    onAccept={() => handleStatusChange("accepted")}
+                    onDecline={() => handleStatusChange("declined")}
+                    onWithdraw={() => handleStatusChange("withdrawn")}
+                    onCounter={() => setShowCounterPanel(true)}
+                    actionLoading={actionLoading}
+                  />
+                );
+              })
             )}
 
             {/* Counter panel */}
-            {showCounter && isPending && isReceiver && (
+            {showCounterPanel && latestPendingOffer && latestPendingOffer.to_team_id === rosterId && (
               <div className="rounded-xl border border-indigo-800/60 bg-indigo-950/30 p-4">
-                <h3 className="mb-3 text-sm font-bold text-white">Counter Options</h3>
-                <div className="flex gap-3">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-white">Counter Options</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowCounterPanel(false)}
+                    className="text-gray-500 hover:text-gray-300"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  {/* AI Suggestions */}
+                  <div className="rounded-lg border border-indigo-700/60 bg-indigo-900/20 p-3">
+                    <button
+                      type="button"
+                      onClick={() => setShowAiSuggestions(!showAiSuggestions)}
+                      className="flex w-full items-center gap-2 text-left"
+                    >
+                      <Sparkles className="h-4 w-4 text-indigo-400" />
+                      <span className="flex-1 text-sm font-semibold text-white">
+                        AI Counter Suggestions
+                      </span>
+                      {showAiSuggestions ? (
+                        <ChevronUp className="h-4 w-4 text-gray-400" />
+                      ) : (
+                        <ChevronDown className="h-4 w-4 text-gray-400" />
+                      )}
+                    </button>
+
+                    {showAiSuggestions && (
+                      <div className="mt-3 space-y-3">
+                        {/* Preference chips */}
+                        <div>
+                          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-gray-400">
+                            Preference
+                          </p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {PREFERENCES.map((p) => (
+                              <button
+                                key={p.value}
+                                type="button"
+                                onClick={() => setPreference(p.value)}
+                                className={[
+                                  "rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition",
+                                  preference === p.value
+                                    ? "bg-indigo-600 text-white"
+                                    : "bg-gray-800 text-gray-400 hover:bg-gray-700",
+                                ].join(" ")}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={aiLoading}
+                          onClick={handleGenerateAI}
+                          className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
+                        >
+                          {aiLoading ? "Generating…" : "Generate 3 suggestions"}
+                        </button>
+
+                        {aiSuggestions && aiSuggestions.length > 0 && (
+                          <div className="space-y-2">
+                            {aiSuggestions.map((s, i) => (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setSelectedSuggestion(i)}
+                                className={[
+                                  "w-full rounded-lg border p-3 text-left transition",
+                                  selectedSuggestion === i
+                                    ? "border-indigo-500 bg-indigo-900/50"
+                                    : "border-gray-700 bg-gray-900 hover:border-gray-600",
+                                ].join(" ")}
+                              >
+                                <div className="mb-1 flex items-center gap-2">
+                                  <span className="text-xs font-bold text-white">
+                                    {s.grade_label}
+                                  </span>
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${gradeColors[s.grade] || "bg-gray-700 text-gray-300"}`}
+                                  >
+                                    {s.grade}
+                                  </span>
+                                  <span className="ml-auto text-[10px] text-gray-400">
+                                    {s.to_value.toLocaleString()} pts
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-gray-400">
+                                  {(s.assets_to ?? [])
+                                    .slice(0, 3)
+                                    .map((a) => a.label)
+                                    .join(", ")}
+                                  {(s.assets_to?.length ?? 0) > 3 && " …"}
+                                </div>
+                              </button>
+                            ))}
+
+                            {selectedSuggestion !== null && (
+                              <button
+                                type="button"
+                                disabled={sendingCounter}
+                                onClick={handleSubmitAICounter}
+                                className="w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-40"
+                              >
+                                {sendingCounter ? "Sending…" : "Send this counter"}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Manual counter */}
                   <button
                     type="button"
                     onClick={handleManualCounter}
-                    className="flex-1 rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 text-sm font-semibold text-white transition hover:bg-gray-700"
+                    className="flex w-full items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 text-left text-sm font-semibold text-white transition hover:bg-gray-700"
                   >
-                    ✏️ Edit Counter Manually
-                    <p className="mt-1 text-xs font-normal text-gray-400">
-                      Opens Manual Trade Builder pre-filled
-                    </p>
+                    <span>✏️</span>
+                    <div>
+                      <p>Edit Counter Manually</p>
+                      <p className="text-xs font-normal text-gray-400">
+                        Opens Manual Trade Builder pre-filled
+                      </p>
+                    </div>
                   </button>
                 </div>
               </div>
             )}
 
-            {/* Status message for non-pending */}
-            {!isPending && (
+            {/* Closed thread notice */}
+            {thread.status !== "open" && (
               <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-center text-sm text-gray-400">
-                This offer has been <strong className="text-white">{offer.status}</strong>.
+                This thread has been{" "}
+                <strong className="text-white">{thread.status}</strong>.
               </div>
             )}
           </div>
 
-          {/* Right panel: Chat */}
+          {/* Right: Chat */}
           <div className="flex w-1/2 flex-col rounded-xl border border-gray-800 bg-gray-900/50">
             <div className="border-b border-gray-800 px-4 py-3">
               <h2 className="text-sm font-bold text-white">Chat</h2>
             </div>
 
-            {/* Messages */}
             <div className="flex-1 space-y-2 overflow-y-auto p-4">
               {messages.length === 0 ? (
                 <p className="text-center text-sm text-gray-600">
@@ -499,9 +821,7 @@ export default function TradeThreadPage() {
                       <div
                         className={[
                           "max-w-[80%] rounded-lg px-3 py-2 text-sm",
-                          isMe
-                            ? "bg-red-700/60 text-white"
-                            : "bg-gray-800 text-gray-200",
+                          isMe ? "bg-red-700/60 text-white" : "bg-gray-800 text-gray-200",
                         ].join(" ")}
                       >
                         {!isMe && (

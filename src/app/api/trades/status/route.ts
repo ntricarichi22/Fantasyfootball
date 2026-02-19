@@ -10,6 +10,13 @@ const ALLOWED_TRANSITIONS: Record<string, { allowed: string[]; role: "sender" | 
   withdrawn: { allowed: ["pending"], role: "sender" },
 };
 
+// Offer status → thread status
+const THREAD_STATUS_MAP: Record<string, string> = {
+  accepted: "accepted",
+  declined: "declined",
+  withdrawn: "withdrawn",
+};
+
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
   try {
@@ -52,7 +59,7 @@ export async function POST(request: NextRequest) {
   // Fetch the offer to validate permissions
   const { data: offer, error: fetchError } = await client
     .from("trade_offers")
-    .select("from_team_id, to_team_id, status")
+    .select("from_team_id, to_team_id, status, thread_id")
     .eq("id", offer_id)
     .eq("league_id", league_id)
     .single();
@@ -74,9 +81,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Not authorized for this action" }, { status: 403 });
   }
 
+  const now = new Date().toISOString();
+
   const { error: updateError } = await client
     .from("trade_offers")
-    .update({ status, updated_at: new Date().toISOString() })
+    .update({ status, updated_at: now })
     .eq("id", offer_id)
     .eq("league_id", league_id);
 
@@ -84,5 +93,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true });
+  // Propagate terminal statuses to the thread
+  const threadStatus = THREAD_STATUS_MAP[status];
+  if (threadStatus && offer.thread_id) {
+    await client
+      .from("trade_threads")
+      .update({ status: threadStatus, last_activity_at: now, updated_at: now })
+      .eq("id", offer.thread_id)
+      .eq("league_id", league_id);
+  }
+
+  return NextResponse.json({ ok: true, thread_id: offer.thread_id ?? null });
 }

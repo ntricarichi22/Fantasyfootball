@@ -2,37 +2,26 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Inbox, Send } from "lucide-react";
+import { Inbox, Send, MessageCircle } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
 /* ------------------------------------------------------------------ */
 
-interface OfferAsset {
-  key: string;
-  label: string;
-  type: "player" | "pick";
-  position?: string;
-  team?: string;
-  ageLabel?: string;
-  value: number;
-}
-
-interface TradeOffer {
+interface TradeThread {
   id: string;
   league_id: string;
-  from_team_id: string;
-  to_team_id: string;
-  assets_from: OfferAsset[];
-  assets_to: OfferAsset[];
-  from_value: number;
-  to_value: number;
-  grade_label: string;
+  team_a_id: string;
+  team_b_id: string;
+  created_by_team_id: string;
   status: string;
-  parent_offer_id: string | null;
+  last_activity_at: string;
+  last_message_at: string | null;
+  last_offer_at: string | null;
+  unread_by_team_a: number;
+  unread_by_team_b: number;
   created_at: string;
   updated_at: string;
-  read_at: string | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -60,22 +49,12 @@ const getStoredTeam = () => {
 /*  Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-const statusColors: Record<string, string> = {
-  pending: "bg-amber-600/80 text-amber-50",
+const threadStatusColors: Record<string, string> = {
+  open: "bg-amber-600/80 text-amber-50",
   accepted: "bg-emerald-600/80 text-emerald-50",
   declined: "bg-red-600/80 text-red-50",
   withdrawn: "bg-gray-600/80 text-gray-50",
-  countered: "bg-indigo-600/80 text-indigo-50",
-  expired: "bg-gray-700/80 text-gray-300",
-};
-
-const gradeColors: Record<string, string> = {
-  Steal: "bg-emerald-600 text-white",
-  "Good Deal": "bg-emerald-700 text-white",
-  Fair: "bg-blue-600 text-white",
-  "Slight Overpay": "bg-amber-600 text-white",
-  "Big Overpay": "bg-red-600 text-white",
-  "Slight Underpay": "bg-teal-600 text-white",
+  closed: "bg-gray-700/80 text-gray-300",
 };
 
 const timeAgo = (dateStr: string) => {
@@ -88,10 +67,6 @@ const timeAgo = (dateStr: string) => {
   const days = Math.floor(hrs / 24);
   return `${days}d ago`;
 };
-
-/* ------------------------------------------------------------------ */
-/*  Roster names fetch (same pattern as other pages)                    */
-/* ------------------------------------------------------------------ */
 
 const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 
@@ -128,56 +103,47 @@ async function fetchRosterNames(): Promise<Record<string, string>> {
 export default function TradesInboxPage() {
   const router = useRouter();
   const [tab, setTab] = useState<"inbox" | "sent">("inbox");
-  const [offers, setOffers] = useState<TradeOffer[]>([]);
+  const [threads, setThreads] = useState<TradeThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
   const { rosterId, teamName } = getStoredTeam();
 
-  // Fetch roster names
   useEffect(() => {
     fetchRosterNames().then(setRosterNames);
   }, []);
 
-  // Fetch offers
-  const fetchOffers = useCallback(async () => {
+  const fetchThreads = useCallback(async () => {
     if (!rosterId) return;
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/trades/list?teamId=${encodeURIComponent(rosterId)}&tab=${tab}`,
+        `/api/trades/threads?teamId=${encodeURIComponent(rosterId)}`,
       );
       if (res.ok) {
         const json = await res.json();
-        setOffers(json.data ?? []);
+        setThreads(json.data ?? []);
       }
     } catch {
       // ignore
     } finally {
       setLoading(false);
     }
-  }, [rosterId, tab]);
+  }, [rosterId]);
 
   useEffect(() => {
-    fetchOffers();
-  }, [fetchOffers]);
-
-  const handleClickOffer = async (offer: TradeOffer) => {
-    // Mark as read if we're the receiver and it's unread
-    if (tab === "inbox" && offer.to_team_id === rosterId && !offer.read_at) {
-      try {
-        await fetch("/api/trades/mark-read", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ offer_id: offer.id, team_id: rosterId }),
-        });
-      } catch {
-        // ignore
-      }
-    }
-    router.push(`/trades/${offer.id}`);
-  };
+    fetchThreads();
+    // Poll for real-time updates every 10 s
+    const interval = setInterval(fetchThreads, 10_000);
+    return () => clearInterval(interval);
+  }, [fetchThreads]);
 
   const getTeamLabel = (teamId: string) => rosterNames[teamId] || `Team ${teamId}`;
+
+  // For "All Threads" tab show all threads; for "Initiated" tab show only threads we created
+  const filteredThreads =
+    tab === "inbox"
+      ? threads
+      : threads.filter((t) => t.created_by_team_id === rosterId);
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-black text-gray-100">
@@ -201,7 +167,7 @@ export default function TradesInboxPage() {
             ].join(" ")}
           >
             <Inbox className="h-4 w-4" />
-            Inbox
+            All Threads
           </button>
           <button
             type="button"
@@ -214,92 +180,77 @@ export default function TradesInboxPage() {
             ].join(" ")}
           >
             <Send className="h-4 w-4" />
-            Sent
+            Initiated
           </button>
         </div>
 
-        {/* Offer list */}
+        {/* Thread list */}
         <div className="flex-1 space-y-2 overflow-y-auto">
           {loading ? (
             <div className="flex items-center justify-center py-12 text-gray-500">
               Loading…
             </div>
-          ) : offers.length === 0 ? (
+          ) : filteredThreads.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-gray-500">
               <p className="text-lg font-semibold">
-                {tab === "inbox" ? "No incoming offers" : "No sent offers"}
+                {tab === "inbox" ? "No trade threads" : "No threads initiated"}
               </p>
               <p className="mt-1 text-sm text-gray-600">
                 {tab === "inbox"
-                  ? "Trade offers from other teams will appear here."
-                  : "Offers you've sent will appear here."}
+                  ? "Trade threads with other teams will appear here."
+                  : "Threads you started will appear here."}
               </p>
             </div>
           ) : (
-            offers.map((offer) => {
-              const counterpart =
-                tab === "inbox"
-                  ? getTeamLabel(offer.from_team_id)
-                  : getTeamLabel(offer.to_team_id);
-              const isUnread =
-                tab === "inbox" && offer.to_team_id === rosterId && !offer.read_at;
+            filteredThreads.map((thread) => {
+              const counterpartId =
+                thread.team_a_id === rosterId ? thread.team_b_id : thread.team_a_id;
+              const counterpartName = getTeamLabel(counterpartId);
+              const isOpen = thread.status === "open";
 
               return (
                 <button
-                  key={offer.id}
+                  key={thread.id}
                   type="button"
-                  onClick={() => handleClickOffer(offer)}
+                  onClick={() => router.push(`/trades/${thread.id}`)}
                   className={[
                     "w-full rounded-lg border p-4 text-left transition hover:border-gray-600 hover:bg-gray-900/80",
-                    isUnread
+                    isOpen
                       ? "border-red-500/40 bg-red-950/20"
                       : "border-gray-800 bg-gray-900/50",
                   ].join(" ")}
                 >
                   <div className="flex items-center gap-3">
-                    {isUnread && (
+                    {isOpen && (
                       <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500" />
                     )}
                     <span className="flex-1 text-sm font-semibold text-white">
-                      {tab === "inbox" ? `From ${counterpart}` : `To ${counterpart}`}
+                      {counterpartName}
                     </span>
                     <span className="text-xs text-gray-500">
-                      {timeAgo(offer.created_at)}
+                      {timeAgo(thread.last_activity_at)}
                     </span>
                     <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${gradeColors[offer.grade_label] || "bg-gray-700 text-gray-300"}`}
+                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${threadStatusColors[thread.status] || "bg-gray-700 text-gray-300"}`}
                     >
-                      {offer.grade_label}
-                    </span>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${statusColors[offer.status] || "bg-gray-700 text-gray-300"}`}
-                    >
-                      {offer.status}
+                      {thread.status}
                     </span>
                   </div>
-                  <div className="mt-2 flex items-center gap-6 text-xs text-gray-400">
-                    {tab === "inbox" ? (
-                      <>
-                        <span>
-                          You receive: <strong className="text-gray-200">{offer.from_value.toLocaleString()}</strong>
-                        </span>
-                        <span>
-                          You give: <strong className="text-gray-200">{offer.to_value.toLocaleString()}</strong>
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span>
-                          You send: <strong className="text-gray-200">{offer.from_value.toLocaleString()}</strong>
-                        </span>
-                        <span>
-                          You get: <strong className="text-gray-200">{offer.to_value.toLocaleString()}</strong>
-                        </span>
-                      </>
+                  <div className="mt-2 flex items-center gap-4 text-xs text-gray-400">
+                    {thread.last_offer_at && (
+                      <span>
+                        Last offer:{" "}
+                        <strong className="text-gray-200">
+                          {timeAgo(thread.last_offer_at)}
+                        </strong>
+                      </span>
                     )}
-                    <span className="text-gray-600">
-                      {(offer.assets_from?.length ?? 0) + (offer.assets_to?.length ?? 0)} assets
-                    </span>
+                    {thread.last_message_at && (
+                      <span className="flex items-center gap-1">
+                        <MessageCircle className="h-3 w-3" />
+                        {timeAgo(thread.last_message_at)}
+                      </span>
+                    )}
                   </div>
                 </button>
               );
