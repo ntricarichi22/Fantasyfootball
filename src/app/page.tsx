@@ -1613,7 +1613,6 @@ export default function Home() {
       // Allow the draft to start with a local clock even if the server
       // call failed so the commissioner isn't blocked.
       setStatusMessage("Draft started (server sync unavailable).");
-      return true;
     }
     return true;
   }, [clockActionPending, updateDraftClock]);
