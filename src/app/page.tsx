@@ -1557,6 +1557,19 @@ export default function Home() {
         if (normalized) {
           setDraftClockState(normalized);
           setClockSecondsLeft(computeRemainingSeconds(normalized));
+        } else if (action === "start") {
+          // Server returned 200 but no usable state – fetch the current
+          // state so the clock can still pick up the running draft.
+          const fallback = await fetch("/api/draft-state", { cache: "no-store" });
+          if (fallback.ok) {
+            const fbJson = await fallback.json();
+            const fbNormalized = normalizeDraftStateRow(fbJson?.data ?? fbJson);
+            if (fbNormalized) {
+              setDraftClockState(fbNormalized);
+              setClockSecondsLeft(computeRemainingSeconds(fbNormalized));
+              return fbNormalized;
+            }
+          }
         }
         return normalized;
       } catch (error) {
