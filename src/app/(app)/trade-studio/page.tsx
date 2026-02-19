@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1181,6 +1182,7 @@ export default function TradeStudioPage() {
 }
 
 export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode }) {
+  const tradeStudioRouter = useRouter();
   const isSnapshotOnly = mode === "snapshot";
   const pageTitle = isSnapshotOnly ? "Team Snapshot" : "Trade Studio";
   const [teams, setTeams] = useState<Team[]>([]);
@@ -1819,9 +1821,53 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
     postureChoice,
   ]);
 
-  const handleSendOffer = useCallback(() => {
-    window.alert("Send Offer is coming soon.");
-  }, []);
+  const handleSendOffer = useCallback(async () => {
+    const offer = offerSuggestions[activeOfferIndex] ?? offerSuggestions[0];
+    if (!offer || !selectedTeam) return;
+
+    try {
+      const res = await fetch("/api/trades/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from_team_id: selectedTeam,
+          to_team_id: String(offer.partnerId),
+          assets_from: offer.send.map((a) => ({
+            key: a.id,
+            label: a.label,
+            type: a.type,
+            position: a.position,
+            team: a.team,
+            ageLabel: a.ageLabel,
+            value: a.value,
+          })),
+          assets_to: offer.receive.map((a) => ({
+            key: a.id,
+            label: a.label,
+            type: a.type,
+            position: a.position,
+            team: a.team,
+            ageLabel: a.ageLabel,
+            value: a.value,
+          })),
+          from_value: Math.round(offer.valueSent),
+          to_value: Math.round(offer.valueReceived),
+          grade_label: offer.fairness || "Fair",
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to send offer");
+      }
+      const json = await res.json();
+      if (json.id) {
+        tradeStudioRouter.push(`/trades/${json.id}`);
+      }
+    } catch (err) {
+      console.error("Failed to send offer:", err);
+      window.alert(err instanceof Error ? err.message : "Failed to send offer");
+    }
+  }, [offerSuggestions, activeOfferIndex, selectedTeam, tradeStudioRouter]);
 
   const goToNextOffer = useCallback(() => {
     setActiveOfferIndex((prev) => {
