@@ -1257,6 +1257,32 @@ export default function Home() {
     });
   }, [playerDictionary, playerValues, searchTerm, unavailablePlayers]);
 
+  const persistDraftLogEntry = useCallback(
+    async (entry: DraftLogEntry) => {
+      try {
+        const res = await fetch("/api/draft-log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(entry),
+        });
+        if (!res.ok) {
+          if (res.status === 409) {
+            setStatusMessage("Draft is paused. No picks recorded.");
+          }
+          fetchDraftLogFromApi();
+          return false;
+        }
+        return true;
+      } catch (error) {
+        console.warn("Unable to persist draft log entry", error);
+        setStatusMessage("Unable to record pick. Please try again.");
+        fetchDraftLogFromApi();
+        return false;
+      }
+    },
+    [fetchDraftLogFromApi]
+  );
+
   const handlePickMade = useCallback(
     async (teamName: string, selection: string) => {
       if (!teamName || !selection) return false;
@@ -1574,32 +1600,6 @@ export default function Home() {
     setClockActionPending(false);
     return !!nextState;
   }, [clockActionPending, updateDraftClock]);
-
-  const persistDraftLogEntry = useCallback(
-    async (entry: DraftLogEntry) => {
-      try {
-        const res = await fetch("/api/draft-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entry),
-        });
-        if (!res.ok) {
-          if (res.status === 409) {
-            setStatusMessage("Draft is paused. No picks recorded.");
-          }
-          fetchDraftLogFromApi();
-          return false;
-        }
-        return true;
-      } catch (error) {
-        console.warn("Unable to persist draft log entry", error);
-        setStatusMessage("Unable to record pick. Please try again.");
-        fetchDraftLogFromApi();
-        return false;
-      }
-    },
-    [fetchDraftLogFromApi]
-  );
 
   const deleteDraftLogEntry = useCallback(
     async (pickIndex: number) => {
