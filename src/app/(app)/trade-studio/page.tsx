@@ -25,6 +25,13 @@ import {
   type MetricKey,
   type TeamRanking,
 } from "../../../lib/leagueRankings";
+import {
+  computeStarterLevels,
+  computeCoreTeamStrength,
+  classifyTeamTier,
+  type StarterAsset,
+  type CoreStrengthTier,
+} from "../../../lib/trade/starterLevel";
 
 interface Team {
   id: number;
@@ -130,7 +137,7 @@ type Posture = "Buyer" | "Seller";
 type WorkbenchTabKey = "trade-block" | "incoming" | "chat";
 type TradeStudioMode = "studio" | "snapshot";
 
-const YOUNG_PLAYER_AGE_THRESHOLD = 25;
+const YOUNG_PLAYER_AGE_THRESHOLD = 24;
 const VETERAN_PLAYER_AGE_THRESHOLD = 29;
 const REBUILD_YOUNG_ADVANTAGE = 2;
 const REBUILD_PICK_THRESHOLD = 3;
@@ -139,6 +146,9 @@ const BUYER_PICK_THRESHOLD = 1;
 const QB_VALUE_MULTIPLIER = 1.25;
 const TE_VALUE_MULTIPLIER = 0.75;
 const STUD_PLAYER_THRESHOLD = 9000;
+const STARTER_QB_COUNT = 2;
+const OFFER_TARGET_COUNT = 6;
+const OFFER_MIN_COUNT = 4;
 
 interface AiProfileContext {
   topPosition?: string;
@@ -243,12 +253,12 @@ const fairnessStyles: Record<FairnessGrade, string> = {
   Underpay: "border-gray-700 bg-gray-900 text-gray-100",
 };
 
-const isOfferWithinBounds = (giveValue: number, receiveAssets: OfferAssetDetail[]) => {
+const isOfferWithinBounds = (giveValue: number, receiveAssets: OfferAssetDetail[], minRatio = 0.9, maxRatio = 1.1) => {
   if (giveValue <= 0) return false;
   const receiveValue = receiveAssets.reduce((sum, asset) => sum + asset.value, 0);
   const ratio = receiveValue / giveValue;
-  if (ratio < 0.9 || ratio > 1.1) return false;
-  if (Math.abs(receiveValue - giveValue) > Math.max(300, giveValue * 0.1)) return false;
+  if (ratio < minRatio || ratio > maxRatio) return false;
+  if (Math.abs(receiveValue - giveValue) > Math.max(300, giveValue * 0.15)) return false;
   const largest = receiveAssets.reduce((max, asset) => Math.max(max, asset.value), 0);
   if (giveValue < 500 && largest > giveValue * 3) return false;
   return true;
@@ -377,9 +387,11 @@ interface PickAssetContext {
   sendPositions: string[];
   isStudTrade: boolean;
   studPosition?: string;
+  studBucket?: "depth" | "picks";
   qbProtectionNeeded: boolean;
   teamValueTier: "low" | "mid" | "high";
   sendIncludesPicks: boolean;
+  targetRatio?: number;
 }
 
 const pickAssetsForPartner = (
@@ -390,9 +402,9 @@ const pickAssetsForPartner = (
   pickContext?: PickAssetContext
 ) => {
   if (giveValue <= 0) return [];
-  const targetMultiplier = 1 + (aggression - 50) / 200;
+  const targetMultiplier = pickContext?.targetRatio ?? (1 + (aggression - 50) / 200);
   const targetValue = giveValue * targetMultiplier;
-  const maxSingleValue = giveValue * 1.2;
+  const maxSingleValue = giveValue * 1.3;
   const normalizedNeeds = userNeeds.map((need) => {
     if (need.toLowerCase().includes("qb")) return "QB";
     if (need.toLowerCase().includes("rb")) return "RB";
@@ -467,8 +479,16 @@ const pickAssetsForPartner = (
       const otherPos = combo.filter(
         (a) => a.type === "player" && a.position !== pickContext.studPosition
       );
-      if (samePos.length > 0 && otherPos.length > 0) score += 200;
-      if (samePos.length > 0 && pickPieces.length > 0) score += 200;
+      if (pickContext.studBucket === "depth") {
+        if (samePos.length > 0 && otherPos.length > 0) score += 500;
+        if (samePos.length > 0 && pickPieces.length > 0) score += 50;
+      } else if (pickContext.studBucket === "picks") {
+        if (samePos.length > 0 && pickPieces.length > 0) score += 500;
+        if (samePos.length > 0 && otherPos.length > 0) score += 50;
+      } else {
+        if (samePos.length > 0 && otherPos.length > 0) score += 200;
+        if (samePos.length > 0 && pickPieces.length > 0) score += 200;
+      }
     }
 
     // Position upgrade: if sending player + picks, prefer single upgrade at same position
@@ -496,8 +516,10 @@ const pickAssetsForPartner = (
   let best: OfferAssetDetail[] = [];
   let bestDiff = Number.POSITIVE_INFINITY;
   let bestScore = -1;
+  const boundsMin = pickContext?.targetRatio ? pickContext.targetRatio - 0.06 : 0.9;
+  const boundsMax = pickContext?.targetRatio ? pickContext.targetRatio + 0.06 : 1.15;
   const considerCombo = (combo: OfferAssetDetail[]) => {
-    if (!isOfferWithinBounds(giveValue, combo)) return;
+    if (!isOfferWithinBounds(giveValue, combo, boundsMin, boundsMax)) return;
     const comboValue = combo.reduce((sum, asset) => sum + asset.value, 0);
     const diff = Math.abs(comboValue - targetValue);
     const comboScore = scoreCombo(combo);
@@ -592,43 +614,77 @@ const buildOfferSuggestions = (
   const isStudTrade = !!studPlayer;
   const studPosition = studPlayer?.position;
 
-  // QB protection: if sending a QB and team has ≤ 2 valuable QBs
+  // QB protection: if sending a QB and team has ≤ 2 valuable QBs (starter-level)
   const userRosterAssets = rosterAssets.get(selectedRosterId);
-  const userQBCount = (userRosterAssets?.players ?? []).filter(
-    (p) => p.position === "QB" && p.value > 0
-  ).length;
+  const userAllPlayers: StarterAsset[] = (userRosterAssets?.players ?? []).map((p) => ({
+    id: p.id,
+    position: p.position,
+    adjustedValue: p.value,
+    age: p.ageLabel ? parseAgeFromLabel(p.ageLabel) : null,
+  }));
+  const userStarterLevels = computeStarterLevels(userAllPlayers);
+  const userStarterQBs = userStarterLevels.QB;
   const sendingQB = sendPositions.includes("QB");
-  const qbProtectionNeeded = sendingQB && userQBCount <= 2;
-
-  // Team competitive value tier (starting lineup + best 3 bench)
-  const teamCompValues = context.rosters.map((roster) => {
-    const assets = rosterAssets.get(roster.roster_id);
-    if (!assets) return { rosterId: roster.roster_id, value: 0 };
-    const starterIds = new Set(
-      (roster.starters ?? [])
-        .map((s) => availabilityKeyForPlayer(toId(s)))
-        .filter((id) => id !== "player:")
+  const sendingStarterQB =
+    sendingQB &&
+    sendPlayers.some(
+      (sp) =>
+        sp.position === "QB" &&
+        userStarterQBs.some((sqb) => sqb.id === sp.id),
     );
-    const starterValue = assets.players
-      .filter((p) => starterIds.has(p.id))
-      .reduce((sum, p) => sum + p.value, 0);
-    const benchValue = assets.players
-      .filter((p) => !starterIds.has(p.id))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 3)
-      .reduce((sum, p) => sum + p.value, 0);
-    return { rosterId: roster.roster_id, value: starterValue + benchValue };
+  const qbProtectionNeeded = sendingStarterQB;
+
+  // Core team strength classification (replaces simple tier)
+  const coreStrengths = context.rosters.map((roster) => {
+    const assets = rosterAssets.get(roster.roster_id);
+    if (!assets) return { rosterId: roster.roster_id, strength: 0 };
+    const starterAssets: StarterAsset[] = assets.players.map((p) => ({
+      id: p.id,
+      position: p.position,
+      adjustedValue: p.value,
+    }));
+    return {
+      rosterId: roster.roster_id,
+      strength: computeCoreTeamStrength(starterAssets),
+    };
   });
-  teamCompValues.sort((a, b) => b.value - a.value);
-  const userCompRank =
-    teamCompValues.findIndex((t) => t.rosterId === selectedRosterId) + 1;
-  const tierSize = Math.max(1, Math.ceil(teamCompValues.length / 3));
+  coreStrengths.sort((a, b) => b.strength - a.strength);
+  const userCoreRank =
+    coreStrengths.findIndex((t) => t.rosterId === selectedRosterId) + 1;
+  const userCoreTier: CoreStrengthTier = classifyTeamTier(
+    userCoreRank,
+    context.rosters.length,
+  );
   const teamValueTier: "low" | "mid" | "high" =
-    userCompRank <= tierSize
+    userCoreTier === "contend-leaning"
       ? "high"
-      : userCompRank > teamCompValues.length - tierSize
+      : userCoreTier === "rebuild-leaning"
         ? "low"
         : "mid";
+
+  // --- QB safety rule helper ---
+  const passesQBSafety = (receiveAssets: OfferAssetDetail[]): boolean => {
+    if (!sendingStarterQB) return true;
+    const sentQBIds = new Set(
+      sendPlayers.filter((a) => a.position === "QB").map((a) => a.id),
+    );
+    const remainingQBs = userStarterQBs.filter((qb) => !sentQBIds.has(qb.id));
+    if (remainingQBs.length >= STARTER_QB_COUNT) return true;
+    const incomingQBs = receiveAssets.filter(
+      (a) => a.position === "QB" && a.value > 0,
+    );
+    return remainingQBs.length + incomingQBs.length >= STARTER_QB_COUNT;
+  };
+
+  // --- Intent detection ---
+  // Block contains stud (>9000) → stud logic buckets
+  // Block contains top asset at position X + 1+ picks → "upgrade position X"
+  // Block contains mostly picks → "buy player(s)"
+  const topSendPlayer = [...sendPlayers].sort((a, b) => b.value - a.value)[0];
+  const upgradePosition =
+    !isStudTrade && sendIncludesPicks && topSendPlayer?.position
+      ? topSendPlayer.position
+      : undefined;
 
   const pickCtx: PickAssetContext = {
     sendPositions,
@@ -644,54 +700,148 @@ const buildOfferSuggestions = (
     .map((roster) => {
       const profile = context.profiles?.[roster.roster_id];
       let score = 0;
-      // Prioritize Buyer posture teams regardless of user posture (+3 base);
-      // buyer+seller combo earns an additional +2 bonus (total +5) for best-fit pairing.
       if (profile?.posture === "buyer") score += 3;
       if (profile?.posture === "buyer" && userProfile?.posture === "seller") score += 2;
+      if (profile?.posture === "seller" && userProfile?.posture === "buyer") score += 2;
       if (profile?.mode === "contend" && userProfile?.mode === "rebuild") score += 3;
       if (profile?.mode === "retool") score += 1;
+      // Boost partners that can supply the upgrade position
+      if (upgradePosition) {
+        const partnerPlayers = rosterAssets.get(roster.roster_id)?.players ?? [];
+        if (partnerPlayers.some((p) => p.position === upgradePosition && p.value > 0)) {
+          score += 2;
+        }
+      }
       return { roster, score };
     })
     .sort((a, b) => b.score - a.score)
-    .slice(0, 6);
+    .slice(0, OFFER_TARGET_COUNT);
 
   const offers: OfferSuggestion[] = [];
   const allowedFairness = new Set<FairnessGrade>(["Fair", "Slight Overpay", "Slight Underpay"]);
 
-  partners.forEach(({ roster }) => {
-    const partnerAssets = rosterAssets.get(roster.roster_id);
-    if (!partnerAssets) return;
-    const chosenReceive = pickAssetsForPartner(valueSent, context.aggression, userNeeds, partnerAssets, pickCtx);
-    if (!chosenReceive.length) return;
-    const valueReceived = chosenReceive.reduce((sum, asset) => sum + asset.value, 0);
-    if (!isOfferWithinBounds(valueSent, chosenReceive)) return;
+  // Target ratios: 2 Fair (1.0), 1 slight overpay (1.12), 1 slight underpay (0.92)
+  const targetRatios: Array<{ ratio: number; label: string }> = [
+    { ratio: 1.0, label: "fair" },
+    { ratio: 1.0, label: "fair" },
+    { ratio: 1.12, label: "overpay" },
+    { ratio: 0.92, label: "underpay" },
+  ];
+
+  const makeOffer = (
+    roster: Roster,
+    receive: OfferAssetDetail[],
+    extraTags: string[] = [],
+  ): OfferSuggestion | null => {
+    if (!receive.length) return null;
+    const valueReceived = receive.reduce((sum, a) => sum + a.value, 0);
+    if (!isOfferWithinBounds(valueSent, receive, 0.85, 1.2)) return null;
+    if (!passesQBSafety(receive)) return null;
     const fairness = fairnessFromValues(valueSent, valueReceived);
-    if (!allowedFairness.has(fairness)) return;
-    const partnerName = context.rosterNames[roster.roster_id] || `Roster ${roster.roster_id}`;
-    const tags = buildOfferTags(sendAssets, chosenReceive, userProfile, context.profiles?.[roster.roster_id]);
+    if (!allowedFairness.has(fairness)) return null;
+    const partnerName =
+      context.rosterNames[roster.roster_id] || `Roster ${roster.roster_id}`;
+    const partnerProfile = context.profiles?.[roster.roster_id];
+    const tags = [
+      ...buildOfferTags(sendAssets, receive, userProfile, partnerProfile),
+      ...extraTags,
+    ];
+    // Add posture-fit tags
+    if (partnerProfile?.posture === "buyer") tags.push("Buyer match");
+    if (partnerProfile?.posture === "seller") tags.push("Seller match");
+    // Deduplicate tags
+    const uniqueTags = [...new Set(tags)];
     const explanation = explanationForOffer(
       context.rosterNames[selectedRosterId] || "Your team",
       partnerName,
       fairness,
       sendAssets,
-      chosenReceive,
+      receive,
       userProfile,
-      context.profiles?.[roster.roster_id]
+      partnerProfile,
     );
-
-    offers.push({
+    return {
       id: `offer-${Date.now()}-${offerIdCounter++}-${roster.roster_id}`,
       partnerId: roster.roster_id,
       partner: partnerName,
-      send: sendAssets,
-      receive: chosenReceive,
-      tags,
+      send: [...sendAssets].sort((a, b) => b.value - a.value),
+      receive: [...receive].sort((a, b) => b.value - a.value),
+      tags: uniqueTags,
       fairness,
       explanation,
       valueSent: Math.round(valueSent),
       valueReceived: Math.round(valueReceived),
-    });
-  });
+    };
+  };
+
+  // Generate offers across partners
+  let ratioIdx = 0;
+  for (const { roster } of partners) {
+    if (offers.length >= OFFER_TARGET_COUNT) break;
+    const partnerAssets = rosterAssets.get(roster.roster_id);
+    if (!partnerAssets) continue;
+
+    if (isStudTrade) {
+      // Bucket 1: downgrade + depth
+      const depthCtx: PickAssetContext = { ...pickCtx, studBucket: "depth" };
+      const depthReceive = pickAssetsForPartner(
+        valueSent,
+        context.aggression,
+        userNeeds,
+        partnerAssets,
+        depthCtx,
+      );
+      const depthOffer = makeOffer(roster, depthReceive, ["Downgrade + depth"]);
+      if (depthOffer) offers.push(depthOffer);
+
+      // Bucket 2: downgrade + picks
+      const picksCtx: PickAssetContext = { ...pickCtx, studBucket: "picks" };
+      const picksReceive = pickAssetsForPartner(
+        valueSent,
+        context.aggression,
+        userNeeds,
+        partnerAssets,
+        picksCtx,
+      );
+      const picksOffer = makeOffer(roster, picksReceive, ["Downgrade + picks"]);
+      if (picksOffer) offers.push(picksOffer);
+    } else {
+      // Standard offer with target ratio
+      const target = targetRatios[ratioIdx % targetRatios.length];
+      const ctx: PickAssetContext = { ...pickCtx, targetRatio: target.ratio };
+      const receive = pickAssetsForPartner(
+        valueSent,
+        context.aggression,
+        userNeeds,
+        partnerAssets,
+        ctx,
+      );
+      const offer = makeOffer(roster, receive);
+      if (offer) {
+        offers.push(offer);
+        ratioIdx++;
+      }
+    }
+  }
+
+  // If we didn't generate enough offers, try remaining partners at fair ratio
+  if (offers.length < OFFER_MIN_COUNT) {
+    for (const { roster } of partners) {
+      if (offers.length >= OFFER_TARGET_COUNT) break;
+      if (offers.some((o) => o.partnerId === roster.roster_id)) continue;
+      const partnerAssets = rosterAssets.get(roster.roster_id);
+      if (!partnerAssets) continue;
+      const receive = pickAssetsForPartner(
+        valueSent,
+        context.aggression,
+        userNeeds,
+        partnerAssets,
+        pickCtx,
+      );
+      const offer = makeOffer(roster, receive);
+      if (offer) offers.push(offer);
+    }
+  }
 
   return offers;
 };
@@ -2043,14 +2193,21 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                                     You send ({teamName})
                                   </p>
                                   <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                    {currentOffer?.send?.map((item) => (
+                                    {currentOffer?.send?.map((item, idx) => (
                                       <li
                                         key={`${currentOffer?.id}-send-${item.id}`}
-                                        className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2"
+                                        className={`rounded-md border px-2 py-2 ${idx === 0 ? "border-indigo-700/60 bg-indigo-950/40" : "border-gray-800 bg-gray-900"}`}
                                       >
                                         <div className="flex items-center justify-between gap-3">
                                           <div className="min-w-0">
-                                            <p className="truncate font-semibold text-white">{item.label}</p>
+                                            <div className="flex items-center gap-2">
+                                              <p className="truncate font-semibold text-white">{item.label}</p>
+                                              {idx === 0 ? (
+                                                <span className="rounded-full bg-indigo-700/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-indigo-100">
+                                                  Headline
+                                                </span>
+                                              ) : null}
+                                            </div>
                                             <p className="text-[11px] text-gray-500">
                                               {item.type === "player"
                                                 ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
@@ -2077,14 +2234,21 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                                     You receive ({currentOffer?.partner ?? ""})
                                   </p>
                                   <ul className="mt-2 space-y-2 text-sm text-gray-200">
-                                    {currentOffer?.receive?.map((item) => (
+                                    {currentOffer?.receive?.map((item, idx) => (
                                       <li
                                         key={`${currentOffer?.id}-receive-${item.id}`}
-                                        className="rounded-md border border-gray-800 bg-gray-900 px-2 py-2"
+                                        className={`rounded-md border px-2 py-2 ${idx === 0 ? "border-emerald-700/60 bg-emerald-950/40" : "border-gray-800 bg-gray-900"}`}
                                       >
                                         <div className="flex items-center justify-between gap-3">
                                           <div className="min-w-0">
-                                            <p className="truncate font-semibold text-white">{item.label}</p>
+                                            <div className="flex items-center gap-2">
+                                              <p className="truncate font-semibold text-white">{item.label}</p>
+                                              {idx === 0 ? (
+                                                <span className="rounded-full bg-emerald-700/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-100">
+                                                  Headline
+                                                </span>
+                                              ) : null}
+                                            </div>
                                             <p className="text-[11px] text-gray-500">
                                               {item.type === "player"
                                                 ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
