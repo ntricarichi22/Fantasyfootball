@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ArrowLeftRight, Bot, Compass, Gauge, Hammer } from "lucide-react";
 
 import { getLeagueId } from "../lib/config";
@@ -59,29 +59,31 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   /* ---- Unread trade count ---- */
   const [unreadCount, setUnreadCount] = useState(0);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const fetchUnread = useCallback(async () => {
-    const stored = readStoredSelection();
-    if (!stored.rosterId) return;
-    try {
-      const res = await fetch(`/api/trades/unread-count?teamId=${encodeURIComponent(stored.rosterId)}`);
-      if (res.ok) {
-        const json = await res.json();
-        setUnreadCount(typeof json.count === "number" ? json.count : 0);
-      }
-    } catch {
-      // ignore fetch errors
-    }
-  }, []);
 
   useEffect(() => {
-    fetchUnread();
-    pollRef.current = setInterval(fetchUnread, 15_000);
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
+    let cancelled = false;
+
+    const poll = async () => {
+      const stored = readStoredSelection();
+      if (!stored.rosterId) return;
+      try {
+        const res = await fetch(`/api/trades/unread-count?teamId=${encodeURIComponent(stored.rosterId)}`);
+        if (res.ok && !cancelled) {
+          const json = await res.json();
+          setUnreadCount(typeof json.count === "number" ? json.count : 0);
+        }
+      } catch {
+        // ignore fetch errors
+      }
     };
-  }, [fetchUnread, selection.rosterId]);
+
+    poll();
+    const interval = setInterval(poll, 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [selection.rosterId]);
 
   const navItems = useMemo(
     () => [

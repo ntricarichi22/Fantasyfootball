@@ -63,12 +63,19 @@ export async function POST(request: NextRequest) {
 
   // If this is a counter, mark the original offer as countered
   if (parent_offer_id) {
-    await client
+    const { error: counterError } = await client
       .from("trade_offers")
       .update({ status: "countered", updated_at: new Date().toISOString() })
       .eq("id", parent_offer_id)
       .eq("league_id", league_id)
       .eq("status", "pending");
+
+    if (counterError) {
+      return NextResponse.json(
+        { error: "Failed to update parent offer: " + counterError.message },
+        { status: 500 },
+      );
+    }
   }
 
   const { data, error } = await client

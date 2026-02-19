@@ -278,12 +278,25 @@ export default function TradesInboxPage() {
                     </span>
                   </div>
                   <div className="mt-2 flex items-center gap-6 text-xs text-gray-400">
-                    <span>
-                      Sends: <strong className="text-gray-200">{offer.from_value.toLocaleString()}</strong>
-                    </span>
-                    <span>
-                      Receives: <strong className="text-gray-200">{offer.to_value.toLocaleString()}</strong>
-                    </span>
+                    {tab === "inbox" ? (
+                      <>
+                        <span>
+                          You receive: <strong className="text-gray-200">{offer.from_value.toLocaleString()}</strong>
+                        </span>
+                        <span>
+                          You give: <strong className="text-gray-200">{offer.to_value.toLocaleString()}</strong>
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>
+                          You send: <strong className="text-gray-200">{offer.from_value.toLocaleString()}</strong>
+                        </span>
+                        <span>
+                          You get: <strong className="text-gray-200">{offer.to_value.toLocaleString()}</strong>
+                        </span>
+                      </>
+                    )}
                     <span className="text-gray-600">
                       {(offer.assets_from?.length ?? 0) + (offer.assets_to?.length ?? 0)} assets
                     </span>
