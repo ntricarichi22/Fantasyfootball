@@ -3,8 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Bot, Compass, Gauge, Hammer } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeftRight, Bot, Compass, Gauge, Hammer } from "lucide-react";
 
 import { getLeagueId } from "../lib/config";
 
@@ -57,10 +57,37 @@ export default function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("storage", handleStorage);
   }, [router]);
 
+  /* ---- Unread trade count ---- */
+  const [unreadCount, setUnreadCount] = useState(0);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchUnread = useCallback(async () => {
+    const stored = readStoredSelection();
+    if (!stored.rosterId) return;
+    try {
+      const res = await fetch(`/api/trades/unread-count?teamId=${encodeURIComponent(stored.rosterId)}`);
+      if (res.ok) {
+        const json = await res.json();
+        setUnreadCount(typeof json.count === "number" ? json.count : 0);
+      }
+    } catch {
+      // ignore fetch errors
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchUnread();
+    pollRef.current = setInterval(fetchUnread, 15_000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [fetchUnread, selection.rosterId]);
+
   const navItems = useMemo(
     () => [
       { href: "/draft", label: "Draft Room", icon: Compass },
       { href: "/team-snapshot", label: "Team Snapshot", icon: Gauge },
+      { href: "/trades", label: "Trades", icon: ArrowLeftRight, badge: true },
       { href: "/trade-studio", label: "AI Trade Studio", icon: Bot },
       { href: "/trade-builder", label: "Manual Trade Builder", icon: Hammer },
     ],
@@ -138,7 +165,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
                     active ? "text-white" : "text-gray-400 group-hover:text-white",
                   ].join(" ")}
                 />
-                <span>{item.label}</span>
+                <span className="flex-1">{item.label}</span>
+                {"badge" in item && item.badge && unreadCount > 0 && (
+                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
+                    {unreadCount > 99 ? "99+" : unreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}

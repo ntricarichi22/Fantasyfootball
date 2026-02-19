@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   formatDraftPickLabel,
   logDraftPickDistribution,
@@ -176,7 +177,10 @@ const pickKey = (pick: DraftPick) =>
 /*  TradeBuilderPage                                                   */
 /* ================================================================== */
 
-export default function TradeBuilderPage() {
+function TradeBuilderContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   /* ---------- State ---------- */
   const [teams, setTeams] = useState<Team[]>([]);
   const [rosters, setRosters] = useState<Roster[]>([]);
@@ -560,15 +564,18 @@ export default function TradeBuilderPage() {
   /* ---------- Send Offer ---------- */
   const [sending, setSending] = useState(false);
 
+  // Counter mode: read from query params
+  const counterMode = searchParams.get("mode") === "counter";
+  const counterOfferId = searchParams.get("offerId") || "";
+
   const handleSendOffer = useCallback(async () => {
     if (!canSend || sending) return;
     setSending(true);
     try {
-      const res = await fetch("/api/trade-offers", {
+      const res = await fetch("/api/trades/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          league_id: leagueId,
           from_team_id: selectedTeam,
           to_team_id: team2Id,
           assets_from: team1Sends.map((a) => ({
@@ -592,15 +599,20 @@ export default function TradeBuilderPage() {
           from_value: team1GivesTotal,
           to_value: team1GetsTotal,
           grade_label: dealQuality ?? "Fair",
+          ...(counterMode && counterOfferId ? { parent_offer_id: counterOfferId } : {}),
         }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || "Failed to send offer");
       }
+      const json = await res.json();
       showToast("Offer sent!");
       setTeam1Sends([]);
       setTeam2Sends([]);
+      if (json.id) {
+        router.push(`/trades/${json.id}`);
+      }
     } catch (err) {
       console.error("Failed to send offer:", err);
       showToast(err instanceof Error ? err.message : "Failed to send offer");
@@ -610,7 +622,6 @@ export default function TradeBuilderPage() {
   }, [
     canSend,
     sending,
-    leagueId,
     selectedTeam,
     team2Id,
     team1Sends,
@@ -619,7 +630,60 @@ export default function TradeBuilderPage() {
     team1GetsTotal,
     dealQuality,
     showToast,
+    counterMode,
+    counterOfferId,
+    router,
   ]);
+
+  /* ---------- Counter prefill from query params ---------- */
+  const [counterPrefilled, setCounterPrefilled] = useState(false);
+
+  useEffect(() => {
+    if (!counterMode || !counterOfferId || counterPrefilled) return;
+    if (!selectedTeam) return;
+
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/trades/list?offerId=${encodeURIComponent(counterOfferId)}`,
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        const original = json.data;
+        if (!original) return;
+
+        // For a counter: the receiver (us) becomes the sender,
+        // so Team2 = original sender, and we pre-populate assets swapped
+        setTeam2Id(original.from_team_id);
+        // Pre-populate with original assets so user can edit
+        setTeam1Sends(
+          (original.assets_to ?? []).map((a: OfferAsset) => ({
+            key: a.key,
+            label: a.label,
+            type: a.type,
+            position: a.position,
+            team: a.team,
+            ageLabel: a.ageLabel,
+            value: a.value,
+          })),
+        );
+        setTeam2Sends(
+          (original.assets_from ?? []).map((a: OfferAsset) => ({
+            key: a.key,
+            label: a.label,
+            type: a.type,
+            position: a.position,
+            team: a.team,
+            ageLabel: a.ageLabel,
+            value: a.value,
+          })),
+        );
+        setCounterPrefilled(true);
+      } catch {
+        // ignore prefill errors
+      }
+    })();
+  }, [counterMode, counterOfferId, counterPrefilled, selectedTeam]);
 
   /* ---------- Pick value helper ---------- */
   const computePickValue = useCallback(
@@ -884,7 +948,7 @@ export default function TradeBuilderPage() {
                 onClick={handleSendOffer}
                 className="ml-auto rounded-full bg-indigo-600 px-5 py-1.5 text-sm font-bold text-white shadow transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {sending ? "Sending…" : "Send Trade Offer"}
+                {sending ? "Sending…" : counterMode ? "Send Counter Offer" : "Send Trade Offer"}
               </button>
             </div>
 
@@ -1008,5 +1072,13 @@ export default function TradeBuilderPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function TradeBuilderPage() {
+  return (
+    <Suspense>
+      <TradeBuilderContent />
+    </Suspense>
   );
 }
