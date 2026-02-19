@@ -49,22 +49,61 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
   return normalizeDraftStateRow(data as Partial<DraftStateRow>);
 };
 
+const SELECT_COLS = "league_id, status, seconds_remaining, clock_started_at, updated_at";
+
 const upsertDraftState = async (
   client: ReturnType<typeof getSupabaseAdminClient>["client"],
   payload: DraftStateRow
 ) => {
   if (!client) return { data: null, error: "Missing client" };
-  const { data, error } = await client
+
+  // Try upsert with explicit conflict target so it works regardless of
+  // the table's primary key definition.
+  const upsertResult = await client
     .from("draft_state")
-    .upsert(payload)
-    .select("league_id, status, seconds_remaining, clock_started_at, updated_at")
+    .upsert(payload, { onConflict: "league_id" })
+    .select(SELECT_COLS)
     .maybeSingle();
 
-  if (error) {
-    return { data: null, error: error.message };
+  if (!upsertResult.error) {
+    return { data: normalizeDraftStateRow(upsertResult.data as Partial<DraftStateRow>), error: null };
   }
 
-  return { data: normalizeDraftStateRow(data as Partial<DraftStateRow>), error: null };
+  // Fallback: try an update (row already exists) then an insert (new row).
+  const updateResult = await client
+    .from("draft_state")
+    .update(payload)
+    .eq("league_id", payload.league_id)
+    .select(SELECT_COLS)
+    .maybeSingle();
+
+  if (!updateResult.error && updateResult.data) {
+    return { data: normalizeDraftStateRow(updateResult.data as Partial<DraftStateRow>), error: null };
+  }
+
+  const insertResult = await client
+    .from("draft_state")
+    .insert(payload)
+    .select(SELECT_COLS)
+    .maybeSingle();
+
+  if (!insertResult.error) {
+    return { data: normalizeDraftStateRow(insertResult.data as Partial<DraftStateRow>), error: null };
+  }
+
+  // Insert may fail due to a concurrent insert (race condition). Retry update.
+  const retryUpdate = await client
+    .from("draft_state")
+    .update(payload)
+    .eq("league_id", payload.league_id)
+    .select(SELECT_COLS)
+    .maybeSingle();
+
+  if (!retryUpdate.error && retryUpdate.data) {
+    return { data: normalizeDraftStateRow(retryUpdate.data as Partial<DraftStateRow>), error: null };
+  }
+
+  return { data: null, error: insertResult.error.message };
 };
 
 export async function GET() {
