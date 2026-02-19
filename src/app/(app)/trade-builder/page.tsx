@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import TradeCenterTabs from "../../../components/TradeCenterTabs";
 import {
   formatDraftPickLabel,
   logDraftPickDistribution,
@@ -980,7 +981,8 @@ function TradeBuilderContent() {
           </div>
         </header>
 
-        {/* ---- Proposed Offer card ---- */}
+        {/* Trade Center tabs */}
+        <TradeCenterTabs />
         {hasOffer && (
           <section className="mb-3 rounded-xl border border-gray-800 bg-gray-900/80 p-4 shadow-lg">
             <div className="mb-3 flex flex-wrap items-center gap-3">

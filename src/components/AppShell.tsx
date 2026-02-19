@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeftRight, Bot, Compass, Gauge, Hammer } from "lucide-react";
+import { ArrowLeftRight, Compass, Gauge } from "lucide-react";
 
 import { getLeagueId } from "../lib/config";
 
@@ -89,9 +89,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     () => [
       { href: "/draft", label: "Draft Room", icon: Compass },
       { href: "/team-snapshot", label: "Team Snapshot", icon: Gauge },
-      { href: "/trades", label: "Trades", icon: ArrowLeftRight, badge: true },
-      { href: "/trade-studio", label: "AI Trade Studio", icon: Bot },
-      { href: "/trade-builder", label: "Manual Trade Builder", icon: Hammer },
+      { href: "/trades", label: "Trade Center", icon: ArrowLeftRight, badge: true },
     ],
     []
   );
@@ -149,7 +147,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
         <nav className="flex-1 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const active = pathname === item.href || pathname?.startsWith(`${item.href}/`);
+            const isTradeCenterItem = item.href === "/trades";
+            const active = isTradeCenterItem
+              ? (pathname === "/trades" ||
+                  pathname?.startsWith("/trades/") ||
+                  pathname === "/trade-studio" ||
+                  pathname === "/trade-builder")
+              : (pathname === item.href || pathname?.startsWith(`${item.href}/`));
             return (
               <Link
                 key={item.href}
