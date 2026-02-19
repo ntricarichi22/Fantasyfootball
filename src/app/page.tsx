@@ -1543,9 +1543,7 @@ export default function Home() {
           }),
         });
         if (!res.ok) {
-          if (action === "start") {
-            setStatusMessage("Unable to start the draft.");
-          } else if (action === "pause") {
+          if (action === "pause") {
             setStatusMessage("Unable to pause the draft.");
           } else if (action === "resume") {
             setStatusMessage("Unable to resume the draft.");
@@ -1611,7 +1609,12 @@ export default function Home() {
     setClockActionPending(true);
     const nextState = await updateDraftClock("start", INITIAL_PICK_SECONDS);
     setClockActionPending(false);
-    return !!nextState;
+    if (!nextState) {
+      // Allow the draft to start with a local clock even if the server
+      // call failed so the commissioner isn't blocked.
+      setStatusMessage("Draft started (server sync unavailable).");
+    }
+    return true;
   }, [clockActionPending, updateDraftClock]);
 
   const deleteDraftLogEntry = useCallback(
