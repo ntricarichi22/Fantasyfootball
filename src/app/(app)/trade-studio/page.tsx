@@ -254,6 +254,14 @@ const isOfferWithinBounds = (giveValue: number, receiveAssets: OfferAssetDetail[
   return true;
 };
 
+/** Apply position-specific value multipliers: QB premium (1.25×) and TE discount (0.75×). */
+const applyPositionMultiplier = (value: number | null | undefined, position?: string): number => {
+  if (typeof value !== "number") return 0;
+  if (position === "QB") return value * QB_VALUE_MULTIPLIER;
+  if (position === "TE") return value * TE_VALUE_MULTIPLIER;
+  return value;
+};
+
 const collectRosterAssets = (
   roster: Roster,
   teamCount: number,
@@ -273,12 +281,7 @@ const collectRosterAssets = (
       info?.position?.toUpperCase() ||
       info?.fantasy_positions?.[0]?.toUpperCase() ||
       undefined;
-    const adjustedValue =
-      position === "QB" && typeof value === "number"
-        ? value * QB_VALUE_MULTIPLIER
-        : position === "TE" && typeof value === "number"
-          ? value * TE_VALUE_MULTIPLIER
-          : value ?? 0;
+    const adjustedValue = applyPositionMultiplier(value, position);
     const labelParts = [
       info?.full_name ||
         [info?.first_name, info?.last_name].filter(Boolean).join(" ").trim() ||
@@ -440,6 +443,14 @@ const pickAssetsForPartner = (
     }
   }
 
+  /**
+   * Score a candidate receive combo based on trade context.
+   * Higher scores are preferred. Criteria:
+   *  - QB protection (+1000 if returning a QB when team has ≤2 QBs)
+   *  - Stud trade (+200 for same-position downgrade + depth or picks)
+   *  - Position upgrade (+150 for single player at same position as sent player+picks)
+   *  - Team tier: low-value teams favor picks/youth, high-value teams favor star players
+   */
   const scoreCombo = (combo: OfferAssetDetail[]): number => {
     if (!pickContext) return 0;
     let score = 0;
@@ -633,7 +644,8 @@ const buildOfferSuggestions = (
     .map((roster) => {
       const profile = context.profiles?.[roster.roster_id];
       let score = 0;
-      // Prioritize Buyer posture teams regardless of user posture
+      // Prioritize Buyer posture teams regardless of user posture (+3 base);
+      // buyer+seller combo earns an additional +2 bonus (total +5) for best-fit pairing.
       if (profile?.posture === "buyer") score += 3;
       if (profile?.posture === "buyer" && userProfile?.posture === "seller") score += 2;
       if (profile?.mode === "contend" && userProfile?.mode === "rebuild") score += 3;
@@ -789,7 +801,7 @@ const buildAiProfile = (
   players.forEach((p) => {
     const position = p.position?.toUpperCase();
     if (!position || !positionValues[position]) return;
-    const adjustedValue = position === "QB" ? p.value * QB_VALUE_MULTIPLIER : position === "TE" ? p.value * TE_VALUE_MULTIPLIER : p.value;
+    const adjustedValue = applyPositionMultiplier(p.value, position);
     positionValues[position]?.push(adjustedValue);
   });
 

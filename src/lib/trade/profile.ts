@@ -54,11 +54,16 @@ const bandLabel = (rank: number, teamCount: number) => {
 
 const positionalScore = (players: ProfilePlayer[], position: PositionKey, teDiscount: number, qbPremium: number = 1) => {
   const limit = STARTER_LIMITS[position];
+  const adjustValue = (v: number) => {
+    if (position === "QB") return v * qbPremium;
+    if (position === "TE") return v * teDiscount;
+    return v;
+  };
   const sorted = players
     .filter((p) => (p.position || "").toUpperCase() === position)
     .map((p) => ({
       ...p,
-      adjusted: position === "QB" ? (p.value ?? 0) * qbPremium : position === "TE" ? (p.value ?? 0) * teDiscount : p.value ?? 0,
+      adjusted: adjustValue(p.value ?? 0),
     }))
     .sort((a, b) => (b.adjusted ?? 0) - (a.adjusted ?? 0))
     .slice(0, limit);
