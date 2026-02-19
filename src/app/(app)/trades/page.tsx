@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { Inbox, Send, MessageCircle } from "lucide-react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { MessageCircle } from "lucide-react";
+import TradeCenterTabs from "../../../components/TradeCenterTabs";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -101,8 +102,17 @@ async function fetchRosterNames(): Promise<Record<string, string>> {
 /* ------------------------------------------------------------------ */
 
 export default function TradesInboxPage() {
+  return (
+    <Suspense>
+      <TradesInboxPageInner />
+    </Suspense>
+  );
+}
+
+function TradesInboxPageInner() {
   const router = useRouter();
-  const [tab, setTab] = useState<"inbox" | "sent">("inbox");
+  const searchParams = useSearchParams();
+  const view = searchParams.get("view") === "history" ? "history" : "active";
   const [threads, setThreads] = useState<TradeThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
@@ -139,50 +149,23 @@ export default function TradesInboxPage() {
 
   const getTeamLabel = (teamId: string) => rosterNames[teamId] || `Team ${teamId}`;
 
-  // For "All Threads" tab show all threads; for "Initiated" tab show only threads we created
+  // For "active" view: show only open threads; for "history": show accepted/declined
   const filteredThreads =
-    tab === "inbox"
-      ? threads
-      : threads.filter((t) => t.created_by_team_id === rosterId);
+    view === "history"
+      ? threads.filter((t) => t.status === "accepted" || t.status === "declined")
+      : threads.filter((t) => t.status === "open");
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-black text-gray-100">
       <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-6">
         {/* Header */}
         <header className="mb-4 flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-white">Trades</h1>
+          <h1 className="text-2xl font-bold text-white">Trade Center</h1>
           <span className="text-sm text-gray-400">{teamName || `Team ${rosterId}`}</span>
         </header>
 
-        {/* Tabs */}
-        <div className="mb-4 flex gap-1 rounded-lg border border-gray-800 bg-gray-900/60 p-1">
-          <button
-            type="button"
-            onClick={() => setTab("inbox")}
-            className={[
-              "flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition",
-              tab === "inbox"
-                ? "bg-red-600/80 text-white"
-                : "text-gray-400 hover:bg-white/5 hover:text-white",
-            ].join(" ")}
-          >
-            <Inbox className="h-4 w-4" />
-            All Threads
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("sent")}
-            className={[
-              "flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition",
-              tab === "sent"
-                ? "bg-red-600/80 text-white"
-                : "text-gray-400 hover:bg-white/5 hover:text-white",
-            ].join(" ")}
-          >
-            <Send className="h-4 w-4" />
-            Initiated
-          </button>
-        </div>
+        {/* Trade Center tabs */}
+        <TradeCenterTabs />
 
         {/* Thread list */}
         <div className="flex-1 space-y-2 overflow-y-auto">
@@ -193,12 +176,12 @@ export default function TradesInboxPage() {
           ) : filteredThreads.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-gray-500">
               <p className="text-lg font-semibold">
-                {tab === "inbox" ? "No trade threads" : "No threads initiated"}
+                {view === "history" ? "No trade history" : "No active trades"}
               </p>
               <p className="mt-1 text-sm text-gray-600">
-                {tab === "inbox"
-                  ? "Trade threads with other teams will appear here."
-                  : "Threads you started will appear here."}
+                {view === "history"
+                  ? "Accepted and declined trades will appear here."
+                  : "Open trade threads with other teams will appear here."}
               </p>
             </div>
           ) : (

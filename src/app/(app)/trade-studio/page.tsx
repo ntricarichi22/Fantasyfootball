@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import TradeCenterTabs from "../../../components/TradeCenterTabs";
 import {
   formatDraftPickLabel,
   logDraftPickDistribution,
@@ -1939,6 +1940,8 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
             Back to Home
           </Link>
         </header>
+
+        <TradeCenterTabs />
 
         <div className="h-[calc(100vh-140px)] min-h-0 overflow-hidden">
           {!selectedTeam ? (

@@ -83,6 +83,34 @@ export async function POST(request: NextRequest) {
 
   const now = new Date().toISOString();
 
+  // Withdraw = hard delete the entire thread and all related data
+  if (status === "withdrawn" && offer.thread_id) {
+    const threadId = offer.thread_id;
+    const { error: msgDeleteError } = await client
+      .from("trade_messages")
+      .delete()
+      .eq("thread_id", threadId);
+    if (msgDeleteError) {
+      return NextResponse.json({ error: msgDeleteError.message }, { status: 500 });
+    }
+    const { error: offersDeleteError } = await client
+      .from("trade_offers")
+      .delete()
+      .eq("thread_id", threadId);
+    if (offersDeleteError) {
+      return NextResponse.json({ error: offersDeleteError.message }, { status: 500 });
+    }
+    const { error: deleteError } = await client
+      .from("trade_threads")
+      .delete()
+      .eq("id", threadId)
+      .eq("league_id", league_id);
+    if (deleteError) {
+      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, thread_id: threadId, deleted: true });
+  }
+
   const { error: updateError } = await client
     .from("trade_offers")
     .update({ status, updated_at: now })

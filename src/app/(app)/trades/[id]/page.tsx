@@ -13,6 +13,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import TradeCenterTabs from "../../../../components/TradeCenterTabs";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -478,6 +479,12 @@ export default function TradeThreadPage() {
         }),
       });
       if (res.ok) {
+        const json = await res.json().catch(() => ({}));
+        if (newStatus === "withdrawn" && json.deleted) {
+          // Thread was hard-deleted; navigate back to trades list
+          router.push("/trades");
+          return;
+        }
         showToast(
           newStatus === "accepted"
             ? "Offer accepted!"
@@ -630,6 +637,9 @@ export default function TradeThreadPage() {
             {offers.length} offer{offers.length !== 1 ? "s" : ""}
           </span>
         </header>
+
+        {/* Trade Center tabs */}
+        <TradeCenterTabs />
 
         {/* Main content: two panels */}
         <div className="flex flex-1 gap-4 overflow-hidden">
