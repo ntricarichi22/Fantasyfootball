@@ -1587,20 +1587,33 @@ export default function Home() {
   const handlePauseDraft = useCallback(async () => {
     if (clockActionPending) return;
     setClockActionPending(true);
-    const nextState = await updateDraftClock("pause", currentRemainingSeconds());
+    const remaining = currentRemainingSeconds();
+    const nextState = await updateDraftClock("pause", remaining);
     setClockActionPending(false);
     if (!nextState) {
-      setStatusMessage("Unable to pause the draft.");
+      // Server unavailable – pause locally so the timer freezes.
+      setDraftClockState((prev) =>
+        prev
+          ? { ...prev, status: "paused" as const, seconds_remaining: remaining }
+          : prev
+      );
     }
   }, [clockActionPending, currentRemainingSeconds, updateDraftClock]);
 
   const handleResumeDraft = useCallback(async () => {
     if (clockActionPending) return;
     setClockActionPending(true);
-    const nextState = await updateDraftClock("resume", currentRemainingSeconds());
+    const remaining = currentRemainingSeconds();
+    const nextState = await updateDraftClock("resume", remaining);
     setClockActionPending(false);
     if (!nextState) {
-      setStatusMessage("Unable to resume the draft.");
+      // Server unavailable – resume locally so the timer restarts.
+      const now = new Date().toISOString();
+      setDraftClockState((prev) =>
+        prev
+          ? { ...prev, status: "running" as const, seconds_remaining: remaining, clock_started_at: now }
+          : prev
+      );
     }
   }, [clockActionPending, currentRemainingSeconds, updateDraftClock]);
 
@@ -1612,6 +1625,13 @@ export default function Home() {
     if (!nextState) {
       // Allow the draft to start with a local clock even if the server
       // call failed so the commissioner isn't blocked.
+      setDraftClockState({
+        league_id: "local",
+        status: "running",
+        seconds_remaining: INITIAL_PICK_SECONDS,
+        clock_started_at: new Date().toISOString(),
+      });
+      setClockSecondsLeft(INITIAL_PICK_SECONDS);
       setStatusMessage("Draft started (server sync unavailable).");
     }
     return true;
