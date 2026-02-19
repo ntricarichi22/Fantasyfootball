@@ -37,7 +37,7 @@ export interface LeagueRankingsResult {
   teamCount: number;
 }
 
-export const TE_FLEX_MULTIPLIER = 0.7;
+export const TE_FLEX_MULTIPLIER = 0.75;
 
 const defaultMetrics = (): TeamMetrics => ({
   startingQBs: 0,
@@ -67,9 +67,10 @@ const takeTop = (values: number[], count: number) =>
 export const computeLeagueRankings = (
   teams: LeagueTeamInput[],
   playerValues: Record<string, number>,
-  options?: { teMultiplier?: number }
+  options?: { teMultiplier?: number; qbPremium?: number }
 ): LeagueRankingsResult => {
   const teMultiplier = options?.teMultiplier ?? TE_FLEX_MULTIPLIER;
+  const qbPremium = options?.qbPremium ?? 1.25;
 
   const entries = teams
     .filter((team) => toId(team.rosterId))
@@ -86,7 +87,7 @@ export const computeLeagueRankings = (
         const position = player.position?.toUpperCase();
         const value = playerValues[id] ?? 0;
         if (!Number.isFinite(value) || value <= 0) return;
-        if (position === "QB") qbValues.push(value);
+        if (position === "QB") qbValues.push(value * qbPremium);
         else if (position === "RB") rbValues.push(value);
         else if (position === "WR") wrValues.push(value);
         else if (position === "TE") teValues.push(value * teMultiplier);
