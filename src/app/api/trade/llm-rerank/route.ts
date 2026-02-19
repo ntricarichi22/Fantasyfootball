@@ -174,7 +174,7 @@ const callOpenAI = async (
             ? item.explanation
             : offer.explanation,
       });
-      offerMap.delete(item.id!);
+      offerMap.delete(offer.id);
     }
 
     // Append any offers not mentioned by the LLM.

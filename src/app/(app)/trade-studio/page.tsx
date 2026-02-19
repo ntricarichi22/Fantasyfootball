@@ -620,7 +620,7 @@ const buildOfferSuggestions = (
     id: p.id,
     position: p.position,
     adjustedValue: p.value,
-    age: p.ageLabel ? parseInt(p.ageLabel, 10) || null : null,
+    age: p.ageLabel ? parseAgeFromLabel(p.ageLabel) : null,
   }));
   const userStarterLevels = computeStarterLevels(userAllPlayers);
   const userStarterQBs = userStarterLevels.QB;
