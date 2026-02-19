@@ -87,11 +87,23 @@ const upsertDraftState = async (
     .select(SELECT_COLS)
     .maybeSingle();
 
-  if (insertResult.error) {
-    return { data: null, error: insertResult.error.message };
+  if (!insertResult.error) {
+    return { data: normalizeDraftStateRow(insertResult.data as Partial<DraftStateRow>), error: null };
   }
 
-  return { data: normalizeDraftStateRow(insertResult.data as Partial<DraftStateRow>), error: null };
+  // Insert may fail due to a concurrent insert (race condition). Retry update.
+  const retryUpdate = await client
+    .from("draft_state")
+    .update(payload)
+    .eq("league_id", payload.league_id)
+    .select(SELECT_COLS)
+    .maybeSingle();
+
+  if (!retryUpdate.error && retryUpdate.data) {
+    return { data: normalizeDraftStateRow(retryUpdate.data as Partial<DraftStateRow>), error: null };
+  }
+
+  return { data: null, error: insertResult.error.message };
 };
 
 export async function GET() {
