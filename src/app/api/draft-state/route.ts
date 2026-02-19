@@ -37,7 +37,7 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
   if (!client) return null;
   const { data, error } = await client
     .from("draft_state")
-    .select("league_id, status, seconds_remaining, clock_started_at, updated_at")
+    .select("league_id, status, seconds_remaining, clock_started_at")
     .eq("league_id", leagueId)
     .maybeSingle();
 
@@ -49,7 +49,7 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
   return normalizeDraftStateRow(data as Partial<DraftStateRow>);
 };
 
-const SELECT_COLS = "league_id, status, seconds_remaining, clock_started_at, updated_at";
+const SELECT_COLS = "league_id, status, seconds_remaining, clock_started_at";
 
 const upsertDraftState = async (
   client: ReturnType<typeof getSupabaseAdminClient>["client"],
@@ -57,11 +57,16 @@ const upsertDraftState = async (
 ) => {
   if (!client) return { data: null, error: "Missing client" };
 
+  // Strip updated_at from the write payload – the column may not exist in every
+  // setup and Supabase will auto-manage it when a trigger is present.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { updated_at: _ignored, ...writePayload } = payload as DraftStateRow & { updated_at?: unknown };
+
   // Try upsert with explicit conflict target so it works regardless of
   // the table's primary key definition.
   const upsertResult = await client
     .from("draft_state")
-    .upsert(payload, { onConflict: "league_id" })
+    .upsert(writePayload, { onConflict: "league_id" })
     .select(SELECT_COLS)
     .maybeSingle();
 
@@ -72,7 +77,7 @@ const upsertDraftState = async (
   // Fallback: try an update (row already exists) then an insert (new row).
   const updateResult = await client
     .from("draft_state")
-    .update(payload)
+    .update(writePayload)
     .eq("league_id", payload.league_id)
     .select(SELECT_COLS)
     .maybeSingle();
@@ -83,7 +88,7 @@ const upsertDraftState = async (
 
   const insertResult = await client
     .from("draft_state")
-    .insert(payload)
+    .insert(writePayload)
     .select(SELECT_COLS)
     .maybeSingle();
 
@@ -94,7 +99,7 @@ const upsertDraftState = async (
   // Insert may fail due to a concurrent insert (race condition). Retry update.
   const retryUpdate = await client
     .from("draft_state")
-    .update(payload)
+    .update(writePayload)
     .eq("league_id", payload.league_id)
     .select(SELECT_COLS)
     .maybeSingle();
@@ -103,7 +108,26 @@ const upsertDraftState = async (
     return { data: normalizeDraftStateRow(retryUpdate.data as Partial<DraftStateRow>), error: null };
   }
 
-  return { data: null, error: insertResult.error.message };
+  // Last resort: write without RETURNING and read separately.  This avoids
+  // failures caused by column mismatches in the SELECT / RETURNING clause.
+  const plainUpsert = await client
+    .from("draft_state")
+    .upsert(writePayload, { onConflict: "league_id" });
+
+  if (!plainUpsert.error) {
+    const readBack = await client
+      .from("draft_state")
+      .select(SELECT_COLS)
+      .eq("league_id", payload.league_id)
+      .maybeSingle();
+
+    return {
+      data: normalizeDraftStateRow((readBack.data ?? writePayload) as Partial<DraftStateRow>),
+      error: null,
+    };
+  }
+
+  return { data: null, error: plainUpsert.error?.message ?? insertResult.error?.message ?? "Unknown error" };
 };
 
 export async function GET() {
@@ -155,7 +179,6 @@ export async function POST(request: NextRequest) {
       status: "running",
       seconds_remaining: seconds,
       clock_started_at: nowIso,
-      updated_at: nowIso,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {
@@ -181,7 +204,6 @@ export async function POST(request: NextRequest) {
       status: "paused",
       seconds_remaining: normalizedSeconds,
       clock_started_at: existing?.clock_started_at ?? nowIso,
-      updated_at: nowIso,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {
@@ -196,7 +218,6 @@ export async function POST(request: NextRequest) {
       status: "running",
       seconds_remaining: normalizedSeconds,
       clock_started_at: nowIso,
-      updated_at: nowIso,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {
@@ -214,7 +235,6 @@ export async function POST(request: NextRequest) {
         INITIAL_PICK_SECONDS
       ),
       clock_started_at: nowIso,
-      updated_at: nowIso,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {

@@ -99,7 +99,7 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
   if (!client || !LEAGUE_ID) return null;
   const { data, error } = await client
     .from("draft_state")
-    .select("league_id, status, seconds_remaining, clock_started_at, updated_at")
+    .select("league_id, status, seconds_remaining, clock_started_at")
     .eq("league_id", LEAGUE_ID)
     .maybeSingle();
   if (error) {
@@ -162,8 +162,7 @@ export async function POST(request: NextRequest) {
       status: "running",
       seconds_remaining: INITIAL_PICK_SECONDS,
       clock_started_at: nowIso,
-      updated_at: nowIso,
-    });
+    }, { onConflict: "league_id" });
     if (clockError) {
       console.warn("Unable to update draft_state after pick", clockError);
     }
