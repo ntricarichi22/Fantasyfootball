@@ -24,10 +24,29 @@ export async function GET(
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
+  // Resolve thread_id from the offer so we query by canonical column only
+  const { data: offerRow, error: offerError } = await client
+    .from("trade_offers")
+    .select("thread_id")
+    .eq("id", offerId)
+    .eq("league_id", league_id)
+    .single();
+
+  if (offerError) {
+    return NextResponse.json(
+      { error: offerError.message },
+      { status: 500 },
+    );
+  }
+
+  if (!offerRow?.thread_id) {
+    return NextResponse.json({ data: [] });
+  }
+
   const { data, error } = await client
     .from("trade_messages")
-    .select("*")
-    .eq("offer_id", offerId)
+    .select("id, league_id, thread_id, from_team_id, message, created_at")
+    .eq("thread_id", offerRow.thread_id)
     .eq("league_id", league_id)
     .order("created_at", { ascending: true });
 
@@ -77,16 +96,30 @@ export async function POST(
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
+  // Resolve thread_id from the offer so we insert with canonical columns only
+  const { data: offerRow, error: offerError } = await client
+    .from("trade_offers")
+    .select("thread_id")
+    .eq("id", offerId)
+    .eq("league_id", league_id)
+    .single();
+
+  if (offerError || !offerRow?.thread_id) {
+    return NextResponse.json(
+      { error: offerError?.message ?? "Offer has no associated thread" },
+      { status: 400 },
+    );
+  }
+
   const { data, error } = await client
     .from("trade_messages")
     .insert({
       league_id,
-      offer_id: offerId,
+      thread_id: offerRow.thread_id,
       from_team_id,
       message: message.trim(),
-      created_at: new Date().toISOString(),
     })
-    .select("*")
+    .select("id, league_id, thread_id, from_team_id, message, created_at")
     .single();
 
   if (error) {
