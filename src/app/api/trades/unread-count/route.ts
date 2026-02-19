@@ -21,6 +21,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
+  // Count open threads where this team has unread activity:
+  // Any thread where the team is a participant and there's a pending offer they received
   const { count, error } = await client
     .from("trade_offers")
     .select("id", { count: "exact", head: true })

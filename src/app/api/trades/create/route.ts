@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
     to_value,
     grade_label,
     parent_offer_id,
+    thread_id: bodyThreadId,
   } = body as {
     from_team_id?: string;
     to_team_id?: string;
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest) {
     to_value?: number;
     grade_label?: string;
     parent_offer_id?: string;
+    thread_id?: string;
   };
 
   if (!from_team_id || !to_team_id) {
@@ -61,11 +63,52 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
+  const now = new Date().toISOString();
+
+  // Resolve thread: use provided thread_id, or find/create one
+  let threadId: string | null = bodyThreadId ?? null;
+
+  if (!threadId) {
+    const { data: existing } = await client
+      .from("trade_threads")
+      .select("id")
+      .eq("league_id", league_id)
+      .eq("status", "open")
+      .or(
+        `and(team_a_id.eq.${from_team_id},team_b_id.eq.${to_team_id}),and(team_a_id.eq.${to_team_id},team_b_id.eq.${from_team_id})`,
+      )
+      .maybeSingle();
+
+    if (existing?.id) {
+      threadId = existing.id;
+    } else {
+      const { data: newThread, error: threadError } = await client
+        .from("trade_threads")
+        .insert({
+          league_id,
+          team_a_id: from_team_id,
+          team_b_id: to_team_id,
+          created_by_team_id: from_team_id,
+          status: "open",
+          last_activity_at: now,
+          last_offer_at: now,
+          created_at: now,
+          updated_at: now,
+        })
+        .select("id")
+        .single();
+
+      if (!threadError && newThread?.id) {
+        threadId = newThread.id;
+      }
+    }
+  }
+
   // If this is a counter, mark the original offer as countered
   if (parent_offer_id) {
     const { error: counterError } = await client
       .from("trade_offers")
-      .update({ status: "countered", updated_at: new Date().toISOString() })
+      .update({ status: "countered", updated_at: now })
       .eq("id", parent_offer_id)
       .eq("league_id", league_id)
       .eq("status", "pending");
@@ -91,8 +134,9 @@ export async function POST(request: NextRequest) {
       grade_label: typeof grade_label === "string" ? grade_label : "",
       status: "pending",
       parent_offer_id: parent_offer_id || null,
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
+      thread_id: threadId,
+      created_at: now,
+      updated_at: now,
     })
     .select("id")
     .single();
@@ -101,5 +145,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ ok: true, id: data?.id });
+  // Update thread timestamps
+  if (threadId) {
+    await client
+      .from("trade_threads")
+      .update({ last_offer_at: now, last_activity_at: now, updated_at: now })
+      .eq("id", threadId)
+      .eq("league_id", league_id);
+  }
+
+  return NextResponse.json({ ok: true, id: data?.id, thread_id: threadId });
 }

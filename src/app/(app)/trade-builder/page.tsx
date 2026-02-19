@@ -567,6 +567,7 @@ function TradeBuilderContent() {
   // Counter mode: read from query params
   const counterMode = searchParams.get("mode") === "counter";
   const counterOfferId = searchParams.get("offerId") || "";
+  const counterThreadId = searchParams.get("threadId") || "";
 
   const handleSendOffer = useCallback(async () => {
     if (!canSend || sending) return;
@@ -600,6 +601,7 @@ function TradeBuilderContent() {
           to_value: team1GetsTotal,
           grade_label: dealQuality ?? "Fair",
           ...(counterMode && counterOfferId ? { parent_offer_id: counterOfferId } : {}),
+          ...(counterMode && counterThreadId ? { thread_id: counterThreadId } : {}),
         }),
       });
       if (!res.ok) {
@@ -610,9 +612,12 @@ function TradeBuilderContent() {
       showToast("Offer sent!");
       setTeam1Sends([]);
       setTeam2Sends([]);
-      if (json.id) {
-        router.push(`/trades/${json.id}`);
+      // Navigate back to thread (thread_id is always returned by the create route)
+      const destinationThreadId = json.thread_id || counterThreadId;
+      if (destinationThreadId) {
+        router.push(`/trades/${destinationThreadId}`);
       }
+      // No fallback to json.id since [id] route now expects a threadId
     } catch (err) {
       console.error("Failed to send offer:", err);
       showToast(err instanceof Error ? err.message : "Failed to send offer");
@@ -632,6 +637,7 @@ function TradeBuilderContent() {
     showToast,
     counterMode,
     counterOfferId,
+    counterThreadId,
     router,
   ]);
 
@@ -639,51 +645,95 @@ function TradeBuilderContent() {
   const [counterPrefilled, setCounterPrefilled] = useState(false);
 
   useEffect(() => {
-    if (!counterMode || !counterOfferId || counterPrefilled) return;
+    if (!counterMode || counterPrefilled) return;
     if (!selectedTeam) return;
 
     (async () => {
       try {
-        const res = await fetch(
-          `/api/trades/list?offerId=${encodeURIComponent(counterOfferId)}`,
-        );
-        if (!res.ok) return;
-        const json = await res.json();
-        const original = json.data;
-        if (!original) return;
+        // Prefer threadId-based prefill
+        if (counterThreadId) {
+          const res = await fetch(
+            `/api/trades/threads/${encodeURIComponent(counterThreadId)}`,
+          );
+          if (!res.ok) return;
+          const json = await res.json();
+          // Find latest pending offer in thread
+          const offers: OfferAsset[] = json.offers ?? [];
+          const latestPending = [...(json.offers ?? [])]
+            .reverse()
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .find((o: any) => o.status === "pending");
+          void offers;
+          if (!latestPending) return;
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const original: any = latestPending;
+          setTeam2Id(original.from_team_id);
+          setTeam1Sends(
+            (original.assets_to ?? []).map((a: OfferAsset) => ({
+              key: a.key,
+              label: a.label,
+              type: a.type,
+              position: a.position,
+              team: a.team,
+              ageLabel: a.ageLabel,
+              value: a.value,
+            })),
+          );
+          setTeam2Sends(
+            (original.assets_from ?? []).map((a: OfferAsset) => ({
+              key: a.key,
+              label: a.label,
+              type: a.type,
+              position: a.position,
+              team: a.team,
+              ageLabel: a.ageLabel,
+              value: a.value,
+            })),
+          );
+          setCounterPrefilled(true);
+          return;
+        }
 
-        // For a counter: the receiver (us) becomes the sender,
-        // so Team2 = original sender, and we pre-populate assets swapped
-        setTeam2Id(original.from_team_id);
-        // Pre-populate with original assets so user can edit
-        setTeam1Sends(
-          (original.assets_to ?? []).map((a: OfferAsset) => ({
-            key: a.key,
-            label: a.label,
-            type: a.type,
-            position: a.position,
-            team: a.team,
-            ageLabel: a.ageLabel,
-            value: a.value,
-          })),
-        );
-        setTeam2Sends(
-          (original.assets_from ?? []).map((a: OfferAsset) => ({
-            key: a.key,
-            label: a.label,
-            type: a.type,
-            position: a.position,
-            team: a.team,
-            ageLabel: a.ageLabel,
-            value: a.value,
-          })),
-        );
-        setCounterPrefilled(true);
+        // Fallback: offerId-based prefill (legacy)
+        if (counterOfferId) {
+          const res = await fetch(
+            `/api/trades/list?offerId=${encodeURIComponent(counterOfferId)}`,
+          );
+          if (!res.ok) return;
+          const json = await res.json();
+          const original = json.data;
+          if (!original) return;
+
+          setTeam2Id(original.from_team_id);
+          setTeam1Sends(
+            (original.assets_to ?? []).map((a: OfferAsset) => ({
+              key: a.key,
+              label: a.label,
+              type: a.type,
+              position: a.position,
+              team: a.team,
+              ageLabel: a.ageLabel,
+              value: a.value,
+            })),
+          );
+          setTeam2Sends(
+            (original.assets_from ?? []).map((a: OfferAsset) => ({
+              key: a.key,
+              label: a.label,
+              type: a.type,
+              position: a.position,
+              team: a.team,
+              ageLabel: a.ageLabel,
+              value: a.value,
+            })),
+          );
+          setCounterPrefilled(true);
+        }
       } catch {
         // ignore prefill errors
       }
     })();
-  }, [counterMode, counterOfferId, counterPrefilled, selectedTeam]);
+  }, [counterMode, counterOfferId, counterThreadId, counterPrefilled, selectedTeam]);
 
   /* ---------- Pick value helper ---------- */
   const computePickValue = useCallback(
