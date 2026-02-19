@@ -766,7 +766,7 @@ export default function TradeBuilderPage() {
       <section className="flex flex-[3] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-3 shadow-lg">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-white">Roster</h2>
-          <span className="text-[11px] text-gray-500">{teamName}</span>
+          <span className="text-sm font-bold text-white">{teamName}</span>
         </div>
         <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
           {data.starting.length > 0 && (
@@ -791,7 +791,7 @@ export default function TradeBuilderPage() {
       <section className="flex flex-[2] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-3 shadow-lg">
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-white">Draft Picks</h2>
-          <span className="text-[11px] text-gray-500">{teamName}</span>
+          <span className="text-sm font-bold text-white">{teamName}</span>
         </div>
         {draftOrderAvailable === false && (
           <p className="mb-1 text-[10px] text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
@@ -832,44 +832,27 @@ export default function TradeBuilderPage() {
         <header className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-gray-800 bg-gray-900/80 px-4 py-3">
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase tracking-wide text-gray-400">Team 1:</span>
-            <span className="text-sm font-semibold text-white">{team1Name}</span>
+            <span className="text-lg font-bold text-white">{team1Name}</span>
           </div>
 
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase tracking-wide text-gray-400">Team 2:</span>
-            {team2Id ? (
-              <span className="text-sm font-semibold text-white">{team2Name}</span>
-            ) : (
-              <select
-                className="rounded-md border border-gray-700 bg-black px-2 py-1 text-sm text-white"
-                value=""
-                onChange={(e) => {
-                  setTeam2Id(e.target.value);
-                  setTeam1Sends([]);
-                  setTeam2Sends([]);
-                }}
-              >
-                <option value="">Add a Second Team ▾</option>
-                {team2Options.map((t) => (
-                  <option key={t.id} value={toId(t.id)}>
-                    {t.name}
-                  </option>
-                ))}
-              </select>
-            )}
-            {team2Id && (
-              <button
-                type="button"
-                onClick={() => {
-                  setTeam2Id("");
-                  setTeam1Sends([]);
-                  setTeam2Sends([]);
-                }}
-                className="text-xs text-gray-400 hover:text-white"
-              >
-                Change
-              </button>
-            )}
+            <select
+              className="rounded-md border border-gray-700 bg-black px-2 py-1 text-lg font-bold text-white"
+              value={team2Id}
+              onChange={(e) => {
+                setTeam2Id(e.target.value);
+                setTeam1Sends([]);
+                setTeam2Sends([]);
+              }}
+            >
+              <option value="">Add a Second Team</option>
+              {team2Options.map((t) => (
+                <option key={t.id} value={toId(t.id)}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="ml-auto">
@@ -908,7 +891,7 @@ export default function TradeBuilderPage() {
             <div className="grid grid-cols-2 gap-6">
               {/* Team 2 receives (Team 1 sends) */}
               <div>
-                <p className="mb-1 text-xs uppercase tracking-wide text-gray-400">
+                <p className="mb-1 inline-block rounded-md bg-gray-800 px-2 py-0.5 text-sm font-bold uppercase tracking-wide text-white">
                   {team2Name || "Team 2"} receives
                 </p>
                 <div className="space-y-1">
@@ -949,7 +932,7 @@ export default function TradeBuilderPage() {
 
               {/* Team 1 receives (Team 2 sends) */}
               <div>
-                <p className="mb-1 text-xs uppercase tracking-wide text-gray-400">
+                <p className="mb-1 inline-block rounded-md bg-gray-800 px-2 py-0.5 text-sm font-bold uppercase tracking-wide text-white">
                   {team1Name} receives
                 </p>
                 <div className="space-y-1">
