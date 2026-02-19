@@ -1200,6 +1200,19 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
   const [offerSuggestions, setOfferSuggestions] = useState<OfferSuggestion[]>([]);
   const [activeOfferIndex, setActiveOfferIndex] = useState(0);
   const [offerAggression, setOfferAggression] = useState(50);
+  const [incomingOffers, setIncomingOffers] = useState<
+    Array<{
+      id: string;
+      from_team_id: string;
+      to_team_id: string;
+      assets_from: Array<{ key: string; label: string; type: string; position?: string; team?: string; ageLabel?: string; value: number }>;
+      assets_to: Array<{ key: string; label: string; type: string; position?: string; team?: string; ageLabel?: string; value: number }>;
+      from_value: number;
+      to_value: number;
+      grade_label: string;
+      created_at: string;
+    }>
+  >([]);
   const lastTeamRef = useRef<string | null>(null);
   const { leagueId, leagueIdError } = useMemo(() => {
     try {
@@ -1456,6 +1469,30 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!leagueId || !selectedTeam) return;
+    let isMounted = true;
+
+    async function fetchIncomingOffers() {
+      try {
+        const res = await fetch(
+          `/api/trade-offers?league_id=${encodeURIComponent(leagueId)}&to_team_id=${encodeURIComponent(selectedTeam)}`
+        );
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!isMounted) return;
+        setIncomingOffers(json.data ?? []);
+      } catch {
+        // ignore fetch errors
+      }
+    }
+
+    fetchIncomingOffers();
+    return () => {
+      isMounted = false;
+    };
+  }, [leagueId, selectedTeam]);
 
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
@@ -2326,9 +2363,51 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                         )}
                       </div>
                     ) : activeWorkbenchTab === "incoming" ? (
-                      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
-                        <p>No incoming offers yet.</p>
-                        <p className="text-xs text-gray-500">Generate offers or await league activity.</p>
+                      <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto rounded-lg border border-gray-800 bg-black/40 p-3 text-sm">
+                        {incomingOffers.length > 0 ? (
+                          incomingOffers.map((offer) => {
+                            const fromName = rosterNames[Number(offer.from_team_id)] || `Team ${offer.from_team_id}`;
+                            return (
+                              <div
+                                key={offer.id}
+                                className="rounded-lg border border-gray-700 bg-gray-900 p-3"
+                              >
+                                <div className="mb-2 flex items-center justify-between">
+                                  <span className="text-xs font-semibold text-white">
+                                    From: {fromName}
+                                  </span>
+                                  <span className="rounded-full bg-indigo-900/60 px-2 py-0.5 text-[10px] font-bold text-indigo-200">
+                                    {offer.grade_label}
+                                  </span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                  <div>
+                                    <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-500">You receive</p>
+                                    {(offer.assets_to ?? []).map((a) => (
+                                      <p key={a.key} className="text-gray-300">{a.label} ({a.value.toLocaleString()})</p>
+                                    ))}
+                                    <p className="mt-1 font-semibold text-gray-200">Total: {offer.to_value.toLocaleString()}</p>
+                                  </div>
+                                  <div>
+                                    <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-500">You send</p>
+                                    {(offer.assets_from ?? []).map((a) => (
+                                      <p key={a.key} className="text-gray-300">{a.label} ({a.value.toLocaleString()})</p>
+                                    ))}
+                                    <p className="mt-1 font-semibold text-gray-200">Total: {offer.from_value.toLocaleString()}</p>
+                                  </div>
+                                </div>
+                                <p className="mt-1 text-[10px] text-gray-500">
+                                  {new Date(offer.created_at).toLocaleString()}
+                                </p>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-gray-400">
+                            <p>No incoming offers yet.</p>
+                            <p className="text-xs text-gray-500">Generate offers or await league activity.</p>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
