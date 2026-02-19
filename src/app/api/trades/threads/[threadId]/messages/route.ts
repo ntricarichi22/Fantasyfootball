@@ -77,8 +77,6 @@ export async function POST(
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
-  const now = new Date().toISOString();
-
   const { data, error } = await client
     .from("trade_messages")
     .insert({
@@ -86,7 +84,6 @@ export async function POST(
       thread_id: threadId,
       from_team_id,
       message: message.trim(),
-      created_at: now,
     })
     .select("*")
     .single();
@@ -96,6 +93,7 @@ export async function POST(
   }
 
   // Update thread last_message_at + last_activity_at
+  const now = new Date().toISOString();
   await client
     .from("trade_threads")
     .update({ last_message_at: now, last_activity_at: now, updated_at: now })
