@@ -38,10 +38,22 @@ function parseCSVLine(line: string): string[] {
   const result: string[] = [];
   let current = "";
   let inQuotes = false;
-  for (const ch of line) {
-    if (ch === '"') {
-      inQuotes = !inQuotes;
-    } else if (ch === "," && !inQuotes) {
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (i + 1 < line.length && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
       result.push(current);
       current = "";
     } else {
@@ -71,7 +83,11 @@ function parseCSV(text: string): Record<string, string>[] {
 
 /* ── Name normalisation (match Sleeper search_full_name) ───────────── */
 function normalizeName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z]/g, "");
+  return name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z]/g, "");
 }
 
 /* ── Sleeper player dictionary ─────────────────────────────────────── */
@@ -351,7 +367,11 @@ async function handler(request: NextRequest) {
 
       for (const src of sources) {
         const val = src.playerMap[id];
-        if (val !== undefined && src.pick101Value != null) {
+        if (
+          val !== undefined &&
+          src.pick101Value != null &&
+          src.pick101Value > 0
+        ) {
           const ratio = val / src.pick101Value;
           ratios.push(ratio);
           sourceRatios[src.name] = ratio;
