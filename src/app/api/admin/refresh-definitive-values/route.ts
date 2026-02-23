@@ -4,7 +4,13 @@ import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 
 const DEFAULT_YEAR = "2026";
-const TEAM_COUNT = 12;
+const TGIF_101_VALUE = 500;
+
+/* ── External source URLs ──────────────────────────────────────────── */
+const FANTASYCALC_URL =
+  "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=0.5";
+const DYNASTY_PROCESS_VALUES_URL =
+  "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values.csv";
 
 /* ── Position multipliers ──────────────────────────────────────────── */
 const BASE_MULTIPLIERS: Record<string, number> = {
@@ -27,135 +33,214 @@ const teTierFactor = (rank: number): number => {
   return 0.95;
 };
 
-/* ── Sleeper player dictionary (position lookup) ───────────────────── */
+/* ── CSV parser ────────────────────────────────────────────────────── */
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+  for (const ch of line) {
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+    } else if (ch === "," && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+function parseCSV(text: string): Record<string, string>[] {
+  const lines = text.split("\n").filter((l) => l.trim());
+  if (lines.length < 2) return [];
+  const headers = parseCSVLine(lines[0]);
+  const rows: Record<string, string>[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseCSVLine(lines[i]);
+    if (values.length !== headers.length) continue;
+    const row: Record<string, string> = {};
+    headers.forEach((h, j) => {
+      row[h] = values[j];
+    });
+    rows.push(row);
+  }
+  return rows;
+}
+
+/* ── Name normalisation (match Sleeper search_full_name) ───────────── */
+function normalizeName(name: string): string {
+  return name.toLowerCase().replace(/[^a-z]/g, "");
+}
+
+/* ── Sleeper player dictionary ─────────────────────────────────────── */
 type SleeperPlayer = {
   position?: string | null;
+  search_full_name?: string | null;
+  full_name?: string | null;
 };
 
-const fetchSleeperPositions = async (): Promise<Record<string, string>> => {
+async function fetchSleeperDict(): Promise<{
+  posMap: Record<string, string>;
+  nameToId: Record<string, string>;
+}> {
   const res = await fetch("https://api.sleeper.app/v1/players/nfl", {
     cache: "no-store",
   });
   if (!res.ok) throw new Error("Failed to fetch Sleeper player dictionary");
 
   const dict: Record<string, SleeperPlayer> = await res.json();
-  const map: Record<string, string> = {};
+  const posMap: Record<string, string> = {};
+  const nameToId: Record<string, string> = {};
+
   for (const [id, player] of Object.entries(dict)) {
     if (player?.position) {
-      map[id] = player.position.toUpperCase();
+      posMap[id] = player.position.toUpperCase();
     }
-  }
-  return map;
-};
-
-/* ── Types ──────────────────────────────────────────────────────────── */
-type Anchor = { adjustedValue: number; tgifValue: number };
-
-type AdjustedPlayerEntry = {
-  sleeper_id: string;
-  adjustedValue: number;
-  position: string;
-  posRank: number;
-  multiplier: number;
-  tierFactor: number;
-  baseValue: number;
-};
-
-/* ── Piecewise-linear monotone scaling ─────────────────────────────── */
-
-/**
- * Build calibration anchors from sorted player adjusted values and ALL
- * TGIF pick anchors for the selected year.  Each slot (e.g. "1.01",
- * "2.12") is mapped to an overall rank and paired with its TGIF value
- * to create a piecewise-linear monotone mapping.
- */
-const buildCalibrationAnchors = (
-  sortedDesc: number[],
-  tgifLookup: Record<string, number>,
-): { anchors: Anchor[]; usedSlots: string[] } => {
-  const anchors: Anchor[] = [];
-  const usedSlots: string[] = [];
-
-  for (const [slot, tgifValue] of Object.entries(tgifLookup)) {
-    const parts = slot.split(".");
-    if (parts.length !== 2) continue;
-    const round = parseInt(parts[0], 10);
-    const pick = parseInt(parts[1], 10);
-    if (isNaN(round) || isNaN(pick) || round < 1 || pick < 1) continue;
-
-    /* e.g. 1.01 → rank 1, 2.01 → rank 13, 3.12 → rank 36 */
-    const overallRank = (round - 1) * TEAM_COUNT + pick;
-    if (overallRank > sortedDesc.length) continue;
-
-    anchors.push({
-      adjustedValue: sortedDesc[overallRank - 1],
-      tgifValue,
-    });
-    usedSlots.push(slot);
-  }
-
-  /* Sort descending by adjustedValue (required by piecewiseLinearMap) */
-  anchors.sort((a, b) => b.adjustedValue - a.adjustedValue);
-  usedSlots.sort();
-
-  return { anchors, usedSlots };
-};
-
-/**
- * Map a single adjusted value to the TGIF scale using the calibration
- * anchors (sorted descending by adjustedValue).  Linearly interpolates
- * between anchors and linearly extrapolates beyond the extremes.
- */
-const piecewiseLinearMap = (value: number, anchors: Anchor[]): number => {
-  if (anchors.length === 0) return value;
-  if (anchors.length === 1) return anchors[0].tgifValue;
-
-  /* Above the highest anchor → extrapolate */
-  if (value >= anchors[0].adjustedValue) {
-    const [a0, a1] = anchors;
-    if (a0.adjustedValue === a1.adjustedValue) return a0.tgifValue;
-    const slope =
-      (a0.tgifValue - a1.tgifValue) / (a0.adjustedValue - a1.adjustedValue);
-    return a0.tgifValue + slope * (value - a0.adjustedValue);
-  }
-
-  /* Below the lowest anchor → extrapolate (floor at 0) */
-  const last = anchors[anchors.length - 1];
-  if (value <= last.adjustedValue) {
-    const prev = anchors[anchors.length - 2];
-    if (last.adjustedValue === prev.adjustedValue) return last.tgifValue;
-    const slope =
-      (last.tgifValue - prev.tgifValue) /
-      (last.adjustedValue - prev.adjustedValue);
-    return Math.max(0, last.tgifValue + slope * (value - last.adjustedValue));
-  }
-
-  /* Between two anchors → interpolate */
-  for (let i = 0; i < anchors.length - 1; i++) {
-    if (
-      value <= anchors[i].adjustedValue &&
-      value >= anchors[i + 1].adjustedValue
-    ) {
-      const range = anchors[i].adjustedValue - anchors[i + 1].adjustedValue;
-      if (range === 0) return anchors[i].tgifValue;
-      const t = (anchors[i].adjustedValue - value) / range;
-      return (
-        anchors[i].tgifValue +
-        t * (anchors[i + 1].tgifValue - anchors[i].tgifValue)
-      );
+    const searchName = player?.search_full_name;
+    if (searchName) {
+      const key = normalizeName(searchName);
+      if (key) nameToId[key] = id;
+    } else if (player?.full_name) {
+      const key = normalizeName(player.full_name);
+      if (key) nameToId[key] = id;
     }
   }
 
-  return value; // fallback – should not be reached
+  return { posMap, nameToId };
+}
+
+/* ── Source data types ─────────────────────────────────────────────── */
+type SourceResult = {
+  name: string;
+  playerMap: Record<string, number>;
+  pick101Value: number | null;
 };
+
+/* ── Fetch FantasyCalc ─────────────────────────────────────────────── */
+async function fetchFantasyCalc(year: string): Promise<SourceResult> {
+  const res = await fetch(FANTASYCALC_URL, { cache: "no-store" });
+  if (!res.ok) throw new Error("FantasyCalc API request failed");
+
+  const data: Array<{
+    player?: {
+      sleeperId?: string | number | null;
+      position?: string | null;
+      name?: string | null;
+    } | null;
+    value?: number | null;
+  }> = await res.json();
+
+  const playerMap: Record<string, number> = {};
+  let pick101Value: number | null = null;
+  let earlyFirstValue: number | null = null;
+
+  for (const row of data) {
+    const val = row.value;
+    if (typeof val !== "number") continue;
+
+    const pos = row.player?.position?.toUpperCase() ?? "";
+    const name = row.player?.name ?? "";
+
+    if (pos === "PICK") {
+      const n = name.toUpperCase();
+      if (n.includes(year) && n.includes("1.01")) {
+        pick101Value = val;
+      } else if (
+        n.includes(year) &&
+        n.includes("EARLY") &&
+        n.includes("1ST")
+      ) {
+        earlyFirstValue = val;
+      }
+      continue;
+    }
+
+    const sid = row.player?.sleeperId;
+    if (sid != null) {
+      playerMap[String(sid)] = val;
+    }
+  }
+
+  return {
+    name: "fantasycalc",
+    playerMap,
+    pick101Value: pick101Value ?? earlyFirstValue,
+  };
+}
+
+/* ── Fetch DynastyProcess ──────────────────────────────────────────── */
+async function fetchDynastyProcess(
+  year: string,
+  nameToId: Record<string, string>,
+): Promise<SourceResult> {
+  const res = await fetch(DYNASTY_PROCESS_VALUES_URL, { cache: "no-store" });
+  if (!res.ok) throw new Error("DynastyProcess CSV request failed");
+
+  const text = await res.text();
+  const rows = parseCSV(text);
+
+  const playerMap: Record<string, number> = {};
+  let pick101Value: number | null = null;
+  let earlyFirstValue: number | null = null;
+
+  for (const row of rows) {
+    const pos = (row.pos ?? "").toUpperCase();
+    const val2qb = row.value_2qb;
+    const numVal =
+      val2qb !== undefined && val2qb !== "NA" && val2qb !== ""
+        ? Number(val2qb)
+        : NaN;
+    if (isNaN(numVal)) continue;
+
+    if (pos === "PICK") {
+      const playerName = (row.player ?? "").toUpperCase();
+      if (playerName.includes(year) && playerName.includes("1.01")) {
+        pick101Value = numVal;
+      } else if (
+        playerName.includes(year) &&
+        playerName.includes("EARLY") &&
+        playerName.includes("1ST")
+      ) {
+        earlyFirstValue = numVal;
+      }
+      continue;
+    }
+
+    /* Map DP player to sleeper_id via name */
+    const dpName = row.player;
+    if (!dpName) continue;
+    const key = normalizeName(dpName);
+    const sleeperId = nameToId[key];
+    if (sleeperId) {
+      playerMap[sleeperId] = numVal;
+    }
+  }
+
+  return {
+    name: "dynastyprocess",
+    playerMap,
+    pick101Value: pick101Value ?? earlyFirstValue,
+  };
+}
+
+/* ── Median helper ─────────────────────────────────────────────────── */
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 /* ── Main handler ──────────────────────────────────────────────────── */
 async function handler(request: NextRequest) {
   /* Auth – accept Vercel cron secret, admin header, or querystring */
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = request.headers.get("authorization");
-  const isVercelCron =
-    cronSecret && authHeader === `Bearer ${cronSecret}`;
+  const isVercelCron = cronSecret && authHeader === `Bearer ${cronSecret}`;
 
   const secret =
     request.headers.get("x-admin-secret") ??
@@ -195,13 +280,6 @@ async function handler(request: NextRequest) {
       );
     }
 
-    /* Build TGIF lookup: slot (e.g. "2.01") → tgif_value */
-    const tgifLookup: Record<string, number> = {};
-    for (const row of anchorRows) {
-      const slot = (row.pick_key as string).replace(`${year}-`, "");
-      tgifLookup[slot] = row.tgif_value as number;
-    }
-
     /* ─── 2. Upsert pick rows into definitive_values ─────────────── */
     const now = new Date().toISOString();
 
@@ -224,49 +302,88 @@ async function handler(request: NextRequest) {
       );
     }
 
-    /* ─── 3. Read cached player values ───────────────────────────── */
-    const { data: pvRows, error: pvError } = await client
-      .from("player_values")
-      .select("sleeper_id, value, updated_at");
+    /* ─── 3. Fetch Sleeper dictionary (positions + name mapping) ──── */
+    const { posMap, nameToId } = await fetchSleeperDict();
 
-    if (pvError) {
-      return NextResponse.json({ error: pvError.message }, { status: 500 });
-    }
-    if (!pvRows || pvRows.length === 0) {
+    /* ─── 4. Fetch external sources ──────────────────────────────── */
+    const [fcResult, dpResult] = await Promise.all([
+      fetchFantasyCalc(year),
+      fetchDynastyProcess(year, nameToId),
+    ]);
+
+    /* Keep only sources that have a 1.01 value */
+    const sources: SourceResult[] = [];
+    if (fcResult.pick101Value != null) sources.push(fcResult);
+    if (dpResult.pick101Value != null) sources.push(dpResult);
+
+    if (sources.length === 0) {
       return NextResponse.json(
-        { error: "No rows in player_values" },
+        { error: "No source provided a 1.01 pick value" },
+        { status: 500 },
+      );
+    }
+
+    /* Collect pick101 diagnostics (include all sources, even skipped) */
+    const pick101BySource: Record<string, number | null> = {
+      fantasycalc: fcResult.pick101Value,
+      dynastyprocess: dpResult.pick101Value,
+    };
+
+    /* ─── 5. Compute per-source ratios and blend ─────────────────── */
+    const allIds = new Set<string>();
+    for (const src of sources) {
+      for (const id of Object.keys(src.playerMap)) allIds.add(id);
+    }
+
+    type BlendedEntry = {
+      sleeper_id: string;
+      blendedRatio: number;
+      sourceRatios: Record<string, number>;
+    };
+    const blendedEntries: BlendedEntry[] = [];
+
+    for (const id of allIds) {
+      const pos = posMap[id];
+      if (!pos || !BASE_MULTIPLIERS[pos]) continue;
+
+      const ratios: number[] = [];
+      const sourceRatios: Record<string, number> = {};
+
+      for (const src of sources) {
+        const val = src.playerMap[id];
+        if (val !== undefined && src.pick101Value != null) {
+          const ratio = val / src.pick101Value;
+          ratios.push(ratio);
+          sourceRatios[src.name] = ratio;
+        }
+      }
+
+      if (ratios.length > 0) {
+        blendedEntries.push({
+          sleeper_id: id,
+          blendedRatio: median(ratios),
+          sourceRatios,
+        });
+      }
+    }
+
+    if (blendedEntries.length === 0) {
+      return NextResponse.json(
+        { error: "No eligible players after ratio computation" },
         { status: 404 },
       );
     }
 
-    /* ─── 4. Get position lookup from Sleeper ────────────────────── */
-    const positionMap = await fetchSleeperPositions();
-
-    /* ─── 5. Bucket players by position to compute ranks ─────────── */
-    type PlayerEntry = { sleeper_id: string; value: number; position: string };
-    const entries: PlayerEntry[] = [];
-
-    for (const row of pvRows) {
-      const sid = row.sleeper_id as string;
-      const val = row.value as number;
-      if (!sid || typeof val !== "number") continue;
-
-      const pos = positionMap[sid];
-      if (!pos || !BASE_MULTIPLIERS[pos]) continue;
-
-      entries.push({ sleeper_id: sid, value: val, position: pos });
-    }
-
-    /* Sort each position bucket desc by base value to assign rank */
-    const byPosition: Record<string, PlayerEntry[]> = {};
-    for (const e of entries) {
-      (byPosition[e.position] ??= []).push(e);
+    /* ─── 6. Rank players by position (pre-multiplier blended ratio) ─ */
+    const byPosition: Record<string, BlendedEntry[]> = {};
+    for (const e of blendedEntries) {
+      const pos = posMap[e.sleeper_id];
+      (byPosition[pos] ??= []).push(e);
     }
     for (const arr of Object.values(byPosition)) {
-      arr.sort((a, b) => b.value - a.value);
+      arr.sort((a, b) => b.blendedRatio - a.blendedRatio);
     }
 
-    /* Build rank lookup: sleeper_id → 1-based rank within position */
     const rankMap: Record<string, number> = {};
     for (const arr of Object.values(byPosition)) {
       arr.forEach((e, i) => {
@@ -274,75 +391,41 @@ async function handler(request: NextRequest) {
       });
     }
 
-    /* ─── 6. Compute league-adjusted values ──────────────────────── */
-    const adjustedEntries: AdjustedPlayerEntry[] = [];
-
-    for (const e of entries) {
-      const multiplier = BASE_MULTIPLIERS[e.position];
+    /* ─── 7. Apply multipliers to ratio and compute final value ───── */
+    const playerUpsertRows = blendedEntries.map((e) => {
+      const pos = posMap[e.sleeper_id];
+      const multiplier = BASE_MULTIPLIERS[pos];
       const posRank = rankMap[e.sleeper_id];
 
       let tierFactor = 1.0;
-      if (e.position === "QB") tierFactor = qbTierFactor(posRank);
-      else if (e.position === "TE") tierFactor = teTierFactor(posRank);
+      if (pos === "QB") tierFactor = qbTierFactor(posRank);
+      else if (pos === "TE") tierFactor = teTierFactor(posRank);
 
-      adjustedEntries.push({
-        sleeper_id: e.sleeper_id,
-        adjustedValue: e.value * multiplier * tierFactor,
-        position: e.position,
-        posRank,
-        multiplier,
-        tierFactor,
-        baseValue: e.value,
-      });
-    }
-
-    if (adjustedEntries.length === 0) {
-      return NextResponse.json(
-        { error: "No eligible players after position filtering" },
-        { status: 404 },
-      );
-    }
-
-    /* ─── 7. Build TGIF piecewise-linear calibration ─────────────── */
-    const sortedDesc = adjustedEntries
-      .map((e) => e.adjustedValue)
-      .sort((a, b) => b - a);
-
-    const { anchors: calibrationAnchors, usedSlots } =
-      buildCalibrationAnchors(sortedDesc, tgifLookup);
-
-    /* ─── Pre-scale diagnostics (top 5 by adjustedValue) ─────────── */
-    const top5PreScale = [...adjustedEntries]
-      .sort((a, b) => b.adjustedValue - a.adjustedValue)
-      .slice(0, 5)
-      .map((e) => ({ sleeper_id: e.sleeper_id, value: e.adjustedValue }));
-
-    /* ─── 8. Scale player values and build upsert rows ───────────── */
-    const playerUpsertRows = adjustedEntries.map((e) => {
-      const scaledValue =
-        calibrationAnchors.length >= 2
-          ? piecewiseLinearMap(e.adjustedValue, calibrationAnchors)
-          : e.adjustedValue;
+      const adjustedRatio = e.blendedRatio * multiplier * tierFactor;
+      const finalValue = adjustedRatio * TGIF_101_VALUE;
 
       return {
         asset_type: "player" as const,
         asset_key: e.sleeper_id,
-        value: scaledValue,
+        value: finalValue,
         updated_at: now,
         detail: {
-          source: "fantasycalc_cache",
-          base_value: e.baseValue,
-          position: e.position,
-          pos_rank: e.posRank,
-          multiplier: e.multiplier,
-          tier_factor: e.tierFactor,
-          pre_scale_value: e.adjustedValue,
-          post_scale_value: scaledValue,
+          source_ratios: e.sourceRatios,
+          pick101_used: Object.fromEntries(
+            sources.map((s) => [s.name, s.pick101Value]),
+          ),
+          blended_ratio: e.blendedRatio,
+          position: pos,
+          pos_rank: posRank,
+          multiplier,
+          tier_factor: tierFactor,
+          adjusted_ratio: adjustedRatio,
+          final_value: finalValue,
         },
       };
     });
 
-    /* ─── 9. Upsert player rows into definitive_values ───────────── */
+    /* ─── 8. Upsert player rows into definitive_values ───────────── */
     const { error: playerUpsertError } = await client
       .from("definitive_values")
       .upsert(playerUpsertRows, { onConflict: "asset_type,asset_key" });
@@ -354,8 +437,8 @@ async function handler(request: NextRequest) {
       );
     }
 
-    /* ─── Post-scale diagnostics (top 5 by scaled value) ────────── */
-    const top5PostScale = [...playerUpsertRows]
+    /* ─── 9. Diagnostics ─────────────────────────────────────────── */
+    const top5Final = [...playerUpsertRows]
       .sort((a, b) => b.value - a.value)
       .slice(0, 5)
       .map((r) => ({ sleeper_id: r.asset_key, value: r.value }));
@@ -364,13 +447,9 @@ async function handler(request: NextRequest) {
       ok: true,
       upserted_players: playerUpsertRows.length,
       upserted_picks: pickUpsertRows.length,
-      anchors_used_count: calibrationAnchors.length,
-      anchors_used_min_pick_key:
-        usedSlots.length > 0 ? usedSlots[0] : null,
-      anchors_used_max_pick_key:
-        usedSlots.length > 0 ? usedSlots[usedSlots.length - 1] : null,
-      top5_players_pre_scale: top5PreScale,
-      top5_players_post_scale: top5PostScale,
+      sources_used: sources.map((s) => s.name),
+      pick101_values_by_source: pick101BySource,
+      top5_players_final: top5Final,
     });
   } catch (err) {
     console.error("refresh-definitive-values error:", err);
