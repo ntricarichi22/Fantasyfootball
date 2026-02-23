@@ -46,9 +46,11 @@ const fetchSleeperPositions = async (): Promise<Record<string, string>> => {
 };
 
 /* ── Main handler ──────────────────────────────────────────────────── */
-export async function POST(request: NextRequest) {
-  /* Auth */
-  const secret = request.headers.get("x-admin-secret");
+async function handler(request: NextRequest) {
+  /* Auth – accept header first, then querystring (handy for GET in a browser) */
+  const secret =
+    request.headers.get("x-admin-secret") ??
+    request.nextUrl.searchParams.get("secret");
   const expected = process.env.ADMIN_REFRESH_SECRET;
   if (!expected || secret !== expected) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -167,3 +169,6 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
+export const GET = handler;
+export const POST = handler;
