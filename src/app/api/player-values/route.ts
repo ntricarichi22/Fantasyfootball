@@ -89,10 +89,13 @@ export async function GET() {
   }
 
   const client = clientResult.client;
+  const useDefinitive = process.env.USE_DEFINITIVE_VALUES === "true";
+  const source = useDefinitive ? "v_player_values_definitive" : "player_values";
+
   const lastUpdatedFromAppState = await fetchPlayerValuesLastRefresh(client);
 
   const { data, error } = await client
-    .from("player_values")
+    .from(source)
     .select("sleeper_id, value, updated_at");
 
   if (error) {
@@ -101,8 +104,14 @@ export async function GET() {
 
   const lastUpdated = lastUpdatedFromAppState ?? findLatestUpdatedAt(data ?? []);
 
-  return NextResponse.json({
+  const response: Record<string, unknown> = {
     data: buildPlayerValueMapBySleeperId(data ?? []),
     meta: { lastUpdated },
-  });
+  };
+
+  if (process.env.NODE_ENV === "development") {
+    response.meta = { ...(response.meta as Record<string, unknown>), source };
+  }
+
+  return NextResponse.json(response);
 }
