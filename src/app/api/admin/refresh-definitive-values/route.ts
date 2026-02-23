@@ -48,8 +48,20 @@ const fetchSleeperPositions = async (): Promise<Record<string, string>> => {
   return map;
 };
 
-/* ── Piecewise-linear monotone scaling ─────────────────────────────── */
+/* ── Types ──────────────────────────────────────────────────────────── */
 type Anchor = { adjustedValue: number; tgifValue: number };
+
+type AdjustedPlayerEntry = {
+  sleeper_id: string;
+  adjustedValue: number;
+  position: string;
+  posRank: number;
+  multiplier: number;
+  tierFactor: number;
+  baseValue: number;
+};
+
+/* ── Piecewise-linear monotone scaling ─────────────────────────────── */
 
 /**
  * Build calibration anchors from sorted player adjusted values and TGIF
@@ -254,7 +266,7 @@ async function handler(request: NextRequest) {
     }
 
     /* ─── 6. Compute league-adjusted values ──────────────────────── */
-    const adjustedEntries: { sleeper_id: string; adjustedValue: number; position: string; posRank: number; multiplier: number; tierFactor: number; baseValue: number }[] = [];
+    const adjustedEntries: AdjustedPlayerEntry[] = [];
 
     for (const e of entries) {
       const multiplier = BASE_MULTIPLIERS[e.position];
