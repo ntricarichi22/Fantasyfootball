@@ -64,32 +64,41 @@ type AdjustedPlayerEntry = {
 /* ── Piecewise-linear monotone scaling ─────────────────────────────── */
 
 /**
- * Build calibration anchors from sorted player adjusted values and TGIF
- * pick anchors.  Uses four key picks (2.01, 2.12, 3.01, 3.12) as the
- * control points of a piecewise-linear monotone mapping.
+ * Build calibration anchors from sorted player adjusted values and ALL
+ * TGIF pick anchors for the selected year.  Each slot (e.g. "1.01",
+ * "2.12") is mapped to an overall rank and paired with its TGIF value
+ * to create a piecewise-linear monotone mapping.
  */
 const buildCalibrationAnchors = (
   sortedDesc: number[],
   tgifLookup: Record<string, number>,
-): Anchor[] => {
-  const calibration: { slot: string; overallRank: number }[] = [
-    { slot: "2.01", overallRank: TEAM_COUNT + 1 },
-    { slot: "2.12", overallRank: TEAM_COUNT * 2 },
-    { slot: "3.01", overallRank: TEAM_COUNT * 2 + 1 },
-    { slot: "3.12", overallRank: TEAM_COUNT * 3 },
-  ];
-
+): { anchors: Anchor[]; usedSlots: string[] } => {
   const anchors: Anchor[] = [];
-  for (const { slot, overallRank } of calibration) {
-    const tgifValue = tgifLookup[slot];
-    if (tgifValue == null) continue;
+  const usedSlots: string[] = [];
+
+  for (const [slot, tgifValue] of Object.entries(tgifLookup)) {
+    const parts = slot.split(".");
+    if (parts.length !== 2) continue;
+    const round = parseInt(parts[0], 10);
+    const pick = parseInt(parts[1], 10);
+    if (isNaN(round) || isNaN(pick) || round < 1 || pick < 1) continue;
+
+    /* e.g. 1.01 → rank 1, 2.01 → rank 13, 3.12 → rank 36 */
+    const overallRank = (round - 1) * TEAM_COUNT + pick;
     if (overallRank > sortedDesc.length) continue;
+
     anchors.push({
       adjustedValue: sortedDesc[overallRank - 1],
       tgifValue,
     });
+    usedSlots.push(slot);
   }
-  return anchors;
+
+  /* Sort descending by adjustedValue (required by piecewiseLinearMap) */
+  anchors.sort((a, b) => b.adjustedValue - a.adjustedValue);
+  usedSlots.sort();
+
+  return { anchors, usedSlots };
 };
 
 /**
@@ -299,7 +308,14 @@ async function handler(request: NextRequest) {
       .map((e) => e.adjustedValue)
       .sort((a, b) => b - a);
 
-    const calibrationAnchors = buildCalibrationAnchors(sortedDesc, tgifLookup);
+    const { anchors: calibrationAnchors, usedSlots } =
+      buildCalibrationAnchors(sortedDesc, tgifLookup);
+
+    /* ─── Pre-scale diagnostics (top 5 by adjustedValue) ─────────── */
+    const top5PreScale = [...adjustedEntries]
+      .sort((a, b) => b.adjustedValue - a.adjustedValue)
+      .slice(0, 5)
+      .map((e) => ({ sleeper_id: e.sleeper_id, value: e.adjustedValue }));
 
     /* ─── 8. Scale player values and build upsert rows ───────────── */
     const playerUpsertRows = adjustedEntries.map((e) => {
@@ -338,10 +354,23 @@ async function handler(request: NextRequest) {
       );
     }
 
+    /* ─── Post-scale diagnostics (top 5 by scaled value) ────────── */
+    const top5PostScale = [...playerUpsertRows]
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5)
+      .map((r) => ({ sleeper_id: r.asset_key, value: r.value }));
+
     return NextResponse.json({
       ok: true,
       upserted_players: playerUpsertRows.length,
       upserted_picks: pickUpsertRows.length,
+      anchors_used_count: calibrationAnchors.length,
+      anchors_used_min_pick_key:
+        usedSlots.length > 0 ? usedSlots[0] : null,
+      anchors_used_max_pick_key:
+        usedSlots.length > 0 ? usedSlots[usedSlots.length - 1] : null,
+      top5_players_pre_scale: top5PreScale,
+      top5_players_post_scale: top5PostScale,
     });
   } catch (err) {
     console.error("refresh-definitive-values error:", err);
