@@ -47,12 +47,19 @@ const fetchSleeperPositions = async (): Promise<Record<string, string>> => {
 
 /* ── Main handler ──────────────────────────────────────────────────── */
 async function handler(request: NextRequest) {
-  /* Auth – accept header first, then querystring (handy for GET in a browser) */
+  /* Auth – accept Vercel cron secret, admin header, or querystring */
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization");
+  const isVercelCron =
+    cronSecret && authHeader === `Bearer ${cronSecret}`;
+
   const secret =
     request.headers.get("x-admin-secret") ??
     request.nextUrl.searchParams.get("secret");
   const expected = process.env.ADMIN_REFRESH_SECRET;
-  if (!expected || secret !== expected) {
+  const isAdmin = expected && secret === expected;
+
+  if (!isVercelCron && !isAdmin) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
