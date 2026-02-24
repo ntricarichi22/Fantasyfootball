@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import * as cheerio from "cheerio";
+import type { Element as DomElement } from "domhandler";
 
 export const dynamic = "force-dynamic";
 
@@ -366,8 +367,7 @@ async function fetchFantasyPros(
     }
     parseTable(table);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    function parseTable(tbl: cheerio.Cheerio<any>) {
+    function parseTable(tbl: cheerio.Cheerio<DomElement>) {
       /* Detect column indices from header row */
       const headers: string[] = [];
       tbl.find("thead th, thead td, tr:first-child th, tr:first-child td").each(
@@ -392,7 +392,12 @@ async function fetchFantasyPros(
       if (valueCol < 0) valueCol = headers.length - 1;
       if (teamCol < 0) teamCol = -1;
 
-      const rows = tbl.find("tbody tr, tr").slice(headers.length > 0 ? 1 : 0);
+      /* Data rows: prefer tbody rows; if no tbody, skip the header row */
+      const tbodyRows = tbl.find("tbody tr");
+      const rows =
+        tbodyRows.length > 0
+          ? tbodyRows
+          : tbl.find("tr").slice(headers.length > 0 ? 1 : 0);
 
       rows.each((_k, row) => {
         const cells: string[] = [];
