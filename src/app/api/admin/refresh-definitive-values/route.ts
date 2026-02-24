@@ -247,6 +247,19 @@ async function fetchDynastyProcess(
   };
 }
 
+/* ── FantasyPros diagnostics type ───────────────────────────────────── */
+type FantasyProsDiagnostics = {
+  fantasypros_status: "used" | "skipped";
+  fantasypros_skip_reason: string | null;
+  fantasypros_fetch_http_status: number | null;
+  fantasypros_publish_date_parsed: string | null;
+  fantasypros_is_stale: boolean;
+  fantasypros_players_extracted_count: number;
+  fantasypros_picks_extracted_count: number;
+  fantasypros_players_mapped_count: number;
+  fantasypros_pick101_value: number | null;
+};
+
 /* ── Fetch FantasyPros ─────────────────────────────────────────────── */
 const POSITION_HEADING_MAP: Record<string, string> = {
   quarterback: "QB",
@@ -310,17 +323,32 @@ function extractArticleDate(html: string, $: cheerio.CheerioAPI): Date | null {
 async function fetchFantasyPros(
   year: string,
   nameToId: Record<string, string>,
-): Promise<SourceResult | null> {
+): Promise<{ result: SourceResult | null; diagnostics: FantasyProsDiagnostics }> {
+  const diag: FantasyProsDiagnostics = {
+    fantasypros_status: "skipped",
+    fantasypros_skip_reason: null,
+    fantasypros_fetch_http_status: null,
+    fantasypros_publish_date_parsed: null,
+    fantasypros_is_stale: false,
+    fantasypros_players_extracted_count: 0,
+    fantasypros_picks_extracted_count: 0,
+    fantasypros_players_mapped_count: 0,
+    fantasypros_pick101_value: null,
+  };
+
   let res: Response;
   try {
     res = await fetch(FANTASYPROS_URL, { cache: "no-store" });
   } catch {
     console.warn("FantasyPros fetch failed (network error); skipping source.");
-    return null;
+    diag.fantasypros_skip_reason = "network error";
+    return { result: null, diagnostics: diag };
   }
+  diag.fantasypros_fetch_http_status = res.status;
   if (!res.ok) {
     console.warn(`FantasyPros returned HTTP ${res.status}; skipping source.`);
-    return null;
+    diag.fantasypros_skip_reason = `HTTP ${res.status}`;
+    return { result: null, diagnostics: diag };
   }
 
   const html = await res.text();
@@ -329,13 +357,16 @@ async function fetchFantasyPros(
   /* ── Freshness check ─────────────────────────────────────────────── */
   const articleDate = extractArticleDate(html, $);
   if (articleDate) {
+    diag.fantasypros_publish_date_parsed = articleDate.toISOString();
     const ageMs = Date.now() - articleDate.getTime();
     const ageDays = ageMs / (1000 * 60 * 60 * 24);
     if (ageDays > FRESHNESS_DAYS) {
       console.warn(
         `FantasyPros article is ${Math.round(ageDays)} days old (>${FRESHNESS_DAYS}); skipping source.`,
       );
-      return null;
+      diag.fantasypros_is_stale = true;
+      diag.fantasypros_skip_reason = `article is ${Math.round(ageDays)} days old (>${FRESHNESS_DAYS})`;
+      return { result: null, diagnostics: diag };
     }
   }
 
@@ -344,6 +375,8 @@ async function fetchFantasyPros(
   let pick101Value: number | null = null;
   let earlyFirstValue: number | null = null;
   let unmappedCount = 0;
+  let playersExtracted = 0;
+  let picksExtracted = 0;
 
   /*
    * Strategy: walk through headings (h2, h3, h4) and the <table> that follows.
@@ -414,6 +447,7 @@ async function fetchFantasyPros(
         if (isNaN(numVal) || numVal <= 0) return;
 
         if (pickSection) {
+          picksExtracted++;
           const upper = rawName.toUpperCase();
           if (upper.includes(year) && upper.includes("1.01")) {
             pick101Value = numVal;
@@ -429,6 +463,7 @@ async function fetchFantasyPros(
 
         /* Player mapping */
         if (!pos) return;
+        playersExtracted++;
         const key = normalizeName(rawName);
         const sleeperId = nameToId[key];
         if (sleeperId) {
@@ -440,11 +475,21 @@ async function fetchFantasyPros(
     }
   });
 
+  const resolvedPick101 = pick101Value ?? earlyFirstValue;
+  diag.fantasypros_players_extracted_count = playersExtracted;
+  diag.fantasypros_picks_extracted_count = picksExtracted;
+  diag.fantasypros_players_mapped_count = Object.keys(playerMap).length;
+  diag.fantasypros_pick101_value = resolvedPick101;
+  diag.fantasypros_status = "used";
+
   return {
-    name: "fantasypros",
-    playerMap,
-    pick101Value: pick101Value ?? earlyFirstValue,
-    unmappedCount,
+    result: {
+      name: "fantasypros",
+      playerMap,
+      pick101Value: resolvedPick101,
+      unmappedCount,
+    },
+    diagnostics: diag,
   };
 }
 
@@ -529,11 +574,13 @@ async function handler(request: NextRequest) {
     const { posMap, nameToId } = await fetchSleeperDict();
 
     /* ─── 4. Fetch external sources ──────────────────────────────── */
-    const [fcResult, dpResult, fpResult] = await Promise.all([
+    const [fcResult, dpResult, fpReturn] = await Promise.all([
       fetchFantasyCalc(year),
       fetchDynastyProcess(year, nameToId),
       fetchFantasyPros(year, nameToId),
     ]);
+    const fpResult = fpReturn.result;
+    const fpDiag = fpReturn.diagnostics;
 
     /* Keep only sources that have a 1.01 value */
     const sources: SourceResult[] = [];
@@ -681,6 +728,7 @@ async function handler(request: NextRequest) {
       pick101_values_by_source: pick101BySource,
       fantasypros_unmapped_count: fpResult?.unmappedCount ?? null,
       top5_players_final: top5Final,
+      ...fpDiag,
     });
   } catch (err) {
     console.error("refresh-definitive-values error:", err);
