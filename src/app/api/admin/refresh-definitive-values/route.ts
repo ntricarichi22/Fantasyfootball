@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import * as cheerio from "cheerio";
 
 export const dynamic = "force-dynamic";
 
@@ -11,6 +12,9 @@ const FANTASYCALC_URL =
   "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=0.5";
 const DYNASTY_PROCESS_VALUES_URL =
   "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values.csv";
+const FANTASYPROS_URL =
+  "https://www.fantasypros.com/2026/02/fantasy-football-dynasty-trade-value-chart-superflex-february-2026-update/";
+const FRESHNESS_DAYS = 90;
 
 /* ── Position multipliers ──────────────────────────────────────────── */
 const BASE_MULTIPLIERS: Record<string, number> = {
@@ -132,6 +136,7 @@ type SourceResult = {
   name: string;
   playerMap: Record<string, number>;
   pick101Value: number | null;
+  unmappedCount?: number;
 };
 
 /* ── Fetch FantasyCalc ─────────────────────────────────────────────── */
@@ -241,6 +246,203 @@ async function fetchDynastyProcess(
   };
 }
 
+/* ── Fetch FantasyPros ─────────────────────────────────────────────── */
+const POSITION_HEADING_MAP: Record<string, string> = {
+  quarterback: "QB",
+  qb: "QB",
+  "running back": "RB",
+  rb: "RB",
+  "wide receiver": "WR",
+  wr: "WR",
+  "tight end": "TE",
+  te: "TE",
+};
+
+function detectPosition(heading: string): string | null {
+  const lower = heading.toLowerCase();
+  for (const [keyword, pos] of Object.entries(POSITION_HEADING_MAP)) {
+    if (lower.includes(keyword)) return pos;
+  }
+  return null;
+}
+
+function isPickSection(heading: string): boolean {
+  const lower = heading.toLowerCase();
+  return (
+    lower.includes("pick") ||
+    lower.includes("draft") ||
+    lower.includes("rookie")
+  );
+}
+
+function extractArticleDate(html: string, $: cheerio.CheerioAPI): Date | null {
+  /* Try <meta property="article:modified_time"> first, then published_time */
+  const modified = $('meta[property="article:modified_time"]').attr("content");
+  if (modified) {
+    const d = new Date(modified);
+    if (!isNaN(d.getTime())) return d;
+  }
+  const published = $('meta[property="article:published_time"]').attr(
+    "content",
+  );
+  if (published) {
+    const d = new Date(published);
+    if (!isNaN(d.getTime())) return d;
+  }
+  /* <time datetime="..."> */
+  const timeDt = $("time[datetime]").first().attr("datetime");
+  if (timeDt) {
+    const d = new Date(timeDt);
+    if (!isNaN(d.getTime())) return d;
+  }
+  /* Fallback: look for "Updated ...date..." or "Published ...date..." in text */
+  const match = html.match(
+    /(?:updated|published)[:\s]+(\w+ \d{1,2},?\s*\d{4})/i,
+  );
+  if (match) {
+    const d = new Date(match[1]);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
+}
+
+async function fetchFantasyPros(
+  year: string,
+  nameToId: Record<string, string>,
+): Promise<SourceResult | null> {
+  let res: Response;
+  try {
+    res = await fetch(FANTASYPROS_URL, { cache: "no-store" });
+  } catch {
+    console.warn("FantasyPros fetch failed (network error); skipping source.");
+    return null;
+  }
+  if (!res.ok) {
+    console.warn(`FantasyPros returned HTTP ${res.status}; skipping source.`);
+    return null;
+  }
+
+  const html = await res.text();
+  const $ = cheerio.load(html);
+
+  /* ── Freshness check ─────────────────────────────────────────────── */
+  const articleDate = extractArticleDate(html, $);
+  if (articleDate) {
+    const ageMs = Date.now() - articleDate.getTime();
+    const ageDays = ageMs / (1000 * 60 * 60 * 24);
+    if (ageDays > FRESHNESS_DAYS) {
+      console.warn(
+        `FantasyPros article is ${Math.round(ageDays)} days old (>${FRESHNESS_DAYS}); skipping source.`,
+      );
+      return null;
+    }
+  }
+
+  /* ── Parse tables ────────────────────────────────────────────────── */
+  const playerMap: Record<string, number> = {};
+  let pick101Value: number | null = null;
+  let earlyFirstValue: number | null = null;
+  let unmappedCount = 0;
+
+  /*
+   * Strategy: walk through headings (h2, h3, h4) and the <table> that follows.
+   * Detect whether the heading refers to a position group or a picks section.
+   */
+  $("h2, h3, h4").each((_i, headingEl) => {
+    const headingText = $(headingEl).text().trim();
+    const pos = detectPosition(headingText);
+    const pickSection = isPickSection(headingText);
+    if (!pos && !pickSection) return;
+
+    /* Find the next table after this heading */
+    const table = $(headingEl).nextAll("table").first();
+    if (table.length === 0) {
+      /* Sometimes table is wrapped in a div right after heading */
+      const wrapper = $(headingEl).nextAll("div").first();
+      const innerTable = wrapper.find("table").first();
+      if (innerTable.length === 0) return;
+      parseTable(innerTable);
+      return;
+    }
+    parseTable(table);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function parseTable(tbl: cheerio.Cheerio<any>) {
+      /* Detect column indices from header row */
+      const headers: string[] = [];
+      tbl.find("thead th, thead td, tr:first-child th, tr:first-child td").each(
+        (_j, cell) => {
+          headers.push($(cell).text().trim().toLowerCase());
+        },
+      );
+
+      let nameCol = headers.findIndex(
+        (h) =>
+          h.includes("player") || h.includes("name") || h.includes("pick"),
+      );
+      let valueCol = headers.findIndex(
+        (h) => h.includes("value") || h === "val",
+      );
+      let teamCol = headers.findIndex(
+        (h) => h.includes("team") || h === "tm",
+      );
+
+      /* Fallback: assume col 1 = name, last col = value */
+      if (nameCol < 0) nameCol = headers.length > 1 ? 1 : 0;
+      if (valueCol < 0) valueCol = headers.length - 1;
+      if (teamCol < 0) teamCol = -1;
+
+      const rows = tbl.find("tbody tr, tr").slice(headers.length > 0 ? 1 : 0);
+
+      rows.each((_k, row) => {
+        const cells: string[] = [];
+        $(row)
+          .find("td, th")
+          .each((_l, cell) => {
+            cells.push($(cell).text().trim());
+          });
+        if (cells.length === 0) return;
+
+        const rawName = cells[nameCol] ?? "";
+        const rawValue = cells[valueCol] ?? "";
+        const numVal = Number(rawValue.replace(/,/g, ""));
+        if (isNaN(numVal) || numVal <= 0) return;
+
+        if (pickSection) {
+          const upper = rawName.toUpperCase();
+          if (upper.includes(year) && upper.includes("1.01")) {
+            pick101Value = numVal;
+          } else if (
+            upper.includes(year) &&
+            upper.includes("EARLY") &&
+            upper.includes("1ST")
+          ) {
+            earlyFirstValue = numVal;
+          }
+          return;
+        }
+
+        /* Player mapping */
+        if (!pos) return;
+        const key = normalizeName(rawName);
+        const sleeperId = nameToId[key];
+        if (sleeperId) {
+          playerMap[sleeperId] = numVal;
+        } else {
+          unmappedCount++;
+        }
+      });
+    }
+  });
+
+  return {
+    name: "fantasypros",
+    playerMap,
+    pick101Value: pick101Value ?? earlyFirstValue,
+    unmappedCount,
+  };
+}
+
 /* ── Median helper ─────────────────────────────────────────────────── */
 function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -322,15 +524,17 @@ async function handler(request: NextRequest) {
     const { posMap, nameToId } = await fetchSleeperDict();
 
     /* ─── 4. Fetch external sources ──────────────────────────────── */
-    const [fcResult, dpResult] = await Promise.all([
+    const [fcResult, dpResult, fpResult] = await Promise.all([
       fetchFantasyCalc(year),
       fetchDynastyProcess(year, nameToId),
+      fetchFantasyPros(year, nameToId),
     ]);
 
     /* Keep only sources that have a 1.01 value */
     const sources: SourceResult[] = [];
     if (fcResult.pick101Value != null) sources.push(fcResult);
     if (dpResult.pick101Value != null) sources.push(dpResult);
+    if (fpResult?.pick101Value != null) sources.push(fpResult);
 
     if (sources.length === 0) {
       return NextResponse.json(
@@ -343,6 +547,7 @@ async function handler(request: NextRequest) {
     const pick101BySource: Record<string, number | null> = {
       fantasycalc: fcResult.pick101Value,
       dynastyprocess: dpResult.pick101Value,
+      fantasypros: fpResult?.pick101Value ?? null,
     };
 
     /* ─── 5. Compute per-source ratios and blend ─────────────────── */
@@ -469,6 +674,7 @@ async function handler(request: NextRequest) {
       upserted_picks: pickUpsertRows.length,
       sources_used: sources.map((s) => s.name),
       pick101_values_by_source: pick101BySource,
+      fantasypros_unmapped_count: fpResult?.unmappedCount ?? null,
       top5_players_final: top5Final,
     });
   } catch (err) {
