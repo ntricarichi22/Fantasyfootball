@@ -14,7 +14,7 @@ const FANTASYCALC_URL =
 const DYNASTY_PROCESS_VALUES_URL =
   "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values.csv";
 const FANTASYPROS_URL =
-  "https://www.fantasypros.com/2026/02/fantasy-football-dynasty-trade-value-chart-superflex-february-2026-update/";
+  "https://www.fantasypros.com/2026/02/fantasy-football-rankings-dynasty-trade-value-chart-february-2026-update/";
 const FRESHNESS_DAYS = 90;
 
 /* ── Position multipliers ──────────────────────────────────────────── */
@@ -252,6 +252,8 @@ type FantasyProsDiagnostics = {
   fantasypros_status: "used" | "skipped";
   fantasypros_skip_reason: string | null;
   fantasypros_fetch_http_status: number | null;
+  fantasypros_fetch_final_url: string | null;
+  fantasypros_request_url_used: string | null;
   fantasypros_publish_date_parsed: string | null;
   fantasypros_is_stale: boolean;
   fantasypros_players_extracted_count: number;
@@ -328,6 +330,8 @@ async function fetchFantasyPros(
     fantasypros_status: "skipped",
     fantasypros_skip_reason: null,
     fantasypros_fetch_http_status: null,
+    fantasypros_fetch_final_url: null,
+    fantasypros_request_url_used: null,
     fantasypros_publish_date_parsed: null,
     fantasypros_is_stale: false,
     fantasypros_players_extracted_count: 0,
@@ -336,15 +340,33 @@ async function fetchFantasyPros(
     fantasypros_pick101_value: null,
   };
 
+  const fetchOptions = {
+    cache: "no-store" as const,
+    redirect: "follow" as const,
+    headers: {
+      "User-Agent": "Mozilla/5.0",
+      Accept: "text/html,*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+    },
+  };
+
   let res: Response;
+  let requestUrlUsed = FANTASYPROS_URL;
   try {
-    res = await fetch(FANTASYPROS_URL, { cache: "no-store" });
+    res = await fetch(requestUrlUsed, fetchOptions);
+    if (res.status === 404) {
+      requestUrlUsed = `${FANTASYPROS_URL}amp/`;
+      res = await fetch(requestUrlUsed, fetchOptions);
+    }
   } catch {
     console.warn("FantasyPros fetch failed (network error); skipping source.");
     diag.fantasypros_skip_reason = "network error";
+    diag.fantasypros_request_url_used = requestUrlUsed;
     return { result: null, diagnostics: diag };
   }
+  diag.fantasypros_request_url_used = requestUrlUsed;
   diag.fantasypros_fetch_http_status = res.status;
+  diag.fantasypros_fetch_final_url = res.url;
   if (!res.ok) {
     console.warn(`FantasyPros returned HTTP ${res.status}; skipping source.`);
     diag.fantasypros_skip_reason = `HTTP ${res.status}`;
