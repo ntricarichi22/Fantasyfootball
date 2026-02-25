@@ -1,7 +1,3 @@
-import chromium from "@sparticuz/chromium";
-import * as cheerio from "cheerio";
-import type { Element as DomElement } from "domhandler";
-import { chromium as playwrightChromium } from "playwright-core";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
@@ -16,9 +12,6 @@ const FANTASYCALC_URL =
   "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=0.5";
 const DYNASTY_PROCESS_VALUES_URL =
   "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values.csv";
-const FANTASYPROS_URL =
-  "https://www.fantasypros.com/2026/02/fantasy-football-rankings-dynasty-trade-value-chart-february-2026-update/";
-const FRESHNESS_DAYS = 90;
 
 /* ── Position multipliers ──────────────────────────────────────────── */
 const BASE_MULTIPLIERS: Record<string, number> = {
@@ -96,146 +89,6 @@ function normalizeName(name: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z]/g, "");
-}
-
-type LlamaExtractPlayer = {
-  name: string;
-  pos?: string | null;
-  team?: string | null;
-  value: number;
-};
-
-type LlamaExtractPick = {
-  label: string;
-  value: number;
-};
-
-type LlamaExtractPayload = {
-  source: string;
-  publish_date: string | null;
-  scoring: string | null;
-  format: string;
-  players: LlamaExtractPlayer[];
-  picks: LlamaExtractPick[];
-};
-
-const LLAMA_DATA_SCHEMA = {
-  type: "object",
-  properties: {
-    source: { type: "string", description: "Always 'fantasypros'" },
-    publish_date: {
-      type: ["string", "null"],
-      description: "ISO date if present",
-    },
-    scoring: { type: ["string", "null"], description: "If stated (e.g., half PPR)" },
-    format: {
-      type: "string",
-      description: "Always 'dynasty-superflex-trade-value-chart'",
-    },
-    players: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          pos: { type: ["string", "null"] },
-          team: { type: ["string", "null"] },
-          value: { type: "number" },
-        },
-        required: ["name", "value"],
-      },
-    },
-    picks: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          label: {
-            type: "string",
-            description: "e.g., '1.01', '2026 1st', 'Early 1st'",
-          },
-          value: { type: "number" },
-        },
-        required: ["label", "value"],
-      },
-    },
-  },
-  required: ["players", "picks", "source", "format"],
-} as const;
-
-const LLAMA_SYSTEM_PROMPT = `You are extracting a DYNASTY SUPERFLEX trade value chart from the attached PDF of a FantasyPros article.
-Return ONLY JSON matching the provided schema. No commentary.
-Rules:
-- Prefer the SUPERFLEX (2QB) values if multiple formats are shown.
-- Extract the main trade value table rows for players (Name + numeric Value). Include position/team if present.
-- Also extract any pick values that appear (1st/2nd/3rd or 1.01 etc).
-- Values must be numbers (no commas, no text).
-- If the PDF includes multiple tables (e.g., 1QB and SF), only output the SUPERFLEX table.
-- If publish date exists anywhere, set publish_date; else null.`;
-
-async function renderUrlToPdfBuffer(url: string): Promise<Buffer> {
-  const executablePath = await chromium.executablePath();
-  const browser = await playwrightChromium.launch({
-    args: chromium.args,
-    executablePath: executablePath ?? undefined,
-    headless: true,
-  });
-
-  try {
-    const page = await browser.newPage();
-    await page.goto(url, { waitUntil: "networkidle" });
-    await page.waitForTimeout(1500);
-    const pdf = await page.pdf({ format: "Letter", printBackground: true });
-    return Buffer.from(pdf);
-  } finally {
-    await browser.close();
-  }
-}
-
-async function llamaExtractTradeChartFromPdf(
-  pdf: Buffer,
-): Promise<{ data: LlamaExtractPayload | null; status: number }> {
-  const apiKey = process.env.LLAMA_CLOUD_API_KEY;
-  if (!apiKey) {
-    console.warn("LLAMA_CLOUD_API_KEY is not set; skipping LlamaCloud extract.");
-    return { data: null, status: 0 };
-  }
-
-  const body = {
-    base64_file: pdf.toString("base64"),
-    data_schema: LLAMA_DATA_SCHEMA,
-    config: { extraction_mode: "MULTIMODAL", extraction_target: "PER_DOC" },
-    system_prompt: LLAMA_SYSTEM_PROMPT,
-  };
-
-  let res: Response;
-  try {
-    res = await fetch("https://api.cloud.llamaindex.ai/api/v1/extraction/run", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    console.warn("LlamaCloud extraction request failed:", err);
-    return { data: null, status: 0 };
-  }
-
-  const status = res.status;
-  if (!res.ok) {
-    console.warn(`LlamaCloud extraction returned HTTP ${status}`);
-    return { data: null, status };
-  }
-
-  try {
-    const json = (await res.json()) as { data?: LlamaExtractPayload };
-    return { data: json?.data ?? null, status };
-  } catch (err) {
-    console.warn("LlamaCloud extraction response parse failed:", err);
-    return { data: null, status };
-  }
 }
 
 /* ── Sleeper player dictionary ─────────────────────────────────────── */
@@ -390,345 +243,6 @@ async function fetchDynastyProcess(
   };
 }
 
-/* ── FantasyPros diagnostics type ───────────────────────────────────── */
-type FantasyProsDiagnostics = {
-  fantasypros_status: "used" | "skipped";
-  fantasypros_skip_reason: string | null;
-  fantasypros_fetch_http_status: number | null;
-  fantasypros_fetch_final_url: string | null;
-  fantasypros_request_url_used: string | null;
-  fantasypros_publish_date_parsed: string | null;
-  fantasypros_is_stale: boolean;
-  fantasypros_players_extracted_count: number;
-  fantasypros_picks_extracted_count: number;
-  fantasypros_players_mapped_count: number;
-  fantasypros_pick101_value: number | null;
-  fantasypros_pdf_fallback_used: boolean;
-  fantasypros_llamacloud_http_status: number | null;
-  fantasypros_llamacloud_players_count: number | null;
-  fantasypros_llamacloud_picks_count: number | null;
-};
-
-/* ── Fetch FantasyPros ─────────────────────────────────────────────── */
-const POSITION_HEADING_MAP: Record<string, string> = {
-  quarterback: "QB",
-  qb: "QB",
-  "running back": "RB",
-  rb: "RB",
-  "wide receiver": "WR",
-  wr: "WR",
-  "tight end": "TE",
-  te: "TE",
-};
-
-function detectPosition(heading: string): string | null {
-  const lower = heading.toLowerCase();
-  for (const [keyword, pos] of Object.entries(POSITION_HEADING_MAP)) {
-    if (lower.includes(keyword)) return pos;
-  }
-  return null;
-}
-
-function isPickSection(heading: string): boolean {
-  const lower = heading.toLowerCase();
-  return (
-    lower.includes("pick") ||
-    lower.includes("draft") ||
-    lower.includes("rookie")
-  );
-}
-
-function extractArticleDate(html: string, $: cheerio.CheerioAPI): Date | null {
-  /* Try <meta property="article:modified_time"> first, then published_time */
-  const modified = $('meta[property="article:modified_time"]').attr("content");
-  if (modified) {
-    const d = new Date(modified);
-    if (!isNaN(d.getTime())) return d;
-  }
-  const published = $('meta[property="article:published_time"]').attr(
-    "content",
-  );
-  if (published) {
-    const d = new Date(published);
-    if (!isNaN(d.getTime())) return d;
-  }
-  /* <time datetime="..."> */
-  const timeDt = $("time[datetime]").first().attr("datetime");
-  if (timeDt) {
-    const d = new Date(timeDt);
-    if (!isNaN(d.getTime())) return d;
-  }
-  /* Fallback: look for "Updated ...date..." or "Published ...date..." in text */
-  const match = html.match(
-    /(?:updated|published)[:\s]+(\w+ \d{1,2},?\s*\d{4})/i,
-  );
-  if (match) {
-    const d = new Date(match[1]);
-    if (!isNaN(d.getTime())) return d;
-  }
-  return null;
-}
-
-async function fetchFantasyPros(
-  year: string,
-  nameToId: Record<string, string>,
-): Promise<{ result: SourceResult | null; diagnostics: FantasyProsDiagnostics }> {
-  const diag: FantasyProsDiagnostics = {
-    fantasypros_status: "skipped",
-    fantasypros_skip_reason: null,
-    fantasypros_fetch_http_status: null,
-    fantasypros_fetch_final_url: null,
-    fantasypros_request_url_used: null,
-    fantasypros_publish_date_parsed: null,
-    fantasypros_is_stale: false,
-    fantasypros_players_extracted_count: 0,
-    fantasypros_picks_extracted_count: 0,
-    fantasypros_players_mapped_count: 0,
-    fantasypros_pick101_value: null,
-    fantasypros_pdf_fallback_used: false,
-    fantasypros_llamacloud_http_status: null,
-    fantasypros_llamacloud_players_count: null,
-    fantasypros_llamacloud_picks_count: null,
-  };
-
-  const fetchOptions = {
-    cache: "no-store" as const,
-    redirect: "follow" as const,
-    headers: {
-      "User-Agent": "Mozilla/5.0",
-      Accept: "text/html,*/*",
-      "Accept-Language": "en-US,en;q=0.9",
-    },
-  };
-
-  let res: Response;
-  let requestUrlUsed = FANTASYPROS_URL;
-  try {
-    res = await fetch(requestUrlUsed, fetchOptions);
-    if (res.status === 404) {
-      requestUrlUsed = `${FANTASYPROS_URL}amp/`;
-      res = await fetch(requestUrlUsed, fetchOptions);
-    }
-  } catch {
-    console.warn("FantasyPros fetch failed (network error); skipping source.");
-    diag.fantasypros_skip_reason = "network error";
-    diag.fantasypros_request_url_used = requestUrlUsed;
-    return { result: null, diagnostics: diag };
-  }
-  diag.fantasypros_request_url_used = requestUrlUsed;
-  diag.fantasypros_fetch_http_status = res.status;
-  diag.fantasypros_fetch_final_url = res.url;
-  if (!res.ok) {
-    console.warn(`FantasyPros returned HTTP ${res.status}; skipping source.`);
-    diag.fantasypros_skip_reason = `HTTP ${res.status}`;
-    return { result: null, diagnostics: diag };
-  }
-
-  const html = await res.text();
-  const $ = cheerio.load(html);
-
-  /* ── Freshness check ─────────────────────────────────────────────── */
-  const articleDate = extractArticleDate(html, $);
-  if (articleDate) {
-    diag.fantasypros_publish_date_parsed = articleDate.toISOString();
-    const ageMs = Date.now() - articleDate.getTime();
-    const ageDays = ageMs / (1000 * 60 * 60 * 24);
-    if (ageDays > FRESHNESS_DAYS) {
-      console.warn(
-        `FantasyPros article is ${Math.round(ageDays)} days old (>${FRESHNESS_DAYS}); skipping source.`,
-      );
-      diag.fantasypros_is_stale = true;
-      diag.fantasypros_skip_reason = `article is ${Math.round(ageDays)} days old (>${FRESHNESS_DAYS})`;
-      return { result: null, diagnostics: diag };
-    }
-  }
-
-  /* ── Parse tables ────────────────────────────────────────────────── */
-  let playerMap: Record<string, number> = {};
-  let pick101Value: number | null = null;
-  let earlyFirstValue: number | null = null;
-  let unmappedCount = 0;
-  let playersExtracted = 0;
-  let picksExtracted = 0;
-
-  /*
-   * Strategy: walk through headings (h2, h3, h4) and the <table> that follows.
-   * Detect whether the heading refers to a position group or a picks section.
-   */
-  $("h2, h3, h4").each((_i, headingEl) => {
-    const headingText = $(headingEl).text().trim();
-    const pos = detectPosition(headingText);
-    const pickSection = isPickSection(headingText);
-    if (!pos && !pickSection) return;
-
-    /* Find the next table after this heading */
-    const table = $(headingEl).nextAll("table").first();
-    if (table.length === 0) {
-      /* Sometimes table is wrapped in a div right after heading */
-      const wrapper = $(headingEl).nextAll("div").first();
-      const innerTable = wrapper.find("table").first();
-      if (innerTable.length === 0) return;
-      parseTable(innerTable);
-      return;
-    }
-    parseTable(table);
-
-    function parseTable(tbl: cheerio.Cheerio<DomElement>) {
-      /* Detect column indices from header row */
-      const headers: string[] = [];
-      tbl.find("thead th, thead td, tr:first-child th, tr:first-child td").each(
-        (_j, cell) => {
-          headers.push($(cell).text().trim().toLowerCase());
-        },
-      );
-
-      let nameCol = headers.findIndex(
-        (h) =>
-          h.includes("player") || h.includes("name") || h.includes("pick"),
-      );
-      let valueCol = headers.findIndex(
-        (h) => h.includes("value") || h === "val",
-      );
-      let teamCol = headers.findIndex(
-        (h) => h.includes("team") || h === "tm",
-      );
-
-      /* Fallback: assume col 1 = name, last col = value */
-      if (nameCol < 0) nameCol = headers.length > 1 ? 1 : 0;
-      if (valueCol < 0) valueCol = headers.length - 1;
-      if (teamCol < 0) teamCol = -1;
-
-      /* Data rows: prefer tbody rows; if no tbody, skip the header row */
-      const tbodyRows = tbl.find("tbody tr");
-      const rows =
-        tbodyRows.length > 0
-          ? tbodyRows
-          : tbl.find("tr").slice(headers.length > 0 ? 1 : 0);
-
-      rows.each((_k, row) => {
-        const cells: string[] = [];
-        $(row)
-          .find("td, th")
-          .each((_l, cell) => {
-            cells.push($(cell).text().trim());
-          });
-        if (cells.length === 0) return;
-
-        const rawName = cells[nameCol] ?? "";
-        const rawValue = cells[valueCol] ?? "";
-        const numVal = Number(rawValue.replace(/,/g, ""));
-        if (isNaN(numVal) || numVal <= 0) return;
-
-        if (pickSection) {
-          picksExtracted++;
-          const upper = rawName.toUpperCase();
-          if (upper.includes(year) && upper.includes("1.01")) {
-            pick101Value = numVal;
-          } else if (
-            upper.includes(year) &&
-            upper.includes("EARLY") &&
-            upper.includes("1ST")
-          ) {
-            earlyFirstValue = numVal;
-          }
-          return;
-        }
-
-        /* Player mapping */
-        if (!pos) return;
-        playersExtracted++;
-        const key = normalizeName(rawName);
-        const sleeperId = nameToId[key];
-        if (sleeperId) {
-          playerMap[sleeperId] = numVal;
-        } else {
-          unmappedCount++;
-        }
-      });
-    }
-  });
-
-  const shouldUsePdfFallback =
-    diag.fantasypros_fetch_http_status === 200 && playersExtracted === 0;
-
-  if (shouldUsePdfFallback) {
-    diag.fantasypros_pdf_fallback_used = true;
-    try {
-      const pdfBuffer = await renderUrlToPdfBuffer(
-        diag.fantasypros_fetch_final_url ?? requestUrlUsed,
-      );
-      const extraction = await llamaExtractTradeChartFromPdf(pdfBuffer);
-      diag.fantasypros_llamacloud_http_status = extraction.status;
-
-      if (extraction.data) {
-        const extractedPlayers = extraction.data.players ?? [];
-        const extractedPicks = extraction.data.picks ?? [];
-
-        playersExtracted = extractedPlayers.length;
-        picksExtracted = extractedPicks.length;
-        diag.fantasypros_llamacloud_players_count = playersExtracted;
-        diag.fantasypros_llamacloud_picks_count = picksExtracted;
-
-        const mapped: Record<string, number> = {};
-        let fallbackUnmapped = 0;
-
-        for (const p of extractedPlayers) {
-          if (typeof p.value !== "number") continue;
-          const sleeperId = nameToId[normalizeName(p.name)];
-          if (sleeperId) {
-            mapped[sleeperId] = p.value;
-          } else {
-            fallbackUnmapped++;
-          }
-        }
-
-        playerMap = mapped;
-        unmappedCount = fallbackUnmapped;
-
-        let pick101FromPdf: number | null = null;
-        let earlyFirstFromPdf: number | null = null;
-        for (const pick of extractedPicks) {
-          if (typeof pick.value !== "number") continue;
-          const label = pick.label?.toUpperCase() ?? "";
-          if (label.includes(year) && label.includes("1.01")) {
-            pick101FromPdf = pick.value;
-          } else if (
-            label.includes(year) &&
-            label.includes("EARLY") &&
-            label.includes("1ST")
-          ) {
-            earlyFirstFromPdf = pick.value;
-          } else if (label.includes("EARLY") && label.includes("1ST")) {
-            earlyFirstFromPdf ??= pick.value;
-          } else if (label === "1.01") {
-            pick101FromPdf ??= pick.value;
-          }
-        }
-        pick101Value = pick101FromPdf ?? earlyFirstFromPdf ?? pick101Value;
-      }
-    } catch (err) {
-      console.warn("FantasyPros PDF fallback failed:", err);
-    }
-  }
-
-  const resolvedPick101 = pick101Value ?? earlyFirstValue;
-  diag.fantasypros_players_extracted_count = playersExtracted;
-  diag.fantasypros_picks_extracted_count = picksExtracted;
-  diag.fantasypros_players_mapped_count = Object.keys(playerMap).length;
-  diag.fantasypros_pick101_value = resolvedPick101;
-  diag.fantasypros_status = "used";
-
-  return {
-    result: {
-      name: "fantasypros",
-      playerMap,
-      pick101Value: resolvedPick101,
-      unmappedCount,
-    },
-    diagnostics: diag,
-  };
-}
-
 /* ── Median helper ─────────────────────────────────────────────────── */
 function median(values: number[]): number {
   if (values.length === 0) return 0;
@@ -810,19 +324,15 @@ async function handler(request: NextRequest) {
     const { posMap, nameToId } = await fetchSleeperDict();
 
     /* ─── 4. Fetch external sources ──────────────────────────────── */
-    const [fcResult, dpResult, fpReturn] = await Promise.all([
+    const [fcResult, dpResult] = await Promise.all([
       fetchFantasyCalc(year),
       fetchDynastyProcess(year, nameToId),
-      fetchFantasyPros(year, nameToId),
     ]);
-    const fpResult = fpReturn.result;
-    const fpDiag = fpReturn.diagnostics;
 
     /* Keep only sources that have a 1.01 value */
     const sources: SourceResult[] = [];
     if (fcResult.pick101Value != null) sources.push(fcResult);
     if (dpResult.pick101Value != null) sources.push(dpResult);
-    if (fpResult?.pick101Value != null) sources.push(fpResult);
 
     if (sources.length === 0) {
       return NextResponse.json(
@@ -835,7 +345,6 @@ async function handler(request: NextRequest) {
     const pick101BySource: Record<string, number | null> = {
       fantasycalc: fcResult.pick101Value,
       dynastyprocess: dpResult.pick101Value,
-      fantasypros: fpResult?.pick101Value ?? null,
     };
 
     /* ─── 5. Compute per-source ratios and blend ─────────────────── */
@@ -962,9 +471,7 @@ async function handler(request: NextRequest) {
       upserted_picks: pickUpsertRows.length,
       sources_used: sources.map((s) => s.name),
       pick101_values_by_source: pick101BySource,
-      fantasypros_unmapped_count: fpResult?.unmappedCount ?? null,
       top5_players_final: top5Final,
-      ...fpDiag,
     });
   } catch (err) {
     console.error("refresh-definitive-values error:", err);
