@@ -13,10 +13,34 @@ const FANTASYCALC_URL =
   "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=0.5";
 const DYNASTY_PROCESS_VALUES_URL =
   "https://raw.githubusercontent.com/dynastyprocess/data/master/files/values.csv";
-const YAHOO_BOONE_AUTHOR_URL = "https://sports.yahoo.com/author/justin-boone/";
-const YAHOO_SEARCH_URL =
-  "https://sports.yahoo.com/search?p=Dynasty%20Trade%20Value%20Chart%20Justin%20Boone%202QB";
 const YAHOO_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+const YAHOO_PAGES_ALLOWLIST: YahooPage[] = [
+  {
+    url: "https://sports.yahoo.com/fantasy/article/fantasy-football-dynasty-rankings-2026-trade-value-charts-justin-boone-draft-picks-182926020.html",
+    kind: "picks",
+    posHint: "PICK",
+  },
+  {
+    url: "https://sports.yahoo.com/fantasy/article/fantasy-football-dynasty-rankings-2026-trade-value-charts-justin-boone-qb-182445989.html",
+    kind: "players",
+    posHint: "QB",
+  },
+  {
+    url: "https://sports.yahoo.com/fantasy/article/justin-boones-2026-running-back-dynasty-rankings-and-trade-value-charts-for-february-183116948.html",
+    kind: "players",
+    posHint: "RB",
+  },
+  {
+    url: "https://sports.yahoo.com/fantasy/article/justin-boones-2026-wide-receiver-dynasty-rankings-and-trade-value-charts-for-february-182932365.html",
+    kind: "players",
+    posHint: "WR",
+  },
+  {
+    url: "https://sports.yahoo.com/fantasy/article/fantasy-football-dynasty-rankings-2026-trade-value-charts-justin-boone-te-182938019.html",
+    kind: "players",
+    posHint: "TE",
+  },
+];
 
 /* ── Position multipliers ──────────────────────────────────────────── */
 const BASE_MULTIPLIERS: Record<string, number> = {
@@ -150,11 +174,13 @@ type YahooPage = {
 type YahooParsedPage = {
   players: Array<{ name: string; value: number; pos: string | null }>;
   picks: Array<{ label: string; value: number }>;
+  valueColumnType: "2qb" | "superflex" | null;
 };
 
 type YahooDiagnostics = {
   status: string;
   publishDate: string | null;
+  publishDatesByPage: Record<string, string | null>;
   playersExtracted: number;
   playersMapped: number;
   picksExtracted: number;
@@ -168,17 +194,6 @@ type YahooDiagnostics = {
 };
 
 /* ── Yahoo helpers ─────────────────────────────────────────────────── */
-function absolutizeYahooUrl(href: string): string | null {
-  if (!href) return null;
-  if (href.startsWith("http")) return href;
-  if (href.startsWith("//")) return `https:${href}`;
-  try {
-    return new URL(href, "https://sports.yahoo.com").toString();
-  } catch {
-    return null;
-  }
-}
-
 function extractPublishDateFromDom($: ReturnType<typeof load>): Date | null {
   const selectors = [
     'meta[property="article:published_time"]',
@@ -205,91 +220,31 @@ function extractPublishDateFromDom($: ReturnType<typeof load>): Date | null {
   return null;
 }
 
-function classifyYahooLink(text: string, href: string): YahooPage | null {
-  const abs = absolutizeYahooUrl(href);
-  if (!abs) return null;
-
-  const combined = `${text} ${href}`.toLowerCase();
-  const isTradeValue =
-    combined.includes("trade value chart") ||
-    combined.includes("trade-value-chart") ||
-    combined.includes("tradevaluechart");
-  const isDynasty = combined.includes("dynasty");
-
-  if (!isTradeValue || !isDynasty) return null;
-
-  let posHint: string | undefined;
-  if (combined.includes("qb") || combined.includes("quarterback")) posHint = "QB";
-  else if (combined.includes("rb") || combined.includes("running back"))
-    posHint = "RB";
-  else if (combined.includes("wr") || combined.includes("wide receiver"))
-    posHint = "WR";
-  else if (combined.includes("te") || combined.includes("tight end"))
-    posHint = "TE";
-
-  let kind: "players" | "picks" = "players";
-  if (
-    combined.includes("pick") ||
-    combined.includes("draft") ||
-    combined.includes("rookie")
-  ) {
-    kind = "picks";
-    posHint = "PICK";
-  }
-
-  return { url: abs, kind, posHint };
+async function discoverYahooPages(): Promise<YahooPage[]> {
+  return YAHOO_PAGES_ALLOWLIST;
 }
 
-async function discoverYahooPages(): Promise<YahooPage[]> {
-  const pages: YahooPage[] = [];
-  const seen = new Set<string>();
+function findValueColumnIndex(headers: string[]): {
+  index: number;
+  type: "2qb" | "superflex";
+} | null {
+  const lower = headers.map((h) => h.toLowerCase());
 
-  const seeds = [
-    process.env.YAHOO_BOONE_URL,
-    YAHOO_BOONE_AUTHOR_URL,
-    YAHOO_SEARCH_URL,
-  ].filter(Boolean) as string[];
-
-  for (const seed of seeds) {
-    const absSeed = absolutizeYahooUrl(seed) ?? seed;
-
-    if (seed === process.env.YAHOO_BOONE_URL && absSeed && !seen.has(absSeed)) {
-      pages.push({ url: absSeed, kind: "players" });
-      seen.add(absSeed);
-    }
-
-    if (
-      absSeed &&
-      (absSeed.toLowerCase().includes("trade-value-chart") ||
-        absSeed.toLowerCase().includes("trade value chart"))
-    ) {
-      if (!seen.has(absSeed)) {
-        pages.push({ url: absSeed, kind: "players" });
-        seen.add(absSeed);
-      }
-    }
-
-    try {
-      const res = await fetch(absSeed, { cache: "no-store" });
-      if (!res.ok) continue;
-      const html = await res.text();
-      const $ = load(html);
-
-      $("a[href]").each((_, el) => {
-        const href = $(el).attr("href") ?? "";
-        const text = $(el).text() ?? "";
-        const meta = classifyYahooLink(text, href);
-        if (meta && !seen.has(meta.url)) {
-          pages.push(meta);
-          seen.add(meta.url);
-        }
-      });
-    } catch {
-      continue;
+  for (let i = 0; i < lower.length; i++) {
+    const h = lower[i];
+    if (h.includes("2qb") || h.includes("2-qb") || h.includes("2 qb")) {
+      return { index: i, type: "2qb" };
     }
   }
 
-  return pages;
+  for (let i = 0; i < lower.length; i++) {
+    const h = lower[i];
+    if (h.includes("superflex") || /\bsf\b/.test(h)) {
+      return { index: i, type: "superflex" };
+    }
+  }
+
+  return null;
 }
 
 function parseYahooTables(
@@ -300,6 +255,7 @@ function parseYahooTables(
   const picks: YahooParsedPage["picks"] = [];
   const tables = $("table").toArray();
   const hintPos = page.posHint?.toUpperCase() ?? null;
+  let valueColumnType: YahooParsedPage["valueColumnType"] = null;
 
   for (const table of tables) {
     const headerCells = $(table).find("thead tr").first().find("th,td");
@@ -322,10 +278,10 @@ function parseYahooTables(
       (h) => h.includes("player") || h.includes("name"),
     );
     const posIdx = lowerHeaders.findIndex((h) => h.includes("pos"));
-    const valueIdx = lowerHeaders.findIndex(
-      (h) => h.includes("2qb") || h.includes("sf") || h.includes("superflex"),
-    );
-    if (playerIdx === -1 || valueIdx === -1) continue;
+    const valueInfo = findValueColumnIndex(headerTexts);
+    if (playerIdx === -1 || !valueInfo) continue;
+    const valueIdx = valueInfo.index;
+    valueColumnType = valueColumnType ?? valueInfo.type;
 
     const bodyRows = $(table).find("tbody tr");
     const rows = bodyRows.length ? bodyRows : $(table).find("tr").slice(1);
@@ -367,7 +323,7 @@ function parseYahooTables(
     });
   }
 
-  return { players, picks };
+  return { players, picks, valueColumnType };
 }
 
 async function fetchYahooBoone(
@@ -376,6 +332,7 @@ async function fetchYahooBoone(
   const diagnostics: YahooDiagnostics = {
     status: "not_started",
     publishDate: null,
+    publishDatesByPage: {},
     playersExtracted: 0,
     playersMapped: 0,
     picksExtracted: 0,
@@ -390,6 +347,8 @@ async function fetchYahooBoone(
 
   const pages = await discoverYahooPages();
   diagnostics.pagesFound = pages.length;
+  diagnostics.pagesUsed = pages.length;
+  diagnostics.pagesUrlsUsed = pages.map((p) => p.url);
   if (!pages.length) {
     diagnostics.status = "article_not_found";
     return { sourceResult: null, diagnostics };
@@ -397,36 +356,38 @@ async function fetchYahooBoone(
 
   const playerMap: Record<string, number> = {};
   const seenPlayers = new Set<string>();
-  let picksPageFresh = false;
+  let missingValueColumn = false;
+  const stalePages: string[] = [];
 
   try {
     for (const page of pages) {
       try {
         const res = await fetch(page.url, { cache: "no-store" });
         if (!res.ok) {
-          diagnostics.stalePages.push(page.url);
+          stalePages.push(page.url);
+          diagnostics.publishDatesByPage[page.url] = null;
           continue;
         }
         const html = await res.text();
         const $ = load(html);
 
         const publishDate = extractPublishDateFromDom($);
-        diagnostics.publishDate = diagnostics.publishDate ?? publishDate?.toISOString() ?? null;
+        const publishIso = publishDate?.toISOString() ?? null;
+        diagnostics.publishDatesByPage[page.url] = publishIso;
+        diagnostics.publishDate = diagnostics.publishDate ?? publishIso;
         const isStale =
           !publishDate || Date.now() - publishDate.getTime() > YAHOO_MAX_AGE_MS;
 
         if (isStale) {
-          if (!diagnostics.stalePages.includes(page.url)) {
-            diagnostics.stalePages.push(page.url);
-          }
+          stalePages.push(page.url);
           continue;
         }
 
-        if (!diagnostics.pagesUrlsUsed.includes(page.url)) {
-          diagnostics.pagesUrlsUsed.push(page.url);
-        }
-
         const parsed = parseYahooTables($, page);
+        if (!parsed.valueColumnType) {
+          missingValueColumn = true;
+          continue;
+        }
         const posHint = page.posHint?.toUpperCase() ?? "";
 
         for (const row of parsed.players) {
@@ -445,13 +406,15 @@ async function fetchYahooBoone(
 
         if (page.kind === "picks" && parsed.picks.length > 0) {
           diagnostics.picksExtracted += parsed.picks.length;
-          picksPageFresh = true;
           if (!diagnostics.anchorValue) {
             const exact = parsed.picks.find((p) =>
               p.label.toUpperCase().includes("1.01"),
             );
             if (exact) {
-              diagnostics.anchorLabel = "1.01 (2QB)";
+              diagnostics.anchorLabel =
+                parsed.valueColumnType === "superflex"
+                  ? "1.01 (SF/2QB)"
+                  : "1.01 (2QB)";
               diagnostics.anchorValue = exact.value;
             } else {
               const early = parsed.picks.find((p) => {
@@ -459,16 +422,18 @@ async function fetchYahooBoone(
                 return up.includes("EARLY") && up.includes("1ST");
               });
               if (early) {
-                diagnostics.anchorLabel = "Early 1st (2QB)";
+                diagnostics.anchorLabel =
+                  parsed.valueColumnType === "superflex"
+                    ? "Early 1st (SF/2QB)"
+                    : "Early 1st (2QB)";
                 diagnostics.anchorValue = early.value;
               }
             }
           }
         }
       } catch {
-        if (!diagnostics.stalePages.includes(page.url)) {
-          diagnostics.stalePages.push(page.url);
-        }
+        stalePages.push(page.url);
+        diagnostics.publishDatesByPage[page.url] = null;
       }
     }
 
@@ -478,12 +443,21 @@ async function fetchYahooBoone(
     return { sourceResult: null, diagnostics };
   }
 
-  diagnostics.pagesUsed = diagnostics.pagesUrlsUsed.length;
-  diagnostics.isStale =
-    diagnostics.stalePages.length > 0 || !picksPageFresh;
+  for (const page of pages) {
+    if (!(page.url in diagnostics.publishDatesByPage)) {
+      diagnostics.publishDatesByPage[page.url] = null;
+    }
+  }
+  diagnostics.stalePages = Array.from(new Set(stalePages));
+  diagnostics.isStale = diagnostics.stalePages.length > 0;
 
-  if (!picksPageFresh) {
-    diagnostics.status = "picks_page_missing_or_stale";
+  if (diagnostics.isStale) {
+    diagnostics.status = "stale";
+    return { sourceResult: null, diagnostics };
+  }
+
+  if (missingValueColumn) {
+    diagnostics.status = "missing_2qb_column";
     return { sourceResult: null, diagnostics };
   }
 
@@ -845,6 +819,7 @@ async function handler(request: NextRequest) {
       pick101_values_by_source: pick101BySource,
       yahoo_status: yahooDiagnostics.status,
       yahoo_publish_date: yahooDiagnostics.publishDate,
+      yahoo_publish_dates_by_page: yahooDiagnostics.publishDatesByPage,
       yahoo_pages_found: yahooDiagnostics.pagesFound,
       yahoo_pages_used: yahooDiagnostics.pagesUsed,
       yahoo_pages_urls_used: yahooDiagnostics.pagesUrlsUsed,
