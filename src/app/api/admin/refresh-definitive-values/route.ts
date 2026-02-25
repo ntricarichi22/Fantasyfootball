@@ -16,6 +16,7 @@ const DYNASTY_PROCESS_VALUES_URL =
 const YAHOO_BOONE_AUTHOR_URL = "https://sports.yahoo.com/author/justin-boone/";
 const YAHOO_SEARCH_URL =
   "https://sports.yahoo.com/search?p=Dynasty%20Trade%20Value%20Chart%20Justin%20Boone%202QB";
+const YAHOO_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 /* ── Position multipliers ──────────────────────────────────────────── */
 const BASE_MULTIPLIERS: Record<string, number> = {
@@ -140,11 +141,28 @@ type SourceResult = {
   unmappedCount?: number;
 };
 
+type YahooPage = {
+  url: string;
+  kind: "players" | "picks";
+  posHint?: string;
+};
+
+type YahooParsedPage = {
+  players: Array<{ name: string; value: number; pos: string | null }>;
+  picks: Array<{ label: string; value: number }>;
+};
+
 type YahooDiagnostics = {
   status: string;
   publishDate: string | null;
   playersExtracted: number;
   playersMapped: number;
+  picksExtracted: number;
+  pagesFound: number;
+  pagesUsed: number;
+  pagesUrlsUsed: string[];
+  stalePages: string[];
+  isStale: boolean;
   anchorLabel: string | null;
   anchorValue: number | null;
 };
@@ -187,74 +205,101 @@ function extractPublishDateFromDom($: ReturnType<typeof load>): Date | null {
   return null;
 }
 
-async function discoverYahooArticleUrl(): Promise<string | null> {
-  if (process.env.YAHOO_BOONE_URL) return process.env.YAHOO_BOONE_URL;
+function classifyYahooLink(text: string, href: string): YahooPage | null {
+  const abs = absolutizeYahooUrl(href);
+  if (!abs) return null;
 
-  const candidatePages = [YAHOO_BOONE_AUTHOR_URL, YAHOO_SEARCH_URL];
-  for (const url of candidatePages) {
+  const combined = `${text} ${href}`.toLowerCase();
+  const isTradeValue =
+    combined.includes("trade value chart") ||
+    combined.includes("trade-value-chart") ||
+    combined.includes("tradevaluechart");
+  const isDynasty = combined.includes("dynasty");
+
+  if (!isTradeValue || !isDynasty) return null;
+
+  let posHint: string | undefined;
+  if (combined.includes("qb") || combined.includes("quarterback")) posHint = "QB";
+  else if (combined.includes("rb") || combined.includes("running back"))
+    posHint = "RB";
+  else if (combined.includes("wr") || combined.includes("wide receiver"))
+    posHint = "WR";
+  else if (combined.includes("te") || combined.includes("tight end"))
+    posHint = "TE";
+
+  let kind: "players" | "picks" = "players";
+  if (
+    combined.includes("pick") ||
+    combined.includes("draft") ||
+    combined.includes("rookie")
+  ) {
+    kind = "picks";
+    posHint = "PICK";
+  }
+
+  return { url: abs, kind, posHint };
+}
+
+async function discoverYahooPages(): Promise<YahooPage[]> {
+  const pages: YahooPage[] = [];
+  const seen = new Set<string>();
+
+  const seeds = [
+    process.env.YAHOO_BOONE_URL,
+    YAHOO_BOONE_AUTHOR_URL,
+    YAHOO_SEARCH_URL,
+  ].filter(Boolean) as string[];
+
+  for (const seed of seeds) {
+    const absSeed = absolutizeYahooUrl(seed) ?? seed;
+
+    if (seed === process.env.YAHOO_BOONE_URL && absSeed && !seen.has(absSeed)) {
+      pages.push({ url: absSeed, kind: "players" });
+      seen.add(absSeed);
+    }
+
+    if (
+      absSeed &&
+      (absSeed.toLowerCase().includes("trade-value-chart") ||
+        absSeed.toLowerCase().includes("trade value chart"))
+    ) {
+      if (!seen.has(absSeed)) {
+        pages.push({ url: absSeed, kind: "players" });
+        seen.add(absSeed);
+      }
+    }
+
     try {
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(absSeed, { cache: "no-store" });
       if (!res.ok) continue;
       const html = await res.text();
       const $ = load(html);
-      let found: string | null = null;
 
       $("a[href]").each((_, el) => {
-        if (found) return;
         const href = $(el).attr("href") ?? "";
-        const text = $(el).text().toLowerCase();
-        const hrefLower = href.toLowerCase();
-        const isTradeValue =
-          text.includes("trade value chart") ||
-          hrefLower.includes("trade-value-chart");
-        const isDynasty = text.includes("dynasty") || hrefLower.includes("dynasty");
-        if (isTradeValue && isDynasty) {
-          const abs = absolutizeYahooUrl(href);
-          if (abs) found = abs;
+        const text = $(el).text() ?? "";
+        const meta = classifyYahooLink(text, href);
+        if (meta && !seen.has(meta.url)) {
+          pages.push(meta);
+          seen.add(meta.url);
         }
       });
-
-      if (found) return found;
     } catch {
       continue;
     }
   }
 
-  return null;
+  return pages;
 }
 
 function parseYahooTables(
   $: ReturnType<typeof load>,
-  nameToId: Record<string, string>,
-): {
-  playerMap: Record<string, number>;
-  playersExtracted: number;
-  playersMapped: number;
-  anchorValue: number | null;
-  anchorLabel: string | null;
-} {
-  const playerMap: Record<string, number> = {};
-  let playersExtracted = 0;
-  let playersMapped = 0;
-  let anchorValue: number | null = null;
-  let anchorLabel: string | null = null;
-
+  page: YahooPage,
+): YahooParsedPage {
+  const players: YahooParsedPage["players"] = [];
+  const picks: YahooParsedPage["picks"] = [];
   const tables = $("table").toArray();
-
-  const trySetAnchor = (name: string, value: number): boolean => {
-    const upper = name.toUpperCase();
-    if (upper.includes("1.01")) {
-      anchorLabel = "1.01";
-      anchorValue = value;
-      return true;
-    }
-    if (!anchorValue && upper.includes("EARLY") && upper.includes("1ST")) {
-      anchorLabel = "Early 1st (2QB)";
-      anchorValue = value;
-      return true;
-    }
-    return false;
-  };
+  const hintPos = page.posHint?.toUpperCase() ?? null;
 
   for (const table of tables) {
     const headerCells = $(table).find("thead tr").first().find("th,td");
@@ -289,40 +334,40 @@ function parseYahooTables(
       const cells = $(row).find("td");
       if (!cells.length) return;
 
-      const pickName = $(cells[playerIdx]).text().trim();
+      const rawName = $(cells[playerIdx]).text().trim();
       const posText = posIdx >= 0 ? $(cells[posIdx]).text().trim() : "";
       const valueText = $(cells[valueIdx]).text().trim().replace(/[,]/g, "");
       const numericValue = Number(valueText.replace(/[^0-9.]/g, ""));
 
-      if (!pickName || !Number.isFinite(numericValue)) return;
+      if (!rawName || !Number.isFinite(numericValue)) return;
 
-      const isPickPos = posText.toUpperCase() === "PICK";
-      const isPickName =
-        /PICK/i.test(pickName) ||
-        /1ST/i.test(pickName) ||
-        /2ND/i.test(pickName) ||
-        /3RD/i.test(pickName);
+      const pos = (hintPos ?? posText?.toUpperCase() ?? "").replace(
+        /[^A-Z]/g,
+        "",
+      );
+      const nameUpper = rawName.toUpperCase();
+      const isPickRow =
+        page.kind === "picks" ||
+        pos === "PICK" ||
+        /PICK/.test(nameUpper) ||
+        /1ST/.test(nameUpper) ||
+        /2ND/.test(nameUpper) ||
+        /3RD/.test(nameUpper);
 
-      const anchorHit = trySetAnchor(pickName, numericValue);
-      if (anchorHit || isPickPos || isPickName) return;
-
-      playersExtracted += 1;
-      const normalized = normalizeName(pickName);
-      const sleeperId = nameToId[normalized];
-      if (sleeperId) {
-        playerMap[sleeperId] = numericValue;
-        playersMapped += 1;
+      if (isPickRow) {
+        picks.push({ label: rawName, value: numericValue });
+        return;
       }
+
+      players.push({
+        name: rawName,
+        value: numericValue,
+        pos: pos || null,
+      });
     });
   }
 
-  return {
-    playerMap,
-    playersExtracted,
-    playersMapped,
-    anchorValue,
-    anchorLabel,
-  };
+  return { players, picks };
 }
 
 async function fetchYahooBoone(
@@ -333,62 +378,130 @@ async function fetchYahooBoone(
     publishDate: null,
     playersExtracted: 0,
     playersMapped: 0,
+    picksExtracted: 0,
+    pagesFound: 0,
+    pagesUsed: 0,
+    pagesUrlsUsed: [],
+    stalePages: [],
+    isStale: false,
     anchorLabel: null,
     anchorValue: null,
   };
 
-  const articleUrl = await discoverYahooArticleUrl();
-  if (!articleUrl) {
+  const pages = await discoverYahooPages();
+  diagnostics.pagesFound = pages.length;
+  if (!pages.length) {
     diagnostics.status = "article_not_found";
     return { sourceResult: null, diagnostics };
   }
 
-  try {
-    const res = await fetch(articleUrl, { cache: "no-store" });
-    if (!res.ok) {
-      diagnostics.status = `fetch_failed_${res.status}`;
-      return { sourceResult: null, diagnostics };
-    }
-    const html = await res.text();
-    const $ = load(html);
+  const playerMap: Record<string, number> = {};
+  const seenPlayers = new Set<string>();
+  let picksPageFresh = false;
 
-    const publishDate = extractPublishDateFromDom($);
-    diagnostics.publishDate = publishDate ? publishDate.toISOString() : null;
-    if (publishDate) {
-      const ageMs = Date.now() - publishDate.getTime();
-      const ageDays = ageMs / (1000 * 60 * 60 * 24);
-      if (ageDays > 90) {
-        diagnostics.status = "stale_publish_date";
-        return { sourceResult: null, diagnostics };
+  try {
+    for (const page of pages) {
+      try {
+        const res = await fetch(page.url, { cache: "no-store" });
+        if (!res.ok) {
+          diagnostics.stalePages.push(page.url);
+          continue;
+        }
+        const html = await res.text();
+        const $ = load(html);
+
+        const publishDate = extractPublishDateFromDom($);
+        diagnostics.publishDate = diagnostics.publishDate ?? publishDate?.toISOString() ?? null;
+        const isStale =
+          !publishDate || Date.now() - publishDate.getTime() > YAHOO_MAX_AGE_MS;
+
+        if (isStale) {
+          if (!diagnostics.stalePages.includes(page.url)) {
+            diagnostics.stalePages.push(page.url);
+          }
+          continue;
+        }
+
+        if (!diagnostics.pagesUrlsUsed.includes(page.url)) {
+          diagnostics.pagesUrlsUsed.push(page.url);
+        }
+
+        const parsed = parseYahooTables($, page);
+        const posHint = page.posHint?.toUpperCase() ?? "";
+
+        for (const row of parsed.players) {
+          const pos = (row.pos ?? posHint ?? "").toUpperCase();
+          const key = `${normalizeName(row.name)}|${pos || "UNK"}`;
+          if (seenPlayers.has(key)) continue;
+          seenPlayers.add(key);
+          diagnostics.playersExtracted += 1;
+
+          const sleeperId = nameToId[normalizeName(row.name)];
+          if (sleeperId) {
+            playerMap[sleeperId] = row.value;
+            diagnostics.playersMapped += 1;
+          }
+        }
+
+        if (page.kind === "picks" && parsed.picks.length > 0) {
+          diagnostics.picksExtracted += parsed.picks.length;
+          picksPageFresh = true;
+          if (!diagnostics.anchorValue) {
+            const exact = parsed.picks.find((p) =>
+              p.label.toUpperCase().includes("1.01"),
+            );
+            if (exact) {
+              diagnostics.anchorLabel = "1.01 (2QB)";
+              diagnostics.anchorValue = exact.value;
+            } else {
+              const early = parsed.picks.find((p) => {
+                const up = p.label.toUpperCase();
+                return up.includes("EARLY") && up.includes("1ST");
+              });
+              if (early) {
+                diagnostics.anchorLabel = "Early 1st (2QB)";
+                diagnostics.anchorValue = early.value;
+              }
+            }
+          }
+        }
+      } catch {
+        if (!diagnostics.stalePages.includes(page.url)) {
+          diagnostics.stalePages.push(page.url);
+        }
       }
     }
 
-    const parsed = parseYahooTables($, nameToId);
-    diagnostics.playersExtracted = parsed.playersExtracted;
-    diagnostics.playersMapped = parsed.playersMapped;
-    diagnostics.anchorLabel = parsed.anchorLabel;
-    diagnostics.anchorValue = parsed.anchorValue;
-
-    if (!parsed.anchorValue) {
-      diagnostics.status = "missing_anchor";
-      return { sourceResult: null, diagnostics };
-    }
-
-    diagnostics.status = "ok";
-    return {
-      sourceResult: {
-        name: "yahoo",
-        playerMap: parsed.playerMap,
-        pick101Value: parsed.anchorValue,
-        unmappedCount: parsed.playersExtracted - parsed.playersMapped,
-      },
-      diagnostics,
-    };
   } catch (err) {
     diagnostics.status =
       err instanceof Error ? `error_${err.message}` : "error_unknown";
     return { sourceResult: null, diagnostics };
   }
+
+  diagnostics.pagesUsed = diagnostics.pagesUrlsUsed.length;
+  diagnostics.isStale =
+    diagnostics.stalePages.length > 0 || !picksPageFresh;
+
+  if (!picksPageFresh) {
+    diagnostics.status = "picks_page_missing_or_stale";
+    return { sourceResult: null, diagnostics };
+  }
+
+  if (!diagnostics.anchorValue) {
+    diagnostics.status = "missing_anchor";
+    return { sourceResult: null, diagnostics };
+  }
+
+  diagnostics.status = "ok";
+  return {
+    sourceResult: {
+      name: "yahoo",
+      playerMap,
+      pick101Value: diagnostics.anchorValue,
+      unmappedCount: diagnostics.playersExtracted - diagnostics.playersMapped,
+    },
+    diagnostics,
+  };
 }
 
 /* ── Fetch FantasyCalc ─────────────────────────────────────────────── */
@@ -732,10 +845,18 @@ async function handler(request: NextRequest) {
       pick101_values_by_source: pick101BySource,
       yahoo_status: yahooDiagnostics.status,
       yahoo_publish_date: yahooDiagnostics.publishDate,
+      yahoo_pages_found: yahooDiagnostics.pagesFound,
+      yahoo_pages_used: yahooDiagnostics.pagesUsed,
+      yahoo_pages_urls_used: yahooDiagnostics.pagesUrlsUsed,
       yahoo_players_extracted_count: yahooDiagnostics.playersExtracted,
       yahoo_players_mapped_count: yahooDiagnostics.playersMapped,
+      yahoo_players_extracted_total: yahooDiagnostics.playersExtracted,
+      yahoo_players_mapped_total: yahooDiagnostics.playersMapped,
+      yahoo_picks_extracted_count: yahooDiagnostics.picksExtracted,
       yahoo_anchor_label: yahooDiagnostics.anchorLabel,
       yahoo_anchor_value: yahooDiagnostics.anchorValue,
+      yahoo_is_stale: yahooDiagnostics.isStale,
+      yahoo_stale_pages: yahooDiagnostics.stalePages,
       top5_players_final: top5Final,
     });
   } catch (err) {
