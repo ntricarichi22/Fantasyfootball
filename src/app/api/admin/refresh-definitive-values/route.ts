@@ -1,9 +1,12 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import chromium from "@sparticuz/chromium";
 import * as cheerio from "cheerio";
 import type { Element as DomElement } from "domhandler";
+import { chromium as playwrightChromium } from "playwright-core";
+import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 const DEFAULT_YEAR = "2026";
 const TGIF_101_VALUE = 500;
@@ -93,6 +96,146 @@ function normalizeName(name: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/[^a-z]/g, "");
+}
+
+type LlamaExtractPlayer = {
+  name: string;
+  pos?: string | null;
+  team?: string | null;
+  value: number;
+};
+
+type LlamaExtractPick = {
+  label: string;
+  value: number;
+};
+
+type LlamaExtractPayload = {
+  source: string;
+  publish_date: string | null;
+  scoring: string | null;
+  format: string;
+  players: LlamaExtractPlayer[];
+  picks: LlamaExtractPick[];
+};
+
+const LLAMA_DATA_SCHEMA = {
+  type: "object",
+  properties: {
+    source: { type: "string", description: "Always 'fantasypros'" },
+    publish_date: {
+      type: ["string", "null"],
+      description: "ISO date if present",
+    },
+    scoring: { type: ["string", "null"], description: "If stated (e.g., half PPR)" },
+    format: {
+      type: "string",
+      description: "Always 'dynasty-superflex-trade-value-chart'",
+    },
+    players: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          pos: { type: ["string", "null"] },
+          team: { type: ["string", "null"] },
+          value: { type: "number" },
+        },
+        required: ["name", "value"],
+      },
+    },
+    picks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          label: {
+            type: "string",
+            description: "e.g., '1.01', '2026 1st', 'Early 1st'",
+          },
+          value: { type: "number" },
+        },
+        required: ["label", "value"],
+      },
+    },
+  },
+  required: ["players", "picks", "source", "format"],
+} as const;
+
+const LLAMA_SYSTEM_PROMPT = `You are extracting a DYNASTY SUPERFLEX trade value chart from the attached PDF of a FantasyPros article.
+Return ONLY JSON matching the provided schema. No commentary.
+Rules:
+- Prefer the SUPERFLEX (2QB) values if multiple formats are shown.
+- Extract the main trade value table rows for players (Name + numeric Value). Include position/team if present.
+- Also extract any pick values that appear (1st/2nd/3rd or 1.01 etc).
+- Values must be numbers (no commas, no text).
+- If the PDF includes multiple tables (e.g., 1QB and SF), only output the SUPERFLEX table.
+- If publish date exists anywhere, set publish_date; else null.`;
+
+async function renderUrlToPdfBuffer(url: string): Promise<Buffer> {
+  const executablePath = await chromium.executablePath();
+  const browser = await playwrightChromium.launch({
+    args: chromium.args,
+    executablePath: executablePath ?? undefined,
+    headless: true,
+  });
+
+  try {
+    const page = await browser.newPage();
+    await page.goto(url, { waitUntil: "networkidle" });
+    await page.waitForTimeout(1500);
+    const pdf = await page.pdf({ format: "Letter", printBackground: true });
+    return Buffer.from(pdf);
+  } finally {
+    await browser.close();
+  }
+}
+
+async function llamaExtractTradeChartFromPdf(
+  pdf: Buffer,
+): Promise<{ data: LlamaExtractPayload | null; status: number }> {
+  const apiKey = process.env.LLAMA_CLOUD_API_KEY;
+  if (!apiKey) {
+    console.warn("LLAMA_CLOUD_API_KEY is not set; skipping LlamaCloud extract.");
+    return { data: null, status: 0 };
+  }
+
+  const body = {
+    base64_file: pdf.toString("base64"),
+    data_schema: LLAMA_DATA_SCHEMA,
+    config: { extraction_mode: "MULTIMODAL", extraction_target: "PER_DOC" },
+    system_prompt: LLAMA_SYSTEM_PROMPT,
+  };
+
+  let res: Response;
+  try {
+    res = await fetch("https://api.cloud.llamaindex.ai/api/v1/extraction/run", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.warn("LlamaCloud extraction request failed:", err);
+    return { data: null, status: 0 };
+  }
+
+  const status = res.status;
+  if (!res.ok) {
+    console.warn(`LlamaCloud extraction returned HTTP ${status}`);
+    return { data: null, status };
+  }
+
+  try {
+    const json = (await res.json()) as { data?: LlamaExtractPayload };
+    return { data: json?.data ?? null, status };
+  } catch (err) {
+    console.warn("LlamaCloud extraction response parse failed:", err);
+    return { data: null, status };
+  }
 }
 
 /* ── Sleeper player dictionary ─────────────────────────────────────── */
@@ -260,6 +403,10 @@ type FantasyProsDiagnostics = {
   fantasypros_picks_extracted_count: number;
   fantasypros_players_mapped_count: number;
   fantasypros_pick101_value: number | null;
+  fantasypros_pdf_fallback_used: boolean;
+  fantasypros_llamacloud_http_status: number | null;
+  fantasypros_llamacloud_players_count: number | null;
+  fantasypros_llamacloud_picks_count: number | null;
 };
 
 /* ── Fetch FantasyPros ─────────────────────────────────────────────── */
@@ -338,6 +485,10 @@ async function fetchFantasyPros(
     fantasypros_picks_extracted_count: 0,
     fantasypros_players_mapped_count: 0,
     fantasypros_pick101_value: null,
+    fantasypros_pdf_fallback_used: false,
+    fantasypros_llamacloud_http_status: null,
+    fantasypros_llamacloud_players_count: null,
+    fantasypros_llamacloud_picks_count: null,
   };
 
   const fetchOptions = {
@@ -393,7 +544,7 @@ async function fetchFantasyPros(
   }
 
   /* ── Parse tables ────────────────────────────────────────────────── */
-  const playerMap: Record<string, number> = {};
+  let playerMap: Record<string, number> = {};
   let pick101Value: number | null = null;
   let earlyFirstValue: number | null = null;
   let unmappedCount = 0;
@@ -496,6 +647,69 @@ async function fetchFantasyPros(
       });
     }
   });
+
+  const shouldUsePdfFallback =
+    diag.fantasypros_fetch_http_status === 200 && playersExtracted === 0;
+
+  if (shouldUsePdfFallback) {
+    diag.fantasypros_pdf_fallback_used = true;
+    try {
+      const pdfBuffer = await renderUrlToPdfBuffer(
+        diag.fantasypros_fetch_final_url ?? requestUrlUsed,
+      );
+      const extraction = await llamaExtractTradeChartFromPdf(pdfBuffer);
+      diag.fantasypros_llamacloud_http_status = extraction.status;
+
+      if (extraction.data) {
+        const extractedPlayers = extraction.data.players ?? [];
+        const extractedPicks = extraction.data.picks ?? [];
+
+        playersExtracted = extractedPlayers.length;
+        picksExtracted = extractedPicks.length;
+        diag.fantasypros_llamacloud_players_count = playersExtracted;
+        diag.fantasypros_llamacloud_picks_count = picksExtracted;
+
+        const mapped: Record<string, number> = {};
+        let fallbackUnmapped = 0;
+
+        for (const p of extractedPlayers) {
+          if (typeof p.value !== "number") continue;
+          const sleeperId = nameToId[normalizeName(p.name)];
+          if (sleeperId) {
+            mapped[sleeperId] = p.value;
+          } else {
+            fallbackUnmapped++;
+          }
+        }
+
+        playerMap = mapped;
+        unmappedCount = fallbackUnmapped;
+
+        let pick101FromPdf: number | null = null;
+        let earlyFirstFromPdf: number | null = null;
+        for (const pick of extractedPicks) {
+          if (typeof pick.value !== "number") continue;
+          const label = pick.label?.toUpperCase() ?? "";
+          if (label.includes(year) && label.includes("1.01")) {
+            pick101FromPdf = pick.value;
+          } else if (
+            label.includes(year) &&
+            label.includes("EARLY") &&
+            label.includes("1ST")
+          ) {
+            earlyFirstFromPdf = pick.value;
+          } else if (label.includes("EARLY") && label.includes("1ST")) {
+            earlyFirstFromPdf ??= pick.value;
+          } else if (label === "1.01") {
+            pick101FromPdf ??= pick.value;
+          }
+        }
+        pick101Value = pick101FromPdf ?? earlyFirstFromPdf ?? pick101Value;
+      }
+    } catch (err) {
+      console.warn("FantasyPros PDF fallback failed:", err);
+    }
+  }
 
   const resolvedPick101 = pick101Value ?? earlyFirstValue;
   diag.fantasypros_players_extracted_count = playersExtracted;

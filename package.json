@@ -9,10 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^143.0.4",
     "@supabase/supabase-js": "^2.95.3",
     "cheerio": "^1.2.0",
     "lucide-react": "^0.574.0",
     "next": "16.1.6",
+    "playwright-core": "^1.58.2",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
