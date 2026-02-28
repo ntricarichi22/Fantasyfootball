@@ -566,41 +566,23 @@ async function handler(request: NextRequest) {
       );
     }
 
-    /* ─── 7. Clear pre-existing staging rows for this batch, then insert ─ */
-    // Only delete if rows for this batch already exist (avoids unnecessary DELETEs).
-    const { count: existingCount, error: countError } = await client
-      .from("cfc_value_upload_staging")
-      .select("import_batch", { count: "exact", head: true })
-      .eq("import_batch", batchName);
-
-    // If the count check fails, fall back to deleting to preserve idempotency.
-    const shouldDelete = countError ? true : (existingCount ?? 0) > 0;
-    if (shouldDelete) {
-      const { error: deleteError } = await client
-        .from("cfc_value_upload_staging")
-        .delete()
-        .eq("import_batch", batchName);
-
-      if (deleteError) {
-        return NextResponse.json(
-          { error: `Failed to clear staging: ${deleteError.message}` },
-          { status: 500 },
-        );
-      }
-    }
-
-    // Insert in chunks to stay within payload limits
+    /* ─── 7. Write staging rows (upsert to stay idempotent, no DELETE needed) ─ */
+    // Upsert on (import_batch, asset_key, source_key) so that re-running the
+    // same batch is safe without ever issuing an unfiltered DELETE.
     const CHUNK_SIZE = 500;
     let rowsWritten = 0;
     for (let i = 0; i < stagingRows.length; i += CHUNK_SIZE) {
       const chunk = stagingRows.slice(i, i + CHUNK_SIZE);
-      const { error: insertError } = await client
+      const { error: upsertError } = await client
         .from("cfc_value_upload_staging")
-        .insert(chunk);
-      if (insertError) {
+        .upsert(chunk, {
+          onConflict: "import_batch,asset_key,source_key",
+          ignoreDuplicates: false,
+        });
+      if (upsertError) {
         return NextResponse.json(
           {
-            error: `Failed to insert staging rows: ${insertError.message}`,
+            error: `Failed to write staging rows: ${upsertError.message}`,
             rows_written_before_error: rowsWritten,
           },
           { status: 500 },
