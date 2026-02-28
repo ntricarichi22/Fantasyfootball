@@ -566,17 +566,27 @@ async function handler(request: NextRequest) {
       );
     }
 
-    /* ─── 7. Clear existing staging rows for this batch and insert ── */
-    const { error: deleteError } = await client
+    /* ─── 7. Clear pre-existing staging rows for this batch, then insert ─ */
+    // Only delete if rows for this batch already exist (avoids unnecessary DELETEs).
+    const { count: existingCount, error: countError } = await client
       .from("cfc_value_upload_staging")
-      .delete()
+      .select("import_batch", { count: "exact", head: true })
       .eq("import_batch", batchName);
 
-    if (deleteError) {
-      return NextResponse.json(
-        { error: `Failed to clear staging: ${deleteError.message}` },
-        { status: 500 },
-      );
+    // If the count check fails, fall back to deleting to preserve idempotency.
+    const shouldDelete = countError ? true : (existingCount ?? 0) > 0;
+    if (shouldDelete) {
+      const { error: deleteError } = await client
+        .from("cfc_value_upload_staging")
+        .delete()
+        .eq("import_batch", batchName);
+
+      if (deleteError) {
+        return NextResponse.json(
+          { error: `Failed to clear staging: ${deleteError.message}` },
+          { status: 500 },
+        );
+      }
     }
 
     // Insert in chunks to stay within payload limits
