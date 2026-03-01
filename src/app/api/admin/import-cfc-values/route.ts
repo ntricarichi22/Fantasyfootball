@@ -283,6 +283,22 @@ async function fetchDynastyProcess(
   return { playerMap, pick101Value: pick101Value ?? earlyFirstValue };
 }
 
+/* ── Manual player mapping type ──────────────────────────────────────── */
+type ManualPlayerMapping = {
+  player_name: string;
+  position: string;
+  nfl_team: string;
+  sleeper_player_id: string | null;
+};
+
+function buildPlayerLookupKey(
+  name: string,
+  position: string,
+  team: string,
+): string {
+  return `${normalizeName(name)}|${position.toUpperCase().replace(/[^A-Z]/g, "")}|${team.toUpperCase().replace(/[^A-Z]/g, "")}`;
+}
+
 /* ── Raw upload row type ─────────────────────────────────────────────── */
 type RawUploadRow = Record<string, unknown>;
 
@@ -402,14 +418,31 @@ async function handler(request: NextRequest) {
       ),
     ]);
 
-    /* ─── 5. Filter player rows (exclude anchor + pick rows) ──────── */
+    /* ─── 5. Fetch manual player mappings ────────────────────────── */
+    const { data: manualMappingsData, error: manualMappingsError } = await client
+      .from("cfc_manual_player_mappings")
+      .select("player_name,position,nfl_team,sleeper_player_id");
+
+    if (manualMappingsError) {
+      console.error("[import-cfc-values] failed to fetch manual mappings:", manualMappingsError.message);
+    }
+
+    const manualMappings: ManualPlayerMapping[] = (manualMappingsData ?? []) as ManualPlayerMapping[];
+
+    // Build a lookup key: normalizedName|position|nflTeam → mapping row
+    const manualMappingLookup = new Map<string, ManualPlayerMapping>();
+    for (const m of manualMappings) {
+      manualMappingLookup.set(buildPlayerLookupKey(m.player_name, m.position, m.nfl_team), m);
+    }
+
+    /* ─── 6. Filter player rows (exclude anchor + pick rows) ──────── */
     const playerRows = (rawRows as RawUploadRow[]).filter((r) => {
       if (isAnchorRow(r)) return false;
       const assetType = String(r["asset_type"] ?? "").toLowerCase().trim();
       return assetType !== "pick";
     });
 
-    /* ─── 6. Match players and build staging rows ─────────────────── */
+    /* ─── 7. Match players and build staging rows ─────────────────── */
     const stagingRows: StagingRow[] = [];
     const unmatchedPlayers: Array<{
       player_name: string;
@@ -424,7 +457,9 @@ async function handler(request: NextRequest) {
     }> = [];
 
     let processedCount = 0;
-    let matchedCount = 0;
+    let matchedViaManual = 0;
+    let matchedViaAuto = 0;
+    let intentionallySkipped = 0;
 
     for (const row of playerRows) {
       const playerName = String(row["player_name"] ?? "").trim();
@@ -442,32 +477,53 @@ async function handler(request: NextRequest) {
         .trim()
         .toUpperCase();
 
-      const { sleeperId, ambiguous } = matchPlayerToSleeperId(
-        playerName,
-        position,
-        nflTeam,
-        sleeperDict,
-      );
+      // 1. Check manual mappings first
+      const manualMatch = manualMappingLookup.get(buildPlayerLookupKey(playerName, position, nflTeam));
 
-      if (!sleeperId) {
-        unmatchedPlayers.push({
-          player_name: playerName,
+      let sleeperId: string | null = null;
+      let ambiguous = false;
+
+      if (manualMatch !== undefined) {
+        if (manualMatch.sleeper_player_id === null) {
+          // Intentionally unmapped — skip without adding to unmatched
+          intentionallySkipped++;
+          continue;
+        }
+        // Manual mapping with a valid sleeper ID
+        sleeperId = manualMatch.sleeper_player_id;
+        matchedViaManual++;
+      } else {
+        // 2. Fall back to automatic Sleeper matching
+        const autoMatch = matchPlayerToSleeperId(
+          playerName,
           position,
-          nfl_team: nflTeam,
-        });
-        continue;
+          nflTeam,
+          sleeperDict,
+        );
+        sleeperId = autoMatch.sleeperId;
+        ambiguous = autoMatch.ambiguous;
+
+        if (!sleeperId) {
+          unmatchedPlayers.push({
+            player_name: playerName,
+            position,
+            nfl_team: nflTeam,
+          });
+          continue;
+        }
+
+        if (ambiguous) {
+          ambiguousPlayers.push({
+            player_name: playerName,
+            position,
+            nfl_team: nflTeam,
+            sleeper_id: sleeperId,
+          });
+        }
+
+        matchedViaAuto++;
       }
 
-      if (ambiguous) {
-        ambiguousPlayers.push({
-          player_name: playerName,
-          position,
-          nfl_team: nflTeam,
-          sleeper_id: sleeperId,
-        });
-      }
-
-      matchedCount++;
       const assetKey = `player.${sleeperId}`;
       const sleeperPos = (sleeperDict.posMap[sleeperId] ?? position) || null;
       const birthDate = sleeperDict.birthDateMap[sleeperId] ?? null;
@@ -558,8 +614,10 @@ async function handler(request: NextRequest) {
         {
           error: "No staging rows generated — check raw upload data",
           players_processed: processedCount,
-          players_matched: matchedCount,
-          players_unmatched: unmatchedPlayers.length,
+          matched_via_manual: matchedViaManual,
+          matched_via_auto: matchedViaAuto,
+          intentionally_skipped: intentionallySkipped,
+          still_unmatched: unmatchedPlayers.length,
           unmatched_players: unmatchedPlayers.slice(0, 50),
         },
         { status: 422 },
@@ -608,8 +666,10 @@ async function handler(request: NextRequest) {
       ok: true,
       import_batch: batchName,
       players_processed: processedCount,
-      players_matched: matchedCount,
-      players_unmatched: unmatchedPlayers.length,
+      matched_via_manual: matchedViaManual,
+      matched_via_auto: matchedViaAuto,
+      intentionally_skipped: intentionallySkipped,
+      still_unmatched: unmatchedPlayers.length,
       rows_written: rowsWritten,
       sources_included: sourcesIncluded,
       pick_101_anchors: {
