@@ -317,7 +317,7 @@ const collectRosterAssets = (
   });
 
   (roster.draft_picks ?? []).forEach((pick) => {
-    const value = getPickValue(pick, { teamCount });
+    const value = getPickValue(pick, { teamCount, cfcValues: playerValues });
     picks.push({
       id: availabilityKeyForPick(pick),
       label: shortPickLabel(pick, teamCount),

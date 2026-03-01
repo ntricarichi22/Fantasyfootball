@@ -739,8 +739,8 @@ function TradeBuilderContent() {
   /* ---------- Pick value helper ---------- */
   const computePickValue = useCallback(
     (pick: DraftPick) =>
-      getPickValue(pick, { teamCount: rosters.length || teams.length || 1 }),
-    [rosters.length, teams.length]
+      getPickValue(pick, { teamCount: rosters.length || teams.length || 1, cfcValues: playerValues }),
+    [rosters.length, teams.length, playerValues]
   );
 
   /* ================================================================ */

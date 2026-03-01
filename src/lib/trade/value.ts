@@ -44,9 +44,29 @@ export const getPlayerValue = (playerId: string, values: Record<string, number |
   return typeof value === "number" ? value : null;
 };
 
-export const getPickValue = (pick: DraftPick, options?: { teamCount?: number }) => {
+/**
+ * Returns the canonical CFC pick key used in `cfc_trade_values_current`.
+ * Format: `"YYYY-R.SS"` e.g. `"2026-1.01"`, `"2026-2.06"`.
+ */
+export const getCFCPickKey = (pick: DraftPick, teamCount: number = DEFAULT_TEAM_COUNT): string | null => {
+  if (!pick.season || !pick.round) return null;
+  const slot = normalizeSlot(pick.pick_no, teamCount) ?? Math.ceil(teamCount / 2);
+  return `${pick.season}-${pick.round}.${String(slot).padStart(2, "0")}`;
+};
+
+export const getPickValue = (pick: DraftPick, options?: { teamCount?: number; cfcValues?: Record<string, number | null | undefined> }) => {
   if (!pick.round) return 0;
   const teamCount = options?.teamCount ?? DEFAULT_TEAM_COUNT;
+
+  // Prefer CFC value from cfc_trade_values_current when provided
+  if (options?.cfcValues) {
+    const key = getCFCPickKey(pick, teamCount);
+    if (key != null) {
+      const cfcVal = options.cfcValues[key];
+      if (typeof cfcVal === "number") return cfcVal;
+    }
+  }
+
   const discount = seasonDiscount(pick.season);
 
   if (pick.round === 2 || pick.round === 3) {
@@ -79,7 +99,7 @@ export const getPickValue = (pick: DraftPick, options?: { teamCount?: number }) 
 export const getAssetValue = (
   asset: Asset,
   values: Record<string, number | null | undefined>,
-  options?: { teamCount?: number }
+  options?: { teamCount?: number; cfcValues?: Record<string, number | null | undefined> }
 ) => {
   if (asset.type === "player") {
     return getPlayerValue(asset.playerId, values) ?? 0;
@@ -90,5 +110,5 @@ export const getAssetValue = (
 export const sumPackageValue = (
   assets: Asset[],
   values: Record<string, number | null | undefined>,
-  options?: { teamCount?: number }
+  options?: { teamCount?: number; cfcValues?: Record<string, number | null | undefined> }
 ) => assets.reduce((total, asset) => total + getAssetValue(asset, values, options), 0);
