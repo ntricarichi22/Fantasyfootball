@@ -9,10 +9,6 @@ type SupabaseClientResult =
   | { client: SupabaseClient; error: null }
   | { client: null; error: string };
 
-type PlayerValuesRefreshState = {
-  refreshed_at?: string | null;
-};
-
 const getSupabaseAdminClient = (): SupabaseClientResult => {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -33,52 +29,15 @@ const getSupabaseAdminClient = (): SupabaseClientResult => {
   return { client: supabaseAdminClient, error: null };
 };
 
-const fetchPlayerValuesLastRefresh = async (client: SupabaseClient) => {
-  const { data, error } = await client
-    .from("app_state")
-    .select("value, updated_at")
-    .eq("key", "player_values_last_refresh")
-    .maybeSingle();
-
-  if (error) {
-    console.warn("Failed to read player_values_last_refresh from app_state", { error });
-    return null;
-  }
-
-  const rawValue = data?.value;
-  const refreshedAt =
-    rawValue && typeof rawValue === "object" && "refreshed_at" in rawValue
-      ? (rawValue as PlayerValuesRefreshState).refreshed_at
-      : null;
-  return refreshedAt ?? data?.updated_at ?? null;
-};
-
 const buildPlayerValueMapBySleeperId = (
-  rows: Array<{ sleeper_id: string | null; value: number | null }>,
+  rows: Array<{ sleeper_player_id: string | null; cfc_value: number | null }>,
 ) => {
   return rows.reduce<Record<string, number>>((acc, row) => {
-    if (row.sleeper_id && typeof row.value === "number") {
-      acc[row.sleeper_id] = row.value;
+    if (row.sleeper_player_id && typeof row.cfc_value === "number") {
+      acc[row.sleeper_player_id] = row.cfc_value;
     }
     return acc;
   }, {});
-};
-
-const findLatestUpdatedAt = (rows: Array<{ updated_at?: string | null }>) => {
-  let latest: string | null = null;
-  let latestTime = -Infinity;
-
-  rows.forEach((row) => {
-    if (typeof row.updated_at !== "string") return;
-    const timestamp = new Date(row.updated_at).getTime();
-    if (Number.isNaN(timestamp)) return;
-    if (timestamp > latestTime) {
-      latest = row.updated_at;
-      latestTime = timestamp;
-    }
-  });
-
-  return latest;
 };
 
 export async function GET() {
@@ -89,29 +48,21 @@ export async function GET() {
   }
 
   const client = clientResult.client;
-  const useDefinitive = process.env.USE_DEFINITIVE_VALUES === "true";
-  const source = useDefinitive ? "v_player_values_definitive" : "player_values";
-
-  const lastUpdatedFromAppState = await fetchPlayerValuesLastRefresh(client);
 
   const { data, error } = await client
-    .from(source)
-    .select("sleeper_id, value, updated_at");
+    .from("cfc_trade_values_current")
+    .select("sleeper_player_id, cfc_value");
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const lastUpdated = lastUpdatedFromAppState ?? findLatestUpdatedAt(data ?? []);
-
   const response: Record<string, unknown> = {
     data: buildPlayerValueMapBySleeperId(data ?? []),
-    meta: { lastUpdated },
+    meta: process.env.NODE_ENV === "development"
+      ? { source: "cfc_trade_values_current" }
+      : {},
   };
-
-  if (process.env.NODE_ENV === "development") {
-    response.meta = { ...(response.meta as Record<string, unknown>), source };
-  }
 
   return NextResponse.json(response);
 }
