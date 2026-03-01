@@ -593,48 +593,10 @@ async function handler(request: NextRequest) {
 
     /* ─── 8. Call cfc_apply_value_upload ──────────────────────────── */
     console.log(`[import-cfc-values] staging rows written: ${rowsWritten}`);
-    console.log(`[import-cfc-values] apply step started for batch: ${batchName}`);
-
-    // Retry up to 3 times to handle PostgREST schema-cache timing issues.
-    const SCHEMA_CACHE_HINT = "schema cache";
-    const MAX_APPLY_ATTEMPTS = 3;
-    let applyError: { message: string } | null = null;
-    for (let attempt = 1; attempt <= MAX_APPLY_ATTEMPTS; attempt++) {
-      const result = await client.rpc("cfc_apply_value_upload", {
-        p_batch: batchName,
-      });
-      applyError = result.error as { message: string } | null;
-      if (!applyError) break;
-      const errMsg = typeof applyError.message === "string" ? applyError.message.toLowerCase() : "";
-      if (!errMsg.includes(SCHEMA_CACHE_HINT)) break;
-      // Schema cache miss – wait and retry
-      console.warn(
-        `[import-cfc-values] schema cache miss on attempt ${attempt}; retrying…`,
-      );
-      if (attempt < MAX_APPLY_ATTEMPTS) {
-        await new Promise((r) => setTimeout(r, 1000 * attempt));
-      }
-    }
-
+    const { error: applyError } = await client.rpc("cfc_apply_value_upload", { p_batch: batchName });
     if (applyError) {
-      console.error("[import-cfc-values] cfc_apply_value_upload error:", applyError);
-      // Staging rows are written; surface warning but don't fail the response
-      return NextResponse.json(
-        {
-          ok: false,
-          warning: `Staging rows written but cfc_apply_value_upload failed: ${applyError.message}`,
-          import_batch: batchName,
-          players_processed: processedCount,
-          players_matched: matchedCount,
-          players_unmatched: unmatchedPlayers.length,
-          rows_written: rowsWritten,
-          unmatched_players: unmatchedPlayers.slice(0, 50),
-          ambiguous_players: ambiguousPlayers.slice(0, 20),
-        },
-        { status: 207 },
-      );
+      console.error("[import-cfc-values] cfc_apply_value_upload error:", applyError.message);
     }
-
     console.log(`[import-cfc-values] apply step completed for batch: ${batchName}`);
 
     /* ─── 9. Return summary ───────────────────────────────────────── */
