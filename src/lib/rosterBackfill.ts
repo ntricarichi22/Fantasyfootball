@@ -43,6 +43,7 @@ type SleeperPlayer = {
   full_name?: string | null;
   search_full_name?: string | null;
   birth_date?: string | null;
+  team?: string | null;
 };
 
 /* ── Helpers ───────────────────────────────────────────────────────────── */
@@ -152,11 +153,15 @@ export async function backfillMissingRosteredPlayers(
     await rostersRes.json();
 
   /* ── 2. Identify rostered players not in the value map ────────────── */
+  // Treat both absent players AND zero-value players as needing backfill.
+  // A zero cfc_value means a prior import wrote nothing useful (e.g. player
+  // was in the spreadsheet with no raw values and no FC/DP match).
   const missingIds: string[] = [];
   for (const roster of rosters ?? []) {
     for (const pid of roster.players ?? []) {
       const id = String(pid);
-      if (!(id in valueMap)) {
+      // !valueMap[id] is true when id is absent (undefined) OR value is 0
+      if (!valueMap[id]) {
         missingIds.push(id);
       }
     }
@@ -164,7 +169,9 @@ export async function backfillMissingRosteredPlayers(
 
   if (missingIds.length === 0) return valueMap;
 
-  console.log(`[rosterBackfill] ${missingIds.length} rostered player(s) missing from cfc_trade_values_current — backfilling`);
+  // Deduplicate before logging (a player can appear on multiple rosters)
+  const missingSet = new Set(missingIds);
+  console.log(`[rosterBackfill] ${missingSet.size} unique rostered player(s) missing or at 0 — triggering backfill`);
 
   /* ── 3. Fetch FantasyCalc, DynastyProcess, and Sleeper player dict ── */
   let fcRes: Response, dpRes: Response, sleeperRes: Response;
@@ -183,7 +190,8 @@ export async function backfillMissingRosteredPlayers(
   const posMap: Record<string, string> = {};
   const birthDateMap: Record<string, string> = {};
   const idToName: Record<string, string> = {};
-  const nameToId: Record<string, string> = {};
+  // nameToIds: normalized-name → list of sleeper IDs (handles same-name players)
+  const nameToIds: Record<string, string[]> = {};
 
   if (sleeperRes.ok) {
     const dict: Record<string, SleeperPlayer> = await sleeperRes.json();
@@ -194,7 +202,10 @@ export async function backfillMissingRosteredPlayers(
       if (name) {
         idToName[id] = name;
         const key = normalizeName(name);
-        if (key) nameToId[key] = id;
+        if (key) {
+          if (!nameToIds[key]) nameToIds[key] = [];
+          nameToIds[key].push(id);
+        }
       }
     }
   }
@@ -260,15 +271,18 @@ export async function backfillMissingRosteredPlayers(
       const dpName = row.player;
       if (!dpName) continue;
       const key = normalizeName(dpName);
-      const sleeperId = nameToId[key];
-      if (sleeperId) dpPlayerMap[sleeperId] = numVal;
+      // Use the same name→ID resolution as the import route:
+      // collect all IDs for this name, then prefer the one whose position matches.
+      const ids = nameToIds[key];
+      if (!ids || ids.length === 0) continue;
+      const bestId = ids.find((id) => posMap[id] === pos) ?? ids[0];
+      dpPlayerMap[bestId] = numVal;
     }
   }
 
   /* ── 7. Build staging rows for all missing players ────────────────── */
   const batchName = `roster-backfill-${new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-")}`;
   const stagingRows: StagingRow[] = [];
-  const missingSet = new Set(missingIds);
 
   for (const sleeperId of missingSet) {
     const assetKey = `player.${sleeperId}`;
@@ -276,8 +290,17 @@ export async function backfillMissingRosteredPlayers(
     const position = posMap[sleeperId] ?? null;
     const birthDate = birthDateMap[sleeperId] ?? null;
 
+    const fcVal = fcPlayerMap[sleeperId];
+    const dpVal = dpPlayerMap[sleeperId];
+
+    // Diagnostic log so server logs show exactly why each player is (not) backfilled
+    console.log(
+      `[rosterBackfill] ${displayName} (${sleeperId}) | ` +
+      `fc=${typeof fcVal === "number" ? fcVal : "N/A"} ` +
+      `dp=${typeof dpVal === "number" ? dpVal : "N/A"}`,
+    );
+
     if (fcPick101 != null && fcPick101 > 0) {
-      const fcVal = fcPlayerMap[sleeperId];
       if (typeof fcVal === "number") {
         stagingRows.push({
           import_batch: batchName,
@@ -296,7 +319,6 @@ export async function backfillMissingRosteredPlayers(
     }
 
     if (dpPick101 != null && dpPick101 > 0) {
-      const dpVal = dpPlayerMap[sleeperId];
       if (typeof dpVal === "number") {
         stagingRows.push({
           import_batch: batchName,
