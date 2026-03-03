@@ -44,9 +44,38 @@ export const getPlayerValue = (playerId: string, values: Record<string, number |
   return typeof value === "number" ? value : null;
 };
 
-export const getPickValue = (pick: DraftPick, options?: { teamCount?: number }) => {
+/**
+ * Returns the canonical CFC pick key used in `cfc_trade_values_current`.
+ * Format: `"pick.R.SS"` e.g. `"pick.1.01"`, `"pick.2.06"`.
+ * Season is NOT part of the key; the same current-season value is used for
+ * all years and a discount is applied in code for future seasons.
+ */
+export const getCFCPickKey = (pick: DraftPick, teamCount: number = DEFAULT_TEAM_COUNT): string | null => {
+  if (!pick.round) return null;
+  const slot = normalizeSlot(pick.pick_no, teamCount) ?? Math.ceil(teamCount / 2);
+  return `pick.${pick.round}.${String(slot).padStart(2, "0")}`;
+};
+
+export const getPickValue = (pick: DraftPick, options?: { teamCount?: number; cfcValues?: Record<string, number | null | undefined> }) => {
   if (!pick.round) return 0;
   const teamCount = options?.teamCount ?? DEFAULT_TEAM_COUNT;
+
+  // When cfcValues is provided, use the CFC value exclusively.
+  // All rounds (including 2 and 3) are stored in cfc_trade_values_current.
+  // If the key is missing, return 0 — do not fall back to TGIF values.
+  if (options?.cfcValues) {
+    const key = getCFCPickKey(pick, teamCount);
+    if (key != null) {
+      const cfcVal = options.cfcValues[key];
+      if (typeof cfcVal === "number") {
+        // Apply season discount for future picks (e.g. 2027)
+        return Math.round(cfcVal * seasonDiscount(pick.season));
+      }
+    }
+    return 0;
+  }
+
+  // Legacy path: reached when cfcValues is not supplied OR when the pick key is not found in the CFC map.
   const discount = seasonDiscount(pick.season);
 
   if (pick.round === 2 || pick.round === 3) {
@@ -79,7 +108,7 @@ export const getPickValue = (pick: DraftPick, options?: { teamCount?: number }) 
 export const getAssetValue = (
   asset: Asset,
   values: Record<string, number | null | undefined>,
-  options?: { teamCount?: number }
+  options?: { teamCount?: number; cfcValues?: Record<string, number | null | undefined> }
 ) => {
   if (asset.type === "player") {
     return getPlayerValue(asset.playerId, values) ?? 0;
@@ -90,5 +119,5 @@ export const getAssetValue = (
 export const sumPackageValue = (
   assets: Asset[],
   values: Record<string, number | null | undefined>,
-  options?: { teamCount?: number }
+  options?: { teamCount?: number; cfcValues?: Record<string, number | null | undefined> }
 ) => assets.reduce((total, asset) => total + getAssetValue(asset, values, options), 0);

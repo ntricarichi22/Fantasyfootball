@@ -293,7 +293,7 @@ const collectRosterAssets = (
       info?.position?.toUpperCase() ||
       info?.fantasy_positions?.[0]?.toUpperCase() ||
       undefined;
-    const adjustedValue = applyPositionMultiplier(value, position);
+    const cfcValue = value ?? 0;
     const labelParts = [
       info?.full_name ||
         [info?.first_name, info?.last_name].filter(Boolean).join(" ").trim() ||
@@ -302,7 +302,6 @@ const collectRosterAssets = (
       info?.team || "FA",
       age ? `${age}` : "–",
     ];
-
     players.push({
       id: availabilityKeyForPlayer(playerId),
       label: `${labelParts[0]} (${labelParts[1]} • ${labelParts[2]} • ${labelParts[3]})`,
@@ -310,14 +309,14 @@ const collectRosterAssets = (
       position,
       team: info?.team || "FA",
       ageLabel: age ? String(age) : "–",
-      value: adjustedValue,
+      value: cfcValue,
       isUnvalued: value == null,
       rosterId: roster.roster_id,
     });
   });
 
   (roster.draft_picks ?? []).forEach((pick) => {
-    const value = getPickValue(pick, { teamCount });
+    const value = getPickValue(pick, { teamCount, cfcValues: playerValues });
     picks.push({
       id: availabilityKeyForPick(pick),
       label: shortPickLabel(pick, teamCount),
@@ -1680,6 +1679,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
       teDiscount: TE_VALUE_MULTIPLIER,
       qbPremium: QB_VALUE_MULTIPLIER,
       teamCount,
+      cfcValues: playerValues,
     });
   }, [playerDictionary, playerValues, rosters, teamCount]);
 

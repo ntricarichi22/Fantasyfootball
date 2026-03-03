@@ -39,7 +39,7 @@ const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 
 async function fetchSleeperRoster(
   rosterId: string,
-  playerValues: Record<string, number>,
+  cfcValues: Record<string, number>,
 ): Promise<OfferAsset[]> {
   if (!LEAGUE_ID_ENV) return [];
   try {
@@ -65,7 +65,7 @@ async function fetchSleeperRoster(
     for (const pid of roster.players ?? []) {
       const id = String(pid);
       const info = playerDict[id];
-      const value = playerValues[id] ?? 0;
+      const value = cfcValues[id] ?? 0;
       if (!value) continue;
       const name =
         info?.full_name ||
@@ -100,7 +100,7 @@ async function fetchSleeperRoster(
           roster_id: tp.owner_id,
           original_roster_id: tp.roster_id,
         };
-        const value = getPickValue(pick, { teamCount });
+        const value = getPickValue(pick, { teamCount, cfcValues });
         if (!value) continue;
         assets.push({
           key: `pick:${tp.season}-${tp.round}-${tp.roster_id}`,
@@ -280,20 +280,27 @@ export async function POST(request: NextRequest) {
   const originalFromValue: number = latestOffer.from_value ?? 0; // what receiver currently gets
   const originalToValue: number = latestOffer.to_value ?? 0;     // what receiver currently sends
 
-  // Fetch player values from DB
+  // Fetch player + pick values from cfc_trade_values_current (single source of truth)
   const { data: pvData } = await client
-    .from("player_values")
-    .select("player_id, value")
-    .eq("league_id", league_id);
+    .from("cfc_trade_values_current")
+    .select("sleeper_player_id, asset_key, cfc_value");
 
-  const playerValues: Record<string, number> = {};
+  const cfcValues: Record<string, number> = {};
   for (const row of pvData ?? []) {
-    playerValues[row.player_id] = row.value;
+    if (typeof row.cfc_value !== "number") continue;
+    // Players: keyed by sleeper_player_id
+    if (row.sleeper_player_id) {
+      cfcValues[row.sleeper_player_id] = row.cfc_value;
+    }
+    // Picks: keyed by asset_key (e.g. "pick.1.01")
+    if (row.asset_key?.startsWith("pick.")) {
+      cfcValues[row.asset_key] = row.cfc_value;
+    }
   }
 
   // Fetch SENDER's available assets (the team whose offer is being countered).
   // The counter asks the sender to add assets, so we pull from their pool.
-  const senderPool = await fetchSleeperRoster(originalSenderId, playerValues);
+  const senderPool = await fetchSleeperRoster(originalSenderId, cfcValues);
 
   // Remove assets already in the base offer from the pool to avoid duplicates
   const baseFromKeys = new Set((latestOffer.assets_from ?? []).map((a: OfferAsset) => a.key));
