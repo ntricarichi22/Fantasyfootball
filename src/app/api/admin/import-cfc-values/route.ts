@@ -745,6 +745,15 @@ async function handler(request: NextRequest) {
     const { error: applyError } = await client.rpc("cfc_apply_value_upload", { p_batch: batchName });
     if (applyError) {
       console.error("[import-cfc-values] cfc_apply_value_upload error:", applyError.message);
+      return NextResponse.json(
+        {
+          error: `Apply step failed: ${applyError.message}`,
+          hint: "Run supabase/migrations/003_fix_cfc_value_column.sql in the Supabase SQL editor to fix the cfc_apply_value_upload function.",
+          import_batch: batchName,
+          rows_written: rowsWritten,
+        },
+        { status: 500 },
+      );
     }
     console.log(`[import-cfc-values] apply step completed for batch: ${batchName}`);
 

@@ -107,8 +107,17 @@ function parseCSV(text: string): Record<string, string>[] {
 export function buildValueMap(rows: ValueRow[]): Record<string, number> {
   return rows.reduce<Record<string, number>>((acc, row) => {
     if (typeof row.cfc_value !== "number") return acc;
-    if (row.sleeper_player_id) {
-      acc[row.sleeper_player_id] = row.cfc_value;
+    // Use sleeper_player_id when present; fall back to extracting the ID
+    // from asset_key (e.g. "player.4046" → "4046") so the map is populated
+    // even when the sleeper_player_id column was not written by an older
+    // version of cfc_apply_value_upload.
+    const sid =
+      row.sleeper_player_id ??
+      (row.asset_key?.startsWith("player.")
+        ? row.asset_key.slice("player.".length)
+        : null);
+    if (sid) {
+      acc[sid] = row.cfc_value;
     }
     if (row.asset_key?.startsWith("pick.")) {
       acc[row.asset_key] = row.cfc_value;
