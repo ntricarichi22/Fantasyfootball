@@ -60,10 +60,9 @@ export const getPickValue = (pick: DraftPick, options?: { teamCount?: number; cf
   if (!pick.round) return 0;
   const teamCount = options?.teamCount ?? DEFAULT_TEAM_COUNT;
 
-  // When cfcValues is provided, prefer the CFC value.
-  // If the specific key exists in the map, use it (with season discount).
-  // If the key is missing (e.g. round 2/3 picks not yet in the DB), fall through
-  // to the legacy TGIF path below so those picks still show a value.
+  // When cfcValues is provided, use the CFC value exclusively.
+  // All rounds (including 2 and 3) are stored in cfc_trade_values_current.
+  // If the key is missing, return 0 — do not fall back to TGIF values.
   if (options?.cfcValues) {
     const key = getCFCPickKey(pick, teamCount);
     if (key != null) {
@@ -73,7 +72,7 @@ export const getPickValue = (pick: DraftPick, options?: { teamCount?: number; cf
         return Math.round(cfcVal * seasonDiscount(pick.season));
       }
     }
-    // Key not found in CFC map — fall through to legacy path.
+    return 0;
   }
 
   // Legacy path: reached when cfcValues is not supplied OR when the pick key is not found in the CFC map.
