@@ -283,12 +283,18 @@ export async function POST(request: NextRequest) {
   // Fetch player + pick values from cfc_trade_values_current (single source of truth)
   const { data: pvData } = await client
     .from("cfc_trade_values_current")
-    .select("sleeper_player_id, cfc_value");
+    .select("sleeper_player_id, asset_key, cfc_value");
 
   const cfcValues: Record<string, number> = {};
   for (const row of pvData ?? []) {
-    if (row.sleeper_player_id && typeof row.cfc_value === "number") {
+    if (typeof row.cfc_value !== "number") continue;
+    // Players: keyed by sleeper_player_id
+    if (row.sleeper_player_id) {
       cfcValues[row.sleeper_player_id] = row.cfc_value;
+    }
+    // Picks: keyed by asset_key (e.g. "pick.1.01")
+    if (row.asset_key?.startsWith("pick.")) {
+      cfcValues[row.asset_key] = row.cfc_value;
     }
   }
 

@@ -24,6 +24,7 @@ export type LeagueProfileSettings = {
   teDiscount?: number;
   qbPremium?: number;
   teamCount?: number;
+  cfcValues?: Record<string, number | null | undefined>;
 };
 
 export type TeamProfile = {
@@ -118,9 +119,10 @@ export const buildLeagueProfiles = (
   const teamCount = settings?.teamCount ?? teams.length ?? 12;
   const teDiscount = settings?.teDiscount ?? 0.75;
   const qbPremium = settings?.qbPremium ?? 1.25;
+  const cfcValues = settings?.cfcValues;
   const allTotals = teams.map((team) => {
     const pickTotal = (team.picks ?? []).reduce(
-      (sum, pick) => sum + getPickValue(pick, { teamCount }),
+      (sum, pick) => sum + getPickValue(pick, { teamCount, cfcValues }),
       0
     );
     const playerTotal = team.players.reduce((sum, player) => sum + (player.value ?? 0), 0);

@@ -1680,6 +1680,7 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
       teDiscount: TE_VALUE_MULTIPLIER,
       qbPremium: QB_VALUE_MULTIPLIER,
       teamCount,
+      cfcValues: playerValues,
     });
   }, [playerDictionary, playerValues, rosters, teamCount]);
 

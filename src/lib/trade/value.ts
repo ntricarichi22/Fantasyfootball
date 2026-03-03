@@ -46,27 +46,35 @@ export const getPlayerValue = (playerId: string, values: Record<string, number |
 
 /**
  * Returns the canonical CFC pick key used in `cfc_trade_values_current`.
- * Format: `"YYYY-R.SS"` e.g. `"2026-1.01"`, `"2026-2.06"`.
+ * Format: `"pick.R.SS"` e.g. `"pick.1.01"`, `"pick.2.06"`.
+ * Season is NOT part of the key; the same current-season value is used for
+ * all years and a discount is applied in code for future seasons.
  */
 export const getCFCPickKey = (pick: DraftPick, teamCount: number = DEFAULT_TEAM_COUNT): string | null => {
-  if (!pick.season || !pick.round) return null;
+  if (!pick.round) return null;
   const slot = normalizeSlot(pick.pick_no, teamCount) ?? Math.ceil(teamCount / 2);
-  return `${pick.season}-${pick.round}.${String(slot).padStart(2, "0")}`;
+  return `pick.${pick.round}.${String(slot).padStart(2, "0")}`;
 };
 
 export const getPickValue = (pick: DraftPick, options?: { teamCount?: number; cfcValues?: Record<string, number | null | undefined> }) => {
   if (!pick.round) return 0;
   const teamCount = options?.teamCount ?? DEFAULT_TEAM_COUNT;
 
-  // Prefer CFC value from cfc_trade_values_current when provided
+  // When cfcValues is provided, use ONLY the CFC value — no legacy fallback.
   if (options?.cfcValues) {
     const key = getCFCPickKey(pick, teamCount);
     if (key != null) {
       const cfcVal = options.cfcValues[key];
-      if (typeof cfcVal === "number") return cfcVal;
+      if (typeof cfcVal === "number") {
+        // Apply season discount for future picks (e.g. 2027)
+        return Math.round(cfcVal * seasonDiscount(pick.season));
+      }
     }
+    // CFC values provided but this pick is not in the map — return 0 to surface the gap.
+    return 0;
   }
 
+  // Legacy path: only reached when cfcValues is not supplied.
   const discount = seasonDiscount(pick.season);
 
   if (pick.round === 2 || pick.round === 3) {
