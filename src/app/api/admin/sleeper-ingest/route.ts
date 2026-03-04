@@ -1,0 +1,107 @@
+/**
+ * POST /api/admin/sleeper-ingest
+ *
+ * Runs the Sleeper Layer 1 + Layer 2 ingestion pipeline.
+ *
+ * By default walks the full `previous_league_id` chain from the configured
+ * league ID, ingesting every season into the slp_raw_* and slp_* tables.
+ *
+ * Query params:
+ *   league_id   – override the starting league (default: NEXT_PUBLIC_SLEEPER_LEAGUE_ID)
+ *   full_chain  – "false" to ingest only the supplied league_id (default "true")
+ *   players     – "true" to also ingest the /players/nfl endpoint (default "false",
+ *                 because that payload is ~5 MB and takes extra time)
+ *
+ * Auth: x-admin-secret header  OR  ?secret= query param  OR  Bearer CRON_SECRET
+ *
+ * Safe to rerun — all writes are idempotent UPSERTs.
+ */
+
+import { NextRequest, NextResponse } from "next/server";
+import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import { LEAGUE_ID } from "@/lib/config";
+import {
+  ingestLeagueSeason,
+  ingestLeagueChain,
+  ingestNflPlayers,
+} from "@/lib/sleeperIngest";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+export const maxDuration = 300;
+
+function isAuthorized(request: NextRequest): boolean {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization");
+  const isVercelCron = !!(cronSecret && authHeader === `Bearer ${cronSecret}`);
+
+  const secret =
+    request.headers.get("x-admin-secret") ??
+    request.nextUrl.searchParams.get("secret");
+  const expected = process.env.ADMIN_REFRESH_SECRET;
+  const isAdmin = !!(expected && secret === expected);
+
+  return isVercelCron || isAdmin;
+}
+
+async function handler(request: NextRequest) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { client, error: clientError } = getSupabaseAdminClient();
+  if (!client) {
+    return NextResponse.json(
+      { error: clientError ?? "Missing Supabase configuration" },
+      { status: 500 },
+    );
+  }
+
+  const params = request.nextUrl.searchParams;
+  const queryLeagueId = params.get("league_id")?.trim() ?? null;
+  const envLeagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() ?? null;
+  const startingLeagueId = queryLeagueId ?? envLeagueId ?? (LEAGUE_ID || null);
+
+  const fullChain = (params.get("full_chain") ?? "true") !== "false";
+  const ingestPlayers = params.get("players") === "true";
+
+  console.log(
+    `[sleeper-ingest] starting_league_id="${startingLeagueId}" full_chain=${fullChain} ingest_players=${ingestPlayers}`,
+  );
+
+  if (!startingLeagueId) {
+    return NextResponse.json(
+      { error: "Missing league_id. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID or pass ?league_id=." },
+      { status: 400 },
+    );
+  }
+
+  try {
+    const leagueResults = fullChain
+      ? await ingestLeagueChain(client, startingLeagueId)
+      : [await ingestLeagueSeason(client, startingLeagueId)];
+
+    const playerResult = ingestPlayers
+      ? await ingestNflPlayers(client)
+      : null;
+
+    const errors = leagueResults.filter((r) => r.error);
+
+    return NextResponse.json({
+      ok: errors.length === 0,
+      leagues_ingested: leagueResults.length,
+      leagues: leagueResults,
+      players: playerResult,
+      errors: errors.length > 0 ? errors : undefined,
+    });
+  } catch (err) {
+    console.error("[sleeper-ingest] unexpected error:", err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unexpected error" },
+      { status: 500 },
+    );
+  }
+}
+
+export const GET = handler;
+export const POST = handler;
