@@ -17,6 +17,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import { fetchLeagueChain } from "@/lib/sleeperApi";
 import { syncLeagueSeason } from "@/lib/leagueHistorySync";
+import { LEAGUE_ID } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -49,9 +50,23 @@ async function handler(request: NextRequest) {
     );
   }
 
-  const startingLeagueId =
-    request.nextUrl.searchParams.get("league_id")?.trim() ??
-    process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim();
+  const queryLeagueId = request.nextUrl.searchParams.get("league_id")?.trim() ?? null;
+  const envLeagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() ?? null;
+  const configLeagueId = LEAGUE_ID || null;
+  const startingLeagueId = queryLeagueId ?? envLeagueId;
+
+  console.log(
+    `[league-history/backfill] query_league_id="${queryLeagueId}" env_league_id="${envLeagueId}" config_league_id="${configLeagueId}" resolved_league_id="${startingLeagueId}"`,
+  );
+
+  if (request.nextUrl.searchParams.get("debug") === "1") {
+    return NextResponse.json({
+      query_league_id: queryLeagueId,
+      env_league_id: envLeagueId,
+      config_league_id: configLeagueId,
+      resolved_league_id: startingLeagueId ?? null,
+    });
+  }
 
   if (!startingLeagueId) {
     return NextResponse.json(
@@ -59,8 +74,6 @@ async function handler(request: NextRequest) {
       { status: 400 },
     );
   }
-
-  console.log(`[league-history/backfill] resolved leagueId="${startingLeagueId}"`);
 
   const fullChain =
     (request.nextUrl.searchParams.get("full_chain") ?? "true") !== "false";
