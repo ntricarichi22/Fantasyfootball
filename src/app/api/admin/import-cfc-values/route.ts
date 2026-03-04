@@ -82,6 +82,7 @@ type SleeperDictResult = {
   birthDateMap: Record<string, string>;
   nameToIds: Record<string, string[]>;
   namePosTeamToId: Record<string, string>;
+  idToName: Record<string, string>;
 };
 
 async function fetchSleeperDict(): Promise<SleeperDictResult> {
@@ -96,6 +97,7 @@ async function fetchSleeperDict(): Promise<SleeperDictResult> {
   const birthDateMap: Record<string, string> = {};
   const nameToIds: Record<string, string[]> = {};
   const namePosTeamToId: Record<string, string> = {};
+  const idToName: Record<string, string> = {};
 
   for (const [id, player] of Object.entries(dict)) {
     if (player?.position) {
@@ -108,8 +110,9 @@ async function fetchSleeperDict(): Promise<SleeperDictResult> {
       birthDateMap[id] = player.birth_date;
     }
 
-    const displayName = player?.search_full_name ?? player?.full_name;
+    const displayName = player?.full_name ?? player?.search_full_name;
     if (displayName) {
+      idToName[id] = displayName;
       const key = normalizeName(displayName);
       if (!key) continue;
       if (!nameToIds[key]) nameToIds[key] = [];
@@ -122,7 +125,7 @@ async function fetchSleeperDict(): Promise<SleeperDictResult> {
     }
   }
 
-  return { posMap, teamMap, birthDateMap, nameToIds, namePosTeamToId };
+  return { posMap, teamMap, birthDateMap, nameToIds, namePosTeamToId, idToName };
 }
 
 /* ── Player matching ─────────────────────────────────────────────────── */
@@ -624,6 +627,94 @@ async function handler(request: NextRequest) {
       );
     }
 
+    /* ─── 7b. Add rostered players missing from the raw upload universe ── */
+    // Ensures every currently-rostered player lands in cfc_trade_values_current
+    // even if they were absent from the spreadsheet.
+    let rosteredPlayersAdded = 0;
+    const leagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim();
+    if (leagueId) {
+      try {
+        const rostersRes = await fetch(
+          `https://api.sleeper.app/v1/league/${leagueId}/rosters`,
+          { cache: "no-store" },
+        );
+        if (rostersRes.ok) {
+          const rosters: Array<{ players?: (string | number)[] | null }> =
+            await rostersRes.json();
+
+          // Build set of sleeper IDs already covered by the raw upload rows
+          const coveredIds = new Set(stagingRows.map((r) => r.sleeper_player_id));
+
+          for (const roster of rosters ?? []) {
+            for (const pid of roster.players ?? []) {
+              const sleeperId = String(pid);
+              if (coveredIds.has(sleeperId)) continue;
+
+              const assetKey = `player.${sleeperId}`;
+              const sleeperPos = sleeperDict.posMap[sleeperId] ?? null;
+              const birthDate = sleeperDict.birthDateMap[sleeperId] ?? null;
+              const displayName = sleeperDict.idToName[sleeperId] ?? sleeperId;
+              let addedForPlayer = false;
+
+              const fcVal = fcData.playerMap[sleeperId];
+              if (
+                typeof fcVal === "number" &&
+                fcData.pick101Value != null &&
+                fcData.pick101Value > 0
+              ) {
+                stagingRows.push({
+                  import_batch: batchName,
+                  source_key: "fantasycalc",
+                  asset_key: assetKey,
+                  asset_type: "player",
+                  display_name: displayName,
+                  sleeper_player_id: sleeperId,
+                  position: sleeperPos,
+                  birth_date: birthDate,
+                  raw_value: fcVal,
+                  source_101_value: fcData.pick101Value,
+                  multiple_101: fcVal / fcData.pick101Value,
+                });
+                addedForPlayer = true;
+              }
+
+              const dpVal = dpData.playerMap[sleeperId];
+              if (
+                typeof dpVal === "number" &&
+                dpData.pick101Value != null &&
+                dpData.pick101Value > 0
+              ) {
+                stagingRows.push({
+                  import_batch: batchName,
+                  source_key: "dynastyprocess",
+                  asset_key: assetKey,
+                  asset_type: "player",
+                  display_name: displayName,
+                  sleeper_player_id: sleeperId,
+                  position: sleeperPos,
+                  birth_date: birthDate,
+                  raw_value: dpVal,
+                  source_101_value: dpData.pick101Value,
+                  multiple_101: dpVal / dpData.pick101Value,
+                });
+                addedForPlayer = true;
+              }
+
+              if (addedForPlayer) {
+                coveredIds.add(sleeperId);
+                rosteredPlayersAdded++;
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(
+          "[import-cfc-values] roster fetch failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
+
     /* ─── 7. Write staging rows (upsert to stay idempotent, no DELETE needed) ─ */
     // Upsert on (import_batch, asset_key, source_key) so that re-running the
     // same batch is safe without ever issuing an unfiltered DELETE.
@@ -654,6 +745,15 @@ async function handler(request: NextRequest) {
     const { error: applyError } = await client.rpc("cfc_apply_value_upload", { p_batch: batchName });
     if (applyError) {
       console.error("[import-cfc-values] cfc_apply_value_upload error:", applyError.message);
+      return NextResponse.json(
+        {
+          error: `Apply step failed: ${applyError.message}`,
+          hint: "Run supabase/migrations/003_fix_cfc_value_column.sql in the Supabase SQL editor to fix the cfc_apply_value_upload function.",
+          import_batch: batchName,
+          rows_written: rowsWritten,
+        },
+        { status: 500 },
+      );
     }
     console.log(`[import-cfc-values] apply step completed for batch: ${batchName}`);
 
@@ -670,6 +770,7 @@ async function handler(request: NextRequest) {
       matched_via_auto: matchedViaAuto,
       intentionally_skipped: intentionallySkipped,
       still_unmatched: unmatchedPlayers.length,
+      rostered_players_added: rosteredPlayersAdded,
       rows_written: rowsWritten,
       sources_included: sourcesIncluded,
       pick_101_anchors: {

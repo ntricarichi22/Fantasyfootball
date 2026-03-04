@@ -121,23 +121,35 @@ BEGIN
     updated_at        = NOW();
 
   -- ── 4. Rebuild current trade values ──────────────────────────────────
+  -- NOTE: the column is cfc_value, not trade_value.  If you see a
+  -- "column trade_value does not exist" error, run migration 003 instead.
   INSERT INTO cfc_trade_values_current (
     asset_key,
-    trade_value,
+    sleeper_player_id,
+    cfc_value,
     import_batch,
     updated_at
   )
   SELECT
-    asset_key,
-    ROUND(avg_multiple_101 * 1000)::INTEGER,
+    c.asset_key,
+    sid.sleeper_player_id,
+    ROUND(c.avg_multiple_101 * 1000)::INTEGER,
     p_batch,
     NOW()
-  FROM cfc_asset_calculations
-  WHERE import_batch = p_batch
+  FROM cfc_asset_calculations c
+  LEFT JOIN LATERAL (
+    SELECT s.sleeper_player_id
+    FROM cfc_value_upload_staging s
+    WHERE s.import_batch = p_batch
+      AND s.asset_key    = c.asset_key
+    LIMIT 1
+  ) sid ON TRUE
+  WHERE c.import_batch = p_batch
   ON CONFLICT (asset_key) DO UPDATE SET
-    trade_value  = EXCLUDED.trade_value,
-    import_batch = EXCLUDED.import_batch,
-    updated_at   = NOW();
+    sleeper_player_id = COALESCE(EXCLUDED.sleeper_player_id, cfc_trade_values_current.sleeper_player_id),
+    cfc_value         = EXCLUDED.cfc_value,
+    import_batch      = EXCLUDED.import_batch,
+    updated_at        = NOW();
 
   -- "trade values raw upload" is intentionally NOT touched here.
   -- It is a read-only source for the import pipeline and must not be deleted.
