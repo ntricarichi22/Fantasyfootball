@@ -8,11 +8,19 @@
 const BASE_URL = "https://api.sleeper.app/v1";
 
 async function sleeperFetch<T>(path: string): Promise<T> {
+  console.log(`[sleeperFetch] GET ${BASE_URL}${path}`);
   const res = await fetch(`${BASE_URL}${path}`, { cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Sleeper API error ${res.status} for ${path}`);
   }
   return res.json() as Promise<T>;
+}
+
+/** A single recorded Sleeper API call, used for debug=2 tracing. */
+export interface DebugCall {
+  fn: string;
+  league_id: string;
+  endpoint: string;
 }
 
 // ─── Shared Sleeper types ─────────────────────────────────────────────────────
@@ -199,17 +207,32 @@ export const fetchDraftPicks = (draftId: string) =>
 /**
  * Walk the `previous_league_id` chain starting from `currentLeagueId`.
  * Returns leagues ordered from newest to oldest.
+ *
+ * Sleeper returns `"0"` (the string) on the oldest season to indicate there is
+ * no previous league. We must treat it as null; otherwise the truthy string
+ * `"0"` would cause an infinite loop that calls `/league/0`.
+ *
+ * @param currentLeagueId - Starting league ID (string, never numeric).
+ * @param debugLog - Optional array to collect call-trace entries (debug=2).
  */
 export async function fetchLeagueChain(
   currentLeagueId: string,
+  debugLog?: DebugCall[],
 ): Promise<SleeperLeague[]> {
   const chain: SleeperLeague[] = [];
   let leagueId: string | null = currentLeagueId;
 
   while (leagueId) {
+    const endpoint = `/league/${leagueId}`;
+    console.log(`[fetchLeagueChain] fetchLeague league_id="${leagueId}" endpoint="${endpoint}"`);
+    debugLog?.push({ fn: "fetchLeagueChain→fetchLeague", league_id: leagueId, endpoint });
     const league = await fetchLeague(leagueId);
     chain.push(league);
-    leagueId = league.previous_league_id ?? null;
+    // Sleeper uses "0" (string) to mean "no previous league". Guard against it
+    // explicitly so the while-condition (which tests truthiness) does not loop
+    // into a /league/0 request.
+    const prev = league.previous_league_id;
+    leagueId = prev && prev !== "0" ? prev : null;
   }
 
   return chain;
