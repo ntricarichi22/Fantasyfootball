@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import { fetchLeague } from "@/lib/sleeperApi";
 import { syncLeagueSeason } from "@/lib/leagueHistorySync";
 import { LEAGUE_ID } from "@/lib/config";
 
@@ -63,6 +64,25 @@ async function handler(request: NextRequest) {
       env_league_id: envLeagueId,
       config_league_id: configLeagueId,
       resolved_league_id: leagueId ?? null,
+    });
+  }
+
+  if (request.nextUrl.searchParams.get("debug") === "2") {
+    if (!leagueId) {
+      return NextResponse.json({ error: "Missing league_id" }, { status: 400 });
+    }
+    const endpoint = `/league/${leagueId}`;
+    console.log(`[league-history/sync debug=2] fetchLeague league_id="${leagueId}" endpoint="${endpoint}"`);
+    const league = await fetchLeague(leagueId);
+    return NextResponse.json({
+      route_resolved_league_id: leagueId,
+      calls: [
+        { fn: "syncLeagueSeason→fetchLeague", league_id: leagueId, endpoint },
+      ],
+      league_name: league.name,
+      league_season: league.season,
+      league_status: league.status,
+      previous_league_id: league.previous_league_id ?? null,
     });
   }
 
