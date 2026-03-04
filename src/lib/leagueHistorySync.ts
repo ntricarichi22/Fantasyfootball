@@ -38,6 +38,24 @@ function matchupType(week: number, playoffWeekStart: number): string {
   return "playoff";
 }
 
+/**
+ * Generate a stable synthetic matchup_id for teams that have no real Sleeper
+ * matchup_id (e.g. bye weeks in playoff rounds).
+ *
+ * The result is always negative so it cannot collide with any real Sleeper
+ * matchup_id (which are positive integers).  The key encodes both week and
+ * roster_id, making it deterministic and unique within a season.
+ *
+ * ROSTER_ID_STRIDE must exceed the maximum roster_id Sleeper ever assigns
+ * within a single league (Sleeper caps leagues at 16 teams → max roster_id
+ * is 16, so 100 000 is a very safe bound).
+ */
+const ROSTER_ID_STRIDE = 100000;
+
+function syntheticMatchupId(week: number, rosterId: number): number {
+  return -(week * ROSTER_ID_STRIDE + rosterId);
+}
+
 // ─── Per-entity sync functions ────────────────────────────────────────────────
 
 async function syncLeagueMetadata(
@@ -282,10 +300,16 @@ async function syncMatchups(
     const matchups = await fetchLeagueMatchups(league.league_id, week);
     if (!matchups?.length) continue;
 
+    // Resolve effective matchup_id for every team.  Sleeper can return
+    // matchup_id = null for bye-week entries in playoff rounds; replace those
+    // with a deterministic synthetic key so the NOT NULL column is satisfied.
+    const effectiveMatchups = matchups.map((m) => ({
+      ...m,
+      matchup_id: m.matchup_id ?? syntheticMatchupId(week, m.roster_id),
+    }));
+
     // Collect unique matchup_ids for this week.
-    const matchupIds = [...new Set(matchups.map((m) => m.matchup_id))].filter(
-      (id) => id !== null && id !== undefined,
-    );
+    const matchupIds = [...new Set(effectiveMatchups.map((m) => m.matchup_id))];
 
     const matchupRows = matchupIds.map((mid) => ({
       league_id: league.league_id,
@@ -302,7 +326,7 @@ async function syncMatchups(
 
     if (mError) throw new Error(`league_matchups upsert week ${week}: ${mError.message}`);
 
-    const teamRows = matchups.map((m) => ({
+    const teamRows = effectiveMatchups.map((m) => ({
       league_id: league.league_id,
       season: league.season,
       week,
