@@ -642,6 +642,7 @@ export async function syncLeagueSeason(
   db: SupabaseClient,
   leagueId: string,
 ): Promise<SyncLeagueSummary> {
+  console.log(`[syncLeagueSeason] fetching league leagueId="${leagueId}"`);
   const league = await fetchLeague(leagueId);
   const completed: string[] = [];
 

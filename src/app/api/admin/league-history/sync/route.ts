@@ -15,7 +15,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import { syncLeagueSeason } from "@/lib/leagueHistorySync";
-import { LEAGUE_ID } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -49,14 +48,17 @@ async function handler(request: NextRequest) {
   }
 
   const leagueId =
-    request.nextUrl.searchParams.get("league_id")?.trim() || LEAGUE_ID;
+    request.nextUrl.searchParams.get("league_id")?.trim() ??
+    process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim();
 
   if (!leagueId) {
     return NextResponse.json(
-      { error: "league_id is required (or set NEXT_PUBLIC_SLEEPER_LEAGUE_ID)" },
+      { error: "Missing league_id" },
       { status: 400 },
     );
   }
+
+  console.log(`[league-history/sync] resolved leagueId="${leagueId}"`);
 
   try {
     const summary = await syncLeagueSeason(client, leagueId);
