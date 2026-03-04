@@ -88,7 +88,7 @@ export interface SleeperRosterDraftPick {
 }
 
 export interface SleeperMatchup {
-  matchup_id: number;
+  matchup_id: number | null;  // null for bye weeks in playoff rounds
   roster_id: number;
   points: number;
   custom_points: number | null;
@@ -139,8 +139,8 @@ export interface SleeperTradedPick {
   season: string;
   round: number;
   roster_id: number;
-  previous_owner_id: number;
-  original_owner_id: number;
+  previous_owner_id: number | null;  // null when the pick has never changed hands
+  original_owner_id: number | null;  // null when Sleeper omits the field
 }
 
 export interface SleeperDraft {
