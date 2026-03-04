@@ -341,6 +341,8 @@ async function flatLeague(
 ): Promise<void> {
   // playoff_week_start is NOT a top-level column in the deployed schema;
   // its value lives inside the settings JSONB blob alongside other settings.
+  // raw_json is NOT NULL in the deployed schema — always include the full
+  // league object so the constraint is satisfied even after payload filtering.
   const payload: Record<string, unknown> = {
     league_id: league.league_id,
     season: league.season,
@@ -355,6 +357,7 @@ async function flatLeague(
     scoring_settings: league.scoring_settings,
     roster_positions: league.roster_positions,
     metadata: league.metadata,
+    raw_json: league as unknown as Record<string, unknown>,
     updated_at: new Date().toISOString(),
   };
   const allowed = await sc.get("slp_leagues");
@@ -362,6 +365,16 @@ async function flatLeague(
   if (dropped.length) {
     console.warn(`[flatLeague] Dropping non-schema keys: ${dropped.join(", ")}`);
   }
+
+  // Hard guard: raw_json must be present and non-null before we hit Supabase.
+  if (filtered.raw_json == null) {
+    throw new Error(
+      `slp_leagues upsert: raw_json is missing/null for league_id=${league.league_id} season=${league.season}. ` +
+        `This should never happen — raw_json was in the payload but was dropped by schema filtering, ` +
+        `which means the deployed table no longer has a raw_json column.`,
+    );
+  }
+
   const { error } = await db
     .from("slp_leagues")
     .upsert(filtered, { onConflict: "league_id" });
@@ -1079,6 +1092,9 @@ export async function debugLeaguePayload(
     filtered_keys: string[];
     dropped_keys: string[];
     deployed_columns: string[];
+    raw_json_present: boolean;
+    raw_json_null: boolean;
+    raw_json_type: string;
   };
 }> {
   const chain = await fetchLeagueChain(startingLeagueId);
@@ -1098,13 +1114,16 @@ export async function debugLeaguePayload(
     scoring_settings: league.scoring_settings,
     roster_positions: league.roster_positions,
     metadata: league.metadata,
+    raw_json: league as unknown as Record<string, unknown>,
     updated_at: new Date().toISOString(),
   };
 
   const sc = new SchemaCache(db);
   const allowed = await sc.get("slp_leagues");
   const rawKeys = Object.keys(rawPayload);
-  const { dropped } = filterRow(rawPayload, allowed);
+  const { row: filtered, dropped } = filterRow(rawPayload, allowed);
+
+  const rawJsonValue = filtered.raw_json;
 
   return {
     league_chain: chain.map((l) => ({
@@ -1113,9 +1132,12 @@ export async function debugLeaguePayload(
     })),
     slp_leagues: {
       raw_keys: rawKeys,
-      filtered_keys: rawKeys.filter((k) => allowed.size === 0 || allowed.has(k)),
+      filtered_keys: Object.keys(filtered),
       dropped_keys: dropped,
       deployed_columns: [...allowed].sort(),
+      raw_json_present: "raw_json" in filtered,
+      raw_json_null: rawJsonValue == null,
+      raw_json_type: rawJsonValue == null ? "null" : typeof rawJsonValue,
     },
   };
 }

@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS slp_leagues (
   scoring_settings     JSONB,
   roster_positions     JSONB,
   metadata             JSONB,
+  raw_json             JSONB        NOT NULL DEFAULT '{}'::jsonb,
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
