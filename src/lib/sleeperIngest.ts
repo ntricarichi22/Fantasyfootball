@@ -276,7 +276,6 @@ async function flatLeague(
       season_type: league.season_type,
       total_rosters: league.total_rosters,
       playoff_week_start: (settings?.playoff_week_start as number) ?? null,
-      last_scored_leg: (settings?.last_scored_leg as number) ?? null,
       previous_league_id: league.previous_league_id,
       draft_id: league.draft_id,
       settings: league.settings,

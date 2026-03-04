@@ -116,7 +116,6 @@ CREATE TABLE IF NOT EXISTS slp_leagues (
   season_type          TEXT,
   total_rosters        INT,
   playoff_week_start   INT,
-  last_scored_leg      INT,
   previous_league_id   TEXT,
   draft_id             TEXT,
   settings             JSONB,
