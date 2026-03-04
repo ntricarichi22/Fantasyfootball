@@ -47,6 +47,79 @@ function syntheticMatchupId(week: number, rosterId: number): number {
   return -(week * ROSTER_ID_STRIDE + rosterId);
 }
 
+// ─── Schema-safe payload helpers ──────────────────────────────────────────────
+
+/**
+ * Per-request cache of table column sets.
+ *
+ * On first access for a given table the column names are fetched via the
+ * `slp_get_table_columns` RPC function (which reads `information_schema.columns`)
+ * and then reused for every subsequent upsert in the same ingest run.
+ *
+ * If the RPC call fails the cache returns an empty set, causing payloads to be
+ * passed through without filtering (fail-open) so a missing helper function
+ * never silently drops data.
+ */
+export class SchemaCache {
+  private readonly cols = new Map<string, Set<string>>();
+
+  constructor(private readonly db: SupabaseClient) {}
+
+  async get(table: string): Promise<Set<string>> {
+    if (!this.cols.has(table)) {
+      const { data, error } = await this.db.rpc("slp_get_table_columns", {
+        p_table: table,
+      });
+      if (error) {
+        console.warn(
+          `[SchemaCache] Cannot fetch columns for "${table}": ${error.message} — payload will not be filtered.`,
+        );
+        return new Set<string>(); // empty → pass-through; NOT cached so the next call retries
+      }
+      // Cache the result even when the column list is empty (unknown/schema-less table).
+      this.cols.set(table, new Set((data as string[] | null) ?? []));
+    }
+    return this.cols.get(table)!;
+  }
+}
+
+/**
+ * Strip keys from `row` that are not in `allowed`.
+ * Returns the filtered row and an array of dropped key names.
+ * When `allowed` is empty (schema unknown) the original row is returned as-is.
+ */
+function filterRow<T extends Record<string, unknown>>(
+  row: T,
+  allowed: Set<string>,
+): { row: Partial<T>; dropped: string[] } {
+  if (allowed.size === 0) return { row, dropped: [] };
+  const out = {} as Partial<T>;
+  const dropped: string[] = [];
+  for (const [k, v] of Object.entries(row)) {
+    if (allowed.has(k)) (out as Record<string, unknown>)[k] = v;
+    else dropped.push(k);
+  }
+  return { row: out, dropped };
+}
+
+/**
+ * Like `filterRow` but for an array of rows.
+ * Returns the union of all dropped key names across the array.
+ */
+function filterRows<T extends Record<string, unknown>>(
+  rows: T[],
+  allowed: Set<string>,
+): { rows: Partial<T>[]; dropped: string[] } {
+  if (allowed.size === 0) return { rows, dropped: [] };
+  const droppedSet = new Set<string>();
+  const filtered = rows.map((r) => {
+    const { row, dropped } = filterRow(r, allowed);
+    for (const d of dropped) droppedSet.add(d);
+    return row;
+  });
+  return { rows: filtered, dropped: [...droppedSet] };
+}
+
 // ─── Layer 1: raw storage ─────────────────────────────────────────────────────
 
 async function rawUpsertLeague(
@@ -264,28 +337,34 @@ async function rawUpsertDraftTradedPicks(
 async function flatLeague(
   db: SupabaseClient,
   league: SleeperLeague,
+  sc: SchemaCache,
 ): Promise<void> {
-  const settings = league.settings as Record<string, number | string | boolean | null>;
-  const { error } = await db.from("slp_leagues").upsert(
-    {
-      league_id: league.league_id,
-      season: league.season,
-      name: league.name,
-      status: league.status,
-      sport: league.sport,
-      season_type: league.season_type,
-      total_rosters: league.total_rosters,
-      playoff_week_start: (settings?.playoff_week_start as number) ?? null,
-      previous_league_id: league.previous_league_id,
-      draft_id: league.draft_id,
-      settings: league.settings,
-      scoring_settings: league.scoring_settings,
-      roster_positions: league.roster_positions,
-      metadata: league.metadata,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id" },
-  );
+  // playoff_week_start is NOT a top-level column in the deployed schema;
+  // its value lives inside the settings JSONB blob alongside other settings.
+  const payload: Record<string, unknown> = {
+    league_id: league.league_id,
+    season: league.season,
+    name: league.name,
+    status: league.status,
+    sport: league.sport,
+    season_type: league.season_type,
+    total_rosters: league.total_rosters,
+    previous_league_id: league.previous_league_id,
+    draft_id: league.draft_id,
+    settings: league.settings,
+    scoring_settings: league.scoring_settings,
+    roster_positions: league.roster_positions,
+    metadata: league.metadata,
+    updated_at: new Date().toISOString(),
+  };
+  const allowed = await sc.get("slp_leagues");
+  const { row: filtered, dropped } = filterRow(payload, allowed);
+  if (dropped.length) {
+    console.warn(`[flatLeague] Dropping non-schema keys: ${dropped.join(", ")}`);
+  }
+  const { error } = await db
+    .from("slp_leagues")
+    .upsert(filtered, { onConflict: "league_id" });
   if (error) throw new Error(`slp_leagues upsert: ${error.message}`);
 }
 
@@ -293,9 +372,10 @@ async function flatUsers(
   db: SupabaseClient,
   leagueId: string,
   users: Awaited<ReturnType<typeof fetchLeagueUsers>>,
+  sc: SchemaCache,
 ): Promise<void> {
   if (!users?.length) return;
-  const rows = users.map((u) => ({
+  const rawRows = users.map((u) => ({
     league_id: leagueId,
     user_id: u.user_id,
     display_name: u.display_name,
@@ -305,6 +385,11 @@ async function flatUsers(
     metadata: u.metadata,
     updated_at: new Date().toISOString(),
   }));
+  const allowed = await sc.get("slp_league_users");
+  const { rows, dropped } = filterRows(rawRows, allowed);
+  if (dropped.length) {
+    console.warn(`[flatUsers] Dropping non-schema keys: ${dropped.join(", ")}`);
+  }
   const { error } = await db
     .from("slp_league_users")
     .upsert(rows, { onConflict: "league_id,user_id" });
@@ -315,10 +400,11 @@ async function flatRosters(
   db: SupabaseClient,
   leagueId: string,
   rosters: Awaited<ReturnType<typeof fetchLeagueRosters>>,
+  sc: SchemaCache,
 ): Promise<void> {
   if (!rosters?.length) return;
 
-  const rosterRows = rosters.map((r) => ({
+  const rawRosterRows = rosters.map((r) => ({
     league_id: leagueId,
     roster_id: r.roster_id,
     owner_id: r.owner_id,
@@ -333,6 +419,12 @@ async function flatRosters(
     updated_at: new Date().toISOString(),
   }));
 
+  const rosterAllowed = await sc.get("slp_league_rosters");
+  const { rows: rosterRows, dropped: rDropped } = filterRows(rawRosterRows, rosterAllowed);
+  if (rDropped.length) {
+    console.warn(`[flatRosters] slp_league_rosters dropping: ${rDropped.join(", ")}`);
+  }
+
   const { error: rError } = await db
     .from("slp_league_rosters")
     .upsert(rosterRows, { onConflict: "league_id,roster_id" });
@@ -346,13 +438,7 @@ async function flatRosters(
     .eq("league_id", leagueId)
     .in("roster_id", rosterIds);
 
-  const allPlayerRows: {
-    league_id: string;
-    roster_id: number;
-    sleeper_player_id: string;
-    slot_type: string;
-    updated_at: string;
-  }[] = [];
+  const allPlayerRows: Record<string, unknown>[] = [];
   const now = new Date().toISOString();
 
   for (const roster of rosters) {
@@ -376,7 +462,12 @@ async function flatRosters(
   }
 
   if (allPlayerRows.length) {
-    const { error } = await db.from("slp_league_roster_players").insert(allPlayerRows);
+    const playerAllowed = await sc.get("slp_league_roster_players");
+    const { rows: playerRows, dropped: pDropped } = filterRows(allPlayerRows, playerAllowed);
+    if (pDropped.length) {
+      console.warn(`[flatRosters] slp_league_roster_players dropping: ${pDropped.join(", ")}`);
+    }
+    const { error } = await db.from("slp_league_roster_players").insert(playerRows);
     if (error) throw new Error(`slp_league_roster_players insert: ${error.message}`);
   }
 }
@@ -386,6 +477,7 @@ async function flatMatchups(
   leagueId: string,
   week: number,
   matchups: Awaited<ReturnType<typeof fetchLeagueMatchups>>,
+  sc: SchemaCache,
 ): Promise<void> {
   if (!matchups?.length) return;
 
@@ -394,7 +486,7 @@ async function flatMatchups(
     matchup_id: m.matchup_id ?? syntheticMatchupId(week, m.roster_id),
   }));
 
-  const teamRows = effective.map((m) => ({
+  const rawTeamRows = effective.map((m) => ({
     league_id: leagueId,
     week,
     roster_id: m.roster_id,
@@ -408,6 +500,12 @@ async function flatMatchups(
     updated_at: new Date().toISOString(),
   }));
 
+  const teamAllowed = await sc.get("slp_league_matchup_team_rows");
+  const { rows: teamRows, dropped: tDropped } = filterRows(rawTeamRows, teamAllowed);
+  if (tDropped.length) {
+    console.warn(`[flatMatchups] slp_league_matchup_team_rows dropping: ${tDropped.join(", ")}`);
+  }
+
   const { error: tError } = await db
     .from("slp_league_matchup_team_rows")
     .upsert(teamRows, { onConflict: "league_id,week,roster_id" });
@@ -420,15 +518,7 @@ async function flatMatchups(
     .eq("league_id", leagueId)
     .eq("week", week);
 
-  const allLineupRows: {
-    league_id: string;
-    week: number;
-    roster_id: number;
-    sleeper_player_id: string;
-    slot_type: string;
-    points: number | null;
-    updated_at: string;
-  }[] = [];
+  const allLineupRows: Record<string, unknown>[] = [];
   const now = new Date().toISOString();
 
   for (const m of effective) {
@@ -449,9 +539,14 @@ async function flatMatchups(
   }
 
   if (allLineupRows.length) {
+    const lineupAllowed = await sc.get("slp_league_matchup_lineup_players");
+    const { rows: lineupRows, dropped: lDropped } = filterRows(allLineupRows, lineupAllowed);
+    if (lDropped.length) {
+      console.warn(`[flatMatchups] slp_league_matchup_lineup_players dropping: ${lDropped.join(", ")}`);
+    }
     const { error } = await db
       .from("slp_league_matchup_lineup_players")
-      .insert(allLineupRows);
+      .insert(lineupRows);
     if (error) {
       throw new Error(`slp_league_matchup_lineup_players insert week ${week}: ${error.message}`);
     }
@@ -463,10 +558,13 @@ async function flatBrackets(
   leagueId: string,
   winners: SleeperBracketGame[],
   losers: SleeperBracketGame[],
+  sc: SchemaCache,
 ): Promise<void> {
+  const allowed = await sc.get("slp_league_bracket_games");
+
   const upsertGames = async (games: SleeperBracketGame[], bracketType: string) => {
     if (!games?.length) return;
-    const rows = games.map((g) => ({
+    const rawRows = games.map((g) => ({
       league_id: leagueId,
       bracket_type: bracketType,
       round: g.r,
@@ -480,6 +578,10 @@ async function flatBrackets(
       placement: g.p,
       updated_at: new Date().toISOString(),
     }));
+    const { rows, dropped } = filterRows(rawRows, allowed);
+    if (dropped.length) {
+      console.warn(`[flatBrackets] slp_league_bracket_games (${bracketType}) dropping: ${dropped.join(", ")}`);
+    }
     const { error } = await db
       .from("slp_league_bracket_games")
       .upsert(rows, { onConflict: "league_id,bracket_type,round,match_id" });
@@ -497,10 +599,11 @@ async function flatTransactions(
   leagueId: string,
   week: number,
   txns: Awaited<ReturnType<typeof fetchLeagueTransactions>>,
+  sc: SchemaCache,
 ): Promise<void> {
   if (!txns?.length) return;
 
-  const txnRows = txns.map((tx) => ({
+  const rawTxnRows = txns.map((tx) => ({
     transaction_id: tx.transaction_id,
     league_id: leagueId,
     week,
@@ -520,6 +623,12 @@ async function flatTransactions(
     updated_at: new Date().toISOString(),
   }));
 
+  const txnAllowed = await sc.get("slp_league_transactions");
+  const { rows: txnRows, dropped: txDropped } = filterRows(rawTxnRows, txnAllowed);
+  if (txDropped.length) {
+    console.warn(`[flatTransactions] slp_league_transactions dropping: ${txDropped.join(", ")}`);
+  }
+
   const { error: txError } = await db
     .from("slp_league_transactions")
     .upsert(txnRows, { onConflict: "transaction_id" });
@@ -532,18 +641,7 @@ async function flatTransactions(
     .delete()
     .in("transaction_id", txnIds);
 
-  const allAssets: {
-    transaction_id: string;
-    league_id: string;
-    asset_type: string;
-    sleeper_player_id?: string;
-    pick_season?: string;
-    pick_round?: number;
-    pick_roster_id?: number;
-    from_roster_id?: number;
-    to_roster_id?: number;
-    direction?: string;
-  }[] = [];
+  const allAssets: Record<string, unknown>[] = [];
 
   for (const tx of txns) {
     for (const [playerId, rId] of Object.entries(tx.adds ?? {})) {
@@ -583,7 +681,12 @@ async function flatTransactions(
   }
 
   if (allAssets.length) {
-    const { error } = await db.from("slp_league_transaction_assets").insert(allAssets);
+    const assetAllowed = await sc.get("slp_league_transaction_assets");
+    const { rows: assetRows, dropped: aDropped } = filterRows(allAssets, assetAllowed);
+    if (aDropped.length) {
+      console.warn(`[flatTransactions] slp_league_transaction_assets dropping: ${aDropped.join(", ")}`);
+    }
+    const { error } = await db.from("slp_league_transaction_assets").insert(assetRows);
     if (error) {
       throw new Error(`slp_league_transaction_assets insert week ${week}: ${error.message}`);
     }
@@ -594,6 +697,7 @@ async function flatTradedPicks(
   db: SupabaseClient,
   leagueId: string,
   picks: Awaited<ReturnType<typeof fetchTradedPicks>>,
+  sc: SchemaCache,
 ): Promise<void> {
   // Delete existing rows for this league before re-inserting so stale picks
   // that were un-traded are removed.
@@ -601,7 +705,7 @@ async function flatTradedPicks(
 
   if (!picks?.length) return;
 
-  const rows = picks.map((p) => ({
+  const rawRows = picks.map((p) => ({
     league_id: leagueId,
     season: p.season,
     round: p.round,
@@ -610,6 +714,12 @@ async function flatTradedPicks(
     original_owner_id: p.original_owner_id,
     updated_at: new Date().toISOString(),
   }));
+
+  const allowed = await sc.get("slp_league_traded_picks");
+  const { rows, dropped } = filterRows(rawRows, allowed);
+  if (dropped.length) {
+    console.warn(`[flatTradedPicks] Dropping non-schema keys: ${dropped.join(", ")}`);
+  }
 
   const { error } = await db
     .from("slp_league_traded_picks")
@@ -621,22 +731,28 @@ async function flatDrafts(
   db: SupabaseClient,
   leagueId: string,
   drafts: Awaited<ReturnType<typeof fetchLeagueDrafts>>,
+  sc: SchemaCache,
 ): Promise<void> {
   if (!drafts?.length) return;
 
   // slp_league_drafts: association table
-  const linkRows = drafts.map((d) => ({
+  const rawLinkRows = drafts.map((d) => ({
     league_id: leagueId,
     draft_id: d.draft_id,
     updated_at: new Date().toISOString(),
   }));
+  const linkAllowed = await sc.get("slp_league_drafts");
+  const { rows: linkRows, dropped: lDropped } = filterRows(rawLinkRows, linkAllowed);
+  if (lDropped.length) {
+    console.warn(`[flatDrafts] slp_league_drafts dropping: ${lDropped.join(", ")}`);
+  }
   const { error: linkError } = await db
     .from("slp_league_drafts")
     .upsert(linkRows, { onConflict: "league_id,draft_id" });
   if (linkError) throw new Error(`slp_league_drafts upsert: ${linkError.message}`);
 
   // slp_drafts: full draft detail
-  const draftRows = drafts.map((d) => ({
+  const rawDraftRows = drafts.map((d) => ({
     draft_id: d.draft_id,
     league_id: d.league_id,
     season: d.season,
@@ -649,6 +765,11 @@ async function flatDrafts(
     metadata: d.metadata,
     updated_at: new Date().toISOString(),
   }));
+  const draftAllowed = await sc.get("slp_drafts");
+  const { rows: draftRows, dropped: dDropped } = filterRows(rawDraftRows, draftAllowed);
+  if (dDropped.length) {
+    console.warn(`[flatDrafts] slp_drafts dropping: ${dDropped.join(", ")}`);
+  }
   const { error: draftError } = await db
     .from("slp_drafts")
     .upsert(draftRows, { onConflict: "draft_id" });
@@ -659,10 +780,11 @@ async function flatDraftPicks(
   db: SupabaseClient,
   draftId: string,
   picks: Awaited<ReturnType<typeof fetchDraftPicks>>,
+  sc: SchemaCache,
 ): Promise<void> {
   if (!picks?.length) return;
 
-  const rows = picks.map((p) => ({
+  const rawRows = picks.map((p) => ({
     draft_id: draftId,
     pick_no: p.pick_no,
     round: p.round,
@@ -675,6 +797,12 @@ async function flatDraftPicks(
     updated_at: new Date().toISOString(),
   }));
 
+  const allowed = await sc.get("slp_draft_picks");
+  const { rows, dropped } = filterRows(rawRows, allowed);
+  if (dropped.length) {
+    console.warn(`[flatDraftPicks] Dropping non-schema keys: ${dropped.join(", ")}`);
+  }
+
   const { error } = await db
     .from("slp_draft_picks")
     .upsert(rows, { onConflict: "draft_id,pick_no" });
@@ -685,13 +813,14 @@ async function flatDraftTradedPicks(
   db: SupabaseClient,
   draftId: string,
   picks: Awaited<ReturnType<typeof fetchDraftTradedPicks>>,
+  sc: SchemaCache,
 ): Promise<void> {
   // Delete + re-insert so removed traded picks are cleared.
   await db.from("slp_draft_traded_picks").delete().eq("draft_id", draftId);
 
   if (!picks?.length) return;
 
-  const rows = picks.map((p) => ({
+  const rawRows = picks.map((p) => ({
     draft_id: draftId,
     season: p.season,
     round: p.round,
@@ -700,6 +829,12 @@ async function flatDraftTradedPicks(
     original_owner_id: p.original_owner_id,
     updated_at: new Date().toISOString(),
   }));
+
+  const allowed = await sc.get("slp_draft_traded_picks");
+  const { rows, dropped } = filterRows(rawRows, allowed);
+  if (dropped.length) {
+    console.warn(`[flatDraftTradedPicks] Dropping non-schema keys: ${dropped.join(", ")}`);
+  }
 
   const { error } = await db
     .from("slp_draft_traded_picks")
@@ -713,42 +848,48 @@ async function flatDraftTradedPicks(
  * Ingest a single Sleeper league season into Layer 1 and Layer 2.
  *
  * Returns a summary object describing what was processed.
+ *
+ * @param sc  Optional shared SchemaCache. If omitted a new one is created.
+ *            Pass a shared instance from `ingestLeagueChain` to reuse
+ *            already-fetched column lists across multiple seasons.
  */
 export async function ingestLeagueSeason(
   db: SupabaseClient,
   leagueId: string,
+  sc?: SchemaCache,
 ): Promise<{
   league_id: string;
   season: string | null;
   steps: string[];
   error?: string;
 }> {
+  const cache = sc ?? new SchemaCache(db);
   const steps: string[] = [];
 
   // ── Layer 1 + 2: league metadata ──────────────────────────────────────────
   const league = await fetchLeague(leagueId);
   await rawUpsertLeague(db, league);
   steps.push("raw_league");
-  await flatLeague(db, league);
+  await flatLeague(db, league, cache);
   steps.push("slp_leagues");
 
   // ── Layer 1 + 2: users ────────────────────────────────────────────────────
   const users = await rawUpsertUsers(db, leagueId);
   steps.push("raw_users");
-  await flatUsers(db, leagueId, users);
+  await flatUsers(db, leagueId, users, cache);
   steps.push("slp_league_users");
 
   // ── Layer 1 + 2: rosters ──────────────────────────────────────────────────
   const rosters = await rawUpsertRosters(db, leagueId);
   steps.push("raw_rosters");
-  await flatRosters(db, leagueId, rosters);
+  await flatRosters(db, leagueId, rosters, cache);
   steps.push("slp_league_rosters");
 
   // ── Layer 1 + 2: matchups (all weeks) ─────────────────────────────────────
   for (let week = 1; week <= MAX_SEASON_WEEKS; week++) {
     const matchups = await rawUpsertMatchups(db, leagueId, week);
     if (matchups?.length) {
-      await flatMatchups(db, leagueId, week, matchups);
+      await flatMatchups(db, leagueId, week, matchups, cache);
     }
   }
   steps.push("raw_matchups");
@@ -758,14 +899,14 @@ export async function ingestLeagueSeason(
   // ── Layer 1 + 2: playoff brackets ─────────────────────────────────────────
   const { winners, losers } = await rawUpsertBrackets(db, leagueId);
   steps.push("raw_brackets");
-  await flatBrackets(db, leagueId, winners, losers);
+  await flatBrackets(db, leagueId, winners, losers, cache);
   steps.push("slp_league_bracket_games");
 
   // ── Layer 1 + 2: transactions (all weeks) ─────────────────────────────────
   for (let week = 1; week <= MAX_SEASON_WEEKS; week++) {
     const txns = await rawUpsertTransactions(db, leagueId, week);
     if (txns?.length) {
-      await flatTransactions(db, leagueId, week, txns);
+      await flatTransactions(db, leagueId, week, txns, cache);
     }
   }
   steps.push("raw_transactions");
@@ -775,13 +916,13 @@ export async function ingestLeagueSeason(
   // ── Layer 1 + 2: traded picks ─────────────────────────────────────────────
   const tradedPicks = await rawUpsertTradedPicks(db, leagueId);
   steps.push("raw_traded_picks");
-  await flatTradedPicks(db, leagueId, tradedPicks);
+  await flatTradedPicks(db, leagueId, tradedPicks, cache);
   steps.push("slp_league_traded_picks");
 
   // ── Layer 1 + 2: drafts ───────────────────────────────────────────────────
   const drafts = await rawUpsertDrafts(db, leagueId);
   steps.push("raw_drafts");
-  await flatDrafts(db, leagueId, drafts);
+  await flatDrafts(db, leagueId, drafts, cache);
   steps.push("slp_league_drafts");
   steps.push("slp_drafts");
 
@@ -793,13 +934,13 @@ export async function ingestLeagueSeason(
     if (draft.status !== "pre_draft") {
       const draftPicks = await rawUpsertDraftPicks(db, draft.draft_id);
       steps.push(`raw_draft_picks:${draft.draft_id}`);
-      await flatDraftPicks(db, draft.draft_id, draftPicks);
+      await flatDraftPicks(db, draft.draft_id, draftPicks, cache);
       steps.push(`slp_draft_picks:${draft.draft_id}`);
     }
 
     const draftTradedPicks = await rawUpsertDraftTradedPicks(db, draft.draft_id);
     steps.push(`raw_draft_traded_picks:${draft.draft_id}`);
-    await flatDraftTradedPicks(db, draft.draft_id, draftTradedPicks);
+    await flatDraftTradedPicks(db, draft.draft_id, draftTradedPicks, cache);
     steps.push(`slp_draft_traded_picks:${draft.draft_id}`);
   }
 
@@ -810,6 +951,8 @@ export async function ingestLeagueSeason(
  * Walk the `previous_league_id` chain and ingest every season.
  *
  * Returns a per-league summary array ordered from newest to oldest.
+ * A single SchemaCache is shared across all seasons so column lists are only
+ * fetched once per table regardless of how many seasons are processed.
  */
 export async function ingestLeagueChain(
   db: SupabaseClient,
@@ -823,11 +966,13 @@ export async function ingestLeagueChain(
   }>
 > {
   const chain = await fetchLeagueChain(startingLeagueId);
+  // Shared across all seasons — column lists are fetched once per table.
+  const sc = new SchemaCache(db);
   const results = [];
 
   for (const league of chain) {
     try {
-      const result = await ingestLeagueSeason(db, league.league_id);
+      const result = await ingestLeagueSeason(db, league.league_id, sc);
       results.push(result);
     } catch (err) {
       results.push({
@@ -853,6 +998,7 @@ export async function ingestNflPlayers(db: SupabaseClient): Promise<{
   steps: string[];
 }> {
   const steps: string[] = [];
+  const sc = new SchemaCache(db);
 
   const playersDict = await fetchNflPlayers();
   const playerCount = Object.keys(playersDict ?? {}).length;
@@ -868,10 +1014,11 @@ export async function ingestNflPlayers(db: SupabaseClient): Promise<{
   // Layer 2: upsert individual player rows (batch in chunks to avoid payload limits)
   const entries = Object.entries(playersDict ?? {});
   const now = new Date().toISOString();
+  const playerAllowed = await sc.get("slp_players");
 
   for (let i = 0; i < entries.length; i += UPSERT_CHUNK_SIZE) {
     const chunk = entries.slice(i, i + UPSERT_CHUNK_SIZE);
-    const rows = chunk.map(([playerId, p]) => ({
+    const rawRows = chunk.map(([playerId, p]) => ({
       sleeper_player_id: playerId,
       full_name: p.full_name ?? null,
       first_name: p.first_name ?? null,
@@ -892,6 +1039,10 @@ export async function ingestNflPlayers(db: SupabaseClient): Promise<{
       raw_json: p as unknown as Record<string, unknown>,
       updated_at: now,
     }));
+    const { rows, dropped } = filterRows(rawRows, playerAllowed);
+    if (dropped.length && i === 0) {
+      console.warn(`[ingestNflPlayers] slp_players dropping: ${dropped.join(", ")}`);
+    }
     const { error } = await db
       .from("slp_players")
       .upsert(rows, { onConflict: "sleeper_player_id" });
@@ -908,4 +1059,63 @@ export async function ingestNflPlayers(db: SupabaseClient): Promise<{
   steps.push("slp_players_snapshot");
 
   return { player_count: playerCount, steps };
+}
+
+// ─── Debug / dry-run helper ───────────────────────────────────────────────────
+
+/**
+ * Fetch the league chain and compute what the `slp_leagues` upsert payload
+ * would look like — without writing anything to Supabase.
+ *
+ * Used by the admin route when `?debug=1` is present.
+ */
+export async function debugLeaguePayload(
+  db: SupabaseClient,
+  startingLeagueId: string,
+): Promise<{
+  league_chain: { league_id: string; season: string | null }[];
+  slp_leagues: {
+    raw_keys: string[];
+    filtered_keys: string[];
+    dropped_keys: string[];
+    deployed_columns: string[];
+  };
+}> {
+  const chain = await fetchLeagueChain(startingLeagueId);
+  const league = await fetchLeague(startingLeagueId);
+
+  const rawPayload: Record<string, unknown> = {
+    league_id: league.league_id,
+    season: league.season,
+    name: league.name,
+    status: league.status,
+    sport: league.sport,
+    season_type: league.season_type,
+    total_rosters: league.total_rosters,
+    previous_league_id: league.previous_league_id,
+    draft_id: league.draft_id,
+    settings: league.settings,
+    scoring_settings: league.scoring_settings,
+    roster_positions: league.roster_positions,
+    metadata: league.metadata,
+    updated_at: new Date().toISOString(),
+  };
+
+  const sc = new SchemaCache(db);
+  const allowed = await sc.get("slp_leagues");
+  const rawKeys = Object.keys(rawPayload);
+  const { dropped } = filterRow(rawPayload, allowed);
+
+  return {
+    league_chain: chain.map((l) => ({
+      league_id: l.league_id,
+      season: l.season ?? null,
+    })),
+    slp_leagues: {
+      raw_keys: rawKeys,
+      filtered_keys: rawKeys.filter((k) => allowed.size === 0 || allowed.has(k)),
+      dropped_keys: dropped,
+      deployed_columns: [...allowed].sort(),
+    },
+  };
 }

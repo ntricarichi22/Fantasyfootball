@@ -24,6 +24,7 @@ import {
   ingestLeagueSeason,
   ingestLeagueChain,
   ingestNflPlayers,
+  debugLeaguePayload,
 } from "@/lib/sleeperIngest";
 
 export const dynamic = "force-dynamic";
@@ -64,9 +65,10 @@ async function handler(request: NextRequest) {
 
   const fullChain = (params.get("full_chain") ?? "true") !== "false";
   const ingestPlayers = params.get("players") === "true";
+  const debugMode = params.get("debug") === "1";
 
   console.log(
-    `[sleeper-ingest] starting_league_id="${startingLeagueId}" full_chain=${fullChain} ingest_players=${ingestPlayers}`,
+    `[sleeper-ingest] starting_league_id="${startingLeagueId}" full_chain=${fullChain} ingest_players=${ingestPlayers} debug=${debugMode}`,
   );
 
   if (!startingLeagueId) {
@@ -74,6 +76,24 @@ async function handler(request: NextRequest) {
       { error: "Missing league_id. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID or pass ?league_id=." },
       { status: 400 },
     );
+  }
+
+  // ── Debug / dry-run mode ───────────────────────────────────────────────────
+  if (debugMode) {
+    try {
+      const preview = await debugLeaguePayload(client, startingLeagueId);
+      return NextResponse.json({
+        ok: true,
+        dry_run: true,
+        note: "No data was written to Supabase. Remove ?debug=1 to run the real ingest.",
+        ...preview,
+      });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Unexpected debug error" },
+        { status: 500 },
+      );
+    }
   }
 
   try {
