@@ -32,22 +32,19 @@ DECLARE
   r   RECORD;
   tid UUID;
 BEGIN
-  -- Iterate over unique team pairs (normalise so team_a < team_b lexicographically)
   FOR r IN
-    SELECT DISTINCT
+    SELECT
       league_id,
       LEAST(from_team_id, to_team_id)    AS team_a,
       GREATEST(from_team_id, to_team_id) AS team_b,
-      -- Use from_team_id of the earliest offer as the thread creator
-      (SELECT from_team_id FROM trade_offers o2
-       WHERE o2.league_id = o.league_id
-         AND LEAST(o2.from_team_id, o2.to_team_id)    = LEAST(o.from_team_id, o.to_team_id)
-         AND GREATEST(o2.from_team_id, o2.to_team_id) = GREATEST(o.from_team_id, o.to_team_id)
-       ORDER BY o2.created_at ASC LIMIT 1)            AS creator,
-      MIN(created_at)                    AS first_at
-    FROM trade_offers o
+      (array_agg(from_team_id ORDER BY created_at ASC))[1] AS creator,
+      MIN(created_at) AS first_at
+    FROM trade_offers
     WHERE thread_id IS NULL
-    GROUP BY league_id, LEAST(from_team_id, to_team_id), GREATEST(from_team_id, to_team_id)
+    GROUP BY
+      league_id,
+      LEAST(from_team_id, to_team_id),
+      GREATEST(from_team_id, to_team_id)
   LOOP
     INSERT INTO trade_threads (
       league_id, team_a_id, team_b_id, created_by_team_id,
@@ -59,7 +56,6 @@ BEGIN
     )
     RETURNING id INTO tid;
 
-    -- Assign thread to all matching offers
     UPDATE trade_offers
     SET thread_id = tid
     WHERE league_id = r.league_id
