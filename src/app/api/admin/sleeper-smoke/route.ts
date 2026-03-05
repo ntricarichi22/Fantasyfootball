@@ -25,19 +25,41 @@ if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supab
 if (!supabaseResult.client) return jsonError("Supabase admin client is null", 500);
 const supabaseAdmin = supabaseResult.client;
 
-  const endpointParam = (url.searchParams.get("endpoint") || "league").toLowerCase();
+const endpointParam = (url.searchParams.get("endpoint") || "league").toLowerCase();
 
-let endpoint: "league" | "drafts";
+let endpoint: "league" | "drafts" | "draft";
 let requestUrl: string;
 
-if (endpointParam === "drafts") {
+if (endpointParam === "draft") {
+  endpoint = "draft";
+
+  // Try query param first; otherwise auto-pick the most recent draft_id from the last /drafts smoke row
+  let draftId = url.searchParams.get("draft_id");
+
+  if (!draftId) {
+    const draftsRow = await supabaseAdmin
+      .from("slp_raw_smoke")
+      .select("payload")
+      .eq("league_id", leagueId)
+      .eq("endpoint", "drafts")
+      .eq("status_code", 200)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const payloadAny = (draftsRow.data?.[0]?.payload ?? null) as any;
+    draftId = payloadAny?.[0]?.draft_id ?? null;
+  }
+
+  if (!draftId) return jsonError("Missing draft_id (and no prior drafts payload found)", 400);
+
+  requestUrl = `https://api.sleeper.app/v1/draft/${draftId}`;
+} else if (endpointParam === "drafts") {
   endpoint = "drafts";
   requestUrl = `https://api.sleeper.app/v1/league/${leagueId}/drafts`;
 } else {
   endpoint = "league";
   requestUrl = `https://api.sleeper.app/v1/league/${leagueId}`;
 }
-
   // Fetch with timeout
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
