@@ -27,30 +27,53 @@ const supabaseAdmin = supabaseResult.client;
 
 const endpointParam = (url.searchParams.get("endpoint") || "league").toLowerCase();
 
-let endpoint: "league" | "drafts" | "draft";
+let endpoint: "league" | "drafts" | "draft" | "draft_picks";
 let requestUrl: string;
 
-if (endpointParam === "draft") {
+async function getLatestDraftId(): Promise<string | null> {
+  // 1) Most recent draft payload row
+  const draftRow = await supabaseAdmin
+    .from("slp_raw_smoke")
+    .select("payload")
+    .eq("league_id", leagueId)
+    .eq("endpoint", "draft")
+    .eq("status_code", 200)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const draftPayload = (draftRow.data?.[0]?.payload ?? null) as any;
+  if (draftPayload?.draft_id) return String(draftPayload.draft_id);
+
+  // 2) Most recent drafts payload row (array)
+  const draftsRow = await supabaseAdmin
+    .from("slp_raw_smoke")
+    .select("payload")
+    .eq("league_id", leagueId)
+    .eq("endpoint", "drafts")
+    .eq("status_code", 200)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const draftsPayload = (draftsRow.data?.[0]?.payload ?? null) as any;
+  if (Array.isArray(draftsPayload) && draftsPayload[0]?.draft_id) return String(draftsPayload[0].draft_id);
+
+  return null;
+}
+
+if (endpointParam === "draft_picks") {
+  endpoint = "draft_picks";
+
+  let draftId = url.searchParams.get("draft_id");
+  if (!draftId) draftId = await getLatestDraftId();
+  if (!draftId) return jsonError("Missing draft_id (and no prior draft/drafts payload found)", 400);
+
+  requestUrl = `https://api.sleeper.app/v1/draft/${draftId}/picks`;
+} else if (endpointParam === "draft") {
   endpoint = "draft";
 
-  // Try query param first; otherwise auto-pick the most recent draft_id from the last /drafts smoke row
   let draftId = url.searchParams.get("draft_id");
-
-  if (!draftId) {
-    const draftsRow = await supabaseAdmin
-      .from("slp_raw_smoke")
-      .select("payload")
-      .eq("league_id", leagueId)
-      .eq("endpoint", "drafts")
-      .eq("status_code", 200)
-      .order("created_at", { ascending: false })
-      .limit(1);
-
-    const payloadAny = (draftsRow.data?.[0]?.payload ?? null) as any;
-    draftId = payloadAny?.[0]?.draft_id ?? null;
-  }
-
-  if (!draftId) return jsonError("Missing draft_id (and no prior drafts payload found)", 400);
+  if (!draftId) draftId = await getLatestDraftId();
+  if (!draftId) return jsonError("Missing draft_id (and no prior draft/drafts payload found)", 400);
 
   requestUrl = `https://api.sleeper.app/v1/draft/${draftId}`;
 } else if (endpointParam === "drafts") {
@@ -60,6 +83,7 @@ if (endpointParam === "draft") {
   endpoint = "league";
   requestUrl = `https://api.sleeper.app/v1/league/${leagueId}`;
 }
+  
   // Fetch with timeout
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 30_000);
