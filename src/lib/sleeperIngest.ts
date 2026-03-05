@@ -218,15 +218,18 @@ async function rawUpsertLeague(
   db: SupabaseClient,
   league: SleeperLeague,
 ): Promise<void> {
-  const { error } = await db.from("slp_raw_league").upsert(
-    {
-      league_id: league.league_id,
-      raw_json: league as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id" },
-  );
-  if (error) throw new Error(`slp_raw_league upsert: ${error.message}`);
+  const { error: delError } = await db
+    .from("slp_raw_league")
+    .delete()
+    .eq("league_id", league.league_id);
+  if (delError) throw new Error(`slp_raw_league delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_league").insert({
+    league_id: league.league_id,
+    raw_json: league as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_league insert: ${error.message}`);
 }
 
 async function rawUpsertRosters(
@@ -234,15 +237,19 @@ async function rawUpsertRosters(
   leagueId: string,
 ): Promise<ReturnType<typeof fetchLeagueRosters>> {
   const rosters = await fetchLeagueRosters(leagueId);
-  const { error } = await db.from("slp_raw_rosters").upsert(
-    {
-      league_id: leagueId,
-      raw_json: rosters as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id" },
-  );
-  if (error) throw new Error(`slp_raw_rosters upsert: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_rosters")
+    .delete()
+    .eq("league_id", leagueId);
+  if (delError) throw new Error(`slp_raw_rosters delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_rosters").insert({
+    league_id: leagueId,
+    raw_json: rosters as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_rosters insert: ${error.message}`);
   return rosters;
 }
 
@@ -251,15 +258,19 @@ async function rawUpsertUsers(
   leagueId: string,
 ): Promise<ReturnType<typeof fetchLeagueUsers>> {
   const users = await fetchLeagueUsers(leagueId);
-  const { error } = await db.from("slp_raw_users").upsert(
-    {
-      league_id: leagueId,
-      raw_json: users as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id" },
-  );
-  if (error) throw new Error(`slp_raw_users upsert: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_users")
+    .delete()
+    .eq("league_id", leagueId);
+  if (delError) throw new Error(`slp_raw_users delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_users").insert({
+    league_id: leagueId,
+    raw_json: users as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_users insert: ${error.message}`);
   return users;
 }
 
@@ -270,16 +281,21 @@ async function rawUpsertMatchups(
 ): Promise<ReturnType<typeof fetchLeagueMatchups>> {
   const matchups = await fetchLeagueMatchups(leagueId, week);
   if (!matchups?.length) return matchups;
-  const { error } = await db.from("slp_raw_matchups").upsert(
-    {
-      league_id: leagueId,
-      week,
-      raw_json: matchups as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id,week" },
-  );
-  if (error) throw new Error(`slp_raw_matchups upsert week ${week}: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_matchups")
+    .delete()
+    .eq("league_id", leagueId)
+    .eq("week", week);
+  if (delError) throw new Error(`slp_raw_matchups delete week ${week}: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_matchups").insert({
+    league_id: leagueId,
+    week,
+    raw_json: matchups as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_matchups insert week ${week}: ${error.message}`);
   return matchups;
 }
 
@@ -292,29 +308,31 @@ async function rawUpsertBrackets(
     fetchLosersBracket(leagueId),
   ]);
 
-  if (winners?.length) {
-    const { error } = await db.from("slp_raw_winners_bracket").upsert(
-      {
-        league_id: leagueId,
-        raw_json: winners as unknown as Record<string, unknown>,
-        fetched_at: new Date().toISOString(),
-      },
-      { onConflict: "league_id" },
-    );
-    if (error) throw new Error(`slp_raw_winners_bracket upsert: ${error.message}`);
-  }
+  // winners bracket — always delete then insert (empty array if API returned nothing)
+  const { error: wDelError } = await db
+    .from("slp_raw_winners_bracket")
+    .delete()
+    .eq("league_id", leagueId);
+  if (wDelError) throw new Error(`slp_raw_winners_bracket delete: ${wDelError.message}`);
+  const { error: wInsError } = await db.from("slp_raw_winners_bracket").insert({
+    league_id: leagueId,
+    raw_json: (winners ?? []) as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (wInsError) throw new Error(`slp_raw_winners_bracket insert: ${wInsError.message}`);
 
-  if (losers?.length) {
-    const { error } = await db.from("slp_raw_losers_bracket").upsert(
-      {
-        league_id: leagueId,
-        raw_json: losers as unknown as Record<string, unknown>,
-        fetched_at: new Date().toISOString(),
-      },
-      { onConflict: "league_id" },
-    );
-    if (error) throw new Error(`slp_raw_losers_bracket upsert: ${error.message}`);
-  }
+  // losers bracket — always delete then insert (empty array if API returned nothing)
+  const { error: lDelError } = await db
+    .from("slp_raw_losers_bracket")
+    .delete()
+    .eq("league_id", leagueId);
+  if (lDelError) throw new Error(`slp_raw_losers_bracket delete: ${lDelError.message}`);
+  const { error: lInsError } = await db.from("slp_raw_losers_bracket").insert({
+    league_id: leagueId,
+    raw_json: (losers ?? []) as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (lInsError) throw new Error(`slp_raw_losers_bracket insert: ${lInsError.message}`);
 
   return { winners: winners ?? [], losers: losers ?? [] };
 }
@@ -326,16 +344,21 @@ async function rawUpsertTransactions(
 ): Promise<ReturnType<typeof fetchLeagueTransactions>> {
   const txns = await fetchLeagueTransactions(leagueId, week);
   if (!txns?.length) return txns;
-  const { error } = await db.from("slp_raw_transactions").upsert(
-    {
-      league_id: leagueId,
-      week,
-      raw_json: txns as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id,week" },
-  );
-  if (error) throw new Error(`slp_raw_transactions upsert week ${week}: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_transactions")
+    .delete()
+    .eq("league_id", leagueId)
+    .eq("week", week);
+  if (delError) throw new Error(`slp_raw_transactions delete week ${week}: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_transactions").insert({
+    league_id: leagueId,
+    week,
+    raw_json: txns as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_transactions insert week ${week}: ${error.message}`);
   return txns;
 }
 
@@ -344,15 +367,19 @@ async function rawUpsertTradedPicks(
   leagueId: string,
 ): Promise<ReturnType<typeof fetchTradedPicks>> {
   const picks = await fetchTradedPicks(leagueId);
-  const { error } = await db.from("slp_raw_traded_picks").upsert(
-    {
-      league_id: leagueId,
-      raw_json: (picks ?? []) as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id" },
-  );
-  if (error) throw new Error(`slp_raw_traded_picks upsert: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_traded_picks")
+    .delete()
+    .eq("league_id", leagueId);
+  if (delError) throw new Error(`slp_raw_traded_picks delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_traded_picks").insert({
+    league_id: leagueId,
+    raw_json: (picks ?? []) as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_traded_picks insert: ${error.message}`);
   return picks;
 }
 
@@ -361,15 +388,19 @@ async function rawUpsertDrafts(
   leagueId: string,
 ): Promise<ReturnType<typeof fetchLeagueDrafts>> {
   const drafts = await fetchLeagueDrafts(leagueId);
-  const { error } = await db.from("slp_raw_drafts").upsert(
-    {
-      league_id: leagueId,
-      raw_json: (drafts ?? []) as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "league_id" },
-  );
-  if (error) throw new Error(`slp_raw_drafts upsert: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_drafts")
+    .delete()
+    .eq("league_id", leagueId);
+  if (delError) throw new Error(`slp_raw_drafts delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_drafts").insert({
+    league_id: leagueId,
+    raw_json: (drafts ?? []) as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_drafts insert: ${error.message}`);
   return drafts;
 }
 
@@ -378,15 +409,19 @@ async function rawUpsertDraft(
   draftId: string,
 ): Promise<ReturnType<typeof fetchDraft>> {
   const draft = await fetchDraft(draftId);
-  const { error } = await db.from("slp_raw_draft").upsert(
-    {
-      draft_id: draftId,
-      raw_json: draft as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "draft_id" },
-  );
-  if (error) throw new Error(`slp_raw_draft upsert: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_draft")
+    .delete()
+    .eq("draft_id", draftId);
+  if (delError) throw new Error(`slp_raw_draft delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_draft").insert({
+    draft_id: draftId,
+    raw_json: draft as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_draft insert: ${error.message}`);
   return draft;
 }
 
@@ -395,15 +430,19 @@ async function rawUpsertDraftPicks(
   draftId: string,
 ): Promise<ReturnType<typeof fetchDraftPicks>> {
   const picks = await fetchDraftPicks(draftId);
-  const { error } = await db.from("slp_raw_draft_picks").upsert(
-    {
-      draft_id: draftId,
-      raw_json: (picks ?? []) as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "draft_id" },
-  );
-  if (error) throw new Error(`slp_raw_draft_picks upsert: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_draft_picks")
+    .delete()
+    .eq("draft_id", draftId);
+  if (delError) throw new Error(`slp_raw_draft_picks delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_draft_picks").insert({
+    draft_id: draftId,
+    raw_json: (picks ?? []) as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_draft_picks insert: ${error.message}`);
   return picks;
 }
 
@@ -412,15 +451,19 @@ async function rawUpsertDraftTradedPicks(
   draftId: string,
 ): Promise<ReturnType<typeof fetchDraftTradedPicks>> {
   const picks = await fetchDraftTradedPicks(draftId);
-  const { error } = await db.from("slp_raw_draft_traded_picks").upsert(
-    {
-      draft_id: draftId,
-      raw_json: (picks ?? []) as unknown as Record<string, unknown>,
-      fetched_at: new Date().toISOString(),
-    },
-    { onConflict: "draft_id" },
-  );
-  if (error) throw new Error(`slp_raw_draft_traded_picks upsert: ${error.message}`);
+
+  const { error: delError } = await db
+    .from("slp_raw_draft_traded_picks")
+    .delete()
+    .eq("draft_id", draftId);
+  if (delError) throw new Error(`slp_raw_draft_traded_picks delete: ${delError.message}`);
+
+  const { error } = await db.from("slp_raw_draft_traded_picks").insert({
+    draft_id: draftId,
+    raw_json: (picks ?? []) as unknown as Record<string, unknown>,
+    fetched_at: new Date().toISOString(),
+  });
+  if (error) throw new Error(`slp_raw_draft_traded_picks insert: ${error.message}`);
   return picks;
 }
 
