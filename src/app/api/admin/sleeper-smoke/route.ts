@@ -20,8 +20,10 @@ export async function GET(req: Request) {
   if (!leagueId) return jsonError("Missing NEXT_PUBLIC_SLEEPER_LEAGUE_ID env var", 500);
 
   // Supabase admin client (server-only)
-  const { client: supabaseAdmin, error: supabaseAdminError } = getSupabaseAdminClient();
-  if (supabaseAdminError) return jsonError(`Supabase admin client error: ${supabaseAdminError}`, 500);
+  const supabaseResult = getSupabaseAdminClient();
+if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supabaseResult.error}`, 500);
+if (!supabaseResult.client) return jsonError("Supabase admin client is null", 500);
+const supabaseAdmin = supabaseResult.client;
 
   const requestUrl = `https://api.sleeper.app/v1/league/${leagueId}`;
 
