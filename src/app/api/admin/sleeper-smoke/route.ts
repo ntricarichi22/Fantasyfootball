@@ -25,7 +25,18 @@ if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supab
 if (!supabaseResult.client) return jsonError("Supabase admin client is null", 500);
 const supabaseAdmin = supabaseResult.client;
 
-  const requestUrl = `https://api.sleeper.app/v1/league/${leagueId}`;
+  const endpointParam = (url.searchParams.get("endpoint") || "league").toLowerCase();
+
+let endpoint: "league" | "drafts";
+let requestUrl: string;
+
+if (endpointParam === "drafts") {
+  endpoint = "drafts";
+  requestUrl = `https://api.sleeper.app/v1/league/${leagueId}/drafts`;
+} else {
+  endpoint = "league";
+  requestUrl = `https://api.sleeper.app/v1/league/${leagueId}`;
+}
 
   // Fetch with timeout
   const controller = new AbortController();
@@ -55,18 +66,18 @@ const supabaseAdmin = supabaseResult.client;
 
   // Insert RAW row (even if fetch failed)
   const insertRes = await supabaseAdmin
-    .from("slp_raw_smoke")
-    .insert({
-      league_id: leagueId,
-      endpoint: "league",
-      request_url: requestUrl,
-      status_code: statusCode,
-      payload: payload as any, // jsonb accepts objects/null; keep it loose
-      error: fetchError,
-    })
-    .select("id, created_at")
-    .single();
-
+  .from("slp_raw_smoke")
+  .insert({
+    league_id: leagueId,
+    endpoint, // <-- uses the endpoint we set above
+    request_url: requestUrl,
+    status_code: statusCode,
+    payload: payload as any,
+    error: fetchError,
+  })
+  .select("id, created_at")
+  .single();
+  
   if (insertRes.error) return jsonError(`DB insert failed: ${insertRes.error.message}`, 500);
 
   return NextResponse.json({
