@@ -47,7 +47,8 @@ export async function GET(req: Request) {
   }
 
   // Insert RAW row (even if error)
-  const { data, error: insertError } = await supabaseAdmin
+  // Insert RAW row (even if error)
+const insertRes = await supabaseAdmin
   .from("slp_raw_smoke")
   .insert({
     league_id: leagueId,
@@ -55,10 +56,13 @@ export async function GET(req: Request) {
     request_url: requestUrl,
     status_code: statusCode,
     payload,
-    error: error ?? (insertError ? insertError.message : null),
+    error, // <-- only the Sleeper fetch error goes into the row
   })
   .select("id, created_at")
   .single();
+
+const data = insertRes.data;
+const insertError = insertRes.error;
 
 if (insertError) return jsonError(`DB insert failed: ${insertError.message}`, 500);
 
