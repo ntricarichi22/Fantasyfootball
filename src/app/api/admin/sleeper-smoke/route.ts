@@ -47,20 +47,20 @@ export async function GET(req: Request) {
   }
 
   // Insert RAW row (even if error)
-  const { data, error: dbErr } = await supabaseAdmin
-    .from("slp_raw_smoke")
-    .insert({
-      league_id: leagueId,
-      endpoint: "league",
-      request_url: requestUrl,
-      status_code: statusCode,
-      payload,
-      error: error ?? (dbErr ? dbErr.message : null),
-    })
-    .select("id, created_at")
-    .single();
+  const { data, error: insertError } = await supabaseAdmin
+  .from("slp_raw_smoke")
+  .insert({
+    league_id: leagueId,
+    endpoint: "league",
+    request_url: requestUrl,
+    status_code: statusCode,
+    payload,
+    error: error ?? (insertError ? insertError.message : null),
+  })
+  .select("id, created_at")
+  .single();
 
-  if (dbErr) return jsonError(`DB insert failed: ${dbErr.message}`, 500);
+if (insertError) return jsonError(`DB insert failed: ${insertError.message}`, 500);
 
   return NextResponse.json({
     ok: true,
