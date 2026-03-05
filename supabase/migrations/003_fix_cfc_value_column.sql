@@ -21,22 +21,31 @@
 
 -- ── 0. Ensure required columns and constraints exist ─────────────────────────
 
-ALTER TABLE public.cfc_trade_values_current
-  ADD COLUMN IF NOT EXISTS sleeper_player_id TEXT;
-
--- Unique constraint on cfc_trade_values_current.asset_key (needed for ON CONFLICT)
 DO $$
 BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint
-    WHERE conname = 'cfc_trade_values_current_asset_key_key'
-      AND conrelid = 'public.cfc_trade_values_current'::regclass
+  -- Only run if cfc_trade_values_current is a TABLE, not a VIEW
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = 'cfc_trade_values_current'
+      AND c.relkind = 'r'  -- table
   ) THEN
     ALTER TABLE public.cfc_trade_values_current
-      ADD CONSTRAINT cfc_trade_values_current_asset_key_key UNIQUE (asset_key);
+      ADD COLUMN IF NOT EXISTS sleeper_player_id TEXT;
+
+    -- Unique constraint on asset_key (needed for ON CONFLICT)
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conname = 'cfc_trade_values_current_asset_key_key'
+        AND conrelid = 'public.cfc_trade_values_current'::regclass
+    ) THEN
+      ALTER TABLE public.cfc_trade_values_current
+        ADD CONSTRAINT cfc_trade_values_current_asset_key_key UNIQUE (asset_key);
+    END IF;
   END IF;
-END
-$$;
+END $$;
 
 -- Unique constraint on cfc_asset_calculations.asset_key (needed for ON CONFLICT)
 DO $$
