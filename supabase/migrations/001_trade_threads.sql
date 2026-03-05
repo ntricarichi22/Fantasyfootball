@@ -2,6 +2,22 @@
 -- Run this in the Supabase SQL editor.
 
 -- 1. Create trade_threads table
+DO $$
+DECLARE r RECORD;
+BEGIN
+  FOR r IN
+    SELECT n.nspname AS schema_name,
+           p.proname AS func_name,
+           pg_get_function_identity_arguments(p.oid) AS args
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public'
+      AND p.proname = 'cfc_apply_value_upload'
+  LOOP
+    EXECUTE format('DROP FUNCTION IF EXISTS %I.%I(%s)', r.schema_name, r.func_name, r.args);
+  END LOOP;
+END $$;
+
 CREATE TABLE IF NOT EXISTS trade_threads (
   id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
   league_id           TEXT        NOT NULL,
