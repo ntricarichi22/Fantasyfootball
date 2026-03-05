@@ -1,18 +1,19 @@
 /**
- * GET/POST /api/admin/sleeper-ingest
+ * GET/POST /api/admin/sleeper-flatten
  *
- * Phase A — raw ingest only.
+ * Phase B — flatten from raw.
  *
- * Fetches the Sleeper league chain and all related endpoints, storing the full
- * API payloads into slp_raw_* tables.  Does NOT write to any flattened slp_*
- * tables.  Run /api/admin/sleeper-flatten (Phase B) after this succeeds.
+ * Reads the stored slp_raw_* payloads and transforms them into the queryable
+ * slp_* mirror tables.  Does NOT call the Sleeper API.
+ *
+ * Run /api/admin/sleeper-ingest (Phase A) before this route.
  *
  * Query params:
  *   league_id   – override the starting league (default: NEXT_PUBLIC_SLEEPER_LEAGUE_ID)
- *   full_chain  – "false" to ingest only the supplied league_id (default "true")
- *   players     – "true" to also ingest the /players/nfl endpoint (default "false",
- *                 because that payload is ~5 MB and takes extra time)
- *   debug       – "1" to return a dry-run payload preview without writing
+ *   full_chain  – "false" to flatten only the supplied league_id (default "true")
+ *   players     – "true" to also flatten the slp_raw_players_nfl snapshot into
+ *                 slp_players (default "false")
+ *   dry_run     – "1" to return a preflight report without writing anything
  *
  * Auth: x-admin-secret header  OR  ?secret= query param  OR  Bearer CRON_SECRET
  *
@@ -23,10 +24,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import { LEAGUE_ID } from "@/lib/config";
 import {
-  rawIngestLeagueSeason,
-  rawIngestLeagueChain,
-  rawIngestNflPlayers,
-  debugLeaguePayload,
+  flattenLeagueSeasonFromRaw,
+  flattenLeagueChainFromRaw,
+  flattenNflPlayersFromRaw,
+  preflightFlattenFromRaw,
 } from "@/lib/sleeperIngest";
 
 export const dynamic = "force-dynamic";
@@ -66,11 +67,11 @@ async function handler(request: NextRequest) {
   const startingLeagueId = queryLeagueId ?? envLeagueId ?? (LEAGUE_ID || null);
 
   const fullChain = (params.get("full_chain") ?? "true") !== "false";
-  const ingestPlayers = params.get("players") === "true";
-  const debugMode = params.get("debug") === "1";
+  const flattenPlayers = params.get("players") === "true";
+  const dryRun = params.get("dry_run") === "1";
 
   console.log(
-    `[sleeper-ingest] phase=A starting_league_id="${startingLeagueId}" full_chain=${fullChain} ingest_players=${ingestPlayers} debug=${debugMode}`,
+    `[sleeper-flatten] phase=B starting_league_id="${startingLeagueId}" full_chain=${fullChain} flatten_players=${flattenPlayers} dry_run=${dryRun}`,
   );
 
   if (!startingLeagueId) {
@@ -80,45 +81,46 @@ async function handler(request: NextRequest) {
     );
   }
 
-  // ── Debug / dry-run mode ───────────────────────────────────────────────────
-  if (debugMode) {
+  // ── Dry-run / preflight mode ───────────────────────────────────────────────
+  if (dryRun) {
     try {
-      const preview = await debugLeaguePayload(client, startingLeagueId);
+      const preflight = await preflightFlattenFromRaw(client, startingLeagueId);
       return NextResponse.json({
-        ok: true,
+        ok: preflight.ok,
         dry_run: true,
-        phase: "A",
-        note: "No data was written to Supabase. Remove ?debug=1 to run Phase A raw ingest.",
-        ...preview,
+        phase: "B",
+        note: "No data was written to Supabase. Remove ?dry_run=1 to run Phase B flatten.",
+        preflight,
       });
     } catch (err) {
       return NextResponse.json(
-        { error: err instanceof Error ? err.message : "Unexpected debug error" },
+        { error: err instanceof Error ? err.message : "Unexpected preflight error" },
         { status: 500 },
       );
     }
   }
 
+  // ── Live flatten ───────────────────────────────────────────────────────────
   try {
     const leagueResults = fullChain
-      ? await rawIngestLeagueChain(client, startingLeagueId)
-      : [await rawIngestLeagueSeason(client, startingLeagueId)];
+      ? await flattenLeagueChainFromRaw(client, startingLeagueId)
+      : [await flattenLeagueSeasonFromRaw(client, startingLeagueId)];
 
-    const playerResult = ingestPlayers ? await rawIngestNflPlayers(client) : null;
+    const playerResult = flattenPlayers ? await flattenNflPlayersFromRaw(client) : null;
 
     const errors = leagueResults.filter((r) => r.error);
 
     return NextResponse.json({
       ok: errors.length === 0,
-      phase: "A",
-      note: "Raw ingest complete. Run /api/admin/sleeper-flatten to populate flattened tables (Phase B).",
-      leagues_ingested: leagueResults.length,
+      phase: "B",
+      note: "Flatten complete. slp_* tables have been populated from slp_raw_* data.",
+      leagues_flattened: leagueResults.length,
       leagues: leagueResults,
       players: playerResult,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (err) {
-    console.error("[sleeper-ingest] unexpected error:", err);
+    console.error("[sleeper-flatten] unexpected error:", err);
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Unexpected error" },
       { status: 500 },
