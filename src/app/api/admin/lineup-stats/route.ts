@@ -21,6 +21,7 @@ type PlayersMap = Record<
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
+  const mode = (url.searchParams.get("mode") || "starters").toLowerCase();
 
   const adminSecret = process.env.ADMIN_SECRET;
   if (!adminSecret) return jsonError("Missing ADMIN_SECRET env var", 500);
@@ -35,6 +36,90 @@ export async function GET(req: Request) {
   }
 
   const supabaseAdmin = supabaseResult.client;
+
+  if (mode === "transactions") {
+    const { data: leagueRows, error: leagueError } = await supabaseAdmin
+      .from("slp_leagues_mirror")
+      .select("league_id, season");
+
+    if (leagueError) {
+      return jsonError(`Failed to load league mirror rows: ${leagueError.message}`, 500);
+    }
+
+    const leagueSeasonMap = new Map<string, number | null>();
+    for (const row of leagueRows ?? []) {
+      leagueSeasonMap.set(row.league_id, row.season ?? null);
+    }
+
+    const { data: txRows, error: txError } = await supabaseAdmin
+      .from("slp_raw_smoke")
+      .select("league_id, endpoint, payload")
+      .like("endpoint", "transactions_w%")
+      .eq("status_code", 200);
+
+    if (txError) {
+      return jsonError(`Failed to load transaction rows: ${txError.message}`, 500);
+    }
+
+    let upserted = 0;
+
+    for (const row of txRows ?? []) {
+      const weekMatch = row.endpoint.match(/^transactions_w(\d+)$/);
+      if (!weekMatch) continue;
+
+      const week = Number(weekMatch[1]);
+      const season = leagueSeasonMap.get(row.league_id) ?? null;
+      if (!Array.isArray(row.payload)) continue;
+
+      for (const tx of row.payload) {
+        const transactionId =
+          tx?.transaction_id != null ? String(tx.transaction_id) : null;
+
+        if (!transactionId) continue;
+
+        const { error: upsertError } = await supabaseAdmin
+          .from("slp_transactions_mirror")
+          .upsert(
+            {
+              league_id: row.league_id,
+              season,
+              week,
+              transaction_id: transactionId,
+              transaction_type: tx?.type ?? null,
+              status: tx?.status ?? null,
+              roster_ids: tx?.roster_ids ?? null,
+              adds: tx?.adds ?? null,
+              drops: tx?.drops ?? null,
+              draft_picks: tx?.draft_picks ?? null,
+              waiver_budget: tx?.waiver_budget ?? null,
+              settings: tx?.settings ?? null,
+              metadata: tx?.metadata ?? null,
+              creator: tx?.creator != null ? String(tx.creator) : null,
+              consenter_ids: tx?.consenter_ids ?? null,
+              created_ms:
+                tx?.created != null && !Number.isNaN(Number(tx.created))
+                  ? Number(tx.created)
+                  : null,
+              raw: tx,
+              raw_updated_at: new Date().toISOString(),
+            },
+            { onConflict: "league_id,week,transaction_id" }
+          );
+
+        if (upsertError) {
+          return jsonError(`Failed to upsert transactions mirror: ${upsertError.message}`, 500);
+        }
+
+        upserted += 1;
+      }
+    }
+
+    return NextResponse.json({
+      ok: true,
+      mode: "transactions",
+      upserted,
+    });
+  }
 
   const { data: lineupRows, error: lineupError } = await supabaseAdmin
     .from("slp_lineup_stats")
@@ -201,6 +286,7 @@ export async function GET(req: Request) {
 
   return NextResponse.json({
     ok: true,
+    mode: "starters",
     upserted,
   });
 }
