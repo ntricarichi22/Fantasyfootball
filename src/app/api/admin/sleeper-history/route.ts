@@ -158,7 +158,9 @@ export async function GET(req: Request) {
     let previousLeagueId: string | null = null;
     if (leagueRes.ok && leagueRes.json) {
       const leagueAny = leagueRes.json as any;
-      previousLeagueId = leagueAny?.previous_league_id ? String(leagueAny.previous_league_id) : null;
+      const prevRaw = leagueAny?.previous_league_id;
+previousLeagueId =
+  prevRaw && String(prevRaw) !== "0" && String(prevRaw).trim() !== "" ? String(prevRaw) : null;
     }
 
     // Core endpoints
