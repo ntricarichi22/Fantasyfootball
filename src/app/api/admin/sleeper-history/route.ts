@@ -98,14 +98,26 @@ export async function GET(req: Request) {
     payload: unknown;
     error: string | null;
   }) {
-    const { error: insertErr } = await supabaseAdmin.from("slp_raw_smoke").insert({
+    const { error: insertErr } = await supabaseAdmin.from("slp_raw_smoke").insert(const { error: upsertErr } = await supabaseAdmin
+  .from("slp_raw_smoke")
+  .upsert(
+    {
+      // overwrite timestamp so you can see “last loaded”
+      created_at: new Date().toISOString(),
       league_id: params.leagueId,
       endpoint: params.endpoint,
       request_url: params.requestUrl,
       status_code: params.statusCode,
       payload: params.payload as any,
       error: params.error,
-    });
+    },
+    { onConflict: "request_url" }
+  );
+
+if (upsertErr) {
+  requestsFailed += 1;
+  return;
+});
     if (insertErr) {
       // don't hard-fail the whole job; count as failed
       requestsFailed += 1;
@@ -170,6 +182,7 @@ previousLeagueId =
       { endpoint: "drafts", url: `https://api.sleeper.app/v1/league/${currentLeagueId}/drafts` },
       { endpoint: "winners_bracket", url: `https://api.sleeper.app/v1/league/${currentLeagueId}/winners_bracket` },
       { endpoint: "losers_bracket", url: `https://api.sleeper.app/v1/league/${currentLeagueId}/losers_bracket` },
+      { endpoint: "league_traded_picks", url: `https://api.sleeper.app/v1/league/${currentLeagueId}/traded_picks` },
     ];
 
     for (const item of coreUrls) {
@@ -208,11 +221,26 @@ previousLeagueId =
         nextLeagueId = currentLeagueId;
         break;
       }
+      const r3 = await callAndStore(currentLeagueId, "draft_traded_picks", `https://api.sleeper.app/v1/draft/${draftId}/traded_picks`);
+      if (r3.timedOut) {
+        nextLeagueId = currentLeagueId;
+        break;
+      }
     }
     if (nextLeagueId) break;
 
     // Full mode: weekly matchups + transactions
     if (mode === "full") {
+      const t0 = await callAndStore(
+  currentLeagueId,
+  "transactions_w0",
+  `https://api.sleeper.app/v1/league/${currentLeagueId}/transactions/0`
+);
+if (t0.timedOut) {
+  nextLeagueId = currentLeagueId;
+  break;
+}
+      
       for (let week = 1; week <= maxWeeks; week++) {
         const m = await callAndStore(
           currentLeagueId,
