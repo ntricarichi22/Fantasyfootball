@@ -232,7 +232,7 @@ previousLeagueId =
           `matchups_w${week}`,
           `https://api.sleeper.app/v1/league/${currentLeagueId}/matchups/${week}`
         );
-        if (m.ok && Array.isArray(m.json)) {
+        if (!m.timedOut && m.ok && Array.isArray(m.json)) {
   for (const match of m.json) {
     const { roster_id, starters, matchup_id, points } = match;
 
