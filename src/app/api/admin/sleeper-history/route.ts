@@ -232,6 +232,29 @@ previousLeagueId =
           `matchups_w${week}`,
           `https://api.sleeper.app/v1/league/${currentLeagueId}/matchups/${week}`
         );
+        if (Array.isArray(m.payload)) {
+  for (const match of m.payload) {
+    const { roster_id, starters, matchup_id, points } = match;
+
+    const { error: insertErr } = await supabaseAdmin
+      ?.from("slp_lineups_weekly")
+      .upsert(
+        {
+          league_id: currentLeagueId,
+          week,
+          roster_id,
+          starters,
+          matchup_id,
+          points,
+        },
+        { onConflict: "league_id, roster_id, week" }
+      );
+
+    if (insertErr) {
+      requestsFailed += 1;
+    }
+  }
+}
         if (m.timedOut) {
           nextLeagueId = currentLeagueId;
           break;
