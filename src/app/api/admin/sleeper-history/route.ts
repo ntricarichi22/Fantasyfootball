@@ -90,40 +90,34 @@ export async function GET(req: Request) {
     return (data?.length ?? 0) > 0;
   }
 
-  async function storeRaw(params: {
-    leagueId: string;
-    endpoint: string;
-    requestUrl: string;
-    statusCode: number | null;
-    payload: unknown;
-    error: string | null;
-  }) {
-    const { error: insertErr } = await supabaseAdmin
-      .from("slp_raw_smoke")
-      .upsert(
-    
-      // overwrite timestamp so you can see “last loaded”
-      created_at: new Date().toISOString(),
-      league_id: params.leagueId,
-      endpoint: params.endpoint,
-      request_url: params.requestUrl,
-      status_code: params.statusCode,
-      payload: params.payload as any,
-      error: params.error,
-    },
-    { onConflict: "request_url" }
-  );
+async function storeRaw(params: {
+  leagueId: string;
+  endpoint: string;
+  requestUrl: string;
+  statusCode: number | null;
+  payload: unknown;
+  error: string | null;
+}) {
+  const { error: upsertErr } = await supabaseAdmin
+    .from("slp_raw_smoke")
+    .upsert(
+      {
+        created_at: new Date().toISOString(),
+        league_id: params.leagueId,
+        endpoint: params.endpoint,
+        request_url: params.requestUrl,
+        status_code: params.statusCode,
+        payload: params.payload as any,
+        error: params.error,
+      },
+      { onConflict: "request_url" }
+    );
 
-if (upsertErr) {
-  requestsFailed += 1;
-  return;
-});
-    if (insertErr) {
-      // don't hard-fail the whole job; count as failed
-      requestsFailed += 1;
-      return;
-    }
+  if (upsertErr) {
+    requestsFailed += 1;
+    return;
   }
+}
 
   async function callAndStore(leagueId: string, endpoint: string, requestUrl: string) {
     if (Date.now() - startedAt > budgetMs) return { timedOut: true as const };
