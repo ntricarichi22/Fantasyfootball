@@ -101,7 +101,7 @@ export async function GET(req: Request) {
     const { error: insertErr } = await supabaseAdmin
       .from("slp_raw_smoke")
       .upsert(
-    {
+    
       // overwrite timestamp so you can see “last loaded”
       created_at: new Date().toISOString(),
       league_id: params.leagueId,
