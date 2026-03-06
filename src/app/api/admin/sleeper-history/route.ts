@@ -225,15 +225,6 @@ previousLeagueId =
 
     // Full mode: weekly matchups + transactions
     if (mode === "full") {
-      const t0 = await callAndStore(
-  currentLeagueId,
-  "transactions_w0",
-  `https://api.sleeper.app/v1/league/${currentLeagueId}/transactions/0`
-);
-if (t0.timedOut) {
-  nextLeagueId = currentLeagueId;
-  break;
-}
       
       for (let week = 1; week <= maxWeeks; week++) {
         const m = await callAndStore(
