@@ -232,8 +232,8 @@ previousLeagueId =
           `matchups_w${week}`,
           `https://api.sleeper.app/v1/league/${currentLeagueId}/matchups/${week}`
         );
-        if (Array.isArray(m.payload)) {
-  for (const match of m.payload) {
+        if (m.ok && Array.isArray(m.json)) {
+  for (const match of m.json) {
     const { roster_id, starters, matchup_id, points } = match;
 
     const { error: insertErr } = await supabaseAdmin
