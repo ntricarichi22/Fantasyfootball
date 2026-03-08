@@ -23,7 +23,7 @@ function sha256(input: string) {
 }
 
 function buildUrl(seasonYear: number, params: Record<string, string | number | boolean | undefined>) {
-  const url = new URL(`https://football.myfantasyleague.com/${seasonYear}/export`);
+  const url = new URL(`http://football.myfantasyleague.com/${seasonYear}/export`);
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null) continue;
     url.searchParams.append(key, String(value));
