@@ -22,12 +22,27 @@ function sha256(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-function buildUrl(seasonYear: number, params: Record<string, string | number | boolean | undefined>) {
-  const url = new URL(`http://football.myfantasyleague.com/${seasonYear}/export`);
+function safeJsonParse(text: string) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function buildUrl(
+  seasonYear: number,
+  params: Record<string, string | number | boolean | undefined>
+) {
+  const url = new URL(`https://api.myfantasyleague.com/${seasonYear}/export`);
+
   for (const [key, value] of Object.entries(params)) {
     if (value === undefined || value === null) continue;
     url.searchParams.append(key, String(value));
   }
+
+  url.searchParams.append("JSON", "1");
+
   return url.toString();
 }
 
@@ -37,25 +52,38 @@ async function fetchMfl(
 ) {
   const requestUrl = buildUrl(seasonYear, params);
 
-  const res = await fetch(requestUrl, {
-    method: "GET",
-    headers: {
-      accept: "application/xml,text/xml,text/plain,*/*",
-    },
-    cache: "no-store",
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
 
-  const bodyText = await res.text();
+  try {
+    const res = await fetch(requestUrl, {
+      method: "GET",
+      headers: {
+        accept: "application/json,text/plain,*/*",
+      },
+      cache: "no-store",
+      signal: controller.signal,
+    });
 
-  return {
-    ok: res.ok,
-    status: res.status,
-    requestUrl,
-    requestParams: Object.fromEntries(
-      Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
-    ) as Record<string, string | number | boolean>,
-    bodyText,
-  };
+    const bodyText = await res.text();
+    const bodyJson = safeJsonParse(bodyText);
+
+    return {
+      ok: res.ok,
+      status: res.status,
+      requestUrl,
+      requestParams: {
+        ...Object.fromEntries(
+          Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
+        ),
+        JSON: 1,
+      } as Record<string, string | number | boolean>,
+      bodyText,
+      bodyJson,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function upsertRawGlobalRow(
@@ -72,6 +100,7 @@ async function upsertRawGlobalRow(
     source_key: string;
     entity_id?: string | null;
     week?: number | null;
+    payload_json?: any | null;
     payload_text?: string | null;
     http_status: number;
     notes?: string | null;
@@ -90,8 +119,8 @@ async function upsertRawGlobalRow(
       source_key: row.source_key,
       entity_id: row.entity_id ?? null,
       week: row.week ?? null,
-      payload_format: "xml",
-      payload_json: null,
+      payload_format: "json",
+      payload_json: row.payload_json ?? null,
       payload_text: row.payload_text ?? null,
       http_status: row.http_status,
       fetched_at: new Date().toISOString(),
@@ -115,7 +144,14 @@ async function recordFetch(
     sourceLeagueId: string;
     counters: Record<string, number>;
   },
-  fetchResult: any,
+  fetchResult: {
+    ok: boolean;
+    status: number;
+    requestUrl: string;
+    requestParams: Record<string, string | number | boolean>;
+    bodyText: string;
+    bodyJson: any | null;
+  },
   meta: {
     endpointGroup: string;
     endpointName: string;
@@ -137,6 +173,7 @@ async function recordFetch(
     source_key: meta.sourceKey,
     entity_id: meta.entityId ?? null,
     week: meta.week ?? null,
+    payload_json: fetchResult.bodyJson,
     payload_text: fetchResult.bodyText,
     http_status: fetchResult.status,
     notes: meta.notes ?? null,
@@ -179,7 +216,7 @@ async function fetchAndStore(
     throw new Error(`${config.endpointName} failed (${result.status}) for ${config.sourceKey}`);
   }
 
-  return result.bodyText;
+  return result.bodyJson;
 }
 
 async function runMflJob(
@@ -262,7 +299,7 @@ async function runMflJob(
       endpointGroup: "transactions",
       endpointName: "transactions",
       sourceKey: `${seasonYear}:${sourceLeagueId}:transactions`,
-      notes: "Requested COUNT=5000 as a high ceiling for single-season history",
+      notes: "Requested COUNT=5000 as high ceiling",
     });
 
     for (let week = 1; week <= maxScoringPeriod; week++) {
