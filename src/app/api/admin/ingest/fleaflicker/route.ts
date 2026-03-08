@@ -8,22 +8,6 @@ export const dynamic = "force-dynamic";
 const FLEA_BASE_URL = "https://www.fleaflicker.com/api";
 const FLEA_SPORT = process.env.FLEAFLICKER_SPORT ?? "NFL";
 
-type FleaJob = {
-  seasonYear: number;
-  sourceLeagueId: string;
-  maxScoringPeriod: number; // include playoffs
-  draftNumber?: number;     // optional, defaults to latest
-};
-
-type FleaFetchResult = {
-  ok: boolean;
-  status: number;
-  requestUrl: string;
-  requestParams: Record<string, string | number | boolean>;
-  bodyText: string;
-  bodyJson: any | null;
-};
-
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -61,7 +45,7 @@ function buildUrl(path: string, params: Record<string, string | number | boolean
 async function fetchFleaflicker(
   path: string,
   params: Record<string, string | number | boolean | undefined>
-): Promise<FleaFetchResult> {
+) {
   const merged = {
     sport: FLEA_SPORT,
     ...params,
@@ -71,9 +55,7 @@ async function fetchFleaflicker(
 
   const res = await fetch(requestUrl, {
     method: "GET",
-    headers: {
-      accept: "application/json",
-    },
+    headers: { accept: "application/json" },
     cache: "no-store",
   });
 
@@ -101,12 +83,7 @@ function extractTeamIds(payload: any): number[] {
     if (
       typeof node.id === "number" &&
       typeof node.name === "string" &&
-      (
-        Array.isArray(node.owners) ||
-        node.record_overall ||
-        node.record_postseason ||
-        node.logo_url
-      )
+      (Array.isArray(node.owners) || node.logo_url || node.recordOverall || node.record_overall)
     ) {
       ids.add(node.id);
     }
@@ -116,9 +93,7 @@ function extractTeamIds(payload: any): number[] {
       return;
     }
 
-    for (const value of Object.values(node)) {
-      walk(value);
-    }
+    for (const value of Object.values(node)) walk(value);
   };
 
   walk(payload);
@@ -131,11 +106,7 @@ function extractGameIdsFromScoreboard(payload: any): string[] {
   const walk = (node: any) => {
     if (!node || typeof node !== "object") return;
 
-    if (
-      node &&
-      typeof node.id !== "undefined" &&
-      (node.away || node.home)
-    ) {
+    if (typeof node.id !== "undefined" && (node.home || node.away)) {
       ids.add(String(node.id));
     }
 
@@ -144,9 +115,7 @@ function extractGameIdsFromScoreboard(payload: any): string[] {
       return;
     }
 
-    for (const value of Object.values(node)) {
-      walk(value);
-    }
+    for (const value of Object.values(node)) walk(value);
   };
 
   walk(payload);
@@ -194,10 +163,7 @@ async function upsertRawGlobalRow(
       body_hash: sha256(row.payload_text ?? ""),
       notes: row.notes ?? null,
     },
-    {
-      onConflict: "source_key",
-      ignoreDuplicates: false,
-    }
+    { onConflict: "source_key", ignoreDuplicates: false }
   );
 
   if (error) {
@@ -214,7 +180,7 @@ async function recordFetch(
     sourceLeagueId: string;
     counters: Record<string, number>;
   },
-  fetchResult: FleaFetchResult,
+  fetchResult: any,
   meta: {
     endpointGroup: string;
     endpointName: string;
@@ -285,7 +251,10 @@ async function fetchAndStore(
 
 async function runFleaJob(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  job: FleaJob
+  seasonYear: number,
+  sourceLeagueId: string,
+  maxScoringPeriod: number,
+  draftNumber?: number
 ) {
   const ingestRunId = crypto.randomUUID();
 
@@ -293,13 +262,13 @@ async function runFleaJob(
     .from("flea_raw_smoke")
     .insert({
       ingest_run_id: ingestRunId,
-      season_year: job.seasonYear,
-      source_league_id: job.sourceLeagueId,
+      season_year: seasonYear,
+      source_league_id: sourceLeagueId,
       job_name: "fleaflicker_raw_ingest",
       status: "running",
       started_at: new Date().toISOString(),
       summary_json: {
-        requested_job: job,
+        requested_job: { seasonYear, sourceLeagueId, maxScoringPeriod, draftNumber: draftNumber ?? null },
       },
     })
     .select("smoke_id")
@@ -314,84 +283,53 @@ async function runFleaJob(
   const teamIds = new Set<number>();
   const boxscoreIds = new Set<string>();
 
-  const ctx = {
-    smokeId,
-    ingestRunId,
-    seasonYear: job.seasonYear,
-    sourceLeagueId: job.sourceLeagueId,
-    counters,
-  };
+  const ctx = { smokeId, ingestRunId, seasonYear, sourceLeagueId, counters };
 
   try {
-    // 1) Rules
     await fetchAndStore(supabase, ctx, {
       path: "/FetchLeagueRules",
-      params: {
-        league_id: job.sourceLeagueId,
-      },
+      params: { league_id: sourceLeagueId },
       endpointGroup: "league",
       endpointName: "FetchLeagueRules",
-      sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:rules`,
+      sourceKey: `${seasonYear}:${sourceLeagueId}:rules`,
     });
 
-    // 2) Standings
     const standings = await fetchAndStore(supabase, ctx, {
       path: "/FetchLeagueStandings",
-      params: {
-        league_id: job.sourceLeagueId,
-        season: job.seasonYear,
-      },
+      params: { league_id: sourceLeagueId, season: seasonYear },
       endpointGroup: "league",
       endpointName: "FetchLeagueStandings",
-      sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:standings`,
+      sourceKey: `${seasonYear}:${sourceLeagueId}:standings`,
     });
 
-    for (const id of extractTeamIds(standings)) {
-      teamIds.add(id);
-    }
+    for (const id of extractTeamIds(standings)) teamIds.add(id);
 
-    // 3) Draft board
     await fetchAndStore(supabase, ctx, {
       path: "/FetchLeagueDraftBoard",
-      params: {
-        league_id: job.sourceLeagueId,
-        season: job.seasonYear,
-        draft_number: job.draftNumber ?? 0,
-      },
+      params: { league_id: sourceLeagueId, season: seasonYear, draft_number: draftNumber ?? 0 },
       endpointGroup: "draft",
       endpointName: "FetchLeagueDraftBoard",
-      sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:draft_board:${job.draftNumber ?? 0}`,
+      sourceKey: `${seasonYear}:${sourceLeagueId}:draft_board:${draftNumber ?? 0}`,
     });
 
-    // 4) Weekly rosters + scoreboard + boxscores
-    for (let week = 1; week <= job.maxScoringPeriod; week++) {
+    for (let week = 1; week <= maxScoringPeriod; week++) {
       const rosters = await fetchAndStore(supabase, ctx, {
         path: "/FetchLeagueRosters",
-        params: {
-          league_id: job.sourceLeagueId,
-          season: job.seasonYear,
-          scoring_period: week,
-        },
+        params: { league_id: sourceLeagueId, season: seasonYear, scoring_period: week },
         endpointGroup: "rosters",
         endpointName: "FetchLeagueRosters",
-        sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:rosters:week:${week}`,
+        sourceKey: `${seasonYear}:${sourceLeagueId}:rosters:week:${week}`,
         week,
       });
 
-      for (const id of extractTeamIds(rosters)) {
-        teamIds.add(id);
-      }
+      for (const id of extractTeamIds(rosters)) teamIds.add(id);
 
       const scoreboard = await fetchAndStore(supabase, ctx, {
         path: "/FetchLeagueScoreboard",
-        params: {
-          league_id: job.sourceLeagueId,
-          season: job.seasonYear,
-          scoring_period: week,
-        },
+        params: { league_id: sourceLeagueId, season: seasonYear, scoring_period: week },
         endpointGroup: "scoreboard",
         endpointName: "FetchLeagueScoreboard",
-        sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:scoreboard:week:${week}`,
+        sourceKey: `${seasonYear}:${sourceLeagueId}:scoreboard:week:${week}`,
         week,
       });
 
@@ -403,48 +341,39 @@ async function runFleaJob(
 
         await fetchAndStore(supabase, ctx, {
           path: "/FetchLeagueBoxscore",
-          params: {
-            league_id: job.sourceLeagueId,
-            fantasy_game_id: gameId,
-            scoring_period: week,
-          },
+          params: { league_id: sourceLeagueId, fantasy_game_id: gameId, scoring_period: week },
           endpointGroup: "boxscore",
           endpointName: "FetchLeagueBoxscore",
-          sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:boxscore:week:${week}:game:${gameId}`,
+          sourceKey: `${seasonYear}:${sourceLeagueId}:boxscore:week:${week}:game:${gameId}`,
           entityId: gameId,
           week,
         });
       }
     }
 
-    // 5) Team future picks
     for (const teamId of [...teamIds].sort((a, b) => a - b)) {
       await fetchAndStore(supabase, ctx, {
         path: "/FetchTeamPicks",
-        params: {
-          league_id: job.sourceLeagueId,
-          team_id: teamId,
-        },
+        params: { league_id: sourceLeagueId, team_id: teamId },
         endpointGroup: "draft",
         endpointName: "FetchTeamPicks",
-        sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:team_picks:team:${teamId}`,
+        sourceKey: `${seasonYear}:${sourceLeagueId}:team_picks:team:${teamId}`,
         entityId: String(teamId),
       });
     }
 
-    // 6) Paginated transactions
     let offset = 0;
 
     while (true) {
       const result = await fetchFleaflicker("/FetchLeagueTransactions", {
-        league_id: job.sourceLeagueId,
+        league_id: sourceLeagueId,
         result_offset: offset,
       });
 
       await recordFetch(supabase, ctx, result, {
         endpointGroup: "transactions",
         endpointName: "FetchLeagueTransactions",
-        sourceKey: `${job.seasonYear}:${job.sourceLeagueId}:transactions:offset:${offset}`,
+        sourceKey: `${seasonYear}:${sourceLeagueId}:transactions:offset:${offset}`,
         notes: "Paginated raw transaction page",
       });
 
@@ -457,7 +386,6 @@ async function runFleaJob(
 
       offset += items.length;
 
-      // defensive stop
       if (offset > 50000) {
         throw new Error("Transaction pagination exceeded 50,000 rows; stopping defensively.");
       }
@@ -465,9 +393,9 @@ async function runFleaJob(
 
     const summary = {
       ingest_run_id: ingestRunId,
-      season_year: job.seasonYear,
-      source_league_id: job.sourceLeagueId,
-      max_scoring_period: job.maxScoringPeriod,
+      season_year: seasonYear,
+      source_league_id: sourceLeagueId,
+      max_scoring_period: maxScoringPeriod,
       team_ids_found: [...teamIds].sort((a, b) => a - b),
       counts_by_endpoint: counters,
     };
@@ -495,9 +423,9 @@ async function runFleaJob(
         error_text: error?.message ?? "Unknown FleaFlicker raw ingest error",
         summary_json: {
           ingest_run_id: ingestRunId,
-          season_year: job.seasonYear,
-          source_league_id: job.sourceLeagueId,
-          max_scoring_period: job.maxScoringPeriod,
+          season_year: seasonYear,
+          source_league_id: sourceLeagueId,
+          max_scoring_period: maxScoringPeriod,
           counts_by_endpoint: counters,
           team_ids_found: [...teamIds].sort((a, b) => a - b),
         },
@@ -508,49 +436,46 @@ async function runFleaJob(
   }
 }
 
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   try {
-    const adminToken = process.env.INGEST_ADMIN_TOKEN;
-    if (adminToken) {
-      const provided = req.headers.get("x-admin-token");
-      if (provided !== adminToken) {
-        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-      }
+    const url = new URL(req.url);
+
+    const token = url.searchParams.get("token");
+    const adminSecret = process.env.ADMIN_SECRET;
+
+    if (!adminSecret || token !== adminSecret) {
+      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const jobs = Array.isArray(body?.jobs) ? (body.jobs as FleaJob[]) : [];
+    const seasonYear = Number(url.searchParams.get("seasonYear"));
+    const sourceLeagueId = url.searchParams.get("sourceLeagueId");
+    const maxScoringPeriod = Number(url.searchParams.get("maxScoringPeriod"));
+    const draftNumberRaw = url.searchParams.get("draftNumber");
+    const draftNumber = draftNumberRaw ? Number(draftNumberRaw) : undefined;
 
-    if (jobs.length === 0) {
+    if (!seasonYear || !sourceLeagueId || !maxScoringPeriod) {
       return NextResponse.json(
-        { error: "Body must include jobs[]" },
+        {
+          ok: false,
+          error: "Missing required query params: seasonYear, sourceLeagueId, maxScoringPeriod",
+        },
         { status: 400 }
       );
     }
 
-    for (const job of jobs) {
-      if (!job.seasonYear || !job.sourceLeagueId || !job.maxScoringPeriod) {
-        return NextResponse.json(
-          {
-            error:
-              "Each job must include seasonYear, sourceLeagueId, and maxScoringPeriod",
-          },
-          { status: 400 }
-        );
-      }
-    }
-
     const supabase = getSupabaseAdmin();
-    const summaries = [];
 
-    for (const job of jobs) {
-      const summary = await runFleaJob(supabase, job);
-      summaries.push(summary);
-    }
+    const summary = await runFleaJob(
+      supabase,
+      seasonYear,
+      sourceLeagueId,
+      maxScoringPeriod,
+      draftNumber
+    );
 
     return NextResponse.json({
       ok: true,
-      summaries,
+      summary,
     });
   } catch (error: any) {
     return NextResponse.json(
