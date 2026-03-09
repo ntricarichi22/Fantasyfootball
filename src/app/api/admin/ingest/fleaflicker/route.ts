@@ -7,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 const FLEA_BASE_URL = "https://www.fleaflicker.com/api";
 const FLEA_SPORT = process.env.FLEAFLICKER_SPORT ?? "NFL";
+const PLAYER_LISTING_PAGE_LIMIT = 250;
 
 function getSupabaseAdmin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -249,6 +250,61 @@ async function fetchAndStore(
   return result.bodyJson;
 }
 
+async function ingestPlayerListingPages(
+  supabase: ReturnType<typeof getSupabaseAdmin>,
+  ctx: {
+    smokeId: string;
+    ingestRunId: string;
+    seasonYear: number;
+    sourceLeagueId: string;
+    counters: Record<string, number>;
+  },
+  week: number
+) {
+  let offset = 0;
+
+  while (true) {
+    const result = await fetchFleaflicker("/FetchPlayerListing", {
+      league_id: ctx.sourceLeagueId,
+      sort: "SORT_SCORING_PERIOD",
+      sort_season: ctx.seasonYear,
+      sort_period: week,
+      result_offset: offset,
+      external_id_type: "SPORTRADAR",
+    });
+
+    await recordFetch(supabase, ctx, result, {
+      endpointGroup: "player_scores",
+      endpointName: "FetchPlayerListing",
+      sourceKey: `${ctx.seasonYear}:${ctx.sourceLeagueId}:player_listing:week:${week}:offset:${offset}`,
+      week,
+      notes: "Weekly player scoring listing paginated by result_offset",
+    });
+
+    if (!result.ok) {
+      throw new Error(`FetchPlayerListing failed (${result.status}) at week ${week}, offset ${offset}`);
+    }
+
+    const body = result.bodyJson ?? {};
+    const players = Array.isArray(body.players) ? body.players : [];
+    const nextOffset =
+      typeof body.resultOffsetNext === "number"
+        ? body.resultOffsetNext
+        : typeof body.result_offset_next === "number"
+        ? body.result_offset_next
+        : null;
+
+    if (players.length === 0) break;
+    if (nextOffset === null || nextOffset === offset) break;
+
+    offset = nextOffset;
+
+    if (offset > 200000) {
+      throw new Error(`FetchPlayerListing pagination exceeded 200000 rows at week ${week}`);
+    }
+  }
+}
+
 async function runFleaJob(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   seasonYear: number,
@@ -349,6 +405,8 @@ async function runFleaJob(
           week,
         });
       }
+
+      await ingestPlayerListingPages(supabase, ctx, week);
     }
 
     for (const teamId of [...teamIds].sort((a, b) => a - b)) {
@@ -363,7 +421,6 @@ async function runFleaJob(
     }
 
     let offset = 0;
-
     while (true) {
       const result = await fetchFleaflicker("/FetchLeagueTransactions", {
         league_id: sourceLeagueId,
@@ -385,7 +442,6 @@ async function runFleaJob(
       if (items.length === 0) break;
 
       offset += items.length;
-
       if (offset > 50000) {
         throw new Error("Transaction pagination exceeded 50,000 rows; stopping defensively.");
       }
@@ -439,7 +495,6 @@ async function runFleaJob(
 export async function GET(req: NextRequest) {
   try {
     const url = new URL(req.url);
-
     const token = url.searchParams.get("token");
     const adminSecret = process.env.ADMIN_SECRET;
 
@@ -455,34 +510,18 @@ export async function GET(req: NextRequest) {
 
     if (!seasonYear || !sourceLeagueId || !maxScoringPeriod) {
       return NextResponse.json(
-        {
-          ok: false,
-          error: "Missing required query params: seasonYear, sourceLeagueId, maxScoringPeriod",
-        },
+        { ok: false, error: "Missing required query params: seasonYear, sourceLeagueId, maxScoringPeriod" },
         { status: 400 }
       );
     }
 
     const supabase = getSupabaseAdmin();
+    const summary = await runFleaJob(supabase, seasonYear, sourceLeagueId, maxScoringPeriod, draftNumber);
 
-    const summary = await runFleaJob(
-      supabase,
-      seasonYear,
-      sourceLeagueId,
-      maxScoringPeriod,
-      draftNumber
-    );
-
-    return NextResponse.json({
-      ok: true,
-      summary,
-    });
+    return NextResponse.json({ ok: true, summary });
   } catch (error: any) {
     return NextResponse.json(
-      {
-        ok: false,
-        error: error?.message ?? "Unknown FleaFlicker ingest error",
-      },
+      { ok: false, error: error?.message ?? "Unknown FleaFlicker ingest error" },
       { status: 500 }
     );
   }
