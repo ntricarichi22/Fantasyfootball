@@ -145,7 +145,7 @@ export async function POST(req: Request) {
       .map((pick) => {
         const pickNumber = pick.pick_no != null ? Number(pick.pick_no) : null;
         const round = pick.round != null ? Number(pick.round) : null;
-        if (!Number.isInteger(pickNumber)) return null;
+        if (pickNumber === null || !Number.isInteger(pickNumber)) return null;
 
         const pickInRound = Number.isInteger(round) ? ((pickNumber - 1) % 12) + 1 : null;
 
