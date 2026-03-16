@@ -88,19 +88,21 @@ export async function GET(request: NextRequest) {
     }
 
     const prompt = [
-      "You are answering a fantasy football league question.",
-      "Only use the provided season summary data.",
-      "Do not invent facts.",
-      "If the answer cannot be supported by the provided data, say that clearly.",
-      "Keep the answer concise.",
-      "",
-      `User question: ${question}`,
-      "",
-      `Season year: ${seasonYear}`,
-      "",
-      "Season summary JSON:",
-      JSON.stringify(seasonSummaryJson),
-    ].join("\n");
+  "You are answering a fantasy football league question.",
+  "Only use the provided season summary data.",
+  "Do not invent facts.",
+  "If the answer cannot be supported by the provided data, say that clearly.",
+  "Keep the answer concise.",
+  "Important: the wins/losses/ties in this JSON are full-season totals based on team game records and may include playoff games.",
+  "Do not describe them as regular-season record unless the data explicitly says regular season only.",
+  "",
+  `User question: ${question}`,
+  "",
+  `Season year: ${seasonYear}`,
+  "",
+  "Season summary JSON:",
+  JSON.stringify(seasonSummaryJson),
+].join("\n");
 
     const openAiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
