@@ -76,36 +76,55 @@ export async function GET(request: NextRequest) {
     }
 
     const franchiseResult = await pool.query(
-      `
-        select
-          franchise_id,
-          franchise_name,
-          display_team_name,
-          owner_display_name,
-          conference,
-          division,
-          seed,
-          final_rank,
-          wins,
-          losses,
-          ties,
-          points_for,
-          points_against,
-          potential_points,
-          made_playoffs,
-          made_conference_final,
-          made_championship,
-          won_title
-        from llm.franchise_seasons
-        where season_year = $1
-        order by
-          won_title desc,
-          final_rank asc nulls last,
-          points_for desc,
-          franchise_name asc;
-      `,
-      [seasonYear]
-    );
+  `
+    select
+      fs.franchise_id,
+      fs.franchise_name,
+      fs.display_team_name,
+      fs.owner_display_name,
+      fs.conference,
+      fs.division,
+      fs.seed,
+      fs.final_rank,
+      coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0) as wins,
+      coalesce(sum(case when upper(coalesce(tg.result, '')) in ('L', 'LOSS') then 1 else 0 end), 0) as losses,
+      coalesce(sum(case when upper(coalesce(tg.result, '')) in ('T', 'TIE') then 1 else 0 end), 0) as ties,
+      fs.points_for,
+      fs.points_against,
+      fs.potential_points,
+      fs.made_playoffs,
+      fs.made_conference_final,
+      fs.made_championship,
+      fs.won_title
+    from llm.franchise_seasons fs
+    left join llm.team_games tg
+      on tg.season_year = fs.season_year
+     and tg.franchise_id = fs.franchise_id
+    where fs.season_year = $1
+    group by
+      fs.franchise_id,
+      fs.franchise_name,
+      fs.display_team_name,
+      fs.owner_display_name,
+      fs.conference,
+      fs.division,
+      fs.seed,
+      fs.final_rank,
+      fs.points_for,
+      fs.points_against,
+      fs.potential_points,
+      fs.made_playoffs,
+      fs.made_conference_final,
+      fs.made_championship,
+      fs.won_title
+    order by
+      fs.won_title desc,
+      fs.final_rank asc nulls last,
+      fs.points_for desc,
+      fs.franchise_name asc;
+  `,
+  [seasonYear]
+);
 
     return NextResponse.json({
       ok: true,
