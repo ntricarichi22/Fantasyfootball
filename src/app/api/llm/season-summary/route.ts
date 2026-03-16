@@ -76,38 +76,38 @@ export async function GET(request: NextRequest) {
     }
 
     const franchiseResult = await pool.query(
-  `
-    select
-      fs.franchise_id,
-      fs.franchise_name,
-      fs.display_team_name,
-      coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0) as wins,
-      coalesce(sum(case when upper(coalesce(tg.result, '')) in ('L', 'LOSS') then 1 else 0 end), 0) as losses,
-      coalesce(sum(case when upper(coalesce(tg.result, '')) in ('T', 'TIE') then 1 else 0 end), 0) as ties,
-      coalesce(sum(coalesce(tg.points_for, 0)), 0) as points_for,
-      coalesce(sum(coalesce(tg.points_against, 0)), 0) as points_against,
-      coalesce(sum(coalesce(tg.optimal_points, 0)), 0) as potential_points,
-      max(fs.made_playoffs) as made_playoffs,
-      max(fs.made_conference_final) as made_conference_final,
-      max(fs.made_championship) as made_championship,
-      max(fs.won_title) as won_title
-    from llm.franchise_seasons fs
-    left join llm.team_games tg
-      on tg.season_year = fs.season_year
-     and tg.franchise_id = fs.franchise_id
-    where fs.season_year = $1
-    group by
-      fs.franchise_id,
-      fs.franchise_name,
-      fs.display_team_name
-    order by
-      max(fs.won_title) desc,
-      coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0) desc,
-      coalesce(sum(coalesce(tg.points_for, 0)), 0) desc,
-      fs.franchise_name asc;
-  `,
-  [seasonYear]
-);
+      `
+        select
+          fs.franchise_id,
+          fs.franchise_name,
+          fs.display_team_name,
+          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0)::int as wins,
+          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('L', 'LOSS') then 1 else 0 end), 0)::int as losses,
+          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('T', 'TIE') then 1 else 0 end), 0)::int as ties,
+          coalesce(sum(coalesce(tg.points_for, 0)), 0)::float8 as points_for,
+          coalesce(sum(coalesce(tg.points_against, 0)), 0)::float8 as points_against,
+          coalesce(sum(coalesce(tg.optimal_points, 0)), 0)::float8 as potential_points,
+          bool_or(coalesce(fs.made_playoffs, false)) as made_playoffs,
+          bool_or(coalesce(fs.made_conference_final, false)) as made_conference_final,
+          bool_or(coalesce(fs.made_championship, false)) as made_championship,
+          bool_or(coalesce(fs.won_title, false)) as won_title
+        from llm.franchise_seasons fs
+        left join llm.team_games tg
+          on tg.season_year = fs.season_year
+         and tg.franchise_id = fs.franchise_id
+        where fs.season_year = $1
+        group by
+          fs.franchise_id,
+          fs.franchise_name,
+          fs.display_team_name
+        order by
+          bool_or(coalesce(fs.won_title, false)) desc,
+          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0) desc,
+          coalesce(sum(coalesce(tg.points_for, 0)), 0) desc,
+          fs.franchise_name asc;
+      `,
+      [seasonYear]
+    );
 
     return NextResponse.json({
       ok: true,
