@@ -91,6 +91,7 @@ export async function GET(request: NextRequest) {
         left join llm.team_games tg
           on tg.season_year = fs.season_year
          and tg.franchise_id = fs.franchise_id
+         and coalesce(tg.week_type, '') = 'regular_season'
         where fs.season_year = $1
         group by
           fs.franchise_id,
@@ -98,6 +99,7 @@ export async function GET(request: NextRequest) {
           fs.display_team_name
         order by
           coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0) desc,
+          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('T', 'TIE') then 1 else 0 end), 0) desc,
           coalesce(sum(coalesce(tg.points_for, 0)), 0) desc,
           fs.franchise_name asc;
       `,
@@ -107,6 +109,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       intent: "season_summary",
+      record_scope: "regular_season",
       season: seasonResult.rows[0],
       franchises: franchiseResult.rows,
     });
