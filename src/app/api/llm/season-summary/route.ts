@@ -77,30 +77,50 @@ export async function GET(request: NextRequest) {
 
     const franchiseResult = await pool.query(
       `
+        with h2h as (
+          select
+            tg.franchise_id,
+            coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0)::int as wins,
+            coalesce(sum(case when upper(coalesce(tg.result, '')) in ('L', 'LOSS') then 1 else 0 end), 0)::int as losses,
+            coalesce(sum(case when upper(coalesce(tg.result, '')) in ('T', 'TIE') then 1 else 0 end), 0)::int as ties
+          from llm.team_games tg
+          where tg.season_year = $1
+            and coalesce(tg.week_type, '') = 'regular_season'
+            and tg.week between 1 and 13
+          group by tg.franchise_id
+        ),
+        points as (
+          select
+            tg.franchise_id,
+            coalesce(sum(coalesce(tg.points_for, 0)), 0)::float8 as points_for,
+            coalesce(sum(coalesce(tg.points_against, 0)), 0)::float8 as points_against,
+            coalesce(sum(coalesce(tg.optimal_points, 0)), 0)::float8 as potential_points
+          from llm.team_games tg
+          where tg.season_year = $1
+            and coalesce(tg.week_type, '') = 'regular_season'
+            and tg.week between 1 and 14
+          group by tg.franchise_id
+        )
         select
           fs.franchise_id,
           fs.franchise_name,
           fs.display_team_name,
-          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0)::int as wins,
-          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('L', 'LOSS') then 1 else 0 end), 0)::int as losses,
-          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('T', 'TIE') then 1 else 0 end), 0)::int as ties,
-          coalesce(sum(coalesce(tg.points_for, 0)), 0)::float8 as points_for,
-          coalesce(sum(coalesce(tg.points_against, 0)), 0)::float8 as points_against,
-          coalesce(sum(coalesce(tg.optimal_points, 0)), 0)::float8 as potential_points
+          coalesce(h2h.wins, 0) as wins,
+          coalesce(h2h.losses, 0) as losses,
+          coalesce(h2h.ties, 0) as ties,
+          coalesce(points.points_for, 0)::float8 as points_for,
+          coalesce(points.points_against, 0)::float8 as points_against,
+          coalesce(points.potential_points, 0)::float8 as potential_points
         from llm.franchise_seasons fs
-        left join llm.team_games tg
-          on tg.season_year = fs.season_year
-         and tg.franchise_id = fs.franchise_id
-         and coalesce(tg.week_type, '') = 'regular_season'
+        left join h2h
+          on h2h.franchise_id = fs.franchise_id
+        left join points
+          on points.franchise_id = fs.franchise_id
         where fs.season_year = $1
-        group by
-          fs.franchise_id,
-          fs.franchise_name,
-          fs.display_team_name
         order by
-          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('W', 'WIN') then 1 else 0 end), 0) desc,
-          coalesce(sum(case when upper(coalesce(tg.result, '')) in ('T', 'TIE') then 1 else 0 end), 0) desc,
-          coalesce(sum(coalesce(tg.points_for, 0)), 0) desc,
+          coalesce(h2h.wins, 0) desc,
+          coalesce(h2h.ties, 0) desc,
+          coalesce(points.points_for, 0) desc,
           fs.franchise_name asc;
       `,
       [seasonYear]
@@ -109,7 +129,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       intent: "season_summary",
-      record_scope: "regular_season",
+      record_scope: {
+        head_to_head: "weeks_1_13",
+        points: "weeks_1_14",
+      },
       season: seasonResult.rows[0],
       franchises: franchiseResult.rows,
     });
