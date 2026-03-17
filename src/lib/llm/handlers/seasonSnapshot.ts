@@ -25,7 +25,6 @@ export type SeasonSnapshotFranchiseRow = {
   ties: number;
   points_for: number;
   points_against: number;
-  potential_points: number;
 };
 
 export type SeasonSnapshotPayload = {
@@ -109,8 +108,7 @@ async function getSeasonSnapshotData(
         select
           tg.franchise_id,
           coalesce(sum(coalesce(tg.points_for, 0)), 0)::float8 as points_for,
-          coalesce(sum(coalesce(tg.points_against, 0)), 0)::float8 as points_against,
-          coalesce(sum(coalesce(tg.optimal_points, 0)), 0)::float8 as potential_points
+          coalesce(sum(coalesce(tg.points_against, 0)), 0)::float8 as points_against
         from llm.team_games tg
         where tg.season_year = $1
           and coalesce(tg.week_type, '') = 'regular_season'
@@ -125,8 +123,7 @@ async function getSeasonSnapshotData(
         coalesce(h2h.losses, 0) as losses,
         coalesce(h2h.ties, 0) as ties,
         coalesce(points.points_for, 0)::float8 as points_for,
-        coalesce(points.points_against, 0)::float8 as points_against,
-        coalesce(points.potential_points, 0)::float8 as potential_points
+        coalesce(points.points_against, 0)::float8 as points_against
       from llm.franchise_seasons fs
       left join h2h
         on h2h.franchise_id = fs.franchise_id
@@ -146,7 +143,7 @@ async function getSeasonSnapshotData(
     family: "season_snapshot",
     notes: [
       "wins/losses/ties are head-to-head results for weeks 1-13",
-      "points_for, points_against, and potential_points are regular-season totals for weeks 1-14",
+      "points_for and points_against are regular-season totals for weeks 1-14",
     ],
     payload: {
       record_scope: {
@@ -172,7 +169,7 @@ function buildSeasonSnapshotPrompt({
     "",
     "Important data rules:",
     "- wins/losses/ties are head-to-head regular season record for weeks 1-13.",
-    "- points_for, points_against, and potential_points are regular season totals for weeks 1-14.",
+    "- points_for and points_against are regular season totals for weeks 1-14.",
     "- If the user asks about 'best record', interpret that as wins/losses/ties unless they explicitly ask about points.",
     "- Do not describe any result as including playoffs unless the data explicitly says so.",
     "",
