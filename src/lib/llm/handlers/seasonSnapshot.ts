@@ -1,4 +1,5 @@
 import { getLlmPool } from "../llmDb";
+import { getSeasonRules } from "../seasonRules";
 import type {
   HistorianAskInput,
   HistorianBuildPromptArgs,
@@ -29,8 +30,12 @@ export type SeasonSnapshotFranchiseRow = {
 
 export type SeasonSnapshotPayload = {
   record_scope: {
-    head_to_head: "weeks_1_13";
-    points: "weeks_1_14";
+    start_week: number;
+    end_week: number;
+  };
+  points_scope: {
+    start_week: number;
+    end_week: number;
   };
   season: SeasonSnapshotSeason;
   franchises: SeasonSnapshotFranchiseRow[];
@@ -67,6 +72,7 @@ async function getSeasonSnapshotData(
     throw new Error("season_snapshot requires a valid seasonYear");
   }
 
+  const rules = getSeasonRules(input.seasonYear);
   const pool = getLlmPool();
 
   const seasonResult = await pool.query<SeasonSnapshotSeason>(
@@ -101,7 +107,7 @@ async function getSeasonSnapshotData(
         from llm.team_games tg
         where tg.season_year = $1
           and coalesce(tg.week_type, '') = 'regular_season'
-          and tg.week between 1 and 13
+          and tg.week between $2 and $3
         group by tg.franchise_id
       ),
       points as (
@@ -112,7 +118,7 @@ async function getSeasonSnapshotData(
         from llm.team_games tg
         where tg.season_year = $1
           and coalesce(tg.week_type, '') = 'regular_season'
-          and tg.week between 1 and 14
+          and tg.week between $4 and $5
         group by tg.franchise_id
       )
       select
@@ -136,19 +142,29 @@ async function getSeasonSnapshotData(
         coalesce(points.points_for, 0) desc,
         fs.franchise_name asc;
     `,
-    [input.seasonYear]
+    [
+      input.seasonYear,
+      rules.recordWindow.startWeek,
+      rules.recordWindow.endWeek,
+      rules.pointsWindow.startWeek,
+      rules.pointsWindow.endWeek,
+    ]
   );
 
   return {
     family: "season_snapshot",
     notes: [
-      "wins/losses/ties are head-to-head results for weeks 1-13",
-      "points_for and points_against are regular-season totals for weeks 1-14",
+      `wins/losses/ties are head-to-head results for weeks ${rules.recordWindow.startWeek}-${rules.recordWindow.endWeek}`,
+      `points_for and points_against are regular-season totals for weeks ${rules.pointsWindow.startWeek}-${rules.pointsWindow.endWeek}`,
     ],
     payload: {
       record_scope: {
-        head_to_head: "weeks_1_13",
-        points: "weeks_1_14",
+        start_week: rules.recordWindow.startWeek,
+        end_week: rules.recordWindow.endWeek,
+      },
+      points_scope: {
+        start_week: rules.pointsWindow.startWeek,
+        end_week: rules.pointsWindow.endWeek,
       },
       season: seasonResult.rows[0],
       franchises: franchiseResult.rows,
@@ -168,8 +184,8 @@ function buildSeasonSnapshotPrompt({
     "Keep the answer concise.",
     "",
     "Important data rules:",
-    "- wins/losses/ties are head-to-head regular season record for weeks 1-13.",
-    "- points_for and points_against are regular season totals for weeks 1-14.",
+    `- wins/losses/ties are head-to-head regular season record for weeks ${data.payload.record_scope.start_week}-${data.payload.record_scope.end_week}.`,
+    `- points_for and points_against are regular season totals for weeks ${data.payload.points_scope.start_week}-${data.payload.points_scope.end_week}.`,
     "- If the user asks about 'best record', interpret that as wins/losses/ties unless they explicitly ask about points.",
     "- Do not describe any result as including playoffs unless the data explicitly says so.",
     "",
