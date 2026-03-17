@@ -93,8 +93,7 @@ export async function GET(request: NextRequest) {
           select
             tg.franchise_id,
             coalesce(sum(coalesce(tg.points_for, 0)), 0)::float8 as points_for,
-            coalesce(sum(coalesce(tg.points_against, 0)), 0)::float8 as points_against,
-            coalesce(sum(coalesce(tg.optimal_points, 0)), 0)::float8 as potential_points
+            coalesce(sum(coalesce(tg.points_against, 0)), 0)::float8 as points_against
           from llm.team_games tg
           where tg.season_year = $1
             and coalesce(tg.week_type, '') = 'regular_season'
@@ -109,8 +108,7 @@ export async function GET(request: NextRequest) {
           coalesce(h2h.losses, 0) as losses,
           coalesce(h2h.ties, 0) as ties,
           coalesce(points.points_for, 0)::float8 as points_for,
-          coalesce(points.points_against, 0)::float8 as points_against,
-          coalesce(points.potential_points, 0)::float8 as potential_points
+          coalesce(points.points_against, 0)::float8 as points_against
         from llm.franchise_seasons fs
         left join h2h
           on h2h.franchise_id = fs.franchise_id
