@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
+import { getSeasonRules } from "../../../../lib/llm/seasonRules";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const rules = getSeasonRules(seasonYear);
     const pool = getPool(connectionString);
 
     const seasonResult = await pool.query(
@@ -86,7 +88,7 @@ export async function GET(request: NextRequest) {
           from llm.team_games tg
           where tg.season_year = $1
             and coalesce(tg.week_type, '') = 'regular_season'
-            and tg.week between 1 and 13
+            and tg.week between $2 and $3
           group by tg.franchise_id
         ),
         points as (
@@ -97,7 +99,7 @@ export async function GET(request: NextRequest) {
           from llm.team_games tg
           where tg.season_year = $1
             and coalesce(tg.week_type, '') = 'regular_season'
-            and tg.week between 1 and 14
+            and tg.week between $4 and $5
           group by tg.franchise_id
         )
         select
@@ -121,15 +123,25 @@ export async function GET(request: NextRequest) {
           coalesce(points.points_for, 0) desc,
           fs.franchise_name asc;
       `,
-      [seasonYear]
+      [
+        seasonYear,
+        rules.recordWindow.startWeek,
+        rules.recordWindow.endWeek,
+        rules.pointsWindow.startWeek,
+        rules.pointsWindow.endWeek,
+      ]
     );
 
     return NextResponse.json({
       ok: true,
       intent: "season_summary",
       record_scope: {
-        head_to_head: "weeks_1_13",
-        points: "weeks_1_14",
+        start_week: rules.recordWindow.startWeek,
+        end_week: rules.recordWindow.endWeek,
+      },
+      points_scope: {
+        start_week: rules.pointsWindow.startWeek,
+        end_week: rules.pointsWindow.endWeek,
       },
       season: seasonResult.rows[0],
       franchises: franchiseResult.rows,
