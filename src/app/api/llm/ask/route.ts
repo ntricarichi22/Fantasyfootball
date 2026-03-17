@@ -18,20 +18,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  if (!seasonYearParam) {
-    return NextResponse.json(
-      { ok: false, error: "Missing seasonYear" },
-      { status: 400 }
-    );
-  }
+  let seasonYear: number | null = null;
 
-  const seasonYear = Number(seasonYearParam);
+  if (seasonYearParam && seasonYearParam.trim() !== "") {
+    const parsedSeasonYear = Number(seasonYearParam);
 
-  if (!Number.isInteger(seasonYear)) {
-    return NextResponse.json(
-      { ok: false, error: "Invalid seasonYear" },
-      { status: 400 }
-    );
+    if (!Number.isInteger(parsedSeasonYear)) {
+      return NextResponse.json(
+        { ok: false, error: "Invalid seasonYear" },
+        { status: 400 }
+      );
+    }
+
+    seasonYear = parsedSeasonYear;
   }
 
   const input: HistorianAskInput = {
