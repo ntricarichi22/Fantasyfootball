@@ -16,13 +16,14 @@ WHERE (table_schema, table_name) IN (
 ORDER BY table_schema, table_name, ordinal_position;
 
 -- 1) Data completeness: ff_master_draft_picks by season+round
--- Uses to_jsonb to avoid hard-failing if selected_player_name is absent in this table.
+-- Uses to_jsonb for selected_player_name so the same script runs in environments where
+-- ff_master_draft_picks does not physically carry that column (name may be in llm view instead).
 SELECT
   dp.draft_year AS season_year,
   dp.round,
   COUNT(*) AS total_rows,
   COUNT(*) FILTER (
-    WHERE NULLIF(BTRIM(COALESCE(to_jsonb(dp) ->> 'selected_player_id', '')), '') IS NULL
+    WHERE dp.selected_player_id IS NULL
   ) AS missing_selected_player_id,
   COUNT(*) FILTER (
     WHERE NULLIF(BTRIM(COALESCE(to_jsonb(dp) ->> 'selected_player_name', '')), '') IS NULL
@@ -40,7 +41,7 @@ SELECT
   dp.round,
   COUNT(*) AS total_rows,
   COUNT(*) FILTER (
-    WHERE NULLIF(BTRIM(COALESCE(to_jsonb(dp) ->> 'selected_player_id', '')), '') IS NULL
+    WHERE dp.selected_player_id IS NULL
   ) AS missing_selected_player_id,
   COUNT(*) FILTER (
     WHERE NULLIF(BTRIM(COALESCE(to_jsonb(dp) ->> 'selected_player_name', '')), '') IS NULL

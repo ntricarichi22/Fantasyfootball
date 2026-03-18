@@ -51,9 +51,9 @@ This avoids deleting canonical history while giving deterministic rookie-draft b
 
 ## 4) SQL deliverables in this PR
 
-- Diagnostic script: `/home/runner/work/Fantasyfootball/Fantasyfootball/supabase/scripts/2026-03-18_draft_pipeline_diagnostic.sql`
-- Repair script: `/home/runner/work/Fantasyfootball/Fantasyfootball/supabase/scripts/2026-03-18_draft_pipeline_repair.sql`
-- Validation script: `/home/runner/work/Fantasyfootball/Fantasyfootball/supabase/scripts/2026-03-18_draft_pipeline_validation.sql`
+- Diagnostic script: `supabase/scripts/2026-03-18_draft_pipeline_diagnostic.sql`
+- Repair script: `supabase/scripts/2026-03-18_draft_pipeline_repair.sql`
+- Validation script: `supabase/scripts/2026-03-18_draft_pipeline_validation.sql`
 
 ## 5) Re-test checklist after repair
 

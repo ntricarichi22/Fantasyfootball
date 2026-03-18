@@ -20,6 +20,7 @@ SELECT *
 FROM public.ff_draft_season_flags
 WHERE draft_year = 2019;
 
+-- Total 2019 rows in canonical draft view before rookie-only filtering.
 SELECT
   COUNT(*) FILTER (WHERE season_year = 2019) AS llm_draft_picks_2019_rows
 FROM llm.draft_picks;
@@ -33,7 +34,7 @@ SELECT
   season_year,
   COUNT(*) AS total_rows,
   COUNT(*) FILTER (WHERE selected_player_id IS NULL) AS missing_selected_player_id,
-  COUNT(*) FILTER (WHERE NULLIF(BTRIM(COALESCE(selected_player_name, '')), '') IS NULL) AS missing_selected_player_name
+  COUNT(*) FILTER (WHERE NULLIF(TRIM(selected_player_name), '') IS NULL) AS missing_selected_player_name
 FROM llm.draft_picks
 GROUP BY season_year
 ORDER BY season_year;

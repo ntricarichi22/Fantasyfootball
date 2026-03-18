@@ -115,6 +115,9 @@ joined AS (
   FROM unresolved_norm u
   JOIN canonical_norm c
     ON c.player_name_norm = u.drafted_name_norm
+  -- Require at least one space character and at least 5 normalized characters to avoid
+  -- high-risk matches on short/ambiguous aliases (e.g., initials, short nicknames).
+  -- The 5-character floor prevents very short tokens (\"dj\", \"aj\", etc.) from auto-mapping.
   WHERE LENGTH(REPLACE(u.drafted_name_norm, ' ', '')) >= 5
     AND POSITION(' ' IN u.drafted_name_norm) > 0
 ),
@@ -205,7 +208,17 @@ ON CONFLICT (source_platform, source_player_id, decision)
 DO NOTHING;
 
 -- 3) Rebuild canonical actual draft picks with existing function
--- This preserves Flea/MFL actual rows and rebuilds Sleeper rows from mirror + maps.
+-- This preserves Flea/MFL actual rows and rebuilds Sleeper rows from mirror + maps,
+-- including any high-confidence Sleeper mappings inserted above in this same script.
 SELECT public.ff_rebuild_master_draft_picks_actual_results();
+
+-- Immediate post-rebuild snapshot for operator verification.
+SELECT
+  draft_year,
+  COALESCE(source_platform, 'unknown') AS source_platform,
+  COUNT(*) AS rebuilt_rows
+FROM public.ff_master_draft_picks
+GROUP BY draft_year, COALESCE(source_platform, 'unknown')
+ORDER BY draft_year, source_platform;
 
 COMMIT;
