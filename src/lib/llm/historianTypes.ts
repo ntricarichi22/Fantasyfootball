@@ -18,7 +18,7 @@ export type HistorianBuildPromptArgs<TPayload = unknown> = {
 
 export type HistorianHandler<TPayload = unknown> = {
   family: HistorianFamily;
-  canHandle(input: HistorianAskInput): boolean;
+  canHandle(input: HistorianAskInput): boolean | Promise<boolean>;
   getData(input: HistorianAskInput): Promise<HistorianDataEnvelope<TPayload>>;
   buildPrompt(args: HistorianBuildPromptArgs<TPayload>): string;
 };

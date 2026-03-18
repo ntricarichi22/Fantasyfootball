@@ -1,15 +1,33 @@
 import type { HistorianAskInput, HistorianHandler } from "../historianTypes";
+import { draftHistoryHandler } from "./draftHistory";
+import { franchiseHistoryHandler } from "./franchiseHistory";
+import { historianRankingsHandler } from "./historianRankings";
+import { lineupAnalysisHandler } from "./lineupAnalysis";
+import { matchupHistoryHandler } from "./matchupHistory";
+import { playerCareerHandler } from "./playerCareer";
 import { seasonSnapshotHandler } from "./seasonSnapshot";
+import { transactionHistoryHandler } from "./transactionHistory";
+import { weeklyPerformanceHandler } from "./weeklyPerformance";
 
 export const HISTORIAN_HANDLERS: HistorianHandler[] = [
+  transactionHistoryHandler,
+  draftHistoryHandler,
+  matchupHistoryHandler,
+  playerCareerHandler,
+  lineupAnalysisHandler,
+  historianRankingsHandler,
+  weeklyPerformanceHandler,
+  franchiseHistoryHandler,
   seasonSnapshotHandler,
 ];
 
-export function resolveHistorianHandler(
+export async function resolveHistorianHandler(
   input: HistorianAskInput
-): HistorianHandler | null {
+): Promise<HistorianHandler | null> {
   for (const handler of HISTORIAN_HANDLERS) {
-    if (handler.canHandle(input)) {
+    const canHandle = await handler.canHandle(input);
+
+    if (canHandle) {
       return handler;
     }
   }

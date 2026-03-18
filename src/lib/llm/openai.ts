@@ -38,6 +38,7 @@ export async function askOpenAi(prompt: string): Promise<string> {
     body: JSON.stringify({
       model: "gpt-5-nano",
       store: false,
+      max_output_tokens: 250,
       input: [
         {
           role: "user",
