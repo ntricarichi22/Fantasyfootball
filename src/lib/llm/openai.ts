@@ -1,25 +1,91 @@
+function collectStringsFromUnknown(value: unknown, bucket: string[]) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+
+    if (trimmed) {
+      bucket.push(trimmed);
+    }
+
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectStringsFromUnknown(item, bucket);
+    }
+
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+
+    for (const nestedValue of Object.values(record)) {
+      collectStringsFromUnknown(nestedValue, bucket);
+    }
+  }
+}
+
 export function extractOutputText(data: any): string {
+  const directTexts: string[] = [];
+
   if (typeof data?.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim();
+    directTexts.push(data.output_text.trim());
   }
 
-  if (!Array.isArray(data?.output)) {
-    return "";
-  }
+  if (Array.isArray(data?.output)) {
+    for (const item of data.output) {
+      if (Array.isArray(item?.content)) {
+        for (const content of item.content) {
+          if (typeof content?.text === "string" && content.text.trim()) {
+            directTexts.push(content.text.trim());
+          }
 
-  const texts: string[] = [];
+          if (
+            typeof content?.output_text === "string" &&
+            content.output_text.trim()
+          ) {
+            directTexts.push(content.output_text.trim());
+          }
 
-  for (const item of data.output) {
-    if (item?.type === "message" && Array.isArray(item.content)) {
-      for (const content of item.content) {
-        if (typeof content?.text === "string" && content.text.trim()) {
-          texts.push(content.text.trim());
+          if (
+            typeof content?.text?.value === "string" &&
+            content.text.value.trim()
+          ) {
+            directTexts.push(content.text.value.trim());
+          }
         }
+      }
+
+      if (typeof item?.text === "string" && item.text.trim()) {
+        directTexts.push(item.text.trim());
+      }
+
+      if (
+        typeof item?.output_text === "string" &&
+        item.output_text.trim()
+      ) {
+        directTexts.push(item.output_text.trim());
       }
     }
   }
 
-  return texts.join("\n").trim();
+  const joinedDirect = directTexts.join("\n").trim();
+
+  if (joinedDirect) {
+    return joinedDirect;
+  }
+
+  const fallbackTexts: string[] = [];
+  collectStringsFromUnknown(data?.output, fallbackTexts);
+
+  const joinedFallback = fallbackTexts.join("\n").trim();
+
+  if (joinedFallback) {
+    return joinedFallback;
+  }
+
+  return "";
 }
 
 export async function askOpenAi(prompt: string): Promise<string> {
@@ -38,6 +104,9 @@ export async function askOpenAi(prompt: string): Promise<string> {
     body: JSON.stringify({
       model: "gpt-5-nano",
       store: false,
+      reasoning: {
+        effort: "minimal",
+      },
       max_output_tokens: 250,
       input: [
         {
@@ -61,7 +130,9 @@ export async function askOpenAi(prompt: string): Promise<string> {
   const answer = extractOutputText(json);
 
   if (!answer) {
-    throw new Error("Model returned no text answer");
+    throw new Error(
+      `Model returned no text answer. Raw response: ${JSON.stringify(json)}`
+    );
   }
 
   return answer;
