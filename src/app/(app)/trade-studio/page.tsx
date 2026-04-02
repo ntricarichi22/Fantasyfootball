@@ -1188,7 +1188,6 @@ export function TradeStudioView() {
   const [rosterPositions, setRosterPositions] = useState<string[]>([]);
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
-  const [playerValuesMeta, setPlayerValuesMeta] = useState<{ lastUpdated?: string | null }>({});
   const [selectedTeam, setSelectedTeam] = useState(() => getStoredSelectedTeam());
   const [errorMessage, setErrorMessage] = useState("");
   const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
@@ -1453,12 +1452,10 @@ export function TradeStudioView() {
         const json = await res.json();
         if (!isMounted) return;
         setPlayerValues(json.data ?? {});
-        setPlayerValuesMeta(json.meta ?? {});
       } catch (error) {
         console.warn("Unable to load player values", error);
         if (!isMounted) return;
         setPlayerValues({});
-        setPlayerValuesMeta({});
       }
     }
 
@@ -1679,19 +1676,6 @@ export function TradeStudioView() {
       cfcValues: playerValues,
     });
   }, [playerDictionary, playerValues, rosters, teamCount]);
-
-  const playerValuesLoadedLabel = useMemo(() => {
-    const count = Object.keys(playerValues).length;
-    const updated = playerValuesMeta?.lastUpdated;
-    let suffix = "";
-    if (updated) {
-      const parsed = new Date(updated);
-      if (!Number.isNaN(parsed.getTime())) {
-        suffix = ` (updated ${parsed.toLocaleString()})`;
-      }
-    }
-    return `${count} ${count === 1 ? "entry" : "entries"}${suffix}`;
-  }, [playerValues, playerValuesMeta]);
 
   const setAvailabilityForKey = useCallback((key: string, value: boolean) => {
     setAvailability((prev) => ({

@@ -202,7 +202,7 @@ const getStoredTeam = () => {
 };
 
 function StrategyTab() {
-  // TODO: Replace mocked Team HQ recommendations with backend strategy + market outputs when available.
+  // TODO: Replace mocks with backend payload containing: direction (wants/buySell/attachment/posture), bestTradePartners[], and bestFits[] keyed by sleeperPlayerId + rosterId.
   const router = useRouter();
   const { teamName, rosterId } = getStoredTeam();
   const [wanted, setWanted] = useState<WantsChip[]>(["Youth", "Depth"]);
@@ -558,7 +558,7 @@ function StrategyTab() {
 }
 
 function DepthChartTab() {
-  // TODO: Replace seeded depth rows with lineup-cascade output once backend lineup optimizer is wired.
+  // TODO: Wire backend lineup cascade payload for each slot: { slot, starterSleeperPlayerId, backupSleeperPlayerId, depthSleeperPlayerIds[] }.
   const [gridState, setGridState] = useState(depthChartRows);
   const [dragSource, setDragSource] = useState<{ row: number; col: number } | null>(null);
 
@@ -634,7 +634,7 @@ function DepthChartTab() {
 }
 
 function TradeChartTab() {
-  // TODO: Replace seeded roster values with backend Team HQ valuation payload.
+  // TODO: Replace seeded rows with backend roster valuation payload: { sleeperPlayerId, baseValue, teamValueSeed, rostered: true } and hydrate pick decomposition from teamValueSeed.
   const [pickState, setPickState] = useState<Record<string, { firsts: number; seconds: number; thirds: number }>>(
     () =>
       Object.fromEntries(
