@@ -143,12 +143,12 @@ const rosterPlayersSeed: RosterPlayer[] = [
 const depthChartRows: Array<{ slot: string; candidates: string[] }> = [
   { slot: "Quarterback (QB)", candidates: ["Lamar Jackson", "Bo Nix", "Will Levis", "Aidan O’Connell"] },
   { slot: "Running Back (RB)", candidates: ["Kyren Williams", "Rachaad White", "Trey Benson", "Tank Bigsby"] },
-  { slot: "Wide Receiver (WR)", candidates: ["Brandon Aiyuk", "Jordan Addison", "Jayden Reed", "Josh Downs"] },
-  { slot: "Wide Receiver (WR)", candidates: ["Jordan Addison", "Brandon Aiyuk", "Jayden Reed", "Josh Downs"] },
-  { slot: "Skill Player (SK)", candidates: ["Rachaad White", "Jayden Reed", "Trey Benson", "Chigoziem Okonkwo"] },
-  { slot: "Skill Player (SK)", candidates: ["Jayden Reed", "Rachaad White", "Jordan Addison", "Tank Bigsby"] },
-  { slot: "Pass Catcher (PC)", candidates: ["Sam LaPorta", "Brandon Aiyuk", "Chigoziem Okonkwo", "Josh Downs"] },
-  { slot: "Pass Catcher (PC)", candidates: ["Brandon Aiyuk", "Sam LaPorta", "Jordan Addison", "Josh Downs"] },
+  { slot: "Wide Receiver 1 (WR)", candidates: ["Brandon Aiyuk", "Jordan Addison", "Jayden Reed", "Josh Downs"] },
+  { slot: "Wide Receiver 2 (WR)", candidates: ["Jordan Addison", "Brandon Aiyuk", "Jayden Reed", "Josh Downs"] },
+  { slot: "Skill Player 1 (SK)", candidates: ["Rachaad White", "Jayden Reed", "Trey Benson", "Chigoziem Okonkwo"] },
+  { slot: "Skill Player 2 (SK)", candidates: ["Jayden Reed", "Rachaad White", "Jordan Addison", "Tank Bigsby"] },
+  { slot: "Pass Catcher 1 (PC)", candidates: ["Sam LaPorta", "Brandon Aiyuk", "Chigoziem Okonkwo", "Josh Downs"] },
+  { slot: "Pass Catcher 2 (PC)", candidates: ["Brandon Aiyuk", "Sam LaPorta", "Jordan Addison", "Josh Downs"] },
   { slot: "Superflex (SF)", candidates: ["Bo Nix", "Rachaad White", "Jordan Addison", "Trey Benson"] },
 ];
 
@@ -175,14 +175,14 @@ const pickAnchorValues = {
   third: 350,
 };
 
-const toTwoDecimals = (value: number) => Math.round(value * 100) / 100;
+const roundToTwoDecimals = (value: number) => Math.round(value * 100) / 100;
 
 const decomposeToPicks = (teamValue: number) => {
   const firsts = Math.floor(teamValue / pickAnchorValues.first);
   const afterFirst = teamValue - firsts * pickAnchorValues.first;
   const seconds = Math.floor(afterFirst / pickAnchorValues.second);
   const afterSecond = afterFirst - seconds * pickAnchorValues.second;
-  const thirds = toTwoDecimals(Math.max(0, afterSecond / pickAnchorValues.third));
+  const thirds = roundToTwoDecimals(Math.max(0, afterSecond / pickAnchorValues.third));
   return { firsts, seconds, thirds };
 };
 
@@ -202,7 +202,7 @@ const getStoredTeam = () => {
 };
 
 function StrategyTab() {
-  // TODO: Replace mocks with backend payload containing: direction (wants/buySell/attachment/posture), bestTradePartners[], and bestFits[] keyed by sleeperPlayerId + rosterId.
+  // TODO: Replace mocks with backend payload containing: teamDirection (wants/buySell/attachment/posture), bestTradePartners[], and bestFits[] keyed by sleeperPlayerId + rosterId.
   const router = useRouter();
   const { teamName, rosterId } = getStoredTeam();
   const [wanted, setWanted] = useState<WantsChip[]>(["Youth", "Depth"]);
@@ -558,7 +558,7 @@ function StrategyTab() {
 }
 
 function DepthChartTab() {
-  // TODO: Wire backend lineup cascade payload for each slot: { slot, starterSleeperPlayerId, backupSleeperPlayerId, depthSleeperPlayerIds[] }.
+  // TODO: Wire backend lineup cascade payload for each slot as ordered candidates: { slot, candidates: [starterSleeperPlayerId, backupSleeperPlayerId, depthSleeperPlayerIdA, depthSleeperPlayerIdB] }.
   const [gridState, setGridState] = useState(depthChartRows);
   const [dragSource, setDragSource] = useState<{ row: number; col: number } | null>(null);
 
@@ -603,7 +603,7 @@ function DepthChartTab() {
               <div className="pr-3 text-sm font-semibold text-gray-200">{row.slot}</div>
               {row.candidates.map((name, colIdx) => {
                 const meta = depthPlayerMeta[name];
-                const role = colIdx === 0 ? "Starter" : "Depth";
+                const role = colIdx === 0 ? "Starter" : colIdx === 1 ? "Backup" : "Depth";
                 return (
                   <div key={`${row.slot}-${name}-${colIdx}`} className="px-2">
                     <button
@@ -634,7 +634,7 @@ function DepthChartTab() {
 }
 
 function TradeChartTab() {
-  // TODO: Replace seeded rows with backend roster valuation payload: { sleeperPlayerId, baseValue, teamValueSeed, rostered: true } and hydrate pick decomposition from teamValueSeed.
+  // TODO: Replace seeded rows with backend roster valuation payload matching RosterPlayer: { sleeperPlayerId, name, position, nflTeam, baseValue, teamValue }.
   const [pickState, setPickState] = useState<Record<string, { firsts: number; seconds: number; thirds: number }>>(
     () =>
       Object.fromEntries(
@@ -675,7 +675,7 @@ function TradeChartTab() {
       ...prev,
       [playerId]: {
         ...prev[playerId],
-        [key]: Math.max(0, key === "thirds" ? toTwoDecimals(value) : Math.floor(value)),
+        [key]: Math.max(0, key === "thirds" ? roundToTwoDecimals(value) : Math.floor(value)),
       },
     }));
   };
