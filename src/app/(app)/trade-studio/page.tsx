@@ -130,14 +130,12 @@ const PLAYER_CACHE_TIME_KEY = "sleeper_player_dict_time";
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const AVAILABILITY_CACHE_KEY = "trade_studio_availability";
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
-const SNAPSHOT_FOOTER_PADDING_CLASS = "pb-24";
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 let offerIdCounter = 0;
 
 type TimelineLane = "Contend" | "Re-tool" | "Rebuild";
 type Posture = "Buyer" | "Seller";
 type WorkbenchTabKey = "trade-block" | "incoming" | "chat";
-type TradeStudioMode = "studio" | "snapshot";
 
 const YOUNG_PLAYER_AGE_THRESHOLD = 24;
 const VETERAN_PLAYER_AGE_THRESHOLD = 29;
@@ -1178,13 +1176,12 @@ const buildAiProfile = (
 };
 
 export default function TradeStudioPage() {
-  return <TradeStudioView mode="studio" />;
+  return <TradeStudioView />;
 }
 
-export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode }) {
+export function TradeStudioView() {
   const tradeStudioRouter = useRouter();
-  const isSnapshotOnly = mode === "snapshot";
-  const pageTitle = isSnapshotOnly ? "Team Snapshot" : "Trade Studio";
+  const pageTitle = "Trade Studio";
   const [teams, setTeams] = useState<Team[]>([]);
   const [rosters, setRosters] = useState<Roster[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
@@ -1977,94 +1974,6 @@ export function TradeStudioView({ mode = "studio" }: { mode?: TradeStudioMode })
                   </select>
                 </div>
               </div>
-            </div>
-          ) : isSnapshotOnly ? (
-            <div className="flex h-full flex-col">
-              <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-indigo-800/60 bg-gradient-to-b from-gray-900 via-gray-900 to-black p-4 shadow-lg">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-semibold text-white">Team Snapshot</h2>
-                    <span className="rounded-full bg-indigo-900 px-3 py-1 text-xs font-semibold text-indigo-200">Beta</span>
-                  </div>
-                  <span className="rounded-full border border-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
-                    AI stub
-                  </span>
-                </div>
-                <div className="relative flex h-full flex-col overflow-hidden text-sm text-gray-200">
-                  <div className={`flex-1 space-y-4 overflow-y-auto pr-1 ${SNAPSHOT_FOOTER_PADDING_CLASS}`}>
-                    <p className="text-sm text-gray-300">{aiProfile.summary}</p>
-                    <p className="text-xs text-gray-500">Values loaded: {playerValuesLoadedLabel}</p>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
-                        <p className="text-xs uppercase tracking-wide text-emerald-300">Strengths</p>
-                        <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
-                          {aiProfile.strengths.slice(0, 3).map((item, idx) => (
-                            <li key={idx}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                      <div className="rounded-lg border border-gray-800 bg-gray-950/60 p-3">
-                        <p className="text-xs uppercase tracking-wide text-amber-300">Risks / Gaps</p>
-                        <ul className="mt-2 list-disc space-y-1 pl-4 text-gray-200">
-                          {aiProfile.risks.slice(0, 3).map((item, idx) => (
-                            <li key={idx}>{item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="sticky bottom-0 mt-3 flex-shrink-0 border-t border-gray-800 bg-gradient-to-b from-gray-900 via-gray-900/95 to-black px-4 py-3">
-                    <div className="flex flex-wrap items-start gap-6">
-                      <div className="min-w-[180px] flex-1">
-                        <p className="text-xs text-gray-400">Timeline</p>
-                        <div className="mt-1 flex flex-wrap gap-2">
-                          {(["Contend", "Re-tool", "Rebuild"] as TimelineLane[]).map((lane) => {
-                            const selected = timelineChoice === lane;
-                            return (
-                              <button
-                                key={lane}
-                                type="button"
-                                onClick={() => setTimelineChoice(lane)}
-                                className={[
-                                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                                  selected
-                                    ? "border-emerald-500 bg-emerald-900 text-emerald-50"
-                                    : "border-gray-700 bg-gray-800 text-gray-300 hover:border-emerald-500/60 hover:text-white",
-                                ].join(" ")}
-                              >
-                                {lane}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div className="min-w-[180px] flex-1">
-                        <p className="text-xs text-gray-400">Posture</p>
-                        <div className="mt-1 flex flex-wrap gap-2">
-                          {(["Buyer", "Seller"] as Posture[]).map((posture) => {
-                            const selected = postureChoice === posture;
-                            return (
-                              <button
-                                key={posture}
-                                type="button"
-                                onClick={() => setPostureChoice(posture)}
-                                className={[
-                                  "rounded-full border px-3 py-1 text-xs font-semibold transition",
-                                  selected
-                                    ? "border-indigo-500 bg-indigo-900 text-indigo-50"
-                                    : "border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
-                                ].join(" ")}
-                              >
-                                {posture}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </section>
             </div>
           ) : (
             <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[520px_1fr]">

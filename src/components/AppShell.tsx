@@ -88,7 +88,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const navItems = useMemo(
     () => [
       { href: "/draft", label: "Draft Room", icon: Compass },
-      { href: "/team-snapshot", label: "Team Snapshot", icon: Gauge },
+      { href: "/team-hq", label: "Team HQ", icon: Gauge },
       { href: "/trades", label: "Trade Center", icon: ArrowLeftRight, badge: true },
     ],
     []
@@ -153,7 +153,11 @@ export default function AppShell({ children }: { children: ReactNode }) {
                   pathname?.startsWith("/trades/") ||
                   pathname === "/trade-studio" ||
                   pathname === "/trade-builder")
-              : (pathname === item.href || pathname?.startsWith(`${item.href}/`));
+              : item.href === "/team-hq"
+                ? (pathname === "/team-hq" ||
+                    pathname?.startsWith("/team-hq/") ||
+                    pathname === "/team-snapshot")
+                : (pathname === item.href || pathname?.startsWith(`${item.href}/`));
             return (
               <Link
                 key={item.href}
