@@ -28,7 +28,10 @@ const OWN_GUYS_SET = new Set<string>(TEAM_HQ_OWN_GUYS_VALUES);
 
 let sleeperPlayersCache: Record<string, SleeperPlayerMeta> | null = null;
 let sleeperPlayersCacheFetchedAt = 0;
-const SLEEPER_PLAYER_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const SLEEPER_PLAYERS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const STUDS_VALUE_THRESHOLD = 250;
+const MIN_TOTAL_MODIFIER_PCT = -0.2;
+const MAX_TOTAL_MODIFIER_PCT = 0.2;
 
 const roundTo = (value: number, precision: number) => {
   const factor = 10 ** precision;
@@ -96,7 +99,7 @@ const getOwnedPlayerIds = async (leagueId: string, teamId: string): Promise<stri
 
 const getSleeperPlayersDictionary = async (): Promise<Record<string, SleeperPlayerMeta>> => {
   const now = Date.now();
-  if (sleeperPlayersCache && now - sleeperPlayersCacheFetchedAt < SLEEPER_PLAYER_CACHE_TTL_MS) {
+  if (sleeperPlayersCache && now - sleeperPlayersCacheFetchedAt < SLEEPER_PLAYERS_CACHE_TTL_MS) {
     return sleeperPlayersCache;
   }
 
@@ -111,10 +114,32 @@ const getSleeperPlayersDictionary = async (): Promise<Record<string, SleeperPlay
   return dictionary;
 };
 
+const parseBirthDate = (birthDate: string): Date | null => {
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate.trim());
+  if (isoMatch) {
+    const [, yearRaw, monthRaw, dayRaw] = isoMatch;
+    const year = Number(yearRaw);
+    const month = Number(monthRaw);
+    const day = Number(dayRaw);
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (
+      parsed.getUTCFullYear() === year &&
+      parsed.getUTCMonth() === month - 1 &&
+      parsed.getUTCDate() === day
+    ) {
+      return parsed;
+    }
+    return null;
+  }
+
+  const fallback = new Date(birthDate);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
 const computeAge = (birthDate: string | null | undefined): number | null => {
   if (!birthDate) return null;
-  const birth = new Date(birthDate);
-  if (Number.isNaN(birth.getTime())) return null;
+  const birth = parseBirthDate(birthDate);
+  if (!birth) return null;
 
   const now = new Date();
   let age = now.getUTCFullYear() - birth.getUTCFullYear();
@@ -298,13 +323,13 @@ const upsertComputedRows = async (
       const position = typeof playerMeta.position === "string" ? playerMeta.position.toUpperCase() : null;
       const age = computeAge(playerMeta.birth_date ?? null);
 
-      const studsModifierPct = strategy.wants_more.includes("studs") && baseValue > 250 ? 0.08 : 0;
+      const studsModifierPct = strategy.wants_more.includes("studs") && baseValue > STUDS_VALUE_THRESHOLD ? 0.08 : 0;
       const youthModifierPct = getYouthModifier(position, age, strategy.wants_more);
       const marketModifierPct = getMarketModifier(position, strategy);
       const totalModifierPct = clamp(
         studsModifierPct + youthModifierPct + marketModifierPct + ownGuysModifierPct,
-        -0.2,
-        0.2,
+        MIN_TOTAL_MODIFIER_PCT,
+        MAX_TOTAL_MODIFIER_PCT,
       );
 
       const autoValue = roundTo(baseValue * (1 + totalModifierPct), 2);

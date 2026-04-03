@@ -55,6 +55,13 @@ const attachmentOptions: Attachment[] = [
 ];
 const buyStates: BuyState[] = ["buy", "hold", "sell"];
 
+const labelFromWantsChip = (value: WantsChip) => {
+  if (value === "picks") return "Picks";
+  if (value === "studs") return "Studs";
+  if (value === "youth") return "Youth";
+  return "Depth";
+};
+
 const depthChartRows: Array<{ slot: string; candidates: string[] }> = [
   { slot: "Quarterback (QB)", candidates: ["Lamar Jackson", "Bo Nix", "Will Levis", "Aidan O’Connell"] },
   { slot: "Running Back (RB)", candidates: ["Kyren Williams", "Rachaad White", "Trey Benson", "Tank Bigsby"] },
@@ -129,6 +136,8 @@ const getStoredTeam = () => {
     return { rosterId: "", teamName: "" };
   }
 };
+
+const teamDisplayName = (teamName: string, rosterId: string) => teamName || `Team ${rosterId}`;
 
 function StrategyTab() {
   const { teamName, rosterId } = getStoredTeam();
@@ -222,7 +231,7 @@ function StrategyTab() {
           <div>
             <h2 className="text-lg font-semibold text-white">Team Direction</h2>
             <p className="text-sm text-gray-400">
-              Set your front-office posture for {teamName || `Team ${rosterId}`}
+              Set your front-office posture for {teamDisplayName(teamName, rosterId)}
             </p>
           </div>
           <button
@@ -258,7 +267,7 @@ function StrategyTab() {
                           : "border-gray-700 bg-black/40 text-gray-300 hover:border-gray-500",
                       ].join(" ")}
                     >
-                      {chip.toUpperCase()}
+                      {labelFromWantsChip(chip)}
                     </button>
                   );
                 })}
@@ -444,7 +453,7 @@ function TradeChartTab() {
   useEffect(() => {
     const next = Object.fromEntries(
       rows.map((row) => {
-        const sourceValue = row.manual_override_value ?? row.final_value;
+        const sourceValue = row.final_value;
         return [row.sleeper_player_id, decomposeToPicks(sourceValue)];
       }),
     );
