@@ -14,6 +14,12 @@ import {
   type TeamTradeValueRow,
 } from "./types";
 
+export type TeamTradeChartAnchors = {
+  first: number;
+  second: number;
+  third: number;
+};
+
 type SleeperPlayerMeta = {
   full_name?: string | null;
   search_full_name?: string | null;
@@ -197,6 +203,49 @@ const getOwnGuysModifier = (ownGuysPreference: TeamHqOwnGuysPreference) => {
   if (ownGuysPreference === "ready_to_shake_it_up") return -0.08;
   return 0;
 };
+
+export async function readTeamTradeChartAnchors(): Promise<TeamTradeChartAnchors> {
+  const client = getClientOrThrow();
+
+  const { data, error } = await client
+    .from("cfc_trade_values_current")
+    .select("display_name,cfc_value,sleeper_player_id")
+    .eq("asset_type", "pick_template")
+    .in("display_name", ["1.06", "2.06", "3.06"])
+    .is("sleeper_player_id", null);
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  const byDisplayName = new Map<string, number>();
+  (data ?? []).forEach((row) => {
+    if (typeof row.display_name === "string" && typeof row.cfc_value === "number") {
+      byDisplayName.set(row.display_name, Number(row.cfc_value));
+    }
+  });
+
+  const first = byDisplayName.get("1.06");
+  const second = byDisplayName.get("2.06");
+  const third = byDisplayName.get("3.06");
+
+  if (
+    typeof first !== "number" ||
+    typeof second !== "number" ||
+    typeof third !== "number" ||
+    first <= 0 ||
+    second <= 0 ||
+    third <= 0
+  ) {
+    throw new Error("Missing canonical pick-template anchors (1.06, 2.06, 3.06)");
+  }
+
+  return {
+    first: roundTo(first, 2),
+    second: roundTo(second, 2),
+    third: roundTo(third, 2),
+  };
+}
 
 export async function getTeamStrategyProfile(
   leagueId: string,
