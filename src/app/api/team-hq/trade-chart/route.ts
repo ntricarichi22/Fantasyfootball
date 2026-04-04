@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { LEAGUE_ID } from "@/lib/config";
 import {
+  readTeamTradeChartAnchors,
   readTeamTradeChart,
   rebuildTeamTradeValuesForTeam,
 } from "@/lib/team-hq/service";
@@ -24,8 +25,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "teamId is required" }, { status: 400 });
     }
 
-    const data = await readTeamTradeChart(leagueId, teamId);
-    return NextResponse.json({ data });
+    const [data, anchors] = await Promise.all([
+      readTeamTradeChart(leagueId, teamId),
+      readTeamTradeChartAnchors(),
+    ]);
+    return NextResponse.json({ data, anchors });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load trade chart" },
@@ -45,9 +49,12 @@ export async function POST(request: NextRequest) {
     }
 
     const rebuild = await rebuildTeamTradeValuesForTeam(leagueId, teamId);
-    const data = await readTeamTradeChart(leagueId, teamId);
+    const [data, anchors] = await Promise.all([
+      readTeamTradeChart(leagueId, teamId),
+      readTeamTradeChartAnchors(),
+    ]);
 
-    return NextResponse.json({ ok: true, rebuild, data });
+    return NextResponse.json({ ok: true, rebuild, data, anchors });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to rebuild trade chart" },

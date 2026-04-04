@@ -43,6 +43,12 @@ type TeamTradeValueRow = {
   delta_vs_base: number;
 };
 
+type PickAnchorValues = {
+  first: number;
+  second: number;
+  third: number;
+};
+
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 
 const buyBuckets: AssetBucket[] = ["QB", "RB", "WR", "TE", "Picks"];
@@ -91,7 +97,7 @@ const depthPlayerMeta: Record<string, { position: string; nflTeam: string }> = {
   "Chigoziem Okonkwo": { position: "TE", nflTeam: "TEN" },
 };
 
-const pickAnchorValues = {
+const defaultPickAnchorValues: PickAnchorValues = {
   first: 3000,
   second: 1000,
   third: 350,
@@ -99,20 +105,21 @@ const pickAnchorValues = {
 
 const roundToTwoDecimals = (value: number) => Math.round(value * 100) / 100;
 
-const decomposeToPicks = (teamValue: number) => {
-  const firsts = Math.floor(teamValue / pickAnchorValues.first);
-  const afterFirst = teamValue - firsts * pickAnchorValues.first;
-  const seconds = Math.floor(afterFirst / pickAnchorValues.second);
-  const afterSecond = afterFirst - seconds * pickAnchorValues.second;
-  const thirds = roundToTwoDecimals(Math.max(0, afterSecond / pickAnchorValues.third));
+const decomposeToPicks = (teamValue: number, anchors: PickAnchorValues) => {
+  const firsts = Math.floor(teamValue / anchors.first);
+  const afterFirst = teamValue - firsts * anchors.first;
+  const seconds = Math.floor(afterFirst / anchors.second);
+  const afterSecond = afterFirst - seconds * anchors.second;
+  const thirds = Math.floor(afterSecond / anchors.third);
   return { firsts, seconds, thirds };
 };
 
-const composeFromPicks = (value: { firsts: number; seconds: number; thirds: number }) =>
+const composeFromPicks = (
+  value: { firsts: number; seconds: number; thirds: number },
+  anchors: PickAnchorValues,
+) =>
   roundToTwoDecimals(
-    value.firsts * pickAnchorValues.first +
-      value.seconds * pickAnchorValues.second +
-      value.thirds * pickAnchorValues.third,
+    value.firsts * anchors.first + value.seconds * anchors.second + value.thirds * anchors.third,
   );
 
 const labelFromAttachment = (value: Attachment) => {
@@ -413,6 +420,7 @@ function TradeChartTab() {
   const [loading, setLoading] = useState(false);
   const [savingPlayerId, setSavingPlayerId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [pickAnchors, setPickAnchors] = useState<PickAnchorValues>(defaultPickAnchorValues);
   const [pickState, setPickState] = useState<Record<string, { firsts: number; seconds: number; thirds: number }>>({});
 
   const load = useCallback(async (rebuildIfEmpty = true) => {
@@ -426,6 +434,18 @@ function TradeChartTab() {
       if (!res.ok) throw new Error(json?.error ?? "Failed to load trade chart");
 
       const data = (json.data ?? []) as TeamTradeValueRow[];
+      const anchors = json.anchors as PickAnchorValues | undefined;
+      if (
+        anchors &&
+        typeof anchors.first === "number" &&
+        typeof anchors.second === "number" &&
+        typeof anchors.third === "number" &&
+        anchors.first > 0 &&
+        anchors.second > 0 &&
+        anchors.third > 0
+      ) {
+        setPickAnchors(anchors);
+      }
 
       if (data.length === 0 && rebuildIfEmpty) {
         const rebuildRes = await fetch("/api/team-hq/trade-chart", {
@@ -435,6 +455,18 @@ function TradeChartTab() {
         });
         const rebuildJson = await rebuildRes.json();
         if (!rebuildRes.ok) throw new Error(rebuildJson?.error ?? "Failed to rebuild trade chart");
+        const rebuildAnchors = rebuildJson.anchors as PickAnchorValues | undefined;
+        if (
+          rebuildAnchors &&
+          typeof rebuildAnchors.first === "number" &&
+          typeof rebuildAnchors.second === "number" &&
+          typeof rebuildAnchors.third === "number" &&
+          rebuildAnchors.first > 0 &&
+          rebuildAnchors.second > 0 &&
+          rebuildAnchors.third > 0
+        ) {
+          setPickAnchors(rebuildAnchors);
+        }
         setRows((rebuildJson.data ?? []) as TeamTradeValueRow[]);
       } else {
         setRows(data);
@@ -454,18 +486,18 @@ function TradeChartTab() {
     const next = Object.fromEntries(
       rows.map((row) => {
         const sourceValue = row.final_value;
-        return [row.sleeper_player_id, decomposeToPicks(sourceValue)];
+        return [row.sleeper_player_id, decomposeToPicks(sourceValue, pickAnchors)];
       }),
     );
     setPickState(next);
-  }, [rows]);
+  }, [rows, pickAnchors]);
 
   const setPickValue = (playerId: string, key: "firsts" | "seconds" | "thirds", value: number) => {
     setPickState((prev) => ({
       ...prev,
       [playerId]: {
         ...prev[playerId],
-        [key]: Math.max(0, key === "thirds" ? roundToTwoDecimals(value) : Math.floor(value)),
+        [key]: Math.max(0, Math.floor(value)),
       },
     }));
   };
@@ -476,7 +508,7 @@ function TradeChartTab() {
     setError("");
     try {
       const pickValue = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
-      const manualOverrideValue = clear ? null : composeFromPicks(pickValue);
+      const manualOverrideValue = clear ? null : composeFromPicks(pickValue, pickAnchors);
 
       const res = await fetch("/api/team-hq/trade-chart/override", {
         method: "POST",
@@ -608,7 +640,7 @@ function TradeChartTab() {
                     <td className="px-3 py-2 text-right">
                       <input
                         type="number"
-                        step="0.1"
+                        step="1"
                         min={0}
                         value={picks.thirds}
                         onChange={(e) => setPickValue(row.sleeper_player_id, "thirds", Number(e.target.value))}
