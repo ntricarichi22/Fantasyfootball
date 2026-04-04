@@ -221,7 +221,7 @@ export async function readTeamTradeChartAnchors(): Promise<TeamTradeChartAnchors
   const byDisplayName = new Map<string, number>();
   (data ?? []).forEach((row) => {
     if (typeof row.display_name === "string" && typeof row.cfc_value === "number") {
-      byDisplayName.set(row.display_name, Number(row.cfc_value));
+      byDisplayName.set(row.display_name, row.cfc_value);
     }
   });
 
