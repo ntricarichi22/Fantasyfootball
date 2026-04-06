@@ -58,6 +58,10 @@ export type PlayerCareerPayload = {
 
 function looksLikePlayerCareerQuestion(question: string): boolean {
   return !includesAnyTerm(question, [
+    "who started",
+    "started in championship week",
+    "lineup",
+    "bench",
     "trade",
     "traded",
     "waiver",
