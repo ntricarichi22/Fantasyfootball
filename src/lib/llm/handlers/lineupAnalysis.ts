@@ -16,7 +16,6 @@ type LineupEntryRow = {
   season_year: number;
   week: number;
   week_type: string | null;
-  player_id: string;
   franchise_name: string;
   opponent_franchise_name: string | null;
   result: string | null;
@@ -152,7 +151,6 @@ async function getLineupAnalysisData(
         season_year,
         week,
         week_type,
-        player_id,
         franchise_name,
         opponent_franchise_name,
         result,
@@ -167,6 +165,22 @@ async function getLineupAnalysisData(
     `,
     [input.seasonYear ?? null]
   );
+
+  const filteredRows = result.rows.filter((row) => {
+    if (typeof weekFilter === "number" && row.week !== weekFilter) {
+      return false;
+    }
+
+    if (championshipOnly && row.is_championship !== true) {
+      return false;
+    }
+
+    if (playoffOnly && row.is_playoffs !== true) {
+      return false;
+    }
+
+    return true;
+  });
 
   const gameMap = new Map<
     string,
@@ -186,19 +200,7 @@ async function getLineupAnalysisData(
     }
   >();
 
-  for (const row of result.rows) {
-    if (typeof weekFilter === "number" && row.week !== weekFilter) {
-      continue;
-    }
-
-    if (championshipOnly && row.is_championship !== true) {
-      continue;
-    }
-
-    if (playoffOnly && row.is_playoffs !== true) {
-      continue;
-    }
-
+  for (const row of filteredRows) {
     if (!gameMap.has(row.team_game_id)) {
       gameMap.set(row.team_game_id, {
         season_year: row.season_year,
@@ -248,14 +250,11 @@ async function getLineupAnalysisData(
 
   const starterRows =
     mode === "player_starter_lookup" && resolvedPlayer
-      ? result.rows
+      ? filteredRows
           .filter(
             (row) =>
               row.is_starter &&
-              row.player_id === resolvedPlayer.player_id &&
-              (typeof weekFilter !== "number" || row.week === weekFilter) &&
-              (!championshipOnly || row.is_championship === true) &&
-              (!playoffOnly || row.is_playoffs === true)
+              row.player_name === resolvedPlayer.player_name
           )
           .map((row) => ({
             season_year: row.season_year,

@@ -18,7 +18,7 @@ type TransactionRow = {
   transaction_id: string;
   season_year: number;
   week: number | null;
-  transaction_ts: string;
+  transaction_ts: string | null;
   transaction_type: string | null;
   transaction_status: string | null;
   platform: string | null;
@@ -132,10 +132,10 @@ async function getTransactionHistoryData(
       ti.transaction_id,
       ti.season_year,
       ti.week,
-      coalesce(ti.transaction_ts, t.transaction_ts) as transaction_ts,
-      coalesce(ti.transaction_type, t.transaction_type) as transaction_type,
-      coalesce(ti.transaction_status, t.transaction_status) as transaction_status,
-      coalesce(ti.platform, t.platform) as platform,
+      ti.transaction_ts,
+      t.transaction_type,
+      t.transaction_status,
+      t.platform,
       ti.asset_type,
       ti.player_id,
       ti.player_name,
@@ -150,7 +150,7 @@ async function getTransactionHistoryData(
       ti.action_type
     from llm.transaction_items ti
     left join llm.transactions t on t.transaction_id = ti.transaction_id
-    order by coalesce(ti.transaction_ts, t.transaction_ts) asc, ti.transaction_id asc;
+    order by ti.transaction_ts asc, ti.transaction_id asc;
   `);
 
   let rows = result.rows;
