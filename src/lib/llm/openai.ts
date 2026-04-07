@@ -107,7 +107,7 @@ export async function askOpenAi(prompt: string): Promise<string> {
       reasoning: {
         effort: "minimal",
       },
-      max_output_tokens: 250,
+      max_output_tokens: 1500,
       input: [
         {
           role: "user",
