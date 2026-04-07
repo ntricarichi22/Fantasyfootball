@@ -304,7 +304,17 @@ function buildLineupAnalysisPrompt({
     data.payload.player &&
     data.payload.starter_rows.length > 0
   ) {
-    const starter = data.payload.starter_rows[0];
+    const starter = [...data.payload.starter_rows].sort((a, b) => {
+      if (a.season_year !== b.season_year) {
+        return b.season_year - a.season_year;
+      }
+
+      if (a.week !== b.week) {
+        return b.week - a.week;
+      }
+
+      return a.franchise_name.localeCompare(b.franchise_name);
+    })[0];
     const timeContext = data.payload.filters.championship_only
       ? `championship week ${starter.season_year}`
       : `week ${starter.week} ${starter.season_year}`;
