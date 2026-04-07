@@ -14,7 +14,7 @@ import type {
   HistorianHandler,
 } from "../historianTypes";
 
-type TransactionRow = {
+type TransactionItemRow = {
   transaction_id: string;
   season_year: number;
   week: number | null;
@@ -42,6 +42,24 @@ type TransactionMode =
   | "player_transactions"
   | "franchise_transactions";
 
+type GroupedTransaction = {
+  transaction_id: string;
+  season_year: number;
+  week: number | null;
+  transaction_ts: string | null;
+  transaction_type: string | null;
+  transaction_status: string | null;
+  platform: string | null;
+  teams: string[];
+  transfer_pairs: Array<{
+    from_franchise_name: string | null;
+    to_franchise_name: string | null;
+    assets: string[];
+  }>;
+  unresolved_assets: string[];
+  asset_count: number;
+};
+
 export type TransactionHistoryPayload = {
   mode: TransactionMode;
   filters: {
@@ -50,8 +68,12 @@ export type TransactionHistoryPayload = {
     franchise_name: string | null;
     player_name: string | null;
   };
-  rows: TransactionRow[];
+  transactions: GroupedTransaction[];
 };
+
+function normalizeNullableText(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase();
+}
 
 function detectTransactionMode(
   input: HistorianAskInput,
@@ -92,6 +114,10 @@ function detectTransactionMode(
       "future first",
       "waiver",
       "waivers",
+      "claim",
+      "claimed",
+      "transaction",
+      "transactions",
     ])
   ) {
     return "season_transactions";
@@ -106,6 +132,185 @@ function detectTransactionMode(
   }
 
   return null;
+}
+
+function formatAsset(row: TransactionItemRow): string {
+  if (row.asset_type === "player" && row.player_name) {
+    return row.player_name;
+  }
+
+  if (row.asset_type === "pick") {
+    const parts: string[] = [];
+
+    if (typeof row.pick_season === "number") {
+      parts.push(String(row.pick_season));
+    }
+
+    if (typeof row.pick_round === "number") {
+      parts.push(`Round ${row.pick_round}`);
+    }
+
+    parts.push("pick");
+
+    if (row.pick_original_franchise_name) {
+      parts.push(`(${row.pick_original_franchise_name})`);
+    }
+
+    return parts.join(" ");
+  }
+
+  if (row.player_name) {
+    return row.player_name;
+  }
+
+  if (row.asset_type) {
+    return row.asset_type;
+  }
+
+  return "Unknown asset";
+}
+
+function shouldKeepRowForQuestion(
+  row: TransactionItemRow,
+  question: string
+): boolean {
+  const wantsTrades = includesAnyTerm(question, [
+    "trade",
+    "traded",
+    "assets moved",
+    "future pick",
+    "future first",
+  ]);
+
+  const wantsWaivers = includesAnyTerm(question, [
+    "waiver",
+    "waivers",
+    "claim",
+    "claimed",
+  ]);
+
+  const transactionType = normalizeNullableText(row.transaction_type);
+  const actionType = normalizeNullableText(row.action_type);
+
+  if (wantsTrades && !wantsWaivers) {
+    return transactionType.includes("trade") || actionType.includes("trade");
+  }
+
+  if (wantsWaivers && !wantsTrades) {
+    return (
+      transactionType.includes("waiver") ||
+      actionType.includes("waiver") ||
+      actionType.includes("claim")
+    );
+  }
+
+  return true;
+}
+
+function playerMatchesQuestion(
+  row: TransactionItemRow,
+  resolvedPlayerName: string
+): boolean {
+  return normalizeNullableText(row.player_name) === normalizeNullableText(resolvedPlayerName);
+}
+
+function groupTransactions(rows: TransactionItemRow[]): GroupedTransaction[] {
+  const transactionMap = new Map<
+    string,
+    {
+      transaction_id: string;
+      season_year: number;
+      week: number | null;
+      transaction_ts: string | null;
+      transaction_type: string | null;
+      transaction_status: string | null;
+      platform: string | null;
+      team_names: Set<string>;
+      transfer_pair_map: Map<string, {
+        from_franchise_name: string | null;
+        to_franchise_name: string | null;
+        assets: string[];
+      }>;
+      unresolved_assets: string[];
+      asset_count: number;
+    }
+  >();
+
+  for (const row of rows) {
+    if (!transactionMap.has(row.transaction_id)) {
+      transactionMap.set(row.transaction_id, {
+        transaction_id: row.transaction_id,
+        season_year: row.season_year,
+        week: row.week,
+        transaction_ts: row.transaction_ts,
+        transaction_type: row.transaction_type,
+        transaction_status: row.transaction_status,
+        platform: row.platform,
+        team_names: new Set<string>(),
+        transfer_pair_map: new Map(),
+        unresolved_assets: [],
+        asset_count: 0,
+      });
+    }
+
+    const transaction = transactionMap.get(row.transaction_id)!;
+    const assetDescription = formatAsset(row);
+
+    transaction.asset_count += 1;
+
+    if (row.from_franchise_name) {
+      transaction.team_names.add(row.from_franchise_name);
+    }
+
+    if (row.to_franchise_name) {
+      transaction.team_names.add(row.to_franchise_name);
+    }
+
+    if (row.from_franchise_name || row.to_franchise_name) {
+      const pairKey = `${row.from_franchise_name ?? ""}|||${row.to_franchise_name ?? ""}`;
+
+      if (!transaction.transfer_pair_map.has(pairKey)) {
+        transaction.transfer_pair_map.set(pairKey, {
+          from_franchise_name: row.from_franchise_name,
+          to_franchise_name: row.to_franchise_name,
+          assets: [],
+        });
+      }
+
+      transaction.transfer_pair_map.get(pairKey)!.assets.push(assetDescription);
+    } else {
+      transaction.unresolved_assets.push(assetDescription);
+    }
+  }
+
+  return Array.from(transactionMap.values())
+    .map((transaction) => ({
+      transaction_id: transaction.transaction_id,
+      season_year: transaction.season_year,
+      week: transaction.week,
+      transaction_ts: transaction.transaction_ts,
+      transaction_type: transaction.transaction_type,
+      transaction_status: transaction.transaction_status,
+      platform: transaction.platform,
+      teams: Array.from(transaction.team_names).sort((a, b) => a.localeCompare(b)),
+      transfer_pairs: Array.from(transaction.transfer_pair_map.values()).sort((a, b) => {
+        const aKey = `${a.from_franchise_name ?? ""}|${a.to_franchise_name ?? ""}`;
+        const bKey = `${b.from_franchise_name ?? ""}|${b.to_franchise_name ?? ""}`;
+        return aKey.localeCompare(bKey);
+      }),
+      unresolved_assets: transaction.unresolved_assets,
+      asset_count: transaction.asset_count,
+    }))
+    .sort((a, b) => {
+      const aTs = a.transaction_ts ?? "";
+      const bTs = b.transaction_ts ?? "";
+
+      if (aTs !== bTs) {
+        return aTs.localeCompare(bTs);
+      }
+
+      return a.transaction_id.localeCompare(b.transaction_id);
+    });
 }
 
 async function getTransactionHistoryData(
@@ -127,7 +332,7 @@ async function getTransactionHistoryData(
   }
 
   const pool = getLlmPool();
-  const result = await pool.query<TransactionRow>(`
+  const result = await pool.query<TransactionItemRow>(`
     select
       ti.transaction_id,
       ti.season_year,
@@ -159,7 +364,11 @@ async function getTransactionHistoryData(
       throw new Error("season_transactions requires seasonYear");
     }
 
-    rows = rows.filter((row) => row.season_year === input.seasonYear);
+    rows = rows.filter(
+      (row) =>
+        row.season_year === input.seasonYear &&
+        shouldKeepRowForQuestion(row, input.question)
+    );
   } else if (mode === "pick_lineage") {
     if (!resolvedFranchise || !input.seasonYear || !round) {
       throw new Error("pick_lineage requires seasonYear, round, and franchise");
@@ -176,7 +385,9 @@ async function getTransactionHistoryData(
       throw new Error("player_transactions requires a player name");
     }
 
-    rows = rows.filter((row) => row.player_id === resolvedPlayer.player_id);
+    rows = rows.filter((row) =>
+      playerMatchesQuestion(row, resolvedPlayer.player_name)
+    );
   } else if (mode === "franchise_transactions") {
     if (!resolvedFranchise) {
       throw new Error("franchise_transactions requires a franchise name");
@@ -196,8 +407,9 @@ async function getTransactionHistoryData(
   return {
     family: "transaction_history",
     notes: [
-      "transaction rows are chronological",
-      "pick lineage questions filter by original franchise, pick season, and pick round",
+      "transactions are grouped by transaction_id before being sent to the model",
+      "trade-style questions should be answered as readable trade summaries, not raw row dumps",
+      "if one side of a trade is incomplete, the answer should say exactly what is shown and what is missing",
     ],
     payload: {
       mode,
@@ -207,7 +419,7 @@ async function getTransactionHistoryData(
         franchise_name: resolvedFranchise?.franchise_name ?? null,
         player_name: resolvedPlayer?.player_name ?? null,
       },
-      rows,
+      transactions: groupTransactions(rows),
     },
   };
 }
@@ -220,12 +432,22 @@ function buildTransactionHistoryPrompt({
     "You are answering a fantasy football league historian question.",
     "Only use the provided deterministic data.",
     "Do not invent facts.",
-    "If the answer cannot be supported by the provided data, say that clearly.",
-    "Keep the answer concise.",
+    "Write naturally, like a helpful league historian, not like a database export.",
+    "Keep the answer readable and coherent.",
     "",
-    "Important data rules:",
-    "- transaction rows are chronological.",
-    "- pick lineage questions are filtered by original franchise, pick season, and pick round.",
+    "Formatting rules:",
+    "- For trade questions, number the trades.",
+    "- Summarize each trade in natural language when possible.",
+    "- Preferred style: 'Team A traded X and Y to Team B for Z.'",
+    "- If the return side is incomplete or missing, say that clearly instead of guessing.",
+    "- Do not lead with transaction IDs unless they are needed to disambiguate trades.",
+    "- Use the franchise names exactly as provided in the payload.",
+    "",
+    "Grounding rules:",
+    "- transactions are already grouped by transaction_id.",
+    "- transfer_pairs show the asset flow from one franchise to another.",
+    "- unresolved_assets are assets present in the data without a clear from/to side.",
+    "- If the user asks for every trade in a season, include all grouped trades in chronological order.",
     "",
     `User question: ${input.question}`,
     "",
