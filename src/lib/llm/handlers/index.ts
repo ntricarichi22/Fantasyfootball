@@ -7,9 +7,11 @@ import { matchupHistoryHandler } from "./matchupHistory";
 import { playerCareerHandler } from "./playerCareer";
 import { seasonSnapshotHandler } from "./seasonSnapshot";
 import { transactionHistoryHandler } from "./transactionHistory";
+import { waiverRankingHandler } from "./waiverRanking";
 import { weeklyPerformanceHandler } from "./weeklyPerformance";
 
 export const HISTORIAN_HANDLERS: HistorianHandler[] = [
+  waiverRankingHandler,
   transactionHistoryHandler,
   draftHistoryHandler,
   matchupHistoryHandler,
