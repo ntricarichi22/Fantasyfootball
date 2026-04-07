@@ -299,6 +299,26 @@ function buildLineupAnalysisPrompt({
   input,
   data,
 }: HistorianBuildPromptArgs<LineupAnalysisPayload>): string {
+  if (
+    data.payload.mode === "player_starter_lookup" &&
+    data.payload.player &&
+    data.payload.starter_rows.length > 0
+  ) {
+    const starter = data.payload.starter_rows[0];
+    const timeContext = data.payload.filters.championship_only
+      ? `championship week ${starter.season_year}`
+      : `week ${starter.week} ${starter.season_year}`;
+    const exactAnswer = `${starter.franchise_name} started ${data.payload.player.player_name} in ${timeContext}.`;
+
+    return [
+      "You are answering a fantasy football league historian question.",
+      "Only use the provided deterministic data.",
+      "Return exactly one sentence and nothing else.",
+      "Do not add disclaimers about person/manager identity.",
+      `Exact answer: ${exactAnswer}`,
+    ].join("\n");
+  }
+
   return [
     "You are answering a fantasy football league historian question.",
     "Only use the provided deterministic data.",
