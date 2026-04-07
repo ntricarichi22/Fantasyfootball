@@ -1,4 +1,5 @@
 import { getLlmPool } from "../llmDb";
+import { resolvePlayerInQuestion } from "../entityResolvers";
 import {
   extractWeekFromQuestion,
   includesAnyTerm,
@@ -26,6 +27,7 @@ type LineupEntryRow = {
 };
 
 type LineupAnalysisMode =
+  | "player_starter_lookup"
   | "highest_non_starter_points"
   | "highest_benched_player"
   | "highest_starter_points";
@@ -38,6 +40,21 @@ export type LineupAnalysisPayload = {
     playoff_only: boolean;
     championship_only: boolean;
   };
+  player: {
+    player_id: string;
+    player_name: string;
+  } | null;
+  starter_rows: Array<{
+    season_year: number;
+    week: number;
+    week_type: string | null;
+    franchise_name: string;
+    opponent_franchise_name: string | null;
+    result: string | null;
+    is_playoffs: boolean;
+    is_championship: boolean;
+    points: number;
+  }>;
   rows: Array<{
     season_year: number;
     week: number;
@@ -55,6 +72,15 @@ export type LineupAnalysisPayload = {
 };
 
 function detectLineupAnalysisMode(question: string): LineupAnalysisMode | null {
+  if (
+    includesAnyTerm(question, [
+      "who started",
+      "started in championship week",
+    ])
+  ) {
+    return "player_starter_lookup";
+  }
+
   if (
     includesAnyTerm(question, [
       "highest scoring benched player",
@@ -79,6 +105,7 @@ function detectLineupAnalysisMode(question: string): LineupAnalysisMode | null {
     includesAnyTerm(question, [
       "bench",
       "benched",
+      "lineup",
       "left on bench",
       "non starter",
       "non-starter",
@@ -103,6 +130,15 @@ async function getLineupAnalysisData(
   }
 
   const pool = getLlmPool();
+  const resolvedPlayer =
+    mode === "player_starter_lookup"
+      ? await resolvePlayerInQuestion(input.question)
+      : null;
+
+  if (mode === "player_starter_lookup" && !resolvedPlayer) {
+    throw new Error("player starter lookup requires one player name");
+  }
+
   const weekFilter = extractWeekFromQuestion(input.question);
   const championshipOnly = includesAnyTerm(input.question, ["championship"]);
   const playoffOnly =
@@ -130,6 +166,22 @@ async function getLineupAnalysisData(
     [input.seasonYear ?? null]
   );
 
+  const filteredRows = result.rows.filter((row) => {
+    if (typeof weekFilter === "number" && row.week !== weekFilter) {
+      return false;
+    }
+
+    if (championshipOnly && row.is_championship !== true) {
+      return false;
+    }
+
+    if (playoffOnly && row.is_playoffs !== true) {
+      return false;
+    }
+
+    return true;
+  });
+
   const gameMap = new Map<
     string,
     {
@@ -148,19 +200,7 @@ async function getLineupAnalysisData(
     }
   >();
 
-  for (const row of result.rows) {
-    if (typeof weekFilter === "number" && row.week !== weekFilter) {
-      continue;
-    }
-
-    if (championshipOnly && row.is_championship !== true) {
-      continue;
-    }
-
-    if (playoffOnly && row.is_playoffs !== true) {
-      continue;
-    }
-
+  for (const row of filteredRows) {
     if (!gameMap.has(row.team_game_id)) {
       gameMap.set(row.team_game_id, {
         season_year: row.season_year,
@@ -208,6 +248,27 @@ async function getLineupAnalysisData(
     })
     .slice(0, 25);
 
+  const starterRows =
+    mode === "player_starter_lookup" && resolvedPlayer
+      ? filteredRows
+          .filter(
+            (row) =>
+              row.is_starter &&
+              row.player_name === resolvedPlayer.player_name
+          )
+          .map((row) => ({
+            season_year: row.season_year,
+            week: row.week,
+            week_type: row.week_type,
+            franchise_name: row.franchise_name,
+            opponent_franchise_name: row.opponent_franchise_name,
+            result: row.result,
+            is_playoffs: row.is_playoffs === true,
+            is_championship: row.is_championship === true,
+            points: row.points,
+          }))
+      : [];
+
   return {
     family: "lineup_analysis",
     notes: [
@@ -222,6 +283,13 @@ async function getLineupAnalysisData(
         playoff_only: playoffOnly,
         championship_only: championshipOnly,
       },
+      player: resolvedPlayer
+        ? {
+            player_id: resolvedPlayer.player_id,
+            player_name: resolvedPlayer.player_name,
+          }
+        : null,
+      starter_rows: starterRows,
       rows,
     },
   };
@@ -231,6 +299,36 @@ function buildLineupAnalysisPrompt({
   input,
   data,
 }: HistorianBuildPromptArgs<LineupAnalysisPayload>): string {
+  if (
+    data.payload.mode === "player_starter_lookup" &&
+    data.payload.player &&
+    data.payload.starter_rows.length > 0
+  ) {
+    const starter = [...data.payload.starter_rows].sort((a, b) => {
+      if (a.season_year !== b.season_year) {
+        return b.season_year - a.season_year;
+      }
+
+      if (a.week !== b.week) {
+        return b.week - a.week;
+      }
+
+      return a.franchise_name.localeCompare(b.franchise_name);
+    })[0];
+    const timeContext = data.payload.filters.championship_only
+      ? `championship week ${starter.season_year}`
+      : `week ${starter.week} ${starter.season_year}`;
+    const exactAnswer = `${starter.franchise_name} started ${data.payload.player.player_name} in ${timeContext}.`;
+
+    return [
+      "You are answering a fantasy football league historian question.",
+      "Only use the provided deterministic data.",
+      "Return exactly one sentence and nothing else.",
+      "Do not add disclaimers about person/manager identity.",
+      `Exact answer: ${exactAnswer}`,
+    ].join("\n");
+  }
+
   return [
     "You are answering a fantasy football league historian question.",
     "Only use the provided deterministic data.",

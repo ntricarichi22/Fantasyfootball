@@ -18,7 +18,7 @@ type TransactionRow = {
   transaction_id: string;
   season_year: number;
   week: number | null;
-  transaction_ts: string;
+  transaction_ts: string | null;
   transaction_type: string | null;
   transaction_status: string | null;
   platform: string | null;
@@ -37,6 +37,7 @@ type TransactionRow = {
 };
 
 type TransactionMode =
+  | "season_transactions"
   | "pick_lineage"
   | "player_transactions"
   | "franchise_transactions";
@@ -81,6 +82,21 @@ function detectTransactionMode(
     return "pick_lineage";
   }
 
+  if (
+    input.seasonYear &&
+    includesAnyTerm(question, [
+      "trade",
+      "traded",
+      "assets moved",
+      "future pick",
+      "future first",
+      "waiver",
+      "waivers",
+    ])
+  ) {
+    return "season_transactions";
+  }
+
   if (hasPlayer) {
     return "player_transactions";
   }
@@ -113,32 +129,39 @@ async function getTransactionHistoryData(
   const pool = getLlmPool();
   const result = await pool.query<TransactionRow>(`
     select
-      transaction_id,
-      season_year,
-      week,
-      transaction_ts,
-      transaction_type,
-      transaction_status,
-      platform,
-      asset_type,
-      player_id,
-      player_name,
-      pick_season,
-      pick_round,
-      pick_original_franchise_id,
-      pick_original_franchise_name,
-      from_franchise_id,
-      from_franchise_name,
-      to_franchise_id,
-      to_franchise_name,
-      action_type
-    from llm.transaction_items
-    order by transaction_ts asc, transaction_id asc;
+      ti.transaction_id,
+      ti.season_year,
+      ti.week,
+      ti.transaction_ts,
+      t.transaction_type,
+      t.transaction_status,
+      t.platform,
+      ti.asset_type,
+      ti.player_id,
+      ti.player_name,
+      ti.pick_season,
+      ti.pick_round,
+      ti.pick_original_franchise_id,
+      ti.pick_original_franchise_name,
+      ti.from_franchise_id,
+      ti.from_franchise_name,
+      ti.to_franchise_id,
+      ti.to_franchise_name,
+      ti.action_type
+    from llm.transaction_items ti
+    left join llm.transactions t on t.transaction_id = ti.transaction_id
+    order by ti.transaction_ts asc, ti.transaction_id asc;
   `);
 
   let rows = result.rows;
 
-  if (mode === "pick_lineage") {
+  if (mode === "season_transactions") {
+    if (!input.seasonYear) {
+      throw new Error("season_transactions requires seasonYear");
+    }
+
+    rows = rows.filter((row) => row.season_year === input.seasonYear);
+  } else if (mode === "pick_lineage") {
     if (!resolvedFranchise || !input.seasonYear || !round) {
       throw new Error("pick_lineage requires seasonYear, round, and franchise");
     }
@@ -220,6 +243,9 @@ export const transactionHistoryHandler: HistorianHandler<TransactionHistoryPaylo
         !includesAnyTerm(input.question, [
           "trade",
           "traded",
+          "assets moved",
+          "future pick",
+          "future first",
           "transaction",
           "transactions",
           "waiver",

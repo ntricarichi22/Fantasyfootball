@@ -58,6 +58,10 @@ export type PlayerCareerPayload = {
 
 function looksLikePlayerCareerQuestion(question: string): boolean {
   return !includesAnyTerm(question, [
+    "who started",
+    "started in championship week",
+    "lineup",
+    "bench",
     "trade",
     "traded",
     "waiver",
@@ -91,7 +95,7 @@ async function getPlayerCareerData(
           is_championship,
           points
         from llm.lineup_entries
-        where player_id = $1
+        where player_id::text = $1::text
         order by season_year asc;
       `,
       [player.player_id]
@@ -104,7 +108,7 @@ async function getPlayerCareerData(
           pick_number,
           selected_by_franchise_name
         from llm.draft_picks
-        where selected_player_id = $1
+        where selected_player_id::text = $1::text
         order by season_year asc
         limit 1;
       `,
