@@ -11,12 +11,12 @@ import { waiverRankingHandler } from "./waiverRanking";
 import { weeklyPerformanceHandler } from "./weeklyPerformance";
 
 export const HISTORIAN_HANDLERS: HistorianHandler[] = [
+  waiverRankingHandler,
   transactionHistoryHandler,
   draftHistoryHandler,
   matchupHistoryHandler,
   playerCareerHandler,
   lineupAnalysisHandler,
-  waiverRankingHandler,
   historianRankingsHandler,
   weeklyPerformanceHandler,
   franchiseHistoryHandler,
