@@ -203,9 +203,10 @@ function buildPlanInstructions(): string {
     "- Use SQL to compute rankings, aggregates, and comparisons instead of asking the final model to do heavy math from raw rows.",
     "- If player or franchise matching may be ambiguous, use a small lookup query first.",
     "- For trade or waiver value questions, reason in stints and time windows, not naive player-franchise totals.",
+    "- Respect exact column types when joining. In particular, llm.transaction_items.player_id is text and llm.lineup_entries.player_id is uuid, so use llm.lineup_entries.player_id::text when joining those views.",
+    "- Prefer franchise_id joins over franchise_name joins when uuid franchise IDs are available on both sides.",
     "- Keep queries narrow, with explicit aliases, clear ordering, and a practical LIMIT when returning many rows.",
     "- Never reference tables outside llm.*.",
-    "",
     buildHistorianSchemaGuide(),
   ].join("\n");
 }
@@ -230,7 +231,7 @@ function buildReviewInstructions(): string {
     "- Use the follow-up query to validate or refine suspicious results rather than guessing.",
     "- Keep the follow-up query read-only and limited to llm.* views.",
     "- Respect stint and timing logic when the question depends on a specific acquisition, trade, or waiver period.",
-    "",
+    "- Respect exact column types when joining. In particular, llm.transaction_items.player_id is text and llm.lineup_entries.player_id is uuid, so use llm.lineup_entries.player_id::text when needed.",
     buildHistorianSchemaGuide(),
   ].join("\n");
 }

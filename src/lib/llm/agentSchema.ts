@@ -97,6 +97,7 @@ export const LLM_VIEW_GUIDE: LlmViewGuide[] = [
       "season_year",
       "week",
       "week_type",
+      "franchise_id",
       "franchise_name",
       "opponent_franchise_name",
       "result",
@@ -115,6 +116,9 @@ export const LLM_VIEW_GUIDE: LlmViewGuide[] = [
       "player-franchise stints at the weekly level",
     ],
     cautions: [
+      "llm.lineup_entries.franchise_id is uuid.",
+      "llm.lineup_entries.player_id is uuid.",
+      "When joining llm.lineup_entries to llm.transaction_items on player_id, cast llm.lineup_entries.player_id::text.",
       "When evaluating post-acquisition value, bound points to the correct stint or time window instead of summing an entire player-franchise history.",
     ],
   },
@@ -202,6 +206,8 @@ export const LLM_VIEW_GUIDE: LlmViewGuide[] = [
       "player movement between franchises",
     ],
     cautions: [
+      "llm.transaction_items.player_id is text, not uuid.",
+      "llm.transaction_items.to_franchise_id and from_franchise_id are uuid.",
       "For trade or waiver value questions, think in stints and time windows instead of naive player-franchise totals.",
       "transaction_type and action_type may both matter when distinguishing trade vs waiver vs claim behavior.",
     ],
@@ -222,6 +228,11 @@ export function buildHistorianSchemaGuide(): string {
   return [
     "Allowed read-only SQL surface: llm.* only.",
     "Use only SELECT statements.",
+    "Critical join rules:",
+    "- llm.transaction_items.player_id is text.",
+    "- llm.lineup_entries.player_id is uuid.",
+    "- Therefore, when joining those views on player_id, use llm.lineup_entries.player_id::text = llm.transaction_items.player_id (or equivalent text-safe comparison).",
+    "- llm.transaction_items.to_franchise_id/from_franchise_id and llm.lineup_entries.franchise_id are uuid, so franchise_id joins are safe without casting.",
     "Known views:",
     ...LLM_VIEW_GUIDE.map((guide) => {
       const sections = [
