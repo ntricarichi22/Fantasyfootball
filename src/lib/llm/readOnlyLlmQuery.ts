@@ -6,8 +6,6 @@ const MAX_RETURNED_ROWS = 200;
 const MAX_SQL_LENGTH = 12000;
 
 const FORBIDDEN_SQL_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
-  { pattern: /--/, label: "line comment" },
-  { pattern: /\/\*/, label: "block comment" },
   {
     pattern:
       /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|analyze|refresh|merge|call|do)\b/i,
@@ -26,6 +24,12 @@ type ReadOnlyQueryResult = {
 
 function normalizeIdentifier(value: string): string {
   return value.replace(/"/g, "").trim().toLowerCase();
+}
+
+function stripSqlComments(sql: string): string {
+  const withoutBlockComments = sql.replace(/\/\*[\s\S]*?\*\//g, " ");
+  const withoutLineComments = withoutBlockComments.replace(/--.*$/gm, " ");
+  return withoutLineComments;
 }
 
 function extractCteNames(sql: string): Set<string> {
@@ -59,7 +63,8 @@ function extractReferencedRelations(sql: string): string[] {
 }
 
 function normalizeSql(sql: string): string {
-  const normalized = sql.trim().replace(/;+\s*$/g, "").trim();
+  const strippedSql = stripSqlComments(sql);
+  const normalized = strippedSql.trim().replace(/;+\s*$/g, "").trim();
 
   if (!normalized) {
     throw new Error("Agent SQL cannot be empty");
