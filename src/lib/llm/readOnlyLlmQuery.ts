@@ -58,21 +58,14 @@ function extractReferencedRelations(sql: string): string[] {
   return refs;
 }
 
-function normalizeSingleStatementSql(sql: string): string {
-  const parts = sql
-    .split(";")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
+function normalizeSql(sql: string): string {
+  const normalized = sql.trim().replace(/;+\s*$/g, "").trim();
 
-  if (parts.length === 0) {
+  if (!normalized) {
     throw new Error("Agent SQL cannot be empty");
   }
 
-  if (parts.length > 1) {
-    throw new Error("Agent SQL must contain exactly one statement");
-  }
-
-  return parts[0];
+  return normalized;
 }
 
 function isAllowedRelationRef(
@@ -97,24 +90,24 @@ function isAllowedRelationRef(
 }
 
 export function validateReadOnlyLlmSql(sql: string): string {
-  const singleStatementSql = normalizeSingleStatementSql(sql.trim());
+  const normalizedSql = normalizeSql(sql);
 
-  if (singleStatementSql.length > MAX_SQL_LENGTH) {
+  if (normalizedSql.length > MAX_SQL_LENGTH) {
     throw new Error("Agent SQL is too long");
   }
 
-  if (!/^\s*(select|with)\b/i.test(singleStatementSql)) {
+  if (!/^\s*(select|with)\b/i.test(normalizedSql)) {
     throw new Error("Agent SQL must start with SELECT or WITH");
   }
 
   for (const { pattern, label } of FORBIDDEN_SQL_PATTERNS) {
-    if (pattern.test(singleStatementSql)) {
+    if (pattern.test(normalizedSql)) {
       throw new Error(`Agent SQL contains forbidden content: ${label}`);
     }
   }
 
-  const cteNames = extractCteNames(singleStatementSql);
-  const relationRefs = extractReferencedRelations(singleStatementSql);
+  const cteNames = extractCteNames(normalizedSql);
+  const relationRefs = extractReferencedRelations(normalizedSql);
 
   if (relationRefs.length === 0) {
     throw new Error("Agent SQL must reference at least one relation");
@@ -128,7 +121,7 @@ export function validateReadOnlyLlmSql(sql: string): string {
     }
   }
 
-  return singleStatementSql;
+  return normalizedSql;
 }
 
 export async function runReadOnlyLlmQuery(sql: string): Promise<ReadOnlyQueryResult> {
