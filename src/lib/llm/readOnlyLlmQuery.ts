@@ -8,13 +8,10 @@ const MAX_SQL_LENGTH = 12000;
 const FORBIDDEN_SQL_PATTERNS: RegExp[] = [
   /--/,
   /\/\*/,
-  /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|comment|copy|vacuum|analyze|refresh|merge|call|do)\b/i,
+  /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|analyze|refresh|merge|call)\b/i,
   /\b(pg_catalog|information_schema)\b/i,
   /\bpg_[a-z0-9_]*\b/i,
   /\bpublic\./i,
-  /\bset\b/i,
-  /\bshow\b/i,
-  /\bexplain\b/i,
 ];
 
 type ReadOnlyQueryResult = {
