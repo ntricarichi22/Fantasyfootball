@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { resolveHistorianHandler } from "../../../../lib/llm/handlers";
-import { getImplementedHistorianFamilies } from "../../../../lib/llm/historianFamilies";
-import type { HistorianAskInput } from "../../../../lib/llm/historianTypes";
-import { askOpenAi } from "../../../../lib/llm/openai";
+import { answerHistorianQuestion } from "../../../../lib/llm/historianSuperAgent";
 import { extractSeasonYearFromQuestion } from "../../../../lib/llm/questionUtils";
 
 export const runtime = "nodejs";
@@ -11,6 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const question = request.nextUrl.searchParams.get("question")?.trim();
   const seasonYearParam = request.nextUrl.searchParams.get("seasonYear");
+  const debug = request.nextUrl.searchParams.get("debug") === "1";
 
   if (!question) {
     return NextResponse.json(
@@ -36,35 +34,19 @@ export async function GET(request: NextRequest) {
     seasonYear = extractSeasonYearFromQuestion(question);
   }
 
-  const input: HistorianAskInput = {
-    question,
-    seasonYear,
-  };
-
-  const handler = await resolveHistorianHandler(input);
-
-  if (!handler) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: "Unsupported historian question",
-        supportedFamilies: getImplementedHistorianFamilies(),
-      },
-      { status: 400 }
-    );
-  }
-
   try {
-    const data = await handler.getData(input);
-    const prompt = handler.buildPrompt({ input, data });
-    const answer = await askOpenAi(prompt);
+    const result = await answerHistorianQuestion({
+      question,
+      seasonYear,
+    });
 
     return NextResponse.json({
       ok: true,
-      family: handler.family,
+      family: result.family,
       seasonYear,
       question,
-      answer,
+      answer: result.answer,
+      ...(debug ? { debug: result.debug } : {}),
     });
   } catch (error) {
     return NextResponse.json(
