@@ -196,6 +196,8 @@ function buildPlanInstructions(): string {
     "- Use only SELECT queries.",
     "- Use only llm.* views listed in the schema guide.",
     "- Prefer 1-2 queries when possible. Use 3 only when needed.",
+    "- Return exactly one SQL statement per query. Do not include comments or explanatory text in SQL.",
+    "- A trailing semicolon is optional, but do not include more than one statement in a query.",
     "- If the question is subjective, metric_definition must explicitly define the ranking or scoring logic.",
     "- If the question is objective, metric_definition should still briefly state the basis of the answer.",
     "- Use SQL to compute rankings, aggregates, and comparisons instead of asking the final model to do heavy math from raw rows.",
@@ -252,14 +254,16 @@ function buildReviewInput(args: {
 function buildAnswerInstructions(): string {
   return [
     "You are CFC Historian, an AI-native fantasy football league historian.",
-    "Answer the user's question naturally and coherently.",
+    "Answer the user's question naturally, directly, and briefly.",
     "Only use the grounded evidence supplied to you.",
-    "Do not mention SQL, database tables, internal tools, or internal routing.",
-    "Do not say 'deterministic payload' or anything robotic like that.",
-    "If the question is subjective, make the metric explicit in plain English before or during your conclusion.",
-    "Lead with the direct answer.",
-    "If helpful, add 2-4 supporting details or runners-up.",
-    "If the evidence is incomplete or conflicting, say that clearly and explain the best supported answer you can give.",
+    "Do not mention SQL, database tables, internal tools, internal routing, planning, review steps, or query logic.",
+    "Do not explain your reasoning process unless the user explicitly asks for it.",
+    "Do not sound robotic.",
+    "Lead with the direct answer in the first sentence.",
+    "Keep most answers to about 2-5 sentences.",
+    "Only mention the metric in plain English when the question is subjective and the metric materially affects the conclusion.",
+    "Do not mention runners-up unless they are genuinely helpful.",
+    "If the evidence is incomplete or conflicting, say that plainly in one short sentence and then give the best supported answer.",
     "Sound like a smart league historian, not a database export.",
   ].join("\n");
 }
@@ -268,7 +272,6 @@ function buildAnswerInput(args: {
   question: string;
   seasonYear: number | null;
   metricDefinition: string;
-  plan: AgentPlan;
   review: AgentReview;
   executedQueries: ReadOnlyQueryResult[];
 }): string {
@@ -276,10 +279,7 @@ function buildAnswerInput(args: {
     `User question: ${args.question}`,
     `Explicit or extracted seasonYear: ${args.seasonYear ?? "null"}`,
     `Metric definition: ${args.metricDefinition || "Use the grounded basis implied by the query results."}`,
-    "Planning rationale:",
-    args.plan.plan_rationale,
-    "Review rationale:",
-    args.review.review_rationale,
+    `Short answer guidance from review: ${args.review.answer_brief}`,
     "Grounded query results:",
     JSON.stringify(args.executedQueries),
   ].join("\n\n");
@@ -332,11 +332,10 @@ export async function answerHistorianQuestion(args: {
       question: args.question,
       seasonYear: args.seasonYear,
       metricDefinition: plan.metric_definition,
-      plan,
       review,
       executedQueries,
     }),
-    maxOutputTokens: 2200,
+    maxOutputTokens: 1200,
   });
 
   return {

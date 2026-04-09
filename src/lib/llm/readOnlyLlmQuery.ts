@@ -60,35 +60,42 @@ function extractReferencedRelations(sql: string): string[] {
   return refs;
 }
 
-export function validateReadOnlyLlmSql(sql: string): string {
-  const trimmed = sql.trim();
+function normalizeSingleStatementSql(sql: string): string {
+  const parts = sql
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
 
-  if (!trimmed) {
+  if (parts.length === 0) {
     throw new Error("Agent SQL cannot be empty");
   }
 
-  if (trimmed.length > MAX_SQL_LENGTH) {
+  if (parts.length > 1) {
+    throw new Error("Agent SQL must contain exactly one statement");
+  }
+
+  return parts[0];
+}
+
+export function validateReadOnlyLlmSql(sql: string): string {
+  const singleStatementSql = normalizeSingleStatementSql(sql.trim());
+
+  if (singleStatementSql.length > MAX_SQL_LENGTH) {
     throw new Error("Agent SQL is too long");
   }
 
-  if (!/^\s*(select|with)\b/i.test(trimmed)) {
+  if (!/^\s*(select|with)\b/i.test(singleStatementSql)) {
     throw new Error("Agent SQL must start with SELECT or WITH");
   }
 
-  const semicolonCount = (trimmed.match(/;/g) ?? []).length;
-
-  if (semicolonCount > 1 || (semicolonCount === 1 && !trimmed.endsWith(";"))) {
-    throw new Error("Agent SQL must contain at most one trailing semicolon");
-  }
-
   for (const pattern of FORBIDDEN_SQL_PATTERNS) {
-    if (pattern.test(trimmed)) {
+    if (pattern.test(singleStatementSql)) {
       throw new Error("Agent SQL contains a forbidden token or pattern");
     }
   }
 
-  const cteNames = extractCteNames(trimmed);
-  const relationRefs = extractReferencedRelations(trimmed);
+  const cteNames = extractCteNames(singleStatementSql);
+  const relationRefs = extractReferencedRelations(singleStatementSql);
 
   if (relationRefs.length === 0) {
     throw new Error("Agent SQL must reference at least one relation");
@@ -112,7 +119,7 @@ export function validateReadOnlyLlmSql(sql: string): string {
     }
   }
 
-  return trimmed.endsWith(";") ? trimmed.slice(0, -1) : trimmed;
+  return singleStatementSql;
 }
 
 export async function runReadOnlyLlmQuery(sql: string): Promise<ReadOnlyQueryResult> {
