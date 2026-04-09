@@ -4,6 +4,7 @@ import {
   runReadOnlyLlmQuery,
   type ReadOnlyQueryResult,
 } from "./readOnlyLlmQuery";
+import { includesAnyTerm } from "./questionUtils";
 
 type AgentPlannedQuery = {
   name: string;
@@ -96,6 +97,69 @@ const REVIEW_SCHEMA: Record<string, unknown> = {
     },
   },
 };
+
+function emptyQuery(): AgentPlannedQuery {
+  return { name: "", purpose: "", sql: "" };
+}
+
+function buildRecipePlan(args: {
+  metricDefinition: string;
+  planRationale: string;
+  queries: AgentPlannedQuery[];
+}): AgentPlan {
+  return {
+    can_answer_without_queries: false,
+    metric_definition: args.metricDefinition,
+    plan_rationale: args.planRationale,
+    queries: args.queries,
+  };
+}
+
+function buildRecipeReview(answerBrief: string): AgentReview {
+  return {
+    needs_more_data: false,
+    review_rationale: "Recipe-based query returned answer-ready ranking rows.",
+    answer_brief: answerBrief,
+    additional_query: emptyQuery(),
+  };
+}
+
+function looksLikeBestWaiverPickupQuestion(question: string): boolean {
+  return (
+    includesAnyTerm(question, ["waiver", "waivers", "waiver wire", "waiver add"]) &&
+    includesAnyTerm(question, ["best", "greatest", "top"]) &&
+    includesAnyTerm(question, ["pickup", "pickups", "add", "adds", "claim", "claims"])
+  );
+}
+
+function buildBestWaiverPickupPlan(seasonYear: number | null): AgentPlan {
+  const seasonFilter =
+    seasonYear === null
+      ? ""
+      : `\n    AND ti.season_year = ${seasonYear}`;
+
+  const lineupSeasonFilter =
+    seasonYear === null
+      ? ""
+      : `\n   AND le.season_year = ${seasonYear}`;
+
+  return buildRecipePlan({
+    metricDefinition:
+      seasonYear === null
+        ? "Best waiver pickup = the waiver_add acquisition that produced the most same-season points for the claiming franchise from the claim week onward, with playoff points as the tiebreaker."
+        : `Best waiver pickup in ${seasonYear} = the waiver_add acquisition in ${seasonYear} that produced the most same-season points for the claiming franchise from the claim week onward, with playoff points as the tiebreaker.`,
+    planRationale:
+      "Use a fixed waiver recipe instead of freeform SQL: identify waiver_add player acquisitions, join lineup entries on franchise_id plus lineup_entries.player_id::text, and score same-season post-claim points from the claim week onward.",
+    queries: [
+      {
+        name: seasonYear === null ? "best_waiver_pickup_all_time" : "best_waiver_pickup_in_season",
+        purpose:
+          "Return the top same-season waiver_add outcomes, ranked by post-claim points and playoff points.",
+        sql: `WITH claims AS (\n  SELECT\n    ti.transaction_id,\n    ti.season_year,\n    ti.week AS claim_week,\n    ti.player_id,\n    ti.player_name,\n    ti.to_franchise_id AS franchise_id,\n    ti.to_franchise_name AS franchise_name\n  FROM llm.transaction_items ti\n  WHERE ti.transaction_type = 'waiver_add'\n    AND ti.asset_type = 'player'\n    AND ti.action_type = 'waiver_add'${seasonFilter}\n), scored AS (\n  SELECT\n    c.transaction_id,\n    c.season_year,\n    c.claim_week,\n    c.player_id,\n    c.player_name,\n    c.franchise_id,\n    c.franchise_name,\n    SUM(le.points) AS post_claim_points,\n    SUM(CASE WHEN le.is_playoffs THEN le.points ELSE 0 END) AS playoff_points,\n    COUNT(DISTINCT le.team_game_id) AS games_count\n  FROM claims c\n  JOIN llm.lineup_entries le\n    ON le.player_id::text = c.player_id\n   AND le.franchise_id = c.franchise_id\n   AND le.season_year = c.season_year${lineupSeasonFilter}\n   AND le.week >= c.claim_week\n  GROUP BY\n    c.transaction_id,\n    c.season_year,\n    c.claim_week,\n    c.player_id,\n    c.player_name,\n    c.franchise_id,\n    c.franchise_name\n)\nSELECT\n  transaction_id,\n  season_year,\n  claim_week,\n  player_id,\n  player_name,\n  franchise_id,\n  franchise_name,\n  post_claim_points,\n  playoff_points,\n  games_count\nFROM scored\nORDER BY post_claim_points DESC, playoff_points DESC, games_count ASC, season_year ASC, player_name ASC\nLIMIT 5`,
+      },
+    ],
+  });
+}
 
 async function createOpenAiResponse(body: Record<string, unknown>): Promise<any> {
   const openAiKey = process.env.OPENAI_API_KEY;
@@ -207,44 +271,6 @@ function buildPlanInstructions(): string {
     "- Prefer franchise_id joins over franchise_name joins when uuid franchise IDs are available on both sides.",
     "- Keep queries narrow, with explicit aliases, clear ordering, and a practical LIMIT when returning many rows.",
     "- Never reference tables outside llm.*.",
-    "",
-    "Preferred SQL style:",
-    "- Prefer simple GROUP BY, ORDER BY, MIN/MAX, SUM, COUNT, and straightforward CTEs.",
-    "- Avoid FILTER clauses, recursive CTEs, nested correlated subqueries, and clever timestamp-string comparisons unless absolutely necessary.",
-    "- When exact stint end logic is difficult, choose the best supported simpler metric rather than producing invalid SQL.",
-    "",
-    "Default metric guidance:",
-    "- For best waiver pickup, default to same-season post-claim points for the claiming franchise, starting in the claim week. Use playoff points as a tiebreaker. Do not try to model multi-season stints unless the user explicitly asks.",
-    "- For best trade, define a clear metric first, usually post-trade points or playoff impact for each side over a stated window.",
-    "- For best draft pick, define value relative to slot instead of raw points alone.",
-    "",
-    "Example recipe: best waiver pickup of all time",
-    "Metric definition: best waiver pickup = waiver add with the most same-season points scored for the claiming franchise from the claim week onward, tie-breaker playoff points.",
-    "Good SQL shape:",
-    "WITH claims AS (",
-    "  SELECT ti.transaction_id, ti.season_year, ti.week AS claim_week, ti.player_id, ti.player_name, ti.to_franchise_id AS franchise_id, ti.to_franchise_name AS franchise_name",
-    "  FROM llm.transaction_items ti",
-    "  WHERE ti.transaction_type = 'waiver' AND ti.asset_type = 'player' AND ti.action_type IN ('add','claim')",
-    "), scored AS (",
-    "  SELECT c.transaction_id, c.season_year, c.player_name, c.franchise_name,",
-    "         SUM(le.points) AS post_claim_points,",
-    "         SUM(CASE WHEN le.is_playoffs THEN le.points ELSE 0 END) AS playoff_points",
-    "  FROM claims c",
-    "  JOIN llm.lineup_entries le",
-    "    ON le.player_id::text = c.player_id",
-    "   AND le.franchise_id = c.franchise_id",
-    "   AND le.season_year = c.season_year",
-    "   AND le.week >= c.claim_week",
-    "  GROUP BY c.transaction_id, c.season_year, c.player_name, c.franchise_name",
-    ")",
-    "SELECT * FROM scored ORDER BY post_claim_points DESC, playoff_points DESC LIMIT 5",
-    "",
-    "Example recipe: all-time record of Team A vs Team B",
-    "Use llm.matchups, match either franchise_a_name/franchise_b_name orientation, and aggregate wins/losses/points across all rows.",
-    "",
-    "Example recipe: every trade in 2025",
-    "Use llm.transaction_items, filter season_year=2025 and transaction_type='trade', then group by transaction_id and aggregate assets by from/to franchise names.",
-    "",
     buildHistorianSchemaGuide(),
   ].join("\n");
 }
@@ -338,32 +364,51 @@ async function executePlannedQueries(
   return results;
 }
 
+function buildRecipePlanIfApplicable(args: {
+  question: string;
+  seasonYear: number | null;
+}): AgentPlan | null {
+  if (looksLikeBestWaiverPickupQuestion(args.question)) {
+    return buildBestWaiverPickupPlan(args.seasonYear);
+  }
+
+  return null;
+}
+
 export async function answerHistorianQuestion(args: {
   question: string;
   seasonYear: number | null;
 }): Promise<HistorianAgentResult> {
-  const plan = await callStructuredResponse<AgentPlan>({
-    instructions: buildPlanInstructions(),
-    input: buildPlanInput(args.question, args.seasonYear),
-    schemaName: "cfc_historian_plan",
-    schema: PLAN_SCHEMA,
-  });
+  const recipePlan = buildRecipePlanIfApplicable(args);
+
+  const plan = recipePlan
+    ? recipePlan
+    : await callStructuredResponse<AgentPlan>({
+        instructions: buildPlanInstructions(),
+        input: buildPlanInput(args.question, args.seasonYear),
+        schemaName: "cfc_historian_plan",
+        schema: PLAN_SCHEMA,
+      });
 
   const executedQueries = await executePlannedQueries(plan.queries);
 
-  const review = await callStructuredResponse<AgentReview>({
-    instructions: buildReviewInstructions(),
-    input: buildReviewInput({
-      question: args.question,
-      seasonYear: args.seasonYear,
-      plan,
-      executedQueries,
-    }),
-    schemaName: "cfc_historian_review",
-    schema: REVIEW_SCHEMA,
-  });
+  const review = recipePlan
+    ? buildRecipeReview(
+        "Use the top ranked same-season post-claim waiver_add result as the answer and mention the point total and claim week if available."
+      )
+    : await callStructuredResponse<AgentReview>({
+        instructions: buildReviewInstructions(),
+        input: buildReviewInput({
+          question: args.question,
+          seasonYear: args.seasonYear,
+          plan,
+          executedQueries,
+        }),
+        schemaName: "cfc_historian_review",
+        schema: REVIEW_SCHEMA,
+      });
 
-  if (review.needs_more_data && review.additional_query.sql.trim()) {
+  if (!recipePlan && review.needs_more_data && review.additional_query.sql.trim()) {
     executedQueries.push(await runReadOnlyLlmQuery(review.additional_query.sql));
   }
 
