@@ -5,13 +5,14 @@ import { getLlmPool } from "./llmDb";
 const MAX_RETURNED_ROWS = 200;
 const MAX_SQL_LENGTH = 12000;
 
-const FORBIDDEN_SQL_PATTERNS: RegExp[] = [
-  /--/,
-  /\/\*/,
-  /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|analyze|refresh|merge|call)\b/i,
-  /\b(pg_catalog|information_schema)\b/i,
-  /\bpg_[a-z0-9_]*\b/i,
-  /\bpublic\./i,
+const FORBIDDEN_SQL_PATTERNS: Array<{ pattern: RegExp; label: string }> = [
+  { pattern: /--/, label: "line comment" },
+  { pattern: /\/\*/, label: "block comment" },
+  {
+    pattern:
+      /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|copy|vacuum|analyze|refresh|merge|call|do)\b/i,
+    label: "write or admin keyword",
+  },
 ];
 
 type ReadOnlyQueryResult = {
@@ -106,9 +107,9 @@ export function validateReadOnlyLlmSql(sql: string): string {
     throw new Error("Agent SQL must start with SELECT or WITH");
   }
 
-  for (const pattern of FORBIDDEN_SQL_PATTERNS) {
+  for (const { pattern, label } of FORBIDDEN_SQL_PATTERNS) {
     if (pattern.test(singleStatementSql)) {
-      throw new Error("Agent SQL contains a forbidden token or pattern");
+      throw new Error(`Agent SQL contains forbidden content: ${label}`);
     }
   }
 
