@@ -77,6 +77,27 @@ function normalizeSingleStatementSql(sql: string): string {
   return parts[0];
 }
 
+function isAllowedRelationRef(
+  normalizedRef: string,
+  cteNames: Set<string>
+): boolean {
+  if (normalizedRef.includes(".")) {
+    if (ALLOWED_LLM_VIEW_SET.has(normalizedRef)) {
+      return true;
+    }
+
+    const [prefix] = normalizedRef.split(".");
+
+    if (prefix && cteNames.has(prefix)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  return cteNames.has(normalizedRef);
+}
+
 export function validateReadOnlyLlmSql(sql: string): string {
   const singleStatementSql = normalizeSingleStatementSql(sql.trim());
 
@@ -104,18 +125,8 @@ export function validateReadOnlyLlmSql(sql: string): string {
   for (const relationRef of relationRefs) {
     const normalizedRef = normalizeIdentifier(relationRef);
 
-    if (normalizedRef.includes(".")) {
-      if (!ALLOWED_LLM_VIEW_SET.has(normalizedRef)) {
-        throw new Error(`Agent SQL referenced a non-llm relation: ${normalizedRef}`);
-      }
-
-      continue;
-    }
-
-    if (!cteNames.has(normalizedRef)) {
-      throw new Error(
-        `Agent SQL referenced an unqualified relation that is not a CTE: ${normalizedRef}`
-      );
+    if (!isAllowedRelationRef(normalizedRef, cteNames)) {
+      throw new Error(`Agent SQL referenced a non-llm relation: ${normalizedRef}`);
     }
   }
 
