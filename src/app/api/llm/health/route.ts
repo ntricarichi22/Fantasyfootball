@@ -13,6 +13,7 @@ function getPool(connectionString: string): Pool {
     globalThis.llmHealthPool = new Pool({
       connectionString,
       max: 1,
+      options: "-c search_path=public",
     });
   }
   return globalThis.llmHealthPool;
