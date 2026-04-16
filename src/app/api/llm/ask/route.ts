@@ -19,7 +19,9 @@ function getPool(connectionString: string): Pool {
       connectionString,
       max: 2,
       idleTimeoutMillis: 30000,
-      options: "-c search_path=public",
+    });
+    globalThis.llmAskPool.on("connect", (client) => {
+      client.query("SET search_path TO public;");
     });
   }
   return globalThis.llmAskPool;
