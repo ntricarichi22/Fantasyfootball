@@ -15,7 +15,7 @@ function getPool(connectionString: string): Pool {
       max: 1,
     });
     globalThis.llmHealthPool.on("connect", (client) => {
-      client.query("SET search_path TO public;"),
+      client.query("SET search_path TO public;");
     });
   }
   return globalThis.llmHealthPool;
