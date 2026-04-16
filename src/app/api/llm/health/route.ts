@@ -8,34 +8,52 @@ declare global {
   var llmHealthPool: Pool | undefined;
 }
 
-const getPool = (connectionString: string) => {
+function getPool(connectionString: string): Pool {
   if (!globalThis.llmHealthPool) {
     globalThis.llmHealthPool = new Pool({
       connectionString,
       max: 1,
     });
   }
-
   return globalThis.llmHealthPool;
-};
+}
 
 export async function GET() {
-  const connectionString = process.env.LLM_DATABASE_URL;
+  const dbUrl = process.env.LLM_DATABASE_URL;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
 
-  if (!connectionString) {
-    return NextResponse.json({ ok: false, error: "Missing LLM_DATABASE_URL" }, { status: 500 });
+  if (!dbUrl) {
+    return NextResponse.json(
+      { ok: false, error: "Missing LLM_DATABASE_URL" },
+      { status: 500 }
+    );
   }
 
   try {
-    const pool = getPool(connectionString);
-    const result = await pool.query<{ seasons_count: number }>(
-      "select count(*)::int as seasons_count from llm.seasons;"
-    );
+    const pool = getPool(dbUrl);
 
-    return NextResponse.json({ ok: true, seasons_count: result.rows[0]?.seasons_count ?? 0 });
+    const [seasonsResult, franchisesResult, playerGamesResult] = await Promise.all([
+      pool.query<{ count: number }>("select count(*)::int as count from llm_seasons;"),
+      pool.query<{ count: number }>("select count(*)::int as count from llm_franchises;"),
+      pool.query<{ count: number }>("select count(*)::int as count from llm_player_games;"),
+    ]);
+
+    return NextResponse.json({
+      ok: true,
+      database: "connected",
+      anthropic_key_configured: Boolean(anthropicKey),
+      table_counts: {
+        llm_seasons: seasonsResult.rows[0]?.count ?? 0,
+        llm_franchises: franchisesResult.rows[0]?.count ?? 0,
+        llm_player_games: playerGamesResult.rows[0]?.count ?? 0,
+      },
+    });
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Database query failed" },
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Database query failed",
+      },
       { status: 500 }
     );
   }
