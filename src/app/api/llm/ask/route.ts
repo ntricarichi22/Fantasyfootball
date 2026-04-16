@@ -19,6 +19,7 @@ function getPool(connectionString: string): Pool {
       connectionString,
       max: 2,
       idleTimeoutMillis: 30000,
+      options: "-c search_path=public",
     });
   }
   return globalThis.llmAskPool;
