@@ -173,7 +173,7 @@ async function runAgent(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
-  const MAX_TURNS = 8;
+  const MAX_TURNS = 12;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
     const response = await callClaude(apiKey, messages);
