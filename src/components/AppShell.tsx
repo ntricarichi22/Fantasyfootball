@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeftRight, Compass, Gauge } from "lucide-react";
+import { ArrowLeftRight, Compass, Gauge, ScrollText } from "lucide-react";
 
 import { getLeagueId } from "../lib/config";
 
@@ -88,6 +88,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const navItems = useMemo(
     () => [
       { href: "/draft", label: "Draft Room", icon: Compass },
+      { href: "/historian", label: "CFC Historian", icon: ScrollText },
       { href: "/team-hq", label: "Team HQ", icon: Gauge },
       { href: "/trades", label: "Trade Center", icon: ArrowLeftRight, badge: true },
     ],
