@@ -165,7 +165,7 @@ A trade that moves 3 players and 2 picks creates 5 rows, all sharing the same tr
 
 **Biggest blowout:** \`SELECT * FROM llm_team_games ORDER BY (points_for - points_against) DESC LIMIT 5\`
 
-**Best draft pick value:** Join \`llm_draft_picks\` to \`llm_player_games\` on canonical_player_id, aggregate points scored by the drafted player, compare to pick_number. Remember to filter to season_year >= 2020 to exclude the startup draft.
+**Best draft pick value:** "Best draft pick" means value relative to draft position — a 4th round pick who becomes a star is a better pick than a 1st overall pick who becomes a star. Join \`llm_draft_picks\` to \`llm_player_games\` on canonical_player_id, aggregate total points scored by the drafted player across their career, then calculate value as total_points / pick_number (higher = better value). A late-round pick with big production should rank above an early pick with similar production. Remember to filter to season_year >= 2020 to exclude the startup draft.
 
 **Worst benching decision:** Find bench players who scored more points than the team's margin of defeat. The most impactful bench decisions are ones where a benched player scored enough points that starting them would have changed the outcome from a loss to a win. Query: join llm_player_games (is_starter = false, lineup_bucket = 'bench') to llm_team_games on (season_year, week, franchise_name), filter where result = 'L' and bench player points > (points_against - points_for). The worst ones are in playoff games.
 
