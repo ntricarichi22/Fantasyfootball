@@ -33,11 +33,17 @@ const normalizeSeconds = (value: unknown, fallback: number = INITIAL_PICK_SECOND
   return fallback;
 };
 
-const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>["client"], leagueId: string) => {
+const SELECT_COLS =
+  "league_id, status, seconds_remaining, clock_started_at, pick_submitted, pick_announced_at, current_pick_index";
+
+const fetchDraftState = async (
+  client: ReturnType<typeof getSupabaseAdminClient>["client"],
+  leagueId: string
+) => {
   if (!client) return null;
   const { data, error } = await client
     .from("draft_state")
-    .select("league_id, status, seconds_remaining, clock_started_at")
+    .select(SELECT_COLS)
     .eq("league_id", leagueId)
     .maybeSingle();
 
@@ -49,18 +55,26 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
   return normalizeDraftStateRow(data as Partial<DraftStateRow>);
 };
 
-const SELECT_COLS = "league_id, status, seconds_remaining, clock_started_at";
+/** Build the full write payload, defaulting unspecified cadence fields to "no pending pick". */
+const buildWritePayload = (
+  payload: Partial<DraftStateRow> & { league_id: string }
+): Record<string, unknown> => ({
+  league_id: payload.league_id,
+  status: payload.status,
+  seconds_remaining: payload.seconds_remaining,
+  clock_started_at: payload.clock_started_at,
+  pick_submitted: payload.pick_submitted ?? false,
+  pick_announced_at: payload.pick_announced_at ?? null,
+  current_pick_index: payload.current_pick_index ?? null,
+});
 
 const upsertDraftState = async (
   client: ReturnType<typeof getSupabaseAdminClient>["client"],
-  payload: DraftStateRow
+  payload: Partial<DraftStateRow> & { league_id: string }
 ) => {
   if (!client) return { data: null, error: "Missing client" };
 
-  // Strip updated_at from the write payload – the column may not exist in every
-  // setup and Supabase will auto-manage it when a trigger is present.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { updated_at: _ignored, ...writePayload } = payload as DraftStateRow & { updated_at?: unknown };
+  const writePayload = buildWritePayload(payload);
 
   // Try upsert with explicit conflict target so it works regardless of
   // the table's primary key definition.
@@ -174,11 +188,14 @@ export async function POST(request: NextRequest) {
       body.secondsRemaining ?? body.seconds_remaining ?? body.initialSeconds ?? body.initial_seconds,
       INITIAL_PICK_SECONDS
     );
-    const nextState: DraftStateRow = {
+    const nextState: Partial<DraftStateRow> & { league_id: string } = {
       league_id: leagueId,
       status: "running",
       seconds_remaining: seconds,
       clock_started_at: nowIso,
+      pick_submitted: false,
+      pick_announced_at: null,
+      current_pick_index: existing?.current_pick_index ?? 0,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {
@@ -199,11 +216,14 @@ export async function POST(request: NextRequest) {
   const normalizedSeconds = normalizeSeconds(baseSeconds, computeRemainingSeconds(existing));
 
   if (action === "pause") {
-    const nextState: DraftStateRow = {
+    const nextState: Partial<DraftStateRow> & { league_id: string } = {
       league_id: leagueId,
       status: "paused",
       seconds_remaining: normalizedSeconds,
       clock_started_at: existing?.clock_started_at ?? nowIso,
+      pick_submitted: existing?.pick_submitted ?? false,
+      pick_announced_at: existing?.pick_announced_at ?? null,
+      current_pick_index: existing?.current_pick_index ?? null,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {
@@ -213,11 +233,14 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "resume") {
-    const nextState: DraftStateRow = {
+    const nextState: Partial<DraftStateRow> & { league_id: string } = {
       league_id: leagueId,
       status: "running",
       seconds_remaining: normalizedSeconds,
       clock_started_at: nowIso,
+      pick_submitted: existing?.pick_submitted ?? false,
+      pick_announced_at: existing?.pick_announced_at ?? null,
+      current_pick_index: existing?.current_pick_index ?? null,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {
@@ -227,20 +250,105 @@ export async function POST(request: NextRequest) {
   }
 
   if (action === "advance") {
-    const nextState: DraftStateRow = {
+    const nextIndex =
+      typeof existing?.current_pick_index === "number" ? existing.current_pick_index + 1 : null;
+    const nextState: Partial<DraftStateRow> & { league_id: string } = {
       league_id: leagueId,
       status: "running",
-      seconds_remaining: normalizeSeconds(
-        baseSeconds,
-        INITIAL_PICK_SECONDS
-      ),
+      seconds_remaining: normalizeSeconds(baseSeconds, INITIAL_PICK_SECONDS),
       clock_started_at: nowIso,
+      pick_submitted: false,
+      pick_announced_at: null,
+      current_pick_index: nextIndex,
     };
     const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
     if (updateError) {
       return NextResponse.json({ error: updateError }, { status: 500 });
     }
     return NextResponse.json({ data: updated });
+  }
+
+  if (action === "submit_pick") {
+    // Mark the current pick as submitted-but-not-yet-announced. The
+    // announcement time is fixed: clock_started_at + 30 minutes (the full
+    // pick window). Do NOT advance current_pick_index here.
+    if (!existing.clock_started_at) {
+      return NextResponse.json({ error: "Draft clock has not been started." }, { status: 400 });
+    }
+    const startedAtMs = new Date(existing.clock_started_at).getTime();
+    const announcedAtIso = Number.isFinite(startedAtMs)
+      ? new Date(startedAtMs + INITIAL_PICK_SECONDS * 1000).toISOString()
+      : new Date(Date.now() + INITIAL_PICK_SECONDS * 1000).toISOString();
+
+    const nextState: Partial<DraftStateRow> & { league_id: string } = {
+      league_id: leagueId,
+      status: existing.status === "paused" ? "paused" : "running",
+      // Keep seconds_remaining as the live value so the timer continues to
+      // tick down toward the announcement.
+      seconds_remaining: existing.seconds_remaining ?? INITIAL_PICK_SECONDS,
+      clock_started_at: existing.clock_started_at,
+      pick_submitted: true,
+      pick_announced_at: announcedAtIso,
+      current_pick_index: existing.current_pick_index ?? null,
+    };
+    const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
+    if (updateError) {
+      return NextResponse.json({ error: updateError }, { status: 500 });
+    }
+    return NextResponse.json({ data: updated });
+  }
+
+  if (action === "announce") {
+    // Idempotent: if there is nothing to announce or the announcement time
+    // has not yet been reached, just return the current state unchanged so
+    // multiple clients calling this in parallel is harmless.
+    const announceMs = existing.pick_announced_at
+      ? new Date(existing.pick_announced_at).getTime()
+      : NaN;
+    const force = body.force === true;
+    const announcementReady =
+      existing.pick_submitted === true && Number.isFinite(announceMs) && Date.now() >= announceMs;
+    const skipReady =
+      !existing.pick_submitted &&
+      computeRemainingSeconds(existing) <= 0 &&
+      existing.status === "running";
+
+    if (!force && !announcementReady && !skipReady) {
+      return NextResponse.json({ data: existing, status: "not_ready" });
+    }
+
+    const currentIndex = existing.current_pick_index ?? null;
+
+    if (announcementReady && currentIndex !== null) {
+      // Reveal the submitted pick: mark the matching draft_log row announced.
+      const { error: updateLogError } = await client
+        .from("draft_log")
+        .update({ is_announced: true, announced_at: nowIso })
+        .eq("pick_index", currentIndex)
+        .eq("is_announced", false);
+      if (updateLogError) {
+        console.warn("Unable to mark draft_log row announced", updateLogError);
+      }
+    }
+
+    const nextIndex = currentIndex !== null ? currentIndex + 1 : null;
+    const nextState: Partial<DraftStateRow> & { league_id: string } = {
+      league_id: leagueId,
+      status: "running",
+      seconds_remaining: INITIAL_PICK_SECONDS,
+      clock_started_at: nowIso,
+      pick_submitted: false,
+      pick_announced_at: null,
+      current_pick_index: nextIndex,
+    };
+    const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
+    if (updateError) {
+      return NextResponse.json({ error: updateError }, { status: 500 });
+    }
+    return NextResponse.json({
+      data: updated,
+      status: announcementReady ? "announced" : "skipped",
+    });
   }
 
   return NextResponse.json({ error: "Unsupported action" }, { status: 400 });

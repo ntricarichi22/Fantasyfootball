@@ -1223,7 +1223,7 @@ export default function Home() {
   }, [playerDictionary, playerValues, searchTerm, unavailablePlayers]);
 
   const persistDraftLogEntry = useCallback(
-    async (entry: DraftLogEntry) => {
+    async (entry: DraftLogEntry): Promise<{ ok: boolean; isAnnounced: boolean }> => {
       try {
         const res = await fetch("/api/draft-log", {
           method: "POST",
@@ -1235,14 +1235,18 @@ export default function Home() {
             setStatusMessage("Draft is paused. No picks recorded.");
           }
           fetchDraftLogFromApi();
-          return false;
+          return { ok: false, isAnnounced: false };
         }
-        return true;
+        const json = (await res.json().catch(() => ({}))) as { isAnnounced?: boolean };
+        // Default to "announced" so legacy / pre-migration deployments behave
+        // exactly as they did before the cadence rollout.
+        const isAnnounced = json.isAnnounced !== false;
+        return { ok: true, isAnnounced };
       } catch (error) {
         console.warn("Unable to persist draft log entry", error);
         setStatusMessage("Unable to record pick. Please try again.");
         fetchDraftLogFromApi();
-        return false;
+        return { ok: false, isAnnounced: false };
       }
     },
     [fetchDraftLogFromApi]
@@ -1277,8 +1281,18 @@ export default function Home() {
         nflTeam: drafted.team,
       };
 
-      const persisted = await persistDraftLogEntry(entry);
-      if (!persisted) return false;
+      const { ok, isAnnounced } = await persistDraftLogEntry(entry);
+      if (!ok) return false;
+
+      // When the pick is on a still-open 30-min window, the API returns
+      // isAnnounced=false and the pick is hidden until the announcement fires.
+      // Skip the optimistic board/log mutations so the player stays on the
+      // board for everyone (including the picking team's view of the board)
+      // until the "Pick is in" countdown reveals it. The realtime channels
+      // will refetch and surface the pick once it's announced.
+      if (!isAnnounced) {
+        return true;
+      }
 
       setDraftedPlayersState((prev) => ({
         ...prev,

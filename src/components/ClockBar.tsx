@@ -1,10 +1,11 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { useDraftStatusContext } from "./DraftStatusProvider";
 import { useDraftClockContext } from "../lib/hooks/useDraftClockContext";
+import { computeSecondsUntilAnnouncement } from "../lib/draftState";
 
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 const DRAFT_ROUTE = "/draft";
@@ -70,53 +71,114 @@ export default function ClockBar() {
     return () => window.clearInterval(id);
   }, [isActive, state?.status]);
 
+  // "Pick is in" countdown — seconds until the submitted pick is announced.
+  const [announceSeconds, setAnnounceSeconds] = useState(() =>
+    computeSecondsUntilAnnouncement(state)
+  );
+  useEffect(() => {
+    setAnnounceSeconds(computeSecondsUntilAnnouncement(state));
+  }, [state?.pick_submitted, state?.pick_announced_at, state]);
+  const isPickIn = !!state?.pick_submitted && !!state?.pick_announced_at;
+  useEffect(() => {
+    if (!isPickIn) return;
+    const id = window.setInterval(() => {
+      setAnnounceSeconds(computeSecondsUntilAnnouncement(state));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [isPickIn, state]);
+
+  // When the announcement countdown hits 0, fire a single best-effort
+  // "announce" call so whichever client is watching nudges the server to
+  // reveal the pick and advance the clock. Multiple clients calling this is
+  // safe because the API is idempotent (it no-ops once the pick is announced).
+  const announceFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isPickIn) {
+      announceFiredRef.current = null;
+      return;
+    }
+    if (announceSeconds > 0) return;
+    const key = state?.pick_announced_at ?? "";
+    if (announceFiredRef.current === key) return;
+    announceFiredRef.current = key;
+    fetch("/api/draft-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "announce" }),
+    }).catch(() => {
+      // Best-effort: another client (or the next poll) will retry.
+      announceFiredRef.current = null;
+    });
+  }, [isPickIn, announceSeconds, state?.pick_announced_at]);
+
   if (!isActive && !isDraftRoute) return null;
 
   const isPending = !isActive;
   const isYourPick =
     !isPending &&
+    !isPickIn &&
     !!selection.rosterId &&
     !!context?.onClockRosterId &&
     selection.rosterId === context.onClockRosterId;
 
-  const onClockState: "your-pick" | "on-clock-draft" | "on-clock-other" | "pending" = isPending
+  type BarState =
+    | "your-pick"
+    | "on-clock-draft"
+    | "on-clock-other"
+    | "pick-in-draft"
+    | "pick-in-other"
+    | "pending";
+
+  const onClockState: BarState = isPending
     ? "pending"
-    : isYourPick && isDraftRoute
-      ? "your-pick"
-      : isDraftRoute
-        ? "on-clock-draft"
-        : "on-clock-other";
+    : isPickIn
+      ? isDraftRoute
+        ? "pick-in-draft"
+        : "pick-in-other"
+      : isYourPick && isDraftRoute
+        ? "your-pick"
+        : isDraftRoute
+          ? "on-clock-draft"
+          : "on-clock-other";
 
   const isRed = onClockState === "your-pick";
+  const isPickInState = onClockState === "pick-in-draft" || onClockState === "pick-in-other";
   const background = isRed ? "#E8503A" : "#1A1A1A";
   const dividerColor = isRed ? "rgba(255,255,255,0.2)" : "#333";
-  const timerColor = isRed ? "#FFFFFF" : "#F5C230";
+  const timerColor = isRed ? "#FFFFFF" : isPickInState ? "#FFFFFF" : "#F5C230";
   const labelColor = isRed ? "rgba(255,255,255,0.7)" : "#999";
   const valueColor = isRed ? "#FFFFFF" : "#F5C230";
-  const franchiseTextColor = isRed ? "#FFFFFF" : "#FFFFFF";
+  const franchiseTextColor = "#FFFFFF";
 
   const chipText = isPending
     ? state?.status === "paused"
       ? "Draft paused"
       : "Draft not started"
+    : isPickInState
+      ? "The pick is in"
+      : isRed
+        ? "Your pick"
+        : "On the clock";
+  // Chip border: green for "pick is in", white on red, yellow on dark.
+  const chipBorder = isPickInState
+    ? "1.5px solid #4CAF50"
     : isRed
-      ? "Your pick"
-      : "On the clock";
-  const chipBorder = isRed ? "1.5px solid #FFFFFF" : "1.5px solid #F5C230";
-  const chipColor = isRed ? "#FFFFFF" : "#F5C230";
+      ? "1.5px solid #FFFFFF"
+      : "1.5px solid #F5C230";
+  const chipColor = isPickInState ? "#FFFFFF" : isRed ? "#FFFFFF" : "#F5C230";
 
   const actionLabel =
     onClockState === "your-pick"
       ? "Shop this pick"
-      : onClockState === "on-clock-draft"
+      : onClockState === "on-clock-draft" || onClockState === "pick-in-draft"
         ? "Trade up"
-        : onClockState === "on-clock-other"
+        : onClockState === "on-clock-other" || onClockState === "pick-in-other"
           ? "Back to draft"
           : null;
 
   const handleAction = () => {
     if (onClockState === "pending") return;
-    if (onClockState === "on-clock-other") {
+    if (onClockState === "on-clock-other" || onClockState === "pick-in-other") {
       router.push(DRAFT_ROUTE);
     } else {
       // "Shop this pick" and "Trade up" both go to the trade center.
@@ -132,7 +194,11 @@ export default function ClockBar() {
 
   const round = context?.round ?? 0;
   const pick = context?.pick ?? 0;
-  const timerLabel = isPending ? "--:--" : formatTimer(tickedSeconds);
+  const timerLabel = isPending
+    ? "--:--"
+    : isPickInState
+      ? formatTimer(announceSeconds)
+      : formatTimer(tickedSeconds);
 
   // Segment styling shared between cells. No rounded corners — segments are
   // separated by vertical dividers within a single bar.
@@ -170,19 +236,30 @@ export default function ClockBar() {
       aria-live="polite"
       style={{
         background,
+        borderTop: "2.5px solid #1A1A1A",
         borderBottom: "2.5px solid #1A1A1A",
+        boxShadow: "4px 4px 0 #1A1A1A",
       }}
     >
       <div
-        className="mx-auto flex w-full max-w-7xl"
+        className="flex w-full"
         style={{
           height: 64,
           alignItems: "stretch",
           color: franchiseTextColor,
         }}
       >
-        {/* Franchise name + chip */}
-        <div style={{ ...segment, flex: "1 1 auto", gap: 12, minWidth: 0, paddingRight: 8 }}>
+        {/* Franchise name + chip — flush left with comfortable padding. */}
+        <div
+          style={{
+            ...segment,
+            flex: "1 1 auto",
+            gap: 12,
+            minWidth: 0,
+            paddingLeft: 20,
+            paddingRight: 8,
+          }}
+        >
           <span
             style={{
               fontFamily: "var(--font-headline)",
@@ -210,7 +287,7 @@ export default function ClockBar() {
               textTransform: "uppercase",
               color: chipColor,
               border: chipBorder,
-              borderRadius: 4,
+              borderRadius: 0,
               padding: "3px 7px",
               lineHeight: 1,
               background: "transparent",
@@ -270,9 +347,10 @@ export default function ClockBar() {
               textTransform: "uppercase",
               letterSpacing: "0.08em",
               fontSize: 10,
-              padding: "0 18px",
+              padding: "0 28px",
               border: "none",
               borderLeft: `2px solid ${dividerColor}`,
+              borderRadius: 0,
               cursor: "pointer",
               display: "flex",
               alignItems: "center",

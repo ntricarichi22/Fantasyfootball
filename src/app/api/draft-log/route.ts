@@ -73,9 +73,7 @@ const normalizeDraftLogPayload = (payload: DraftLogPayload) => {
     positions: Array.isArray(payload.positions) ? payload.positions : [],
     nfl_team: payload.nflTeam ?? null,
   };
-};
-
-const fetchCommissionerRosterId = async () => {
+};const fetchCommissionerRosterId = async () => {
   try {
     const [rosterRes, userRes] = await Promise.all([
       fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
@@ -99,7 +97,9 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
   if (!client || !LEAGUE_ID) return null;
   const { data, error } = await client
     .from("draft_state")
-    .select("league_id, status, seconds_remaining, clock_started_at")
+    .select(
+      "league_id, status, seconds_remaining, clock_started_at, pick_submitted, pick_announced_at, current_pick_index"
+    )
     .eq("league_id", LEAGUE_ID)
     .maybeSingle();
   if (error) {
@@ -109,19 +109,32 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
   return normalizeDraftStateRow(data);
 };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const { client, error } = getSupabaseAdminClient();
 
   if (!client || error) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
 
-  const { data, error: queryError } = await client
+  // `?includeUnannounced=1` is reserved for commissioner / admin tools that
+  // need to see the full log including in-flight (submitted-but-not-yet-
+  // announced) picks. Default behavior hides them so the board, ticker, and
+  // draft log sidebar don't reveal picks before their 30-minute window expires.
+  const includeUnannounced =
+    request.nextUrl.searchParams.get("includeUnannounced") === "1";
+
+  let query = client
     .from("draft_log")
     .select(
-      "pick_index, pick_number, team_count, team_name, roster_id, player_id, player_name, positions, nfl_team"
+      "pick_index, pick_number, team_count, team_name, roster_id, player_id, player_name, positions, nfl_team, is_announced, submitted_at, announced_at"
     )
     .order("pick_index", { ascending: true });
+
+  if (!includeUnannounced) {
+    query = query.eq("is_announced", true);
+  }
+
+  const { data, error: queryError } = await query;
 
   if (queryError) {
     return NextResponse.json({ error: queryError.message }, { status: 500 });
@@ -149,26 +162,89 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Draft is paused" }, { status: 409 });
   }
 
-  const { error: insertError } = await client.from("draft_log").upsert([normalized]);
+  // Cadence: pick is hidden ("the pick is in") until the 30-minute window
+  // expires. The clock is NOT reset here — the team's window keeps ticking
+  // toward the announcement time.
+  //
+  // Two exceptional paths short-circuit straight to "announced":
+  //   (a) The submitted pick belongs to a slot whose window has already
+  //       expired (skipped team coming back to make their pick).
+  //   (b) The draft has not yet been started (legacy / dev fallback).
+  const nowIso = new Date().toISOString();
+  const isCurrentSlot =
+    typeof draftState?.current_pick_index === "number" &&
+    draftState.current_pick_index === normalized.pick_index;
+  const startedAtMs = draftState?.clock_started_at
+    ? new Date(draftState.clock_started_at).getTime()
+    : NaN;
+  const windowOpen =
+    isCurrentSlot &&
+    Number.isFinite(startedAtMs) &&
+    Date.now() < startedAtMs + INITIAL_PICK_SECONDS * 1000;
+
+  const submittedAt = nowIso;
+  const isAnnounced = !windowOpen;
+  const announcedAt = isAnnounced ? nowIso : null;
+
+  const { error: insertError } = await client.from("draft_log").upsert([
+    {
+      ...normalized,
+      submitted_at: submittedAt,
+      is_announced: isAnnounced,
+      announced_at: announcedAt,
+    },
+  ]);
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
   if (LEAGUE_ID) {
-    const nowIso = new Date().toISOString();
-    const { error: clockError } = await client.from("draft_state").upsert({
-      league_id: LEAGUE_ID,
-      status: "running",
-      seconds_remaining: INITIAL_PICK_SECONDS,
-      clock_started_at: nowIso,
-    }, { onConflict: "league_id" });
-    if (clockError) {
-      console.warn("Unable to update draft_state after pick", clockError);
+    if (windowOpen && draftState) {
+      // "Pick is in" — flip cadence flags on draft_state, do NOT advance.
+      const announceMs = startedAtMs + INITIAL_PICK_SECONDS * 1000;
+      const { error: clockError } = await client.from("draft_state").upsert(
+        {
+          league_id: LEAGUE_ID,
+          status: "running",
+          seconds_remaining: draftState.seconds_remaining ?? INITIAL_PICK_SECONDS,
+          clock_started_at: draftState.clock_started_at,
+          pick_submitted: true,
+          pick_announced_at: new Date(announceMs).toISOString(),
+          current_pick_index: draftState.current_pick_index,
+        },
+        { onConflict: "league_id" }
+      );
+      if (clockError) {
+        console.warn("Unable to flag draft_state pick_submitted", clockError);
+      }
+    } else {
+      // Legacy / skipped-team path: announce immediately and advance.
+      const nextIndex =
+        typeof draftState?.current_pick_index === "number"
+          ? draftState.current_pick_index === normalized.pick_index
+            ? draftState.current_pick_index + 1
+            : draftState.current_pick_index
+          : null;
+      const { error: clockError } = await client.from("draft_state").upsert(
+        {
+          league_id: LEAGUE_ID,
+          status: "running",
+          seconds_remaining: INITIAL_PICK_SECONDS,
+          clock_started_at: nowIso,
+          pick_submitted: false,
+          pick_announced_at: null,
+          current_pick_index: nextIndex,
+        },
+        { onConflict: "league_id" }
+      );
+      if (clockError) {
+        console.warn("Unable to update draft_state after pick", clockError);
+      }
     }
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, isAnnounced });
 }
 
 export async function DELETE(request: NextRequest) {

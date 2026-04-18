@@ -50,9 +50,25 @@ const countPicksMade = async (
   client: ReturnType<typeof getSupabaseAdminClient>["client"]
 ): Promise<number> => {
   if (!client) return 0;
+  // Prefer the authoritative cursor on draft_state so skipped picks don't
+  // confuse the round/pick math. Falls back to (max(announced pick_index) + 1)
+  // when the column is unset (e.g. before migration 005 has been run).
+  const stateRes = await client
+    .from("draft_state")
+    .select("current_pick_index")
+    .limit(1)
+    .maybeSingle();
+  const currentIndex = (stateRes.data as { current_pick_index?: number | string | null } | null)
+    ?.current_pick_index;
+  if (currentIndex !== null && currentIndex !== undefined) {
+    const idx = typeof currentIndex === "number" ? currentIndex : Number(currentIndex);
+    if (Number.isFinite(idx) && idx >= 0) return idx;
+  }
+
   const { data, error } = await client
     .from("draft_log")
     .select("pick_index")
+    .eq("is_announced", true)
     .order("pick_index", { ascending: false })
     .limit(1);
 
