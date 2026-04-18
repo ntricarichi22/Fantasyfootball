@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { getLeagueId } from "../lib/config";
+import ClockBar from "./ClockBar";
 import { DraftStatusProvider } from "./DraftStatusProvider";
 
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
@@ -213,6 +214,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </header>
+
+      {/* CLOCK BAR — gated on isActive via DraftStatusProvider */}
+      <ClockBar />
 
       {/* CONTENT */}
       <main className="flex-1 bg-[var(--cfc-canvas)]">{children}</main>
