@@ -20,6 +20,10 @@ const YELLOW = "#F5C230";
 const GREEN = "#4CAF50";
 const DIVIDER_ON_BAR = "rgba(255,255,255,0.2)";
 const LABEL_ON_BAR = "rgba(255,255,255,0.5)";
+// Translucent INK (#1A1A1A → 26,26,26) used for labels/colons inside the
+// yellow accent block of the pre-draft countdown.
+const INK_LABEL = "rgba(26,26,26,0.5)";
+const INK_COLON = "rgba(26,26,26,0.35)";
 
 type StoredSelection = {
   rosterId?: string;
@@ -617,7 +621,7 @@ function CountdownBlock({ value, label }: { value: number; label: string }) {
           fontSize: 7,
           letterSpacing: "0.12em",
           textTransform: "uppercase",
-          color: "rgba(26,26,26,0.5)",
+          color: INK_LABEL,
           marginTop: 4,
           lineHeight: 1,
         }}
@@ -635,7 +639,7 @@ function CountdownColon() {
         fontFamily: "var(--font-mono)",
         fontWeight: 700,
         fontSize: 22,
-        color: "rgba(26,26,26,0.35)",
+        color: INK_COLON,
         lineHeight: 1,
         // Pull the colon up slightly so it sits on the digits row, not the labels.
         marginBottom: 11,
