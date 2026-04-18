@@ -41,7 +41,11 @@ export default function ClockBar() {
   const router = useRouter();
   const pathname = usePathname();
   const { isActive, secondsRemaining, state } = useDraftStatusContext();
-  const context = useDraftClockContext({ disabled: !isActive });
+  const isDraftRoute = pathname?.startsWith(DRAFT_ROUTE) ?? false;
+  // Poll clock context whenever the bar is rendered (active draft anywhere,
+  // or any visit to /draft so round/pick/team can populate as soon as the
+  // commissioner kicks the draft off).
+  const context = useDraftClockContext({ disabled: !isActive && !isDraftRoute });
 
   // Re-read selection on mount + when storage changes so the bar knows which
   // roster the user is currently piloting.
@@ -66,19 +70,22 @@ export default function ClockBar() {
     return () => window.clearInterval(id);
   }, [isActive, state?.status]);
 
-  if (!isActive) return null;
+  if (!isActive && !isDraftRoute) return null;
 
-  const isDraftRoute = pathname?.startsWith(DRAFT_ROUTE) ?? false;
+  const isPending = !isActive;
   const isYourPick =
+    !isPending &&
     !!selection.rosterId &&
     !!context?.onClockRosterId &&
     selection.rosterId === context.onClockRosterId;
 
-  const onClockState: "your-pick" | "on-clock-draft" | "on-clock-other" = isYourPick && isDraftRoute
-    ? "your-pick"
-    : isDraftRoute
-      ? "on-clock-draft"
-      : "on-clock-other";
+  const onClockState: "your-pick" | "on-clock-draft" | "on-clock-other" | "pending" = isPending
+    ? "pending"
+    : isYourPick && isDraftRoute
+      ? "your-pick"
+      : isDraftRoute
+        ? "on-clock-draft"
+        : "on-clock-other";
 
   const isRed = onClockState === "your-pick";
   const background = isRed ? "#E8503A" : "#1A1A1A";
@@ -88,7 +95,13 @@ export default function ClockBar() {
   const valueColor = isRed ? "#FFFFFF" : "#F5C230";
   const franchiseTextColor = isRed ? "#FFFFFF" : "#FFFFFF";
 
-  const chipText = isRed ? "Your pick" : "On the clock";
+  const chipText = isPending
+    ? state?.status === "paused"
+      ? "Draft paused"
+      : "Draft not started"
+    : isRed
+      ? "Your pick"
+      : "On the clock";
   const chipBorder = isRed ? "1.5px solid #FFFFFF" : "1.5px solid #F5C230";
   const chipColor = isRed ? "#FFFFFF" : "#F5C230";
 
@@ -97,9 +110,12 @@ export default function ClockBar() {
       ? "Shop this pick"
       : onClockState === "on-clock-draft"
         ? "Trade up"
-        : "Back to draft";
+        : onClockState === "on-clock-other"
+          ? "Back to draft"
+          : null;
 
   const handleAction = () => {
+    if (onClockState === "pending") return;
     if (onClockState === "on-clock-other") {
       router.push(DRAFT_ROUTE);
     } else {
@@ -109,13 +125,14 @@ export default function ClockBar() {
     }
   };
 
-  const franchiseName =
-    (isYourPick ? selection.teamName : context?.onClockTeamName) ||
-    (selection.rosterId ? `Roster ${selection.rosterId}` : "Loading…");
+  const franchiseName = isPending
+    ? "Draft Room"
+    : (isYourPick ? selection.teamName : context?.onClockTeamName) ||
+      (selection.rosterId ? `Roster ${selection.rosterId}` : "Loading…");
 
   const round = context?.round ?? 0;
   const pick = context?.pick ?? 0;
-  const timerLabel = formatTimer(tickedSeconds);
+  const timerLabel = isPending ? "--:--" : formatTimer(tickedSeconds);
 
   // Segment styling shared between cells. No rounded corners — segments are
   // separated by vertical dividers within a single bar.
@@ -240,31 +257,33 @@ export default function ClockBar() {
           </span>
         </div>
 
-        {/* Action button — yellow segment, no border-right */}
-        <button
-          type="button"
-          onClick={handleAction}
-          style={{
-            background: "#F5C230",
-            color: "#1A1A1A",
-            fontFamily: "var(--font-headline)",
-            fontWeight: 700,
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            fontSize: 10,
-            padding: "0 18px",
-            border: "none",
-            borderLeft: `2px solid ${dividerColor}`,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            whiteSpace: "nowrap",
-            height: "100%",
-          }}
-        >
-          {actionLabel}
-        </button>
+        {/* Action button — yellow segment, no border-right. Hidden in pending state. */}
+        {actionLabel ? (
+          <button
+            type="button"
+            onClick={handleAction}
+            style={{
+              background: "#F5C230",
+              color: "#1A1A1A",
+              fontFamily: "var(--font-headline)",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              fontSize: 10,
+              padding: "0 18px",
+              border: "none",
+              borderLeft: `2px solid ${dividerColor}`,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              whiteSpace: "nowrap",
+              height: "100%",
+            }}
+          >
+            {actionLabel}
+          </button>
+        ) : null}
       </div>
     </div>
   );
