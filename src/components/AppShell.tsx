@@ -6,7 +6,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { getLeagueId } from "../lib/config";
 import ClockBar from "./ClockBar";
-import { DraftStatusProvider } from "./DraftStatusProvider";
+import DraftTicker from "./DraftTicker";
+import { DraftStatusProvider, useDraftStatusContext } from "./DraftStatusProvider";
 
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 
@@ -134,9 +135,6 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const teamName =
     selection.teamName || (selection.rosterId ? `Team ${selection.rosterId}` : "Not selected");
 
-  // Ticker is rendered twice for seamless looping
-  const tickerItems = [...TICKER_ITEMS, ...TICKER_ITEMS];
-
   return (
     <DraftStatusProvider>
       <div className="flex min-h-screen flex-col bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
@@ -221,19 +219,35 @@ export default function AppShell({ children }: { children: ReactNode }) {
       {/* CONTENT */}
       <main className="flex-1 bg-[var(--cfc-canvas)]">{children}</main>
 
-      {/* TICKER BAR — blue, scrolling activity */}
-      <footer className="cfc-ticker">
-        <div className="cfc-ticker-track">
-          {tickerItems.map((item, idx) => (
-            <span key={idx} className="inline-flex items-center gap-3">
-              <span className="cfc-ticker-name">{item.name}</span>
-              <span>{item.text}</span>
-              <span className="cfc-ticker-dot" />
-            </span>
-          ))}
-        </div>
-      </footer>
+      {/* TICKER BAR — blue activity ticker normally; swapped for the draft
+          pick ticker while a draft is active. */}
+      <BottomTicker />
       </div>
     </DraftStatusProvider>
+  );
+}
+
+function BottomTicker() {
+  const { isActive } = useDraftStatusContext();
+
+  if (isActive) {
+    return <DraftTicker />;
+  }
+
+  // Ticker is rendered twice for seamless looping
+  const tickerItems = [...TICKER_ITEMS, ...TICKER_ITEMS];
+
+  return (
+    <footer className="cfc-ticker">
+      <div className="cfc-ticker-track">
+        {tickerItems.map((item, idx) => (
+          <span key={idx} className="inline-flex items-center gap-3">
+            <span className="cfc-ticker-name">{item.name}</span>
+            <span>{item.text}</span>
+            <span className="cfc-ticker-dot" />
+          </span>
+        ))}
+      </div>
+    </footer>
   );
 }
