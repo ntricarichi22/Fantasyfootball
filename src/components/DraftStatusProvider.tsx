@@ -40,10 +40,14 @@ export function DraftStatusProvider({
   // semantically-meaningful change in it is already reflected in `status`,
   // `isActive`, or `secondsRemaining`.
   const { status: clockStatus, isActive, secondsRemaining, isLoading, state } = status;
+  const pickSubmitted = state?.pick_submitted === true;
+  const pickAnnouncedAt = state?.pick_announced_at ?? null;
+  const currentPickIndex = state?.current_pick_index ?? null;
+  const startsAt = state?.starts_at ?? null;
   const value = useMemo<DraftStatus>(
     () => ({ status: clockStatus, isActive, secondsRemaining, isLoading, state }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clockStatus, isActive, secondsRemaining, isLoading]
+    [clockStatus, isActive, secondsRemaining, isLoading, pickSubmitted, pickAnnouncedAt, currentPickIndex, startsAt]
   );
   return (
     <DraftStatusContext.Provider value={value}>

@@ -4,9 +4,12 @@ import { useEffect, useRef, useState } from "react";
 
 import {
   computeRemainingSeconds,
+  normalizeDraftStateRow,
   type DraftClockStatus,
   type DraftStateRow,
 } from "../draftState";
+import { getSupabaseClient } from "../supabaseClient";
+import { getLeagueId } from "../config";
 
 export type DraftStatus = {
   status: DraftClockStatus;
@@ -20,8 +23,8 @@ export type DraftStatus = {
   isLoading: boolean;
 };
 
-const DEFAULT_POLL_MS = 10_000;
-const MIN_POLL_MS = 2_000;
+const DEFAULT_POLL_MS = 30_000;
+const MIN_POLL_MS = 5_000;
 
 const DEFAULT_STATUS: DraftStatus = {
   status: "not_started",
@@ -35,15 +38,28 @@ const isDraftActive = (status: DraftClockStatus): boolean =>
   status === "running" || status === "paused";
 
 type UseDraftStatusOptions = {
-  /** Poll interval in milliseconds. Defaults to 10s. */
+  /** Fallback poll interval in ms. Defaults to 30s. Realtime is the primary update channel. */
   pollMs?: number;
   /** Disable polling entirely (still performs the initial fetch). */
   disabled?: boolean;
 };
 
+const safeLeagueId = (): string => {
+  try {
+    return getLeagueId();
+  } catch {
+    return "";
+  }
+};
+
 /**
- * Polls `/api/draft-state` and exposes a normalized snapshot of the league's
- * draft clock. Designed to be called once at the AppShell level and shared via
+ * Subscribes to `public.draft_state` via Supabase Realtime so the clock bar
+ * reflects start / pause / resume / pick advancement instantly across the app.
+ *
+ * Falls back to a slow (30s) interval poll in case Realtime drops, and keeps
+ * an initial fetch on mount so the first paint has the current state.
+ *
+ * Designed to be called once at the AppShell level and shared via
  * `DraftStatusProvider` so individual pages do not each fetch independently.
  */
 export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus {
@@ -88,10 +104,57 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
       };
     }
 
+    // Primary update mechanism: Supabase Realtime on draft_state.
+    const supabase = getSupabaseClient();
+    const leagueId = safeLeagueId();
+    const channel =
+      supabase && leagueId
+        ? supabase
+            .channel(`draft-status-${leagueId}`)
+            .on(
+              "postgres_changes",
+              {
+                event: "*",
+                schema: "public",
+                table: "draft_state",
+                filter: `league_id=eq.${leagueId}`,
+              },
+              (payload) => {
+                const next = normalizeDraftStateRow(
+                  (payload.new as Partial<DraftStateRow>) ??
+                    (payload.old as Partial<DraftStateRow>) ??
+                    null
+                );
+                if (next) {
+                  apply(next);
+                } else {
+                  // Unrecognized payload (e.g. DELETE without filter match) — refetch.
+                  fetchOnce();
+                }
+              }
+            )
+        : null;
+
+    if (channel) {
+      try {
+        channel.subscribe();
+      } catch (error) {
+        console.warn("Unable to subscribe to draft state updates", error);
+      }
+    }
+
+    // Fallback poll at a long interval in case Realtime drops silently.
     const interval = window.setInterval(fetchOnce, Math.max(MIN_POLL_MS, pollMs));
     return () => {
       cancelledRef.current = true;
       window.clearInterval(interval);
+      if (channel && supabase) {
+        try {
+          supabase.removeChannel(channel);
+        } catch {
+          // ignore teardown errors
+        }
+      }
     };
   }, [disabled, pollMs]);
 
