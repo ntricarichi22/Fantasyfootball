@@ -38,7 +38,6 @@ import {
   PLAYER_CACHE_KEY,
   PLAYER_CACHE_TIME_KEY,
   SELECTED_TEAM_CACHE_KEY,
-  SKILL_POSITIONS,
   STATUS_MESSAGE_TIMEOUT_MS,
 } from "../lib/draft/constants";
 import type {
@@ -55,14 +54,12 @@ import type {
 } from "../lib/draft/types";
 import {
   calculatePickNumber,
-  computeAge,
   generateSessionId,
   getStoredSessionSelection,
   isBenchSlot,
   isCacheTimestampFresh,
   isPlayerEligible,
   normalizeDraftLogEntry,
-  normalizeDraftLogPayload,
   normalizePositions,
   nextPickIndexFromLog,
   playerLabel,
@@ -74,6 +71,8 @@ import { DraftControls } from "../components/draft/DraftControls";
 import { DraftLogPanel } from "../components/draft/DraftLogPanel";
 import { RosterDisplay } from "../components/draft/RosterDisplay";
 import { WelcomeScreen } from "../components/draft/WelcomeScreen";
+import { useDraftBoard } from "../lib/hooks/useDraftBoard";
+import { useDraftRoomLog } from "../lib/hooks/useDraftRoomLog";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 let playerDictCacheTime = 0;
@@ -102,7 +101,17 @@ export default function Home() {
   const [draftedPlayersState, setDraftedPlayersState] = useState<Record<string, DraftedPlayer[]>>(
     {}
   );
-  const [draftLog, setDraftLog] = useState<DraftLogEntry[]>([]);
+  const {
+    draftLog,
+    setDraftLog,
+    persistDraftLogEntry,
+    deleteDraftLogEntry,
+  } = useDraftRoomLog({
+    supabase,
+    selectedTeam,
+    setStatusMessage,
+    setErrorMessage,
+  });
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
   const [searchTerm, setSearchTerm] = useState("");
@@ -215,7 +224,7 @@ export default function Home() {
         // ignore corrupted cache
       }
     }
-  }, []);
+  }, [setDraftLog]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -595,22 +604,6 @@ export default function Home() {
     };
   }, []);
 
-  const fetchDraftLogFromApi = useCallback(async () => {
-    try {
-      const res = await fetch("/api/draft-log", { cache: "no-store" });
-      if (!res.ok) return;
-      const json = await res.json();
-      const rows: Array<Record<string, unknown>> = Array.isArray(json?.data) ? json.data : [];
-      const normalized = rows
-        .map((row) => normalizeDraftLogPayload(row))
-        .filter((entry): entry is DraftLogEntry => entry !== null)
-        .sort((a, b) => a.pickIndex - b.pickIndex);
-      setDraftLog(normalized);
-    } catch (error) {
-      console.warn("Unable to fetch draft log", error);
-    }
-  }, []);
-
   const fetchDraftClockState = useCallback(async () => {
     if (!leagueId) return;
     try {
@@ -627,36 +620,8 @@ export default function Home() {
   }, [leagueId]);
 
   useEffect(() => {
-    fetchDraftLogFromApi();
-  }, [fetchDraftLogFromApi]);
-
-  useEffect(() => {
     fetchDraftClockState();
   }, [fetchDraftClockState]);
-
-  useEffect(() => {
-    const supabaseClient = supabase ?? getSupabaseClient();
-    if (!supabaseClient) return undefined;
-
-    let channel = supabaseClient.channel("draft-log-updates");
-    channel = channel.on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "draft_log" },
-      () => {
-        fetchDraftLogFromApi();
-      }
-    );
-
-    try {
-      channel.subscribe();
-    } catch (error) {
-      console.warn("Unable to subscribe to draft log updates", error);
-    }
-
-    return () => {
-      supabaseClient.removeChannel(channel);
-    };
-  }, [fetchDraftLogFromApi]);
 
   useEffect(() => {
     const supabaseClient = supabase ?? getSupabaseClient();
@@ -786,91 +751,12 @@ export default function Home() {
     [draftedPlayerIds, rosteredPlayerIds]
   );
 
-  const availablePlayers = useMemo(() => {
-    const query = searchTerm.trim().toLowerCase();
-    const players: AvailablePlayer[] = [];
-
-    Object.entries(playerDictionary).forEach(([playerId, player]) => {
-      if (unavailablePlayers.has(playerId)) return;
-
-      const normalizedPositions = normalizePositions(player.fantasy_positions, player.position).map(
-        (pos) => pos.toUpperCase()
-      );
-      const hasSkillPosition = normalizedPositions.some((pos) => SKILL_POSITIONS.includes(pos));
-      if (!hasSkillPosition) return;
-
-      const value = playerValues[playerId];
-      const hasValue = Number.isFinite(value);
-      const isActive = player.active === true || player.status?.toLowerCase() === "active";
-      const isRookie =
-        player.years_exp !== undefined &&
-        player.years_exp !== null &&
-        Number(player.years_exp) === 0;
-
-      if (!(isActive || isRookie || hasValue)) return;
-
-      const name =
-        player.full_name ||
-        [player.first_name, player.last_name].filter(Boolean).join(" ").trim() ||
-        playerId;
-
-      if (query && !name.toLowerCase().includes(query)) return;
-
-      const ageValue = computeAge(player);
-      players.push({
-        id: playerId,
-        name,
-        position: normalizedPositions[0] || "",
-        team: player.team || "FA",
-        ageLabel: ageValue ? String(ageValue) : "–",
-      });
-    });
-
-    return players.sort((a, b) => {
-      const aValue = playerValues[a.id];
-      const bValue = playerValues[b.id];
-      const aHasValue = typeof aValue === "number" && Number.isFinite(aValue);
-      const bHasValue = typeof bValue === "number" && Number.isFinite(bValue);
-
-      if (aHasValue && bHasValue && aValue !== bValue) {
-        return bValue - aValue;
-      }
-
-      if (aHasValue && !bHasValue) return -1;
-      if (!aHasValue && bHasValue) return 1;
-      return a.name.localeCompare(b.name);
-    });
-  }, [playerDictionary, playerValues, searchTerm, unavailablePlayers]);
-
-  const persistDraftLogEntry = useCallback(
-    async (entry: DraftLogEntry): Promise<{ ok: boolean; isAnnounced: boolean }> => {
-      try {
-        const res = await fetch("/api/draft-log", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(entry),
-        });
-        if (!res.ok) {
-          if (res.status === 409) {
-            setStatusMessage("Draft is paused. No picks recorded.");
-          }
-          fetchDraftLogFromApi();
-          return { ok: false, isAnnounced: false };
-        }
-        const json = (await res.json().catch(() => ({}))) as { isAnnounced?: boolean };
-        // Default to "announced" so legacy / pre-migration deployments behave
-        // exactly as they did before the cadence rollout.
-        const isAnnounced = json.isAnnounced !== false;
-        return { ok: true, isAnnounced };
-      } catch (error) {
-        console.warn("Unable to persist draft log entry", error);
-        setStatusMessage("Unable to record pick. Please try again.");
-        fetchDraftLogFromApi();
-        return { ok: false, isAnnounced: false };
-      }
-    },
-    [fetchDraftLogFromApi]
-  );
+  const availablePlayers = useDraftBoard({
+    playerDictionary,
+    playerValues,
+    searchTerm,
+    unavailablePlayers,
+  });
 
   const handlePickMade = useCallback(
     async (teamName: string, selection: string) => {
@@ -929,6 +815,7 @@ export default function Home() {
       onClockTeamName,
       persistDraftLogEntry,
       playerDictionary,
+      setDraftLog,
       teamCountForDraft,
       teams,
     ]
@@ -1205,31 +1092,6 @@ export default function Home() {
     return true;
   }, [clockActionPending, updateDraftClock]);
 
-  const deleteDraftLogEntry = useCallback(
-    async (pickIndex: number) => {
-      try {
-        const res = await fetch("/api/draft-log", {
-          method: "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pickIndex, rosterId: selectedTeam }),
-        });
-        if (!res.ok) {
-          const message =
-            res.status === 403
-              ? "Only the commissioner can undo picks."
-              : "Unable to undo pick. Please try again.";
-          setErrorMessage(message);
-          fetchDraftLogFromApi();
-        }
-      } catch (error) {
-        console.warn("Unable to delete draft log entry", error);
-        setErrorMessage("Unable to undo pick. Please try again.");
-        fetchDraftLogFromApi();
-      }
-    },
-    [fetchDraftLogFromApi, selectedTeam]
-  );
-
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!selectedTeam || !sessionId) {
@@ -1288,7 +1150,7 @@ export default function Home() {
         setStatusMessage("Rewound to the previous pick.");
       }
     },
-    [deleteDraftLogEntry, nextPickIndex]
+    [deleteDraftLogEntry, nextPickIndex, setDraftLog]
   );
 
   const hasActiveSession = !!selectedTeam && !!sessionId;
