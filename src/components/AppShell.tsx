@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { getLeagueId } from "../lib/config";
+import { DraftStatusProvider } from "./DraftStatusProvider";
 
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 
@@ -136,7 +137,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const tickerItems = [...TICKER_ITEMS, ...TICKER_ITEMS];
 
   return (
-    <div className="flex min-h-screen flex-col bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
+    <DraftStatusProvider>
+      <div className="flex min-h-screen flex-col bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
       {/* TOP BAR — ink/black, yellow CFC logo, underlined active nav */}
       <header className="cfc-topbar sticky top-0 z-40">
         <div className="mx-auto flex w-full max-w-7xl items-center gap-6 px-4 py-3 sm:px-6">
@@ -227,6 +229,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
           ))}
         </div>
       </footer>
-    </div>
+      </div>
+    </DraftStatusProvider>
   );
 }
