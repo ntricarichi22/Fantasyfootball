@@ -1,28 +1,605 @@
 @import "tailwindcss";
 
+/* =====================================================================
+   CFC DESIGN SYSTEM — see DESIGN_SYSTEM.md
+   Neobrutalism + vintage sports graphics. Light mode only.
+   ===================================================================== */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-  --font-geist-sans: Arial, Helvetica, sans-serif;
-  --font-geist-mono: Menlo, Monaco, Consolas, monospace;
+  /* Core palette */
+  --cfc-blue: #3366CC;
+  --cfc-red: #E8503A;
+  --cfc-yellow: #F5C230;
+  --cfc-ink: #1A1A1A;
+  --cfc-canvas: #F5F0E6;
+  --cfc-card: #FEFCF9;
+  --cfc-muted: #8C7E6A;
+  --cfc-muted-border: #C8C3B8;
+
+  /* Position colors */
+  --cfc-pos-qb: #E8503A;
+  --cfc-pos-rb: #3366CC;
+  --cfc-pos-wr: #F5C230;
+  --cfc-pos-te: #1A1A1A;
+
+  /* Shadows */
+  --cfc-shadow: 4px 4px 0 #1A1A1A;
+  --cfc-shadow-sm: 3px 3px 0 #1A1A1A;
+  --cfc-shadow-xs: 2px 2px 0 #1A1A1A;
+  --cfc-shadow-lg: 6px 6px 0 #1A1A1A;
+
+  /* Borders */
+  --cfc-border: 2.5px solid #1A1A1A;
+  --cfc-border-thin: 2px solid #1A1A1A;
+  --cfc-border-muted: 2px solid #C8C3B8;
+
+  /* Background + foreground for the document */
+  --background: #F5F0E6;
+  --foreground: #1A1A1A;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--cfc-canvas);
+  --color-foreground: var(--cfc-ink);
+  --color-cfc-blue: var(--cfc-blue);
+  --color-cfc-red: var(--cfc-red);
+  --color-cfc-yellow: var(--cfc-yellow);
+  --color-cfc-ink: var(--cfc-ink);
+  --color-cfc-canvas: var(--cfc-canvas);
+  --color-cfc-card: var(--cfc-card);
+  --color-cfc-muted: var(--cfc-muted);
+  --color-cfc-muted-border: var(--cfc-muted-border);
+  --font-body: var(--font-body, "DM Sans", system-ui, sans-serif);
+  --font-mono: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
+  --font-headline: var(--font-headline, "Syne", "DM Sans", sans-serif);
+  --font-sans: var(--font-body);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+* {
+  border-color: var(--cfc-ink);
+}
+
+html,
+body {
+  background: var(--cfc-canvas);
+  color: var(--cfc-ink);
+  font-family: var(--font-body, "DM Sans", system-ui, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  min-height: 100vh;
+}
+
+/* Headlines use Syne (bold only) */
+.font-headline {
+  font-family: var(--font-headline, "Syne", sans-serif);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* Stat / numeric text uses JetBrains Mono */
+.font-mono,
+.cfc-mono {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-variant-numeric: tabular-nums;
+}
+
+/* =====================================================================
+   COMPONENT UTILITIES
+   ===================================================================== */
+
+/* --- Cards ---------------------------------------------------------- */
+.cfc-card {
+  background: var(--cfc-card);
+  border: var(--cfc-border);
+  border-radius: 12px;
+  box-shadow: var(--cfc-shadow);
+  color: var(--cfc-ink);
+}
+
+.cfc-card-flat {
+  background: var(--cfc-card);
+  border: var(--cfc-border);
+  border-radius: 12px;
+  color: var(--cfc-ink);
+}
+
+.cfc-card-muted {
+  background: var(--cfc-card);
+  border: var(--cfc-border-muted);
+  border-radius: 12px;
+  color: var(--cfc-ink);
+}
+
+.cfc-card-ink {
+  background: var(--cfc-ink);
+  border: var(--cfc-border);
+  border-radius: 12px;
+  box-shadow: var(--cfc-shadow);
+  color: #fff;
+}
+
+.cfc-panel {
+  background: var(--cfc-card);
+  border: var(--cfc-border);
+  border-radius: 10px;
+  color: var(--cfc-ink);
+}
+
+/* --- Buttons -------------------------------------------------------- */
+.cfc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1;
+  border: var(--cfc-border);
+  border-radius: 8px;
+  box-shadow: var(--cfc-shadow);
+  background: var(--cfc-card);
+  color: var(--cfc-ink);
+  cursor: pointer;
+  transition: transform 100ms, box-shadow 100ms;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.cfc-btn:hover:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: var(--cfc-shadow-sm);
+}
+.cfc-btn:active:not(:disabled) {
+  transform: translate(4px, 4px);
+  box-shadow: none;
+}
+.cfc-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.cfc-btn-primary {
+  background: var(--cfc-blue);
+  color: #fff;
+}
+.cfc-btn-danger {
+  background: var(--cfc-red);
+  color: #fff;
+}
+.cfc-btn-accent {
+  background: var(--cfc-yellow);
+  color: var(--cfc-ink);
+}
+.cfc-btn-ink {
+  background: var(--cfc-ink);
+  color: #fff;
+}
+
+.cfc-btn-sm {
+  padding: 5px 10px;
+  font-size: 11px;
+  border-radius: 6px;
+  box-shadow: var(--cfc-shadow-sm);
+}
+.cfc-btn-sm:hover:not(:disabled) {
+  box-shadow: var(--cfc-shadow-xs);
+}
+
+/* --- Inputs --------------------------------------------------------- */
+.cfc-input,
+.cfc-select,
+.cfc-textarea {
+  background: var(--cfc-card);
+  color: var(--cfc-ink);
+  border: var(--cfc-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 13px;
+  line-height: 1.4;
+  outline: none;
+  width: 100%;
+}
+.cfc-input::placeholder,
+.cfc-textarea::placeholder {
+  color: var(--cfc-muted);
+}
+.cfc-input:focus,
+.cfc-select:focus,
+.cfc-textarea:focus {
+  box-shadow: 0 0 0 2px var(--cfc-canvas), 0 0 0 4px var(--cfc-blue);
+}
+
+/* --- Chips / Tags --------------------------------------------------- */
+.cfc-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--cfc-canvas);
+  color: var(--cfc-ink);
+  border: 2px solid var(--cfc-ink);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.cfc-chip-interactive {
+  cursor: pointer;
+  box-shadow: var(--cfc-shadow-xs);
+  transition: transform 100ms, box-shadow 100ms;
+}
+.cfc-chip-interactive:hover {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--cfc-ink);
+}
+.cfc-chip-interactive:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+.cfc-chip-active {
+  background: var(--cfc-ink);
+  color: var(--cfc-yellow);
+}
+.cfc-chip-blue {
+  background: var(--cfc-blue);
+  color: #fff;
+}
+.cfc-chip-red {
+  background: var(--cfc-red);
+  color: #fff;
+}
+.cfc-chip-yellow {
+  background: var(--cfc-yellow);
+  color: var(--cfc-ink);
+}
+.cfc-chip-ink {
+  background: var(--cfc-ink);
+  color: #fff;
+}
+
+/* --- Section divider (red tag + ink line) --------------------------- */
+.cfc-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.cfc-section-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  background: var(--cfc-red);
+  color: #fff;
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: var(--cfc-border);
+  border-radius: 4px;
+  box-shadow: var(--cfc-shadow-xs);
+}
+.cfc-section-tag-blue { background: var(--cfc-blue); }
+.cfc-section-tag-yellow { background: var(--cfc-yellow); color: var(--cfc-ink); }
+.cfc-section-tag-ink { background: var(--cfc-ink); }
+.cfc-section-line {
+  flex: 1;
+  height: 0;
+  border-bottom: var(--cfc-border);
+}
+
+/* --- Position badge / label ----------------------------------------- */
+.cfc-pos {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px 8px;
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 2px solid var(--cfc-ink);
+  border-radius: 4px;
+  color: #fff;
+  white-space: nowrap;
+}
+.cfc-pos-qb { background: var(--cfc-pos-qb); color: #fff; }
+.cfc-pos-rb { background: var(--cfc-pos-rb); color: #fff; }
+.cfc-pos-wr { background: var(--cfc-pos-wr); color: var(--cfc-ink); }
+.cfc-pos-te { background: var(--cfc-pos-te); color: #fff; }
+.cfc-pos-flex { background: var(--cfc-muted); color: #fff; }
+
+/* --- Stat card (full color fill) ------------------------------------ */
+.cfc-stat-card {
+  border: var(--cfc-border);
+  border-radius: 10px;
+  box-shadow: var(--cfc-shadow-sm);
+  padding: 12px 14px;
+  background: var(--cfc-blue);
+  color: #fff;
+  min-width: 0;
+}
+.cfc-stat-card-red { background: var(--cfc-red); color: #fff; }
+.cfc-stat-card-blue { background: var(--cfc-blue); color: #fff; }
+.cfc-stat-card-yellow { background: var(--cfc-yellow); color: var(--cfc-ink); }
+.cfc-stat-card-ink { background: var(--cfc-ink); color: #fff; }
+.cfc-stat-card-card { background: var(--cfc-card); color: var(--cfc-ink); }
+
+.cfc-stat-label {
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+.cfc-stat-value {
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 24px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Hero block ----------------------------------------------------- */
+.cfc-hero {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: var(--cfc-border);
+  border-radius: 12px;
+  box-shadow: var(--cfc-shadow);
+  overflow: hidden;
+}
+@media (max-width: 720px) {
+  .cfc-hero { grid-template-columns: 1fr; }
+}
+
+/* --- AI Copilot card (red/yellow/blue stripes) ---------------------- */
+.cfc-copilot {
+  display: grid;
+  grid-template-columns: 10px 10px 10px 1fr;
+  border: var(--cfc-border);
+  border-radius: 10px;
+  box-shadow: var(--cfc-shadow);
+  overflow: hidden;
+  background: var(--cfc-card);
+}
+.cfc-copilot-stripe-red { background: var(--cfc-red); }
+.cfc-copilot-stripe-yellow { background: var(--cfc-yellow); }
+.cfc-copilot-stripe-blue { background: var(--cfc-blue); }
+.cfc-ai-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--cfc-ink);
+  color: var(--cfc-yellow);
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-weight: 800;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  border: 1.5px solid var(--cfc-ink);
+}
+
+/* --- Player card ---------------------------------------------------- */
+.cfc-player-card {
+  background: var(--cfc-card);
+  border: var(--cfc-border);
+  border-radius: 8px;
+  box-shadow: var(--cfc-shadow-sm);
+  overflow: hidden;
+  min-width: 0;
+}
+.cfc-player-card-bench {
+  background: var(--cfc-card);
+  border: var(--cfc-border-muted);
+  border-radius: 8px;
+  box-shadow: none;
+  overflow: hidden;
+  color: var(--cfc-muted);
+  min-width: 0;
+}
+
+/* --- Top bar / ticker ----------------------------------------------- */
+.cfc-topbar {
+  background: var(--cfc-ink);
+  color: #fff;
+  border-bottom: var(--cfc-border);
+}
+.cfc-topbar-logo {
+  font-family: var(--font-headline, "Syne", sans-serif);
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: var(--cfc-yellow);
+  font-size: 22px;
+  line-height: 1;
+}
+.cfc-topbar-link {
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #999;
+  padding: 4px 0;
+  border-bottom: 2px solid transparent;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 120ms;
+}
+.cfc-topbar-link:hover {
+  color: #fff;
+}
+.cfc-topbar-link-active {
+  color: #fff;
+  font-weight: 700;
+  border-bottom-color: var(--cfc-yellow);
+}
+
+.cfc-ticker {
+  background: var(--cfc-blue);
+  color: rgba(255, 255, 255, 0.85);
+  border-top: var(--cfc-border);
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  position: relative;
+}
+.cfc-ticker-track {
+  display: inline-flex;
+  gap: 22px;
+  padding: 9px 16px;
+  white-space: nowrap;
+  animation: cfc-ticker-scroll 50s linear infinite;
+}
+.cfc-ticker-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cfc-yellow);
+  align-self: center;
+}
+.cfc-ticker-name {
+  color: #fff;
+  font-weight: 600;
+}
+@keyframes cfc-ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+/* --- Tab bar (used by Team HQ + Trade Center) ----------------------- */
+.cfc-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.cfc-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 14px;
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--cfc-card);
+  color: var(--cfc-ink);
+  border: var(--cfc-border);
+  border-radius: 8px;
+  box-shadow: var(--cfc-shadow-sm);
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 100ms, box-shadow 100ms;
+}
+.cfc-tab:hover {
+  transform: translate(1px, 1px);
+  box-shadow: var(--cfc-shadow-xs);
+}
+.cfc-tab-active {
+  background: var(--cfc-ink);
+  color: var(--cfc-yellow);
+  transform: translate(2px, 2px);
+  box-shadow: var(--cfc-shadow-xs);
+}
+
+/* --- Modal / Drawer ------------------------------------------------- */
+.cfc-modal {
+  background: var(--cfc-card);
+  border: var(--cfc-border);
+  border-radius: 12px;
+  box-shadow: var(--cfc-shadow-lg);
+  padding: 22px;
+}
+.cfc-overlay {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* --- Toasts --------------------------------------------------------- */
+.cfc-toast {
+  border: var(--cfc-border);
+  border-radius: 8px;
+  box-shadow: var(--cfc-shadow-sm);
+  padding: 10px 14px;
+  font-weight: 600;
+  font-size: 13px;
+}
+.cfc-toast-success { background: var(--cfc-blue); color: #fff; }
+.cfc-toast-error { background: var(--cfc-red); color: #fff; }
+.cfc-toast-warning { background: var(--cfc-yellow); color: var(--cfc-ink); }
+
+/* --- Misc helpers --------------------------------------------------- */
+.cfc-divider {
+  height: 0;
+  border-bottom: var(--cfc-border);
+}
+.cfc-link {
+  color: var(--cfc-blue);
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.cfc-link:hover { color: var(--cfc-red); }
+
+/* Hide scrollbar (used on horizontal player rails, ticker) */
+.cfc-no-scrollbar::-webkit-scrollbar { width: 0; height: 0; }
+.cfc-no-scrollbar { scrollbar-width: none; }
+
+/* Tabular numerics shortcut */
+.tabular { font-variant-numeric: tabular-nums; }
+
+/* Scoped table styling for stat tables */
+.cfc-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: var(--cfc-card);
+}
+.cfc-table thead th {
+  background: var(--cfc-ink);
+  color: #fff;
+  font-family: var(--font-body, "DM Sans", sans-serif);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 10px 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.cfc-table tbody td {
+  padding: 10px 12px;
+  font-size: 13px;
+  border-top: 1px solid var(--cfc-muted-border);
+  color: var(--cfc-ink);
+  background: var(--cfc-card);
+}
+.cfc-table tbody tr:hover td {
+  background: var(--cfc-canvas);
+}
+
+/* Selection */
+::selection {
+  background: var(--cfc-yellow);
+  color: var(--cfc-ink);
 }

@@ -29,19 +29,14 @@ function TradeCenterTabsInner() {
   const searchParams = useSearchParams();
 
   return (
-    <div className="mb-4 flex gap-1 rounded-lg border border-gray-800 bg-gray-900/60 p-1">
+    <div className="cfc-tabs mb-5">
       {TABS.map((tab) => {
         const active = isTabActive(tab.href, pathname ?? "", searchParams);
         return (
           <Link
             key={tab.href}
             href={tab.href}
-            className={[
-              "rounded-md px-4 py-2 text-sm font-semibold transition",
-              active
-                ? "bg-red-600/80 text-white"
-                : "text-gray-400 hover:bg-white/5 hover:text-white",
-            ].join(" ")}
+            className={["cfc-tab", active ? "cfc-tab-active" : ""].join(" ")}
           >
             {tab.label}
           </Link>
@@ -53,7 +48,7 @@ function TradeCenterTabsInner() {
 
 export default function TradeCenterTabs() {
   return (
-    <Suspense fallback={<div className="mb-4 h-10 rounded-lg border border-gray-800 bg-gray-900/60" />}>
+    <Suspense fallback={<div className="cfc-tabs mb-5" style={{ height: 40 }} />}>
       <TradeCenterTabsInner />
     </Suspense>
   );
