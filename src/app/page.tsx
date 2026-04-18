@@ -15,15 +15,8 @@ import {
   type TradedPick,
 } from "../lib/picks";
 import { getLeagueId } from "../lib/config";
-import { getSupabaseClient, supabase } from "../lib/supabaseClient";
+import { supabase } from "../lib/supabaseClient";
 import { isCommissionerTeamName } from "../lib/commissioner";
-import {
-  computeRemainingSeconds,
-  INITIAL_PICK_SECONDS,
-  normalizeDraftStateRow,
-  type DraftClockStatus,
-  type DraftStateRow,
-} from "../lib/draftState";
 import {
   ACTIVE_TEAMS_REFRESH_MS,
   DEMO_LEAGUE,
@@ -72,6 +65,7 @@ import { DraftLogPanel } from "../components/draft/DraftLogPanel";
 import { RosterDisplay } from "../components/draft/RosterDisplay";
 import { WelcomeScreen } from "../components/draft/WelcomeScreen";
 import { useDraftBoard } from "../lib/hooks/useDraftBoard";
+import { useDraftClock } from "../lib/hooks/useDraftClock";
 import { useDraftRoomLog } from "../lib/hooks/useDraftRoomLog";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
@@ -118,8 +112,6 @@ export default function Home() {
   const [draggedBenchPlayer, setDraggedBenchPlayer] = useState("");
   const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
-  const [draftClockState, setDraftClockState] = useState<DraftStateRow | null>(null);
-  const [clockActionPending, setClockActionPending] = useState(false);
   const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
   const { leagueId, leagueIdError } = useMemo(() => {
     try {
@@ -135,13 +127,23 @@ export default function Home() {
     }
   }, []);
 
+  const {
+    clockActionPending,
+    draftStatus,
+    isDraftPaused,
+    handlePauseDraft,
+    handleResumeDraft,
+    handleStartClockRequest,
+  } = useDraftClock({
+    supabase,
+    leagueId,
+    setStatusMessage,
+  });
+
   const teamCountForDraft = useMemo(
     () => draftState?.teamCount ?? Math.max(teams.length, MIN_TEAM_COUNT),
     [draftState?.teamCount, teams.length]
   );
-
-  const draftStatus: DraftClockStatus = draftClockState?.status ?? "not_started";
-  const isDraftPaused = draftStatus === "paused";
 
   const activeDraftSeason = draftState?.season ?? PICK_SLOT_SEASON;
 
@@ -604,58 +606,6 @@ export default function Home() {
     };
   }, []);
 
-  const fetchDraftClockState = useCallback(async () => {
-    if (!leagueId) return;
-    try {
-      const res = await fetch("/api/draft-state", { cache: "no-store" });
-      if (!res.ok) return;
-      const json = await res.json();
-      const normalized = normalizeDraftStateRow(json?.data ?? json);
-      if (normalized) {
-        setDraftClockState(normalized);
-      }
-    } catch (error) {
-      console.warn("Unable to fetch draft state", error);
-    }
-  }, [leagueId]);
-
-  useEffect(() => {
-    fetchDraftClockState();
-  }, [fetchDraftClockState]);
-
-  useEffect(() => {
-    const supabaseClient = supabase ?? getSupabaseClient();
-    if (!supabaseClient || !leagueId) return undefined;
-
-    let channel = supabaseClient.channel("draft-state-updates");
-    channel = channel.on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "draft_state", filter: `league_id=eq.${leagueId}` },
-      (payload) => {
-        const normalized = normalizeDraftStateRow(
-          (payload.new as Partial<DraftStateRow>) ??
-            (payload.old as Partial<DraftStateRow>) ??
-            null
-        );
-        if (normalized) {
-          setDraftClockState(normalized);
-        } else {
-          fetchDraftClockState();
-        }
-      }
-    );
-
-    try {
-      channel.subscribe();
-    } catch (error) {
-      console.warn("Unable to subscribe to draft state updates", error);
-    }
-
-    return () => {
-      supabaseClient.removeChannel(channel);
-    };
-  }, [fetchDraftClockState, leagueId]);
-
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
     [rosters, selectedTeam]
@@ -983,114 +933,6 @@ export default function Home() {
       setClaimingTeam(false);
     }
   }, [draftRoute, ensureSession, fetchActiveTeams, leagueId, leagueIdError, router, teamSelectionInput]);
-
-  const updateDraftClock = useCallback(
-    async (action: "start" | "pause" | "resume" | "advance", seconds?: number) => {
-      if (!leagueId) {
-        setStatusMessage("Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID.");
-        return null;
-      }
-
-      try {
-        const res = await fetch("/api/draft-state", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action,
-            secondsRemaining: seconds != null ? Math.max(0, Math.round(seconds)) : undefined,
-          }),
-        });
-        if (!res.ok) {
-          if (action === "pause") {
-            setStatusMessage("Unable to pause the draft.");
-          } else if (action === "resume") {
-            setStatusMessage("Unable to resume the draft.");
-          }
-          return null;
-        }
-        const json = await res.json();
-        const normalized = normalizeDraftStateRow(json?.data ?? json);
-        if (normalized) {
-          setDraftClockState(normalized);
-        } else if (action === "start") {
-          // Server returned 200 but no usable state – fetch the current
-          // state so the clock can still pick up the running draft.
-          const fallback = await fetch("/api/draft-state", { cache: "no-store" });
-          if (fallback.ok) {
-            const fbJson = await fallback.json();
-            const fbNormalized = normalizeDraftStateRow(fbJson?.data ?? fbJson);
-            if (fbNormalized) {
-              setDraftClockState(fbNormalized);
-              return fbNormalized;
-            }
-          }
-        }
-        return normalized;
-      } catch (error) {
-        console.warn("Unable to update draft state", error);
-        setStatusMessage("Unable to update draft state.");
-        return null;
-      }
-    },
-    [leagueId]
-  );
-
-  const currentRemainingSeconds = useCallback(
-    () => computeRemainingSeconds(draftClockState),
-    [draftClockState]
-  );
-
-  const handlePauseDraft = useCallback(async () => {
-    if (clockActionPending) return;
-    setClockActionPending(true);
-    const remaining = currentRemainingSeconds();
-    const nextState = await updateDraftClock("pause", remaining);
-    setClockActionPending(false);
-    if (!nextState) {
-      // Server unavailable – pause locally so the timer freezes.
-      setDraftClockState((prev) =>
-        prev
-          ? { ...prev, status: "paused" as const, seconds_remaining: remaining }
-          : prev
-      );
-    }
-  }, [clockActionPending, currentRemainingSeconds, updateDraftClock]);
-
-  const handleResumeDraft = useCallback(async () => {
-    if (clockActionPending) return;
-    setClockActionPending(true);
-    const remaining = currentRemainingSeconds();
-    const nextState = await updateDraftClock("resume", remaining);
-    setClockActionPending(false);
-    if (!nextState) {
-      // Server unavailable – resume locally so the timer restarts.
-      const now = new Date().toISOString();
-      setDraftClockState((prev) =>
-        prev
-          ? { ...prev, status: "running" as const, seconds_remaining: remaining, clock_started_at: now }
-          : prev
-      );
-    }
-  }, [clockActionPending, currentRemainingSeconds, updateDraftClock]);
-
-  const handleStartClockRequest = useCallback(async () => {
-    if (clockActionPending) return false;
-    setClockActionPending(true);
-    const nextState = await updateDraftClock("start", INITIAL_PICK_SECONDS);
-    setClockActionPending(false);
-    if (!nextState) {
-      // Allow the draft to start with a local clock even if the server
-      // call failed so the commissioner isn't blocked.
-      setDraftClockState({
-        league_id: "local",
-        status: "running",
-        seconds_remaining: INITIAL_PICK_SECONDS,
-        clock_started_at: new Date().toISOString(),
-      });
-      setStatusMessage("Draft started (server sync unavailable).");
-    }
-    return true;
-  }, [clockActionPending, updateDraftClock]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
