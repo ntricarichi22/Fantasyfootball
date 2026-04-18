@@ -463,7 +463,14 @@ body {
   font-size: 11px;
   letter-spacing: 0.04em;
   overflow: hidden;
-  position: relative;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  height: 38px;
+  display: flex;
+  align-items: center;
 }
 .cfc-ticker-track {
   display: inline-flex;
@@ -487,6 +494,33 @@ body {
 @keyframes cfc-ticker-scroll {
   0%   { transform: translateX(0); }
   100% { transform: translateX(-50%); }
+}
+
+/* --- Draft ticker (replaces the blue ticker during active drafts) --- */
+.cfc-bottom-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  width: 100%;
+}
+.cfc-draft-ticker {
+  height: 38px;
+  overflow: hidden;
+}
+.cfc-draft-ticker-track {
+  animation: cfc-draft-ticker-scroll 80s linear infinite;
+  will-change: transform;
+}
+@keyframes cfc-draft-ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cfc-draft-ticker-track {
+    animation: none;
+  }
 }
 
 /* --- Tab bar (used by Team HQ + Trade Center) ----------------------- */
