@@ -33,6 +33,11 @@
   --cfc-border-thin: 2px solid #1A1A1A;
   --cfc-border-muted: 2px solid #C8C3B8;
 
+  /* Font stacks (loaded via <link> in layout.tsx) */
+  --font-body: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-headline: "Syne", "DM Sans", system-ui, sans-serif;
+
   /* Background + foreground for the document */
   --background: #F5F0E6;
   --foreground: #1A1A1A;

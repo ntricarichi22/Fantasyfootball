@@ -25,42 +25,42 @@ type Props = {
 export function WelcomeScreen({ onPick, funFact, funFactLoading, funFactError }: Props) {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-4 py-10">
-      <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-red-600/20 ring-1 ring-red-500/40">
-        <ScrollText className="h-7 w-7 text-red-400" />
+      <div className="cfc-ai-icon h-14 w-14">
+        <ScrollText className="h-7 w-7" />
       </div>
-      <h1 className="mt-4 text-3xl font-semibold text-white">CFC Historian</h1>
-      <p className="mt-2 text-center text-sm text-gray-400">
+      <h1 className="mt-4 text-3xl font-headline font-bold">CFC Historian</h1>
+      <p className="mt-2 text-center text-sm" style={{ color: "var(--cfc-muted)" }}>
         Ask me anything about our league&apos;s history.
       </p>
 
       {/* Fun fact card */}
-      <div className="mt-8 w-full rounded-2xl border border-white/5 bg-gradient-to-br from-[#171a23] to-[#11131b] p-5 shadow-sm">
+      <div className="mt-8 w-full cfc-copilot p-5">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-red-400" />
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-gray-300">
+          <Sparkles className="h-4 w-4" style={{ color: "var(--cfc-red)" }} />
+          <p className="text-xs font-semibold uppercase tracking-[0.18em]">
             📜 This Week in CFC History
           </p>
         </div>
         <div className="mt-3 min-h-[3.5rem]">
           {funFactLoading && !funFact ? (
             <div className="flex items-center gap-1.5" aria-label="Loading fun fact">
-              <span className="h-2 w-2 animate-bounce rounded-full bg-red-400 [animation-delay:-0.3s]" />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-red-400 [animation-delay:-0.15s]" />
-              <span className="h-2 w-2 animate-bounce rounded-full bg-red-400" />
+              <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--cfc-red)] [animation-delay:-0.3s]" />
+              <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--cfc-red)] [animation-delay:-0.15s]" />
+              <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--cfc-red)]" />
             </div>
           ) : funFactError ? (
-            <p className="text-sm text-amber-300/90">{funFactError}</p>
+            <p className="text-sm" style={{ color: "var(--cfc-yellow)" }}>{funFactError}</p>
           ) : funFact ? (
             <Markdown text={funFact} />
           ) : (
-            <p className="text-sm text-gray-500">No fact available right now.</p>
+            <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>No fact available right now.</p>
           )}
         </div>
       </div>
 
       {/* Suggestion chips */}
       <div className="mt-8 w-full">
-        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-gray-400">
+        <p className="mb-3 text-xs font-semibold uppercase tracking-[0.18em]" style={{ color: "var(--cfc-muted)" }}>
           Try asking
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -69,7 +69,7 @@ export function WelcomeScreen({ onPick, funFact, funFactLoading, funFactError }:
               key={s}
               type="button"
               onClick={() => onPick(s)}
-              className="rounded-xl border border-white/5 bg-[#11131b] px-4 py-3 text-left text-sm text-gray-200 transition hover:border-red-500/40 hover:bg-[#171a23] hover:text-white"
+              className="cfc-card cfc-chip-interactive px-4 py-3 text-left text-sm"
             >
               {s}
             </button>

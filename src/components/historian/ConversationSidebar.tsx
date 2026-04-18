@@ -31,13 +31,13 @@ export function ConversationSidebar({
           type="button"
           aria-label="Close conversations"
           onClick={onClose}
-          className="fixed inset-0 z-30 bg-black/60 md:hidden"
+          className="cfc-overlay md:hidden"
         />
       )}
 
       <aside
         className={[
-          "z-40 flex w-72 flex-none flex-col border-r border-white/5 bg-[#0d0f16] transition-transform duration-200",
+          "z-40 flex w-72 flex-none flex-col border-r-[2.5px] border-[var(--cfc-ink)] bg-[var(--cfc-card)] transition-transform duration-200",
           // Mobile: overlay drawer
           "fixed inset-y-0 left-0 md:static md:inset-auto",
           open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
@@ -45,14 +45,14 @@ export function ConversationSidebar({
           open ? "md:flex" : "md:hidden",
         ].join(" ")}
       >
-        <div className="flex items-center justify-between border-b border-white/5 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">
+        <div className="flex items-center justify-between border-b-[2.5px] border-[var(--cfc-ink)] px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-[0.2em]" style={{ color: "var(--cfc-muted)" }}>
             Conversations
           </p>
           <button
             type="button"
             onClick={onClose}
-            className="rounded p-1 text-gray-400 hover:bg-white/5 hover:text-white md:hidden"
+            className="cfc-btn cfc-btn-sm md:hidden"
             aria-label="Close conversations"
           >
             <X className="h-4 w-4" />
@@ -63,16 +63,16 @@ export function ConversationSidebar({
           <button
             type="button"
             onClick={onNew}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-red-600/90 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-500"
+            className="cfc-btn cfc-btn-primary w-full flex items-center justify-center gap-2"
           >
             <Plus className="h-4 w-4" />
             New conversation
           </button>
         </div>
 
-        <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3">
+        <div className="mt-3 flex-1 overflow-y-auto px-2 pb-3 cfc-no-scrollbar">
           {conversations.length === 0 ? (
-            <p className="px-3 py-6 text-center text-xs text-gray-500">
+            <p className="px-3 py-6 text-center text-xs" style={{ color: "var(--cfc-muted)" }}>
               No past conversations yet.
             </p>
           ) : (
@@ -85,8 +85,8 @@ export function ConversationSidebar({
                       className={[
                         "group flex items-start gap-2 rounded-lg px-2 py-2 text-left text-sm transition",
                         active
-                          ? "bg-red-600/15 text-white"
-                          : "text-gray-300 hover:bg-white/5 hover:text-white",
+                          ? "cfc-card-ink"
+                          : "cfc-chip-interactive",
                       ].join(" ")}
                     >
                       <button
@@ -97,12 +97,13 @@ export function ConversationSidebar({
                         <MessageSquare
                           className={[
                             "mt-0.5 h-4 w-4 flex-none",
-                            active ? "text-red-400" : "text-gray-500",
+                            active ? "" : "",
                           ].join(" ")}
+                          style={{ color: active ? "var(--cfc-red)" : "var(--cfc-muted)" }}
                         />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium">{c.title}</p>
-                          <p className="text-[11px] text-gray-500">
+                          <p className="text-[11px]" style={{ color: "var(--cfc-muted)" }}>
                             {relativeTime(c.updatedAt)}
                           </p>
                         </div>
@@ -113,7 +114,8 @@ export function ConversationSidebar({
                           e.stopPropagation();
                           onDelete(c.id);
                         }}
-                        className="flex h-7 w-7 flex-none items-center justify-center rounded text-gray-500 opacity-0 transition hover:bg-white/10 hover:text-red-400 group-hover:opacity-100"
+                        className="flex h-7 w-7 flex-none items-center justify-center rounded opacity-0 transition hover:bg-[var(--cfc-canvas)] group-hover:opacity-100"
+                        style={{ color: "var(--cfc-muted)" }}
                         aria-label="Delete conversation"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

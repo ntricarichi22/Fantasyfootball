@@ -582,7 +582,7 @@ export default function TradeThreadPage() {
 
   if (loading) {
     return (
-      <main className="flex h-screen items-center justify-center bg-black text-gray-400">
+      <main className="flex min-h-[calc(100vh-44px)] items-center justify-center">
         Loading…
       </main>
     );
@@ -590,7 +590,7 @@ export default function TradeThreadPage() {
 
   if (!thread) {
     return (
-      <main className="flex h-screen flex-col items-center justify-center gap-4 bg-black text-gray-400">
+      <main className="flex min-h-[calc(100vh-44px)] flex-col items-center justify-center gap-4">
         <p>Thread not found</p>
         <button
           type="button"
@@ -607,7 +607,7 @@ export default function TradeThreadPage() {
     thread.team_a_id === rosterId ? thread.team_b_id : thread.team_a_id;
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-black text-gray-100">
+    <main className="flex min-h-[calc(100vh-44px)] flex-col overflow-hidden">
       {/* Toast */}
       {toast && (
         <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-lg bg-emerald-700 px-6 py-3 text-sm font-semibold text-white shadow-lg">

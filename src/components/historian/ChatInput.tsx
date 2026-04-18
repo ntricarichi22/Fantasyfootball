@@ -45,7 +45,7 @@ export function ChatInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="flex items-end gap-2 rounded-2xl border border-white/10 bg-[#11131b] p-2 shadow-[0_10px_30px_rgba(0,0,0,0.35)] focus-within:border-red-500/50"
+      className="cfc-input flex items-end gap-2 p-2"
     >
       <textarea
         ref={ref}
@@ -55,17 +55,18 @@ export function ChatInput({
         rows={1}
         disabled={disabled}
         placeholder={placeholder}
-        className="max-h-[180px] flex-1 resize-none bg-transparent px-3 py-2 text-sm text-white placeholder:text-gray-500 focus:outline-none disabled:opacity-60"
+        className="max-h-[180px] flex-1 resize-none bg-transparent px-3 py-2 text-sm focus:outline-none disabled:opacity-60"
+        style={{ color: "var(--cfc-ink)", caretColor: "var(--cfc-ink)" }}
         aria-label="Ask the CFC Historian"
       />
       <button
         type="submit"
         disabled={!canSend}
         className={[
-          "flex h-10 w-10 flex-none items-center justify-center rounded-xl transition",
+          "cfc-btn cfc-btn-sm h-10 w-10 flex-none",
           canSend
-            ? "bg-red-600 text-white shadow-[0_10px_30px_rgba(239,68,68,0.25)] hover:bg-red-500"
-            : "cursor-not-allowed bg-white/5 text-gray-500",
+            ? "cfc-btn-primary"
+            : "opacity-50 cursor-not-allowed",
         ].join(" ")}
         aria-label="Send message"
       >

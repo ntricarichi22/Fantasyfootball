@@ -99,7 +99,7 @@ const classifyDeal = (team1Gets: number, team1Gives: number): DealQuality => {
 };
 
 const dealChipColors: Record<DealQuality, string> = {
-  Steal: "bg-emerald-600 text-white",
+  Steal: "cfc-chip cfc-chip-blue",
   "Good Deal": "bg-emerald-700/80 text-emerald-50",
   Fair: "bg-blue-600/80 text-blue-50",
   "Slight Overpay": "bg-amber-600/80 text-amber-50",
@@ -759,14 +759,14 @@ function TradeBuilderContent() {
       "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
       isSelected
         ? "border-indigo-500/80 bg-indigo-900/40"
-        : "border-gray-800 bg-gray-950 hover:bg-gray-900",
+        : "cfc-card-muted cfc-chip-interactive",
     ].join(" ");
 
     return (
       <div key={player.id} className={rowClasses}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="font-semibold text-white break-words">{player.name}</span>
-          <div className="flex flex-wrap items-center gap-1 text-[11px] text-gray-400">
+          <div className="flex flex-wrap items-center gap-1 text-[11px] text-xs">
             <span>{player.position}</span>
             <span className="text-gray-600">•</span>
             <span>{player.team}</span>
@@ -774,7 +774,7 @@ function TradeBuilderContent() {
             <span>{player.ageLabel}</span>
           </div>
         </div>
-        <span className="shrink-0 text-xs font-medium text-gray-300">
+        <span className="shrink-0 text-xs font-medium text-sm">
           {player.value.toLocaleString()}
         </span>
         {isSelected ? (
@@ -822,20 +822,20 @@ function TradeBuilderContent() {
       "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
       isSelected
         ? "border-indigo-500/80 bg-indigo-900/40"
-        : "border-gray-800 bg-gray-950 hover:bg-gray-900",
+        : "cfc-card-muted cfc-chip-interactive",
     ].join(" ");
 
     return (
       <div key={key} className={rowClasses}>
         <div className="flex min-w-0 flex-1 items-center gap-2">
           <span className="font-semibold text-white break-words">{label}</span>
-          <div className="flex flex-wrap items-center gap-1 text-[11px] text-gray-400">
+          <div className="flex flex-wrap items-center gap-1 text-[11px] text-xs">
             <span>{pick.season || "Future"}</span>
             <span className="text-gray-600">•</span>
             <span>{pick.round ? `Rd ${pick.round}` : "Rd tbd"}</span>
           </div>
         </div>
-        <span className="shrink-0 text-xs font-medium text-gray-300">
+        <span className="shrink-0 text-xs font-medium text-sm">
           {value.toLocaleString()}
         </span>
         {isSelected ? (
@@ -878,10 +878,10 @@ function TradeBuilderContent() {
   ) => (
     <div className="flex h-full min-h-0 flex-col gap-3">
       {/* Roster card — 60% */}
-      <section className="flex flex-[3] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-3 shadow-lg">
+      <section className="flex flex-[3] min-h-0 flex-col overflow-hidden rounded-xl cfc-card p-3">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">Roster</h2>
-          <span className="text-sm font-bold text-white">{teamName}</span>
+          <h2 className="text-sm font-semibold">Roster</h2>
+          <span className="text-sm font-bold">{teamName}</span>
         </div>
         <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
           {data.starting.length > 0 && (
@@ -903,10 +903,10 @@ function TradeBuilderContent() {
       </section>
 
       {/* Draft Picks card — 40% */}
-      <section className="flex flex-[2] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-3 shadow-lg">
+      <section className="flex flex-[2] min-h-0 flex-col overflow-hidden rounded-xl cfc-card p-3">
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-white">Draft Picks</h2>
-          <span className="text-sm font-bold text-white">{teamName}</span>
+          <h2 className="text-sm font-semibold">Draft Picks</h2>
+          <span className="text-sm font-bold">{teamName}</span>
         </div>
         {draftOrderAvailable === false && (
           <p className="mb-1 text-[10px] text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
@@ -927,10 +927,10 @@ function TradeBuilderContent() {
   /* ================================================================ */
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-black text-gray-100">
+    <main className="flex min-h-[calc(100vh-44px)] flex-col overflow-hidden">
       {/* Toast */}
       {toast && (
-        <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-lg bg-emerald-700 px-6 py-3 text-sm font-semibold text-white shadow-lg">
+        <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-lg bg-emerald-700 px-6 py-3 text-sm font-semibold shadow-lg">
           {toast}
         </div>
       )}
@@ -944,16 +944,16 @@ function TradeBuilderContent() {
 
       <div className="mx-auto flex h-full w-full max-w-7xl flex-col px-4 py-4">
         {/* ---- Header bar ---- */}
-        <header className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-gray-800 bg-gray-900/80 px-4 py-3">
+        <header className="mb-3 flex flex-wrap items-center gap-3 rounded-xl cfc-card px-4 py-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-gray-400">Team 1:</span>
-            <span className="text-lg font-bold text-white">{team1Name}</span>
+            <span className="text-xs uppercase tracking-wide text-xs">Team 1:</span>
+            <span className="text-lg font-bold">{team1Name}</span>
           </div>
 
           <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-wide text-gray-400">Team 2:</span>
+            <span className="text-xs uppercase tracking-wide text-xs">Team 2:</span>
             <select
-              className="rounded-md border border-gray-700 bg-black px-2 py-1 text-lg font-bold text-white"
+              className="rounded-md cfc-select px-2 py-1 text-lg font-bold"
               value={team2Id}
               onChange={(e) => {
                 setTeam2Id(e.target.value);
@@ -974,7 +974,7 @@ function TradeBuilderContent() {
             <button
               type="button"
               onClick={handleStartOver}
-              className="rounded-md border border-gray-700 bg-gray-800 px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-gray-700 hover:text-white"
+              className="rounded-md cfc-btn px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-gray-700 hover:"
             >
               Start Over
             </button>
@@ -984,9 +984,9 @@ function TradeBuilderContent() {
         {/* Trade Center tabs */}
         <TradeCenterTabs />
         {hasOffer && (
-          <section className="mb-3 rounded-xl border border-gray-800 bg-gray-900/80 p-4 shadow-lg">
+          <section className="mb-3 rounded-xl cfc-card p-4 shadow-lg">
             <div className="mb-3 flex flex-wrap items-center gap-3">
-              <h2 className="text-base font-bold text-white">Proposed Offer</h2>
+              <h2 className="text-base font-bold">Proposed Offer</h2>
               {dealQuality && (
                 <span
                   className={`rounded-full px-4 py-1 text-sm font-bold ${dealChipColors[dealQuality]}`}
@@ -998,7 +998,7 @@ function TradeBuilderContent() {
                 type="button"
                 disabled={!canSend || sending}
                 onClick={handleSendOffer}
-                className="ml-auto rounded-full bg-indigo-600 px-5 py-1.5 text-sm font-bold text-white shadow transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+                className="ml-auto rounded-full bg-indigo-600 px-5 py-1.5 text-sm font-bold shadow transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {sending ? "Sending…" : counterMode ? "Send Counter Offer" : "Send Trade Offer"}
               </button>
@@ -1007,7 +1007,7 @@ function TradeBuilderContent() {
             <div className="grid grid-cols-2 gap-6">
               {/* Team 2 receives (Team 1 sends) */}
               <div>
-                <p className="mb-1 inline-block rounded-md bg-gray-800 px-2 py-0.5 text-sm font-bold uppercase tracking-wide text-white">
+                <p className="mb-1 inline-block rounded-md cfc-chip px-2 py-0.5 text-sm font-bold uppercase tracking-wide ">
                   {team2Name || "Team 2"} receives
                 </p>
                 <div className="space-y-1">
@@ -1015,17 +1015,17 @@ function TradeBuilderContent() {
                     team1Sends.map((a) => (
                       <div
                         key={a.key}
-                        className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-2 py-1 text-xs"
+                        className="flex items-center gap-2 cfc-card px-2 py-1 text-xs"
                       >
-                        <span className="flex-1 text-white">{a.label}</span>
+                        <span className="flex-1 ">{a.label}</span>
                         {a.position && (
-                          <span className="text-gray-400">
+                          <span className="text-xs">
                             {a.position}
                             {a.team ? ` • ${a.team}` : ""}
                             {a.ageLabel ? ` • ${a.ageLabel}` : ""}
                           </span>
                         )}
-                        <span className="font-medium text-gray-300">
+                        <span className="font-medium text-sm">
                           {a.value.toLocaleString()}
                         </span>
                         <button
@@ -1041,14 +1041,14 @@ function TradeBuilderContent() {
                     <p className="text-xs text-gray-600">No assets yet</p>
                   )}
                 </div>
-                <p className="mt-2 text-right text-xs font-semibold text-gray-300">
+                <p className="mt-2 text-right text-xs font-semibold text-sm">
                   Total: {team1GivesTotal.toLocaleString()}
                 </p>
               </div>
 
               {/* Team 1 receives (Team 2 sends) */}
               <div>
-                <p className="mb-1 inline-block rounded-md bg-gray-800 px-2 py-0.5 text-sm font-bold uppercase tracking-wide text-white">
+                <p className="mb-1 inline-block rounded-md cfc-chip px-2 py-0.5 text-sm font-bold uppercase tracking-wide ">
                   {team1Name} receives
                 </p>
                 <div className="space-y-1">
@@ -1056,17 +1056,17 @@ function TradeBuilderContent() {
                     team2Sends.map((a) => (
                       <div
                         key={a.key}
-                        className="flex items-center gap-2 rounded-lg border border-gray-800 bg-gray-950 px-2 py-1 text-xs"
+                        className="flex items-center gap-2 cfc-card px-2 py-1 text-xs"
                       >
-                        <span className="flex-1 text-white">{a.label}</span>
+                        <span className="flex-1 ">{a.label}</span>
                         {a.position && (
-                          <span className="text-gray-400">
+                          <span className="text-xs">
                             {a.position}
                             {a.team ? ` • ${a.team}` : ""}
                             {a.ageLabel ? ` • ${a.ageLabel}` : ""}
                           </span>
                         )}
-                        <span className="font-medium text-gray-300">
+                        <span className="font-medium text-sm">
                           {a.value.toLocaleString()}
                         </span>
                         <button
@@ -1082,7 +1082,7 @@ function TradeBuilderContent() {
                     <p className="text-xs text-gray-600">No assets yet</p>
                   )}
                 </div>
-                <p className="mt-2 text-right text-xs font-semibold text-gray-300">
+                <p className="mt-2 text-right text-xs font-semibold text-sm">
                   Total: {team1GetsTotal.toLocaleString()}
                 </p>
               </div>
