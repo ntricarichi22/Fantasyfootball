@@ -107,28 +107,28 @@ const getStoredTeam = () => {
 /* ------------------------------------------------------------------ */
 
 const offerStatusColors: Record<string, string> = {
-  pending: "bg-amber-600/80 text-amber-50",
-  accepted: "bg-emerald-600/80 text-emerald-50",
-  declined: "bg-red-600/80 text-red-50",
-  withdrawn: "bg-gray-600/80 text-gray-50",
-  countered: "bg-indigo-600/80 text-indigo-50",
+  pending: "cfc-chip cfc-chip-yellow",
+  accepted: "cfc-chip cfc-chip-blue",
+  declined: "cfc-chip cfc-chip-red",
+  withdrawn: "cfc-chip cfc-chip-ink",
+  countered: "cfc-chip",
 };
 
 const threadStatusColors: Record<string, string> = {
-  open: "bg-amber-600/80 text-amber-50",
-  accepted: "bg-emerald-600/80 text-emerald-50",
-  declined: "bg-red-600/80 text-red-50",
-  withdrawn: "bg-gray-600/80 text-gray-50",
-  closed: "bg-gray-700/80 text-gray-300",
+  open: "cfc-chip cfc-chip-yellow",
+  accepted: "cfc-chip cfc-chip-blue",
+  declined: "cfc-chip cfc-chip-red",
+  withdrawn: "cfc-chip",
+  closed: "cfc-chip cfc-chip-ink",
 };
 
 const gradeColors: Record<string, string> = {
-  Steal: "bg-emerald-600 text-white",
-  "Good Deal": "bg-emerald-700 text-white",
-  Fair: "bg-blue-600 text-white",
-  "Slight Overpay": "bg-amber-600 text-white",
-  "Big Overpay": "bg-red-600 text-white",
-  "Slight Underpay": "bg-teal-600 text-white",
+  Steal: "cfc-chip cfc-chip-blue",
+  "Good Deal": "cfc-chip cfc-chip-blue",
+  Fair: "cfc-chip cfc-chip-yellow",
+  "Slight Overpay": "cfc-chip cfc-chip-yellow",
+  "Big Overpay": "cfc-chip cfc-chip-red",
+  "Slight Underpay": "cfc-chip cfc-chip-ink",
 };
 
 const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
@@ -203,18 +203,23 @@ function OfferCard({
   return (
     <div
       className={[
-        "rounded-xl border p-4",
+        "cfc-card rounded-xl p-4",
         isLatest && isPending
-          ? "border-indigo-700/60 bg-indigo-950/30"
-          : "border-gray-800 bg-gray-900/60",
+          ? "border-2"
+          : "",
       ].join(" ")}
+      style={
+        isLatest && isPending
+          ? { borderColor: "var(--cfc-blue)" }
+          : undefined
+      }
     >
       {/* Offer header */}
       <div className="mb-3 flex items-center gap-2">
-        <span className="text-xs font-semibold text-gray-400">
+        <span className="text-xs font-semibold" style={{ color: "var(--cfc-muted)" }}>
           #{index + 1} — {senderName} proposed
         </span>
-        <span className="text-xs text-gray-600">
+        <span className="text-xs" style={{ color: "var(--cfc-muted)" }}>
           {new Date(offer.created_at).toLocaleString([], {
             month: "short",
             day: "numeric",
@@ -223,12 +228,12 @@ function OfferCard({
           })}
         </span>
         <span
-          className={`ml-auto rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${offerStatusColors[offer.status] || "bg-gray-700 text-gray-300"}`}
+          className={`ml-auto text-[10px] font-bold uppercase ${offerStatusColors[offer.status] || "cfc-chip cfc-chip-ink"}`}
         >
           {offer.status}
         </span>
         <span
-          className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold ${gradeColors[offer.grade_label] || "bg-gray-700 text-gray-300"}`}
+          className={`text-[10px] font-bold ${gradeColors[offer.grade_label] || "cfc-chip cfc-chip-ink"}`}
         >
           {offer.grade_label}
         </span>
@@ -237,53 +242,53 @@ function OfferCard({
       {/* Two-column assets */}
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--cfc-muted)" }}>
             {senderName} sends
           </p>
           <div className="space-y-1">
             {(offer.assets_from ?? []).map((a) => (
               <div
                 key={a.key}
-                className="flex items-center gap-1.5 rounded-md border border-gray-800 bg-gray-950 px-2 py-1 text-xs"
+                className="cfc-card-flat flex items-center gap-1.5 rounded-md px-2 py-1 text-xs"
               >
-                <span className="flex-1 text-white">{a.label}</span>
+                <span className="flex-1 text-[var(--cfc-ink)]">{a.label}</span>
                 {a.position && (
-                  <span className="text-gray-500">
+                  <span style={{ color: "var(--cfc-muted)" }}>
                     {a.position}
                     {a.team ? ` · ${a.team}` : ""}
                   </span>
                 )}
-                <span className="font-medium text-gray-300">{a.value.toLocaleString()}</span>
+                <span className="font-medium" style={{ color: "var(--cfc-muted)" }}>{a.value.toLocaleString()}</span>
               </div>
             ))}
           </div>
-          <p className="mt-1 text-right text-[11px] font-semibold text-gray-300">
+          <p className="mt-1 text-right text-[11px] font-semibold" style={{ color: "var(--cfc-muted)" }}>
             {offer.from_value.toLocaleString()}
           </p>
         </div>
 
         <div>
-          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide text-gray-400">
+          <p className="mb-1 text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--cfc-muted)" }}>
             {receiverName} sends
           </p>
           <div className="space-y-1">
             {(offer.assets_to ?? []).map((a) => (
               <div
                 key={a.key}
-                className="flex items-center gap-1.5 rounded-md border border-gray-800 bg-gray-950 px-2 py-1 text-xs"
+                className="cfc-card-flat flex items-center gap-1.5 rounded-md px-2 py-1 text-xs"
               >
-                <span className="flex-1 text-white">{a.label}</span>
+                <span className="flex-1 text-[var(--cfc-ink)]">{a.label}</span>
                 {a.position && (
-                  <span className="text-gray-500">
+                  <span style={{ color: "var(--cfc-muted)" }}>
                     {a.position}
                     {a.team ? ` · ${a.team}` : ""}
                   </span>
                 )}
-                <span className="font-medium text-gray-300">{a.value.toLocaleString()}</span>
+                <span className="font-medium" style={{ color: "var(--cfc-muted)" }}>{a.value.toLocaleString()}</span>
               </div>
             ))}
           </div>
-          <p className="mt-1 text-right text-[11px] font-semibold text-gray-300">
+          <p className="mt-1 text-right text-[11px] font-semibold" style={{ color: "var(--cfc-muted)" }}>
             {offer.to_value.toLocaleString()}
           </p>
         </div>
@@ -291,14 +296,14 @@ function OfferCard({
 
       {/* Action buttons (only on latest pending offer) */}
       {isLatest && isPending && (
-        <div className="mt-3 flex flex-wrap gap-2 border-t border-gray-800 pt-3">
+        <div className="cfc-divider mt-3 flex flex-wrap gap-2 pt-3">
           {isReceiver && (
             <>
               <button
                 type="button"
                 disabled={actionLoading}
                 onClick={onAccept}
-                className="flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-40"
+                className="cfc-btn cfc-btn-accent cfc-btn-sm flex items-center gap-1.5"
               >
                 <Check className="h-3.5 w-3.5" />
                 Accept
@@ -307,7 +312,7 @@ function OfferCard({
                 type="button"
                 disabled={actionLoading}
                 onClick={onDecline}
-                className="flex items-center gap-1.5 rounded-lg bg-red-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-red-600 disabled:opacity-40"
+                className="cfc-btn cfc-btn-danger cfc-btn-sm flex items-center gap-1.5"
               >
                 <X className="h-3.5 w-3.5" />
                 Decline
@@ -315,7 +320,7 @@ function OfferCard({
               <button
                 type="button"
                 onClick={onCounter}
-                className="flex items-center gap-1.5 rounded-lg bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-600"
+                className="cfc-btn cfc-btn-primary cfc-btn-sm flex items-center gap-1.5"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 Counter
@@ -327,7 +332,7 @@ function OfferCard({
               type="button"
               disabled={actionLoading}
               onClick={onWithdraw}
-              className="flex items-center gap-1.5 rounded-lg bg-gray-700 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-gray-600 disabled:opacity-40"
+              className="cfc-btn cfc-btn-sm flex items-center gap-1.5"
             >
               <Undo2 className="h-3.5 w-3.5" />
               Withdraw
@@ -595,7 +600,7 @@ export default function TradeThreadPage() {
         <button
           type="button"
           onClick={() => router.push("/trades")}
-          className="rounded-md bg-gray-800 px-4 py-2 text-sm text-white hover:bg-gray-700"
+          className="cfc-btn cfc-btn-sm"
         >
           Back to Trades
         </button>
@@ -607,10 +612,10 @@ export default function TradeThreadPage() {
     thread.team_a_id === rosterId ? thread.team_b_id : thread.team_a_id;
 
   return (
-    <main className="flex min-h-[calc(100vh-44px)] flex-col overflow-hidden">
+    <main className="flex min-h-[calc(100vh-44px)] flex-col overflow-hidden" style={{ background: "var(--cfc-canvas)" }}>
       {/* Toast */}
       {toast && (
-        <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-lg bg-emerald-700 px-6 py-3 text-sm font-semibold text-white shadow-lg">
+        <div className="cfc-toast cfc-toast-success fixed left-1/2 top-6 z-50 -translate-x-1/2">
           {toast}
         </div>
       )}
@@ -621,19 +626,19 @@ export default function TradeThreadPage() {
           <button
             type="button"
             onClick={() => router.push("/trades")}
-            className="rounded-md p-1.5 text-gray-400 transition hover:bg-white/10 hover:text-white"
+            className="cfc-btn cfc-btn-sm"
           >
             <ArrowLeft className="h-5 w-5" />
           </button>
-          <h1 className="text-lg font-bold text-white">
+          <h1 className="font-headline text-lg font-bold text-[var(--cfc-ink)]">
             Trade Thread · {getTeamLabel(counterpartId)}
           </h1>
           <span
-            className={`rounded-full px-3 py-0.5 text-xs font-bold uppercase ${threadStatusColors[thread.status] || "bg-gray-700 text-gray-300"}`}
+            className={`text-xs font-bold uppercase ${threadStatusColors[thread.status] || "cfc-chip cfc-chip-ink"}`}
           >
             {thread.status}
           </span>
-          <span className="ml-auto text-xs text-gray-500">
+          <span className="ml-auto text-xs" style={{ color: "var(--cfc-muted)" }}>
             {offers.length} offer{offers.length !== 1 ? "s" : ""}
           </span>
         </header>
@@ -646,7 +651,7 @@ export default function TradeThreadPage() {
           {/* Left: Offer timeline */}
           <div className="flex w-1/2 flex-col gap-3 overflow-y-auto">
             {offers.length === 0 ? (
-              <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-6 text-center text-sm text-gray-500">
+              <div className="cfc-card rounded-xl p-6 text-center text-sm" style={{ color: "var(--cfc-muted)" }}>
                 No offers yet.
               </div>
             ) : (
@@ -675,13 +680,13 @@ export default function TradeThreadPage() {
 
             {/* Counter panel */}
             {showCounterPanel && latestPendingOffer && latestPendingOffer.to_team_id === rosterId && (
-              <div className="rounded-xl border border-indigo-800/60 bg-indigo-950/30 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-bold text-white">Counter Options</h3>
+              <div className="cfc-card rounded-xl p-4">
+                <div className="cfc-section-tag cfc-section-tag-blue mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[var(--cfc-ink)]">Counter Options</h3>
                   <button
                     type="button"
                     onClick={() => setShowCounterPanel(false)}
-                    className="text-gray-500 hover:text-gray-300"
+                    style={{ color: "var(--cfc-muted)" }}
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -689,20 +694,20 @@ export default function TradeThreadPage() {
 
                 <div className="flex flex-col gap-2">
                   {/* AI Suggestions */}
-                  <div className="rounded-lg border border-indigo-700/60 bg-indigo-900/20 p-3">
+                  <div className="cfc-card rounded-lg p-3">
                     <button
                       type="button"
                       onClick={() => setShowAiSuggestions(!showAiSuggestions)}
                       className="flex w-full items-center gap-2 text-left"
                     >
-                      <Sparkles className="h-4 w-4 text-indigo-400" />
-                      <span className="flex-1 text-sm font-semibold text-white">
+                      <Sparkles className="h-4 w-4" style={{ color: "var(--cfc-blue)" }} />
+                      <span className="flex-1 text-sm font-semibold text-[var(--cfc-ink)]">
                         AI Counter Suggestions
                       </span>
                       {showAiSuggestions ? (
-                        <ChevronUp className="h-4 w-4 text-gray-400" />
+                        <ChevronUp className="h-4 w-4" style={{ color: "var(--cfc-muted)" }} />
                       ) : (
-                        <ChevronDown className="h-4 w-4 text-gray-400" />
+                        <ChevronDown className="h-4 w-4" style={{ color: "var(--cfc-muted)" }} />
                       )}
                     </button>
 
@@ -710,7 +715,7 @@ export default function TradeThreadPage() {
                       <div className="mt-3 space-y-3">
                         {/* Preference chips */}
                         <div>
-                          <p className="mb-1.5 text-[10px] uppercase tracking-wide text-gray-400">
+                          <p className="mb-1.5 text-[10px] uppercase tracking-wide" style={{ color: "var(--cfc-muted)" }}>
                             Preference
                           </p>
                           <div className="flex flex-wrap gap-1.5">
@@ -720,10 +725,10 @@ export default function TradeThreadPage() {
                                 type="button"
                                 onClick={() => setPreference(p.value)}
                                 className={[
-                                  "rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition",
+                                  "cfc-btn cfc-btn-sm",
                                   preference === p.value
-                                    ? "bg-indigo-600 text-white"
-                                    : "bg-gray-800 text-gray-400 hover:bg-gray-700",
+                                    ? "cfc-btn-primary"
+                                    : "",
                                 ].join(" ")}
                               >
                                 {p.label}
@@ -736,7 +741,7 @@ export default function TradeThreadPage() {
                           type="button"
                           disabled={aiLoading}
                           onClick={handleGenerateAI}
-                          className="w-full rounded-lg bg-indigo-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-indigo-600 disabled:opacity-40"
+                          className="cfc-btn cfc-btn-primary w-full"
                         >
                           {aiLoading ? "Generating…" : "Generate 3 suggestions"}
                         </button>
@@ -749,26 +754,31 @@ export default function TradeThreadPage() {
                                 type="button"
                                 onClick={() => setSelectedSuggestion(i)}
                                 className={[
-                                  "w-full rounded-lg border p-3 text-left transition",
+                                  "cfc-card w-full rounded-lg p-3 text-left transition",
                                   selectedSuggestion === i
-                                    ? "border-indigo-500 bg-indigo-900/50"
-                                    : "border-gray-700 bg-gray-900 hover:border-gray-600",
+                                    ? "border-2"
+                                    : "",
                                 ].join(" ")}
+                                style={
+                                  selectedSuggestion === i
+                                    ? { borderColor: "var(--cfc-blue)" }
+                                    : undefined
+                                }
                               >
                                 <div className="mb-1 flex items-center gap-2">
-                                  <span className="text-xs font-bold text-white">
+                                  <span className="text-xs font-bold text-[var(--cfc-ink)]">
                                     {s.grade_label}
                                   </span>
                                   <span
-                                    className={`rounded-full px-2 py-0.5 text-[9px] font-bold ${gradeColors[s.grade] || "bg-gray-700 text-gray-300"}`}
+                                    className={`text-[9px] font-bold ${gradeColors[s.grade] || "cfc-chip cfc-chip-ink"}`}
                                   >
                                     {s.grade}
                                   </span>
-                                  <span className="ml-auto text-[10px] text-gray-400">
+                                  <span className="ml-auto text-[10px]" style={{ color: "var(--cfc-muted)" }}>
                                     {s.from_value.toLocaleString()} pts
                                   </span>
                                 </div>
-                                <div className="text-[10px] text-gray-400">
+                                <div className="text-[10px]" style={{ color: "var(--cfc-muted)" }}>
                                   You get:{" "}
                                   {(s.assets_from ?? [])
                                     .slice(0, 3)
@@ -784,7 +794,7 @@ export default function TradeThreadPage() {
                                 type="button"
                                 disabled={sendingCounter}
                                 onClick={handleSubmitAICounter}
-                                className="w-full rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-600 disabled:opacity-40"
+                                className="cfc-btn cfc-btn-accent w-full"
                               >
                                 {sendingCounter ? "Sending…" : "Send this counter"}
                               </button>
@@ -799,12 +809,12 @@ export default function TradeThreadPage() {
                   <button
                     type="button"
                     onClick={handleManualCounter}
-                    className="flex w-full items-center gap-2 rounded-lg border border-gray-700 bg-gray-800 px-4 py-3 text-left text-sm font-semibold text-white transition hover:bg-gray-700"
+                    className="cfc-btn flex w-full items-center gap-2 text-left"
                   >
                     <span>✏️</span>
                     <div>
                       <p>Edit Counter Manually</p>
-                      <p className="text-xs font-normal text-gray-400">
+                      <p className="text-xs font-normal" style={{ color: "var(--cfc-muted)" }}>
                         Opens Manual Trade Builder pre-filled
                       </p>
                     </div>
@@ -815,22 +825,22 @@ export default function TradeThreadPage() {
 
             {/* Closed thread notice */}
             {thread.status !== "open" && (
-              <div className="rounded-lg border border-gray-800 bg-gray-900/50 px-4 py-3 text-center text-sm text-gray-400">
+              <div className="cfc-card rounded-lg px-4 py-3 text-center text-sm" style={{ color: "var(--cfc-muted)" }}>
                 This thread has been{" "}
-                <strong className="text-white">{thread.status}</strong>.
+                <strong className="text-[var(--cfc-ink)]">{thread.status}</strong>.
               </div>
             )}
           </div>
 
           {/* Right: Chat */}
-          <div className="flex w-1/2 flex-col rounded-xl border border-gray-800 bg-gray-900/50">
-            <div className="border-b border-gray-800 px-4 py-3">
-              <h2 className="text-sm font-bold text-white">Chat</h2>
+          <div className="cfc-card flex w-1/2 flex-col rounded-xl">
+            <div className="cfc-divider px-4 py-3">
+              <h2 className="text-sm font-bold text-[var(--cfc-ink)]">Chat</h2>
             </div>
 
             <div className="flex-1 space-y-2 overflow-y-auto p-4">
               {messages.length === 0 ? (
-                <p className="text-center text-sm text-gray-600">
+                <p className="text-center text-sm" style={{ color: "var(--cfc-muted)" }}>
                   No messages yet. Start the conversation!
                 </p>
               ) : (
@@ -844,16 +854,17 @@ export default function TradeThreadPage() {
                       <div
                         className={[
                           "max-w-[80%] rounded-lg px-3 py-2 text-sm",
-                          isMe ? "bg-red-700/60 text-white" : "bg-gray-800 text-gray-200",
+                          isMe ? "cfc-card-ink" : "cfc-card",
                         ].join(" ")}
+                        style={isMe ? { color: "#fff" } : undefined}
                       >
                         {!isMe && (
-                          <p className="mb-0.5 text-[10px] font-semibold text-gray-400">
+                          <p className="mb-0.5 text-[10px] font-semibold" style={{ color: "var(--cfc-muted)" }}>
                             {getTeamLabel(msg.from_team_id)}
                           </p>
                         )}
                         <p>{msg.message}</p>
-                        <p className="mt-1 text-[10px] text-gray-500">
+                        <p className="mt-1 text-[10px]" style={{ color: isMe ? "rgba(255,255,255,0.6)" : "var(--cfc-muted)" }}>
                           {new Date(msg.created_at).toLocaleTimeString([], {
                             hour: "2-digit",
                             minute: "2-digit",
@@ -868,7 +879,7 @@ export default function TradeThreadPage() {
             </div>
 
             {/* Message input */}
-            <div className="border-t border-gray-800 p-3">
+            <div className="cfc-divider p-3">
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -881,13 +892,13 @@ export default function TradeThreadPage() {
                     }
                   }}
                   placeholder="Type a message…"
-                  className="flex-1 rounded-lg border border-gray-700 bg-gray-950 px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-gray-500"
+                  className="cfc-input cfc-mono flex-1"
                 />
                 <button
                   type="button"
                   onClick={handleSendMessage}
                   disabled={!newMessage.trim()}
-                  className="rounded-lg bg-red-600 px-3 py-2 text-white transition hover:bg-red-500 disabled:opacity-40"
+                  className="cfc-btn cfc-btn-primary cfc-btn-sm"
                 >
                   <Send className="h-4 w-4" />
                 </button>

@@ -100,10 +100,10 @@ const classifyDeal = (team1Gets: number, team1Gives: number): DealQuality => {
 
 const dealChipColors: Record<DealQuality, string> = {
   Steal: "cfc-chip cfc-chip-blue",
-  "Good Deal": "bg-emerald-700/80 text-emerald-50",
-  Fair: "bg-blue-600/80 text-blue-50",
-  "Slight Overpay": "bg-amber-600/80 text-amber-50",
-  "Big Overpay": "bg-red-600/80 text-red-50",
+  "Good Deal": "cfc-chip cfc-chip-blue",
+  Fair: "cfc-chip cfc-chip-yellow",
+  "Slight Overpay": "cfc-chip cfc-chip-yellow",
+  "Big Overpay": "cfc-chip cfc-chip-red",
 };
 
 /* ------------------------------------------------------------------ */
@@ -756,21 +756,25 @@ function TradeBuilderContent() {
     const key = `player:${player.id}`;
     const isSelected = selectedKeys.has(key);
     const rowClasses = [
-      "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
+      "flex items-center gap-2 rounded-lg px-3 py-2 text-xs sm:text-sm transition",
       isSelected
-        ? "border-indigo-500/80 bg-indigo-900/40"
-        : "cfc-card-muted cfc-chip-interactive",
+        ? "cfc-card-flat border-2"
+        : "cfc-card-muted cfc-chip-interactive border",
     ].join(" ");
 
     return (
-      <div key={player.id} className={rowClasses}>
+      <div
+        key={player.id}
+        className={rowClasses}
+        style={isSelected ? { borderColor: "var(--cfc-blue)" } : undefined}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="font-semibold text-white break-words">{player.name}</span>
+          <span className="font-semibold text-[var(--cfc-ink)] break-words">{player.name}</span>
           <div className="flex flex-wrap items-center gap-1 text-[11px] text-xs">
             <span>{player.position}</span>
-            <span className="text-gray-600">•</span>
+            <span style={{ color: "var(--cfc-muted)" }}>•</span>
             <span>{player.team}</span>
-            <span className="text-gray-600">•</span>
+            <span style={{ color: "var(--cfc-muted)" }}>•</span>
             <span>{player.ageLabel}</span>
           </div>
         </div>
@@ -781,7 +785,7 @@ function TradeBuilderContent() {
           <button
             type="button"
             onClick={() => onRemove(key)}
-            className="shrink-0 rounded-full bg-red-600/80 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-red-500"
+            className="cfc-btn cfc-btn-danger cfc-btn-sm shrink-0 px-2 py-0.5 text-[10px]"
           >
             ×
           </button>
@@ -799,7 +803,7 @@ function TradeBuilderContent() {
                 value: player.value,
               })
             }
-            className="shrink-0 rounded-full bg-indigo-600/80 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-indigo-500"
+            className="cfc-btn cfc-btn-primary cfc-btn-sm shrink-0 px-2 py-0.5 text-[10px]"
           >
             +
           </button>
@@ -819,19 +823,23 @@ function TradeBuilderContent() {
     const label = draftPickText(pick);
     const value = computePickValue(pick);
     const rowClasses = [
-      "flex items-center gap-2 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
+      "flex items-center gap-2 rounded-lg px-3 py-2 text-xs sm:text-sm transition",
       isSelected
-        ? "border-indigo-500/80 bg-indigo-900/40"
-        : "cfc-card-muted cfc-chip-interactive",
+        ? "cfc-card-flat border-2"
+        : "cfc-card-muted cfc-chip-interactive border",
     ].join(" ");
 
     return (
-      <div key={key} className={rowClasses}>
+      <div
+        key={key}
+        className={rowClasses}
+        style={isSelected ? { borderColor: "var(--cfc-blue)" } : undefined}
+      >
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="font-semibold text-white break-words">{label}</span>
+          <span className="font-semibold text-[var(--cfc-ink)] break-words">{label}</span>
           <div className="flex flex-wrap items-center gap-1 text-[11px] text-xs">
             <span>{pick.season || "Future"}</span>
-            <span className="text-gray-600">•</span>
+            <span style={{ color: "var(--cfc-muted)" }}>•</span>
             <span>{pick.round ? `Rd ${pick.round}` : "Rd tbd"}</span>
           </div>
         </div>
@@ -842,7 +850,7 @@ function TradeBuilderContent() {
           <button
             type="button"
             onClick={() => onRemove(key)}
-            className="shrink-0 rounded-full bg-red-600/80 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-red-500"
+            className="cfc-btn cfc-btn-danger cfc-btn-sm shrink-0 px-2 py-0.5 text-[10px]"
           >
             ×
           </button>
@@ -858,7 +866,7 @@ function TradeBuilderContent() {
                 pick,
               })
             }
-            className="shrink-0 rounded-full bg-indigo-600/80 px-2 py-0.5 text-[10px] font-bold text-white hover:bg-indigo-500"
+            className="cfc-btn cfc-btn-primary cfc-btn-sm shrink-0 px-2 py-0.5 text-[10px]"
           >
             +
           </button>
@@ -886,18 +894,18 @@ function TradeBuilderContent() {
         <div className="flex-1 min-h-0 space-y-2 overflow-y-auto pr-1">
           {data.starting.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500">Starting lineup</p>
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--cfc-muted)" }}>Starting lineup</p>
               {data.starting.map((p) => renderPlayerRow(p, selectedKeys, onAdd, onRemove))}
             </div>
           )}
           {data.bench.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[10px] uppercase tracking-wide text-gray-500">Bench</p>
+              <p className="text-[10px] uppercase tracking-wide" style={{ color: "var(--cfc-muted)" }}>Bench</p>
               {data.bench.map((p) => renderPlayerRow(p, selectedKeys, onAdd, onRemove))}
             </div>
           )}
           {!data.starting.length && !data.bench.length && (
-            <p className="text-xs text-gray-500">No players loaded.</p>
+            <p className="text-xs" style={{ color: "var(--cfc-muted)" }}>No players loaded.</p>
           )}
         </div>
       </section>
@@ -915,7 +923,7 @@ function TradeBuilderContent() {
           {picks.length > 0 ? (
             picks.map((pick) => renderPickRow(pick, selectedKeys, onAdd, onRemove))
           ) : (
-            <p className="text-xs text-gray-500">No draft picks found.</p>
+            <p className="text-xs" style={{ color: "var(--cfc-muted)" }}>No draft picks found.</p>
           )}
         </div>
       </section>
@@ -930,14 +938,14 @@ function TradeBuilderContent() {
     <main className="flex min-h-[calc(100vh-44px)] flex-col overflow-hidden">
       {/* Toast */}
       {toast && (
-        <div className="fixed left-1/2 top-6 z-50 -translate-x-1/2 rounded-lg bg-emerald-700 px-6 py-3 text-sm font-semibold shadow-lg">
+        <div className="cfc-toast cfc-toast-success fixed left-1/2 top-6 z-50 -translate-x-1/2">
           {toast}
         </div>
       )}
 
       {/* Error banner */}
       {(leagueIdError || errorMessage) && (
-        <div className="mx-4 mt-3 rounded-lg border border-amber-400/60 bg-amber-500/15 px-4 py-2 text-sm text-amber-50">
+        <div className="cfc-toast cfc-toast-warning mx-4 mt-3">
           {leagueIdError || errorMessage} Live Sleeper data is unavailable until it is set.
         </div>
       )}
@@ -974,7 +982,7 @@ function TradeBuilderContent() {
             <button
               type="button"
               onClick={handleStartOver}
-              className="rounded-md cfc-btn px-3 py-1.5 text-xs font-medium text-gray-300 transition hover:bg-gray-700 hover:"
+              className="cfc-btn cfc-btn-sm"
             >
               Start Over
             </button>
@@ -998,7 +1006,7 @@ function TradeBuilderContent() {
                 type="button"
                 disabled={!canSend || sending}
                 onClick={handleSendOffer}
-                className="ml-auto rounded-full bg-indigo-600 px-5 py-1.5 text-sm font-bold shadow transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-40"
+                className="cfc-btn cfc-btn-primary ml-auto"
               >
                 {sending ? "Sending…" : counterMode ? "Send Counter Offer" : "Send Trade Offer"}
               </button>
@@ -1038,7 +1046,7 @@ function TradeBuilderContent() {
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-gray-600">No assets yet</p>
+                    <p className="text-xs" style={{ color: "var(--cfc-muted)" }}>No assets yet</p>
                   )}
                 </div>
                 <p className="mt-2 text-right text-xs font-semibold text-sm">
@@ -1079,7 +1087,7 @@ function TradeBuilderContent() {
                       </div>
                     ))
                   ) : (
-                    <p className="text-xs text-gray-600">No assets yet</p>
+                    <p className="text-xs" style={{ color: "var(--cfc-muted)" }}>No assets yet</p>
                   )}
                 </div>
                 <p className="mt-2 text-right text-xs font-semibold text-sm">
@@ -1116,8 +1124,15 @@ function TradeBuilderContent() {
                 removeFromTeam2Sends,
               )
             ) : (
-              <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-gray-700 bg-gray-900/40">
-                <p className="text-sm text-gray-500">Add a Second Team</p>
+              <div
+                className="flex h-full items-center justify-center rounded-xl"
+                style={{
+                  border: "2px dashed var(--cfc-muted-border)",
+                  borderRadius: 12,
+                  background: "var(--cfc-canvas)",
+                }}
+              >
+                <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>Add a Second Team</p>
               </div>
             )}
           </div>

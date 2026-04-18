@@ -249,8 +249,8 @@ const fairnessStyles: Record<FairnessGrade, string> = {
   Fair: "cfc-chip-blue",
   "Slight Overpay": "cfc-chip-yellow",
   Overpay: "cfc-chip-red",
-  "Slight Underpay": "cfc-chip-blue",
-  Underpay: "cfc-chip",
+  "Slight Underpay": "cfc-chip-yellow",
+  Underpay: "cfc-chip-ink",
 };
 
 const isOfferWithinBounds = (giveValue: number, receiveAssets: OfferAssetDetail[], minRatio = 0.9, maxRatio = 1.1) => {
