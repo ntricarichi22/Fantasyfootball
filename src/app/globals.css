@@ -478,7 +478,7 @@ body {
   height: 6px;
   border-radius: 50%;
   background: var(--cfc-yellow);
-  align-self: center;
+  vertical-align: middle;
 }
 .cfc-ticker-name {
   color: #fff;
