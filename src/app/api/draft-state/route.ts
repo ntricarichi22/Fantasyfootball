@@ -34,7 +34,7 @@ const normalizeSeconds = (value: unknown, fallback: number = INITIAL_PICK_SECOND
 };
 
 const SELECT_COLS =
-  "league_id, status, seconds_remaining, clock_started_at, pick_submitted, pick_announced_at, current_pick_index";
+  "league_id, status, seconds_remaining, clock_started_at, pick_submitted, pick_announced_at, current_pick_index, starts_at";
 
 const fetchDraftState = async (
   client: ReturnType<typeof getSupabaseAdminClient>["client"],

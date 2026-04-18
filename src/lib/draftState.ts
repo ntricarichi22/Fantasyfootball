@@ -11,6 +11,8 @@ export type DraftStateRow = {
   pick_announced_at?: string | null;
   /** Zero-based index of the pick currently on the clock. */
   current_pick_index?: number | null;
+  /** Scheduled draft start time (ISO). When set and in the future + status is not_started, the clock bar shows the pre-draft countdown. */
+  starts_at?: string | null;
   updated_at?: string | null;
 };
 
@@ -36,6 +38,8 @@ export const normalizeDraftStateRow = (row?: Partial<DraftStateRow> | null): Dra
   const secondsRemaining = normalizeNumber(row.seconds_remaining);
   const clockStartedAt =
     typeof row.clock_started_at === "string" && row.clock_started_at ? row.clock_started_at : null;
+  const startsAt =
+    typeof row.starts_at === "string" && row.starts_at ? row.starts_at : null;
   const pickAnnouncedAt =
     typeof row.pick_announced_at === "string" && row.pick_announced_at ? row.pick_announced_at : null;
   const pickSubmitted = row.pick_submitted === true;
@@ -58,6 +62,7 @@ export const normalizeDraftStateRow = (row?: Partial<DraftStateRow> | null): Dra
     pick_submitted: pickSubmitted,
     pick_announced_at: pickAnnouncedAt,
     current_pick_index: currentPickIndex,
+    starts_at: startsAt,
     updated_at: row.updated_at ?? null,
   };
 };

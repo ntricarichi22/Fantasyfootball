@@ -11,6 +11,16 @@ const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 const DRAFT_ROUTE = "/draft";
 const TRADE_ROUTE = "/trades";
 
+// Color palette — Item 1 / spec.
+const BAR_BLUE = "#3366CC";
+const BAR_RED = "#E8503A";
+const INK = "#1A1A1A";
+const PAPER = "#FEFCF9";
+const YELLOW = "#F5C230";
+const GREEN = "#4CAF50";
+const DIVIDER_ON_BAR = "rgba(255,255,255,0.2)";
+const LABEL_ON_BAR = "rgba(255,255,255,0.5)";
+
 type StoredSelection = {
   rosterId?: string;
   teamName?: string;
@@ -38,15 +48,41 @@ const formatTimer = (totalSeconds: number) => {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 };
 
+const computeCountdownParts = (startsAtMs: number, nowMs: number) => {
+  const total = Math.max(0, Math.floor((startsAtMs - nowMs) / 1000));
+  const days = Math.floor(total / 86400);
+  const hours = Math.floor((total % 86400) / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return { total, days, hours, minutes, seconds };
+};
+
 export default function ClockBar() {
   const router = useRouter();
   const pathname = usePathname();
   const { isActive, secondsRemaining, state } = useDraftStatusContext();
   const isDraftRoute = pathname?.startsWith(DRAFT_ROUTE) ?? false;
+
+  // Determine pre-draft countdown vs active states. Date.now() is used via
+  // a state-backed `countdownNow` so render stays pure (per react-hooks/purity).
+  const startsAtMs =
+    state?.starts_at && typeof state.starts_at === "string"
+      ? new Date(state.starts_at).getTime()
+      : NaN;
+
+  // Pre-draft countdown ticking (per-second local). Initialized lazily so
+  // render is pure on the server snapshot.
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+
+  const hasFutureStart =
+    Number.isFinite(startsAtMs) && state?.status === "not_started" && startsAtMs > countdownNow;
+
   // Poll clock context whenever the bar is rendered (active draft anywhere,
-  // or any visit to /draft so round/pick/team can populate as soon as the
-  // commissioner kicks the draft off).
-  const context = useDraftClockContext({ disabled: !isActive && !isDraftRoute });
+  // any visit to /draft, or a scheduled pre-draft countdown so we can show
+  // "{TEAM} ARE UP FIRST").
+  const context = useDraftClockContext({
+    disabled: !isActive && !isDraftRoute && !hasFutureStart,
+  });
 
   // Re-read selection on mount + when storage changes so the bar knows which
   // roster the user is currently piloting.
@@ -111,8 +147,184 @@ export default function ClockBar() {
     });
   }, [isPickIn, announceSeconds, state?.pick_announced_at]);
 
-  if (!isActive && !isDraftRoute) return null;
+  // Pre-draft countdown re-tick: when there is a future start, advance
+  // `countdownNow` every second so the displayed values update.
+  useEffect(() => {
+    if (!hasFutureStart) return;
+    const id = window.setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [hasFutureStart]);
 
+  // When the pre-draft countdown reaches 0, fire `action: "start"` exactly
+  // once. Server-side guard returns `already_started` if another client beat
+  // us to it, so concurrent clients are safe.
+  const startFiredRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hasFutureStart) {
+      startFiredRef.current = null;
+      return;
+    }
+    if (startsAtMs > countdownNow) return;
+    const key = state?.starts_at ?? "";
+    if (startFiredRef.current === key) return;
+    startFiredRef.current = key;
+    fetch("/api/draft-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "start" }),
+    }).catch(() => {
+      startFiredRef.current = null;
+    });
+  }, [hasFutureStart, startsAtMs, countdownNow, state?.starts_at]);
+
+  // Visibility: render the bar when the draft is active OR we're on the draft
+  // route OR a pre-draft countdown is scheduled (so the countdown shows
+  // globally on every page, per spec).
+  if (!isActive && !isDraftRoute && !hasFutureStart) return null;
+
+  // ----- Pre-draft countdown bar -------------------------------------------
+  if (hasFutureStart) {
+    const parts = computeCountdownParts(startsAtMs, countdownNow);
+    const firstPickTeamName = context?.onClockTeamName || "";
+
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          background: BAR_BLUE,
+          borderTop: `2.5px solid ${INK}`,
+          borderBottom: `2.5px solid ${INK}`,
+          boxShadow: `4px 4px 0 ${INK}`,
+        }}
+      >
+        <div
+          className="flex w-full"
+          style={{
+            height: 64,
+            alignItems: "stretch",
+            color: PAPER,
+          }}
+        >
+          {/* LEFT — "CFC DRAFT BEGINS IN" */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0 20px",
+              borderRight: `2px solid ${DIVIDER_ON_BAR}`,
+              flex: "0 0 auto",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-headline)",
+                fontWeight: 800,
+                fontSize: 14,
+                letterSpacing: "1.5px",
+                textTransform: "uppercase",
+                color: YELLOW,
+                whiteSpace: "nowrap",
+                lineHeight: 1,
+              }}
+            >
+              CFC Draft Begins In
+            </span>
+          </div>
+
+          {/* CENTER — yellow accent block with DD/HH/MM/SS */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+              padding: "0 24px",
+              background: YELLOW,
+              borderLeft: `2px solid ${INK}`,
+              borderRight: `2px solid ${INK}`,
+              flex: "0 0 auto",
+            }}
+          >
+            <CountdownBlock value={parts.days} label="Days" />
+            <CountdownColon />
+            <CountdownBlock value={parts.hours} label="Hrs" />
+            <CountdownColon />
+            <CountdownBlock value={parts.minutes} label="Min" />
+            <CountdownColon />
+            <CountdownBlock value={parts.seconds} label="Sec" />
+          </div>
+
+          {/* RIGHT — "{TEAM} ARE UP FIRST" */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "flex-end",
+              padding: "0 20px",
+              flex: "1 1 auto",
+              minWidth: 0,
+              gap: 6,
+            }}
+          >
+            {firstPickTeamName ? (
+              <>
+                <span
+                  style={{
+                    fontFamily: "var(--font-headline)",
+                    fontWeight: 700,
+                    fontSize: 11,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: YELLOW,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    minWidth: 0,
+                    lineHeight: 1,
+                  }}
+                  title={firstPickTeamName}
+                >
+                  {firstPickTeamName}
+                </span>
+                <span
+                  style={{
+                    fontFamily: "var(--font-headline)",
+                    fontWeight: 700,
+                    fontSize: 11,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    color: PAPER,
+                    whiteSpace: "nowrap",
+                    lineHeight: 1,
+                  }}
+                >
+                  Are Up First
+                </span>
+              </>
+            ) : (
+              <span
+                style={{
+                  fontFamily: "var(--font-headline)",
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  color: PAPER,
+                  whiteSpace: "nowrap",
+                  lineHeight: 1,
+                }}
+              >
+                First pick loading…
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ----- Active / pending / pick-in clock bar ------------------------------
   const isPending = !isActive;
   const isYourPick =
     !isPending &&
@@ -143,12 +355,15 @@ export default function ClockBar() {
 
   const isRed = onClockState === "your-pick";
   const isPickInState = onClockState === "pick-in-draft" || onClockState === "pick-in-other";
-  const background = isRed ? "#E8503A" : "#1A1A1A";
-  const dividerColor = isRed ? "rgba(255,255,255,0.2)" : "#333";
-  const timerColor = isRed ? "#FFFFFF" : isPickInState ? "#FFFFFF" : "#F5C230";
-  const labelColor = isRed ? "rgba(255,255,255,0.7)" : "#999";
-  const valueColor = isRed ? "#FFFFFF" : "#F5C230";
-  const franchiseTextColor = "#FFFFFF";
+  // Item 1: blue is the new default; red is reserved for "your pick".
+  const background = isRed ? BAR_RED : BAR_BLUE;
+  const dividerColor = DIVIDER_ON_BAR;
+  // Timer color: white on blue (yellow doesn't read well on blue per spec); white on red.
+  const timerColor = PAPER;
+  const labelColor = LABEL_ON_BAR;
+  // Rd/Pk values: white per spec.
+  const valueColor = PAPER;
+  const franchiseTextColor = PAPER;
 
   const chipText = isPending
     ? state?.status === "paused"
@@ -159,13 +374,17 @@ export default function ClockBar() {
       : isRed
         ? "Your pick"
         : "On the clock";
-  // Chip border: green for "pick is in", white on red, yellow on dark.
+  // Chip border per spec:
+  //   - "pick is in"  → green
+  //   - "your pick"   → white (on red bar)
+  //   - default blue  → translucent white (rgba(255,255,255,0.5))
   const chipBorder = isPickInState
-    ? "1.5px solid #4CAF50"
+    ? `1.5px solid ${GREEN}`
     : isRed
-      ? "1.5px solid #FFFFFF"
-      : "1.5px solid #F5C230";
-  const chipColor = isPickInState ? "#FFFFFF" : isRed ? "#FFFFFF" : "#F5C230";
+      ? `1.5px solid ${PAPER}`
+      : `1.5px solid ${LABEL_ON_BAR}`;
+  // Chip text color: white in every state on the new blue bar.
+  const chipColor = PAPER;
 
   const actionLabel =
     onClockState === "your-pick"
@@ -236,9 +455,9 @@ export default function ClockBar() {
       aria-live="polite"
       style={{
         background,
-        borderTop: "2.5px solid #1A1A1A",
-        borderBottom: "2.5px solid #1A1A1A",
-        boxShadow: "4px 4px 0 #1A1A1A",
+        borderTop: `2.5px solid ${INK}`,
+        borderBottom: `2.5px solid ${INK}`,
+        boxShadow: `4px 4px 0 ${INK}`,
       }}
     >
       <div
@@ -334,20 +553,21 @@ export default function ClockBar() {
           </span>
         </div>
 
-        {/* Action button — yellow segment, no border-right. Hidden in pending state. */}
+        {/* Action button — yellow, no border-right. Item 2: larger.
+            Hidden in pending state. */}
         {actionLabel ? (
           <button
             type="button"
             onClick={handleAction}
             style={{
-              background: "#F5C230",
-              color: "#1A1A1A",
+              background: YELLOW,
+              color: INK,
               fontFamily: "var(--font-headline)",
-              fontWeight: 700,
+              fontWeight: 800,
               textTransform: "uppercase",
-              letterSpacing: "0.08em",
-              fontSize: 10,
-              padding: "0 28px",
+              letterSpacing: "0.06em",
+              fontSize: 15,
+              padding: "0 36px",
               border: "none",
               borderLeft: `2px solid ${dividerColor}`,
               borderRadius: 0,
@@ -364,5 +584,64 @@ export default function ClockBar() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+function CountdownBlock({ value, label }: { value: number; label: string }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        lineHeight: 1,
+      }}
+    >
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontWeight: 700,
+          fontSize: 26,
+          color: INK,
+          fontVariantNumeric: "tabular-nums",
+          lineHeight: 1,
+        }}
+      >
+        {String(value).padStart(2, "0")}
+      </span>
+      <span
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontWeight: 600,
+          fontSize: 7,
+          letterSpacing: "0.12em",
+          textTransform: "uppercase",
+          color: "rgba(26,26,26,0.5)",
+          marginTop: 4,
+          lineHeight: 1,
+        }}
+      >
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function CountdownColon() {
+  return (
+    <span
+      style={{
+        fontFamily: "var(--font-mono)",
+        fontWeight: 700,
+        fontSize: 22,
+        color: "rgba(26,26,26,0.35)",
+        lineHeight: 1,
+        // Pull the colon up slightly so it sits on the digits row, not the labels.
+        marginBottom: 11,
+      }}
+    >
+      :
+    </span>
   );
 }
