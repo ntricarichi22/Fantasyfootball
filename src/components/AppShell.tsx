@@ -216,8 +216,8 @@ export default function AppShell({ children }: { children: ReactNode }) {
       {/* CLOCK BAR — gated on isActive via DraftStatusProvider */}
       <ClockBar />
 
-      {/* CONTENT */}
-      <main className="flex-1 bg-[var(--cfc-canvas)]">{children}</main>
+      {/* CONTENT — bottom padding reserves room for the fixed ticker. */}
+      <main className="flex-1 bg-[var(--cfc-canvas)]" style={{ paddingBottom: 38 }}>{children}</main>
 
       {/* TICKER BAR — blue activity ticker normally; swapped for the draft
           pick ticker while a draft is active. */}
