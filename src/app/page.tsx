@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
 import {
   formatDraftPickLabel,
@@ -16,7 +16,6 @@ import {
   type SleeperDraft,
   type TradedPick,
 } from "../lib/picks";
-import DraftTimer from "../components/DraftTimer";
 import { getLeagueId } from "../lib/config";
 import { getSupabaseClient, supabase } from "../lib/supabaseClient";
 import { isCommissionerTeamName } from "../lib/commissioner";
@@ -486,21 +485,12 @@ export default function Home() {
   const [draftLog, setDraftLog] = useState<DraftLogEntry[]>([]);
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
-  const [currentClockTeam, setCurrentClockTeam] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
-  const [draftStarted, setDraftStarted] = useState(false);
-  const [startReady, setStartReady] = useState(false);
   const [draggedBenchPlayer, setDraggedBenchPlayer] = useState("");
-  const [queuedExternalPick, setQueuedExternalPick] = useState<{
-    selection: string;
-    alreadyRecorded?: boolean;
-  } | null>(null);
   const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
   const [draftClockState, setDraftClockState] = useState<DraftStateRow | null>(null);
-  const [clockSecondsLeft, setClockSecondsLeft] = useState(INITIAL_PICK_SECONDS);
   const [clockActionPending, setClockActionPending] = useState(false);
-  const startDraftHandler = useRef<(() => void) | null>(null);
   const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
   const { leagueId, leagueIdError } = useMemo(() => {
     try {
@@ -547,22 +537,11 @@ export default function Home() {
     return byRosterId || byTeamList || `Roster ${onClockRosterId}`;
   }, [onClockRosterId, rosterNames, teams]);
 
-  const currentPickLabel = useMemo(
-    () => calculatePickNumber(nextPickIndex, teamCountForDraft),
-    [nextPickIndex, teamCountForDraft]
-  );
-
   useEffect(() => {
     if (!statusMessage) return;
     const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
-  useEffect(() => {
-    setDraftStarted(draftStatus !== "not_started");
-  }, [draftStatus]);
-  useEffect(() => {
-    setCurrentClockTeam(onClockTeamName);
-  }, [onClockTeamName]);
   useEffect(() => {
     if (!selectedTeam || !sessionId || isDraftRoute) return;
     router.replace(draftRoute);
@@ -1021,7 +1000,6 @@ export default function Home() {
       const normalized = normalizeDraftStateRow(json?.data ?? json);
       if (normalized) {
         setDraftClockState(normalized);
-        setClockSecondsLeft(computeRemainingSeconds(normalized));
       }
     } catch (error) {
       console.warn("Unable to fetch draft state", error);
@@ -1076,7 +1054,6 @@ export default function Home() {
         );
         if (normalized) {
           setDraftClockState(normalized);
-          setClockSecondsLeft(computeRemainingSeconds(normalized));
         } else {
           fetchDraftClockState();
         }
@@ -1093,15 +1070,6 @@ export default function Home() {
       supabaseClient.removeChannel(channel);
     };
   }, [fetchDraftClockState, leagueId]);
-
-  useEffect(() => {
-    const compute = () => computeRemainingSeconds(draftClockState);
-    setClockSecondsLeft(compute());
-    const interval = setInterval(() => {
-      setClockSecondsLeft(compute());
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [draftClockState]);
 
   const activeRoster = useMemo(
     () => rosters.find((r) => toId(r.roster_id) === selectedTeam),
@@ -1436,37 +1404,9 @@ export default function Home() {
       slotSeason: draftState?.season ?? PICK_SLOT_SEASON,
     });
 
-  const draftTimerTeams = useMemo(() => {
-    if (!draftState) return teams;
-    return Array.from({ length: draftState.teamCount }, (_, idx) => {
-      const slot = idx + 1;
-      const key = formatPickKey(draftState.season, 1, slot);
-      const ownerId = draftState.pickOwnerByPickKey[key];
-      const name =
-        ownerId != null
-          ? rosterNames[ownerId] ??
-            teams.find((team) => team.id === ownerId)?.name ??
-            `Roster ${ownerId}`
-          : teams[idx]?.name ?? `Roster ${slot}`;
-      return { name };
-    });
-  }, [draftState, rosterNames, teams]);
-
-  const handleRegisterStart = useCallback((handler: () => void) => {
-    startDraftHandler.current = handler;
-    setStartReady(true);
-  }, []);
-
-  const handleStartDraftClick = () => {
-    if (!startDraftHandler.current) return;
-    startDraftHandler.current();
-  };
-
   const handleLeaveDraftRoom = useCallback(async () => {
     await releaseActiveTeam();
     clearSessionSelection();
-    setDraftStarted(false);
-    setStartReady(false);
     setStatusMessage("");
     if (isDraftRoute) {
       router.replace("/");
@@ -1551,7 +1491,6 @@ export default function Home() {
         const normalized = normalizeDraftStateRow(json?.data ?? json);
         if (normalized) {
           setDraftClockState(normalized);
-          setClockSecondsLeft(computeRemainingSeconds(normalized));
         } else if (action === "start") {
           // Server returned 200 but no usable state – fetch the current
           // state so the clock can still pick up the running draft.
@@ -1561,7 +1500,6 @@ export default function Home() {
             const fbNormalized = normalizeDraftStateRow(fbJson?.data ?? fbJson);
             if (fbNormalized) {
               setDraftClockState(fbNormalized);
-              setClockSecondsLeft(computeRemainingSeconds(fbNormalized));
               return fbNormalized;
             }
           }
@@ -1628,7 +1566,6 @@ export default function Home() {
         seconds_remaining: INITIAL_PICK_SECONDS,
         clock_started_at: new Date().toISOString(),
       });
-      setClockSecondsLeft(INITIAL_PICK_SECONDS);
       setStatusMessage("Draft started (server sync unavailable).");
     }
     return true;
@@ -1698,9 +1635,9 @@ export default function Home() {
       return;
     }
 
-    const success = await handlePickMade(onClockTeamName || currentClockTeam, player.id);
+    const success = await handlePickMade(onClockTeamName, player.id);
     if (success) {
-      setQueuedExternalPick({ selection: player.id, alreadyRecorded: true });
+      // Server-side draft log advances the on-the-clock team automatically.
     }
   };
 
@@ -1884,8 +1821,14 @@ export default function Home() {
                 <>
                   <button
                     className="cfc-btn cfc-btn-accent"
-                    onClick={handleStartDraftClick}
-                    disabled={!startReady || draftStarted || clockActionPending}
+                    onClick={() => {
+                      void handleStartClockRequest();
+                    }}
+                    disabled={
+                      teams.length === 0 ||
+                      draftStatus !== "not_started" ||
+                      clockActionPending
+                    }
                   >
                     Start Draft
                   </button>
@@ -2172,25 +2115,8 @@ export default function Home() {
               </div>
             </div>
 
-            {/* CENTER: Timer + available players */}
+            {/* CENTER: Available players (clock now lives in the global ClockBar) */}
             <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-              <DraftTimer
-                teams={draftTimerTeams}
-                nextPickIndex={nextPickIndex}
-                onPickMade={(teamName, selection) => {
-                  void handlePickMade(teamName, selection);
-                }}
-                onTeamChange={setCurrentClockTeam}
-                currentTeamNameOverride={onClockTeamName}
-                currentPickLabelOverride={currentPickLabel}
-                externalPick={queuedExternalPick}
-                onExternalPickHandled={() => setQueuedExternalPick(null)}
-                registerStartHandler={handleRegisterStart}
-                onStart={() => setDraftStarted(true)}
-                clockStatus={draftClockState?.status}
-                clockSeconds={clockSecondsLeft}
-                onStartRequest={handleStartClockRequest}
-              />
               <div className="cfc-card flex-1 w-full p-4 flex flex-col overflow-hidden">
                 <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between mb-3">
                   <div>
