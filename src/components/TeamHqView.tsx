@@ -232,12 +232,16 @@ function StrategyTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-xl border border-gray-800 bg-gray-900/80 p-4">
-        <div className="mb-4 flex items-start justify-between gap-3">
+    <div className="space-y-5">
+      <section className="cfc-card p-5">
+        <div className="cfc-section">
+          <span className="cfc-section-tag">Team Direction</span>
+          <span className="cfc-section-line" />
+        </div>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-white">Team Direction</h2>
-            <p className="text-sm text-gray-400">
+            <h2 className="font-headline text-2xl text-[var(--cfc-ink)]">Strategy</h2>
+            <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
               Set your front-office posture for {teamDisplayName(teamName, rosterId)}
             </p>
           </div>
@@ -245,20 +249,28 @@ function StrategyTab() {
             type="button"
             onClick={onSave}
             disabled={!profile || saving || loading}
-            className="rounded-md bg-red-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-60"
+            className="cfc-btn cfc-btn-danger"
           >
-            {saving ? "Saving..." : "Save Strategy"}
+            {saving ? "Saving…" : "Save Strategy"}
           </button>
         </div>
 
-        {error ? <p className="mb-3 text-sm text-red-300">{error}</p> : null}
+        {error ? (
+          <p className="cfc-toast cfc-toast-error mb-3" style={{ display: "block" }}>
+            {error}
+          </p>
+        ) : null}
 
         {loading || !profile ? (
-          <p className="text-sm text-gray-400">Loading strategy...</p>
+          <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
+            Loading strategy…
+          </p>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2">
+          <div className="grid gap-5 lg:grid-cols-2">
             <div className="space-y-2">
-              <p className="text-sm font-semibold text-white">What do you want more of?</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--cfc-ink)]">
+                What do you want more of?
+              </p>
               <div className="flex flex-wrap gap-2">
                 {wantsChips.map((chip) => {
                   const active = profile.wants_more.includes(chip);
@@ -268,10 +280,8 @@ function StrategyTab() {
                       type="button"
                       onClick={() => toggleWanted(chip)}
                       className={[
-                        "rounded-full border px-3 py-1.5 text-xs font-semibold transition",
-                        active
-                          ? "border-red-500/60 bg-red-600/70 text-white"
-                          : "border-gray-700 bg-black/40 text-gray-300 hover:border-gray-500",
+                        "cfc-chip cfc-chip-interactive",
+                        active ? "cfc-chip-red" : "",
                       ].join(" ")}
                     >
                       {labelFromWantsChip(chip)}
@@ -282,7 +292,9 @@ function StrategyTab() {
             </div>
 
             <div className="space-y-2">
-              <p className="text-sm font-semibold text-white">How attached are you to your own guys?</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--cfc-ink)]">
+                How attached are you to your own guys?
+              </p>
               <div className="flex flex-wrap gap-2">
                 {attachmentOptions.map((option) => (
                   <button
@@ -290,10 +302,8 @@ function StrategyTab() {
                     type="button"
                     onClick={() => setProfile((prev) => (prev ? { ...prev, own_guys_preference: option } : prev))}
                     className={[
-                      "rounded-lg border px-3 py-1.5 text-xs font-semibold transition",
-                      profile.own_guys_preference === option
-                        ? "border-red-500/60 bg-red-600/70 text-white"
-                        : "border-gray-700 bg-black/40 text-gray-300 hover:border-gray-500",
+                      "cfc-chip cfc-chip-interactive",
+                      profile.own_guys_preference === option ? "cfc-chip-blue" : "",
                     ].join(" ")}
                   >
                     {labelFromAttachment(option)}
@@ -303,33 +313,54 @@ function StrategyTab() {
             </div>
 
             <div className="space-y-2 lg:col-span-2">
-              <p className="text-sm font-semibold text-white">What are you buying or selling?</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--cfc-ink)]">
+                What are you buying or selling?
+              </p>
               <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {buyBuckets.map((bucket) => (
-                  <div
-                    key={bucket}
-                    className="flex items-center justify-between gap-2 rounded-lg border border-gray-800 bg-black/35 px-3 py-2"
-                  >
-                    <span className="text-sm font-semibold text-gray-200">{bucket}</span>
-                    <div className="flex gap-1">
-                      {buyStates.map((state) => (
-                        <button
-                          key={state}
-                          type="button"
-                          onClick={() => setMarket(bucket, state)}
-                          className={[
-                            "rounded-md px-2.5 py-1 text-[11px] font-semibold transition",
-                            marketValue(bucket, profile) === state
-                              ? "bg-red-600/80 text-white"
-                              : "bg-gray-900 text-gray-400 hover:bg-gray-800 hover:text-gray-200",
-                          ].join(" ")}
-                        >
-                          {state.toUpperCase()}
-                        </button>
-                      ))}
+                {buyBuckets.map((bucket) => {
+                  const posClass =
+                    bucket === "QB"
+                      ? "cfc-pos cfc-pos-qb"
+                      : bucket === "RB"
+                        ? "cfc-pos cfc-pos-rb"
+                        : bucket === "WR"
+                          ? "cfc-pos cfc-pos-wr"
+                          : bucket === "TE"
+                            ? "cfc-pos cfc-pos-te"
+                            : "cfc-pos cfc-pos-flex";
+                  return (
+                    <div
+                      key={bucket}
+                      className="cfc-card-flat flex items-center justify-between gap-3 px-3 py-2"
+                    >
+                      <span className={posClass}>{bucket}</span>
+                      <div className="flex gap-1">
+                        {buyStates.map((state) => {
+                          const isActive = marketValue(bucket, profile) === state;
+                          const stateClass =
+                            state === "buy"
+                              ? "cfc-chip-blue"
+                              : state === "sell"
+                                ? "cfc-chip-red"
+                                : "cfc-chip-yellow";
+                          return (
+                            <button
+                              key={state}
+                              type="button"
+                              onClick={() => setMarket(bucket, state)}
+                              className={[
+                                "cfc-chip cfc-chip-interactive",
+                                isActive ? stateClass : "",
+                              ].join(" ")}
+                            >
+                              {state.toUpperCase()}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -359,16 +390,27 @@ function DepthChartTab() {
   };
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-xl border border-gray-800 bg-gray-900/70 px-4 py-3">
-        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-300">
-          <span className="font-semibold text-white">Optimal Formation</span>
-          <span>QB • RB • WR • WR • SK • SK • PC • PC • SF</span>
+    <div className="space-y-5">
+      <section className="cfc-card-flat px-4 py-3">
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <span className="cfc-section-tag cfc-section-tag-blue">Optimal Formation</span>
+          <span className="cfc-mono font-bold text-[var(--cfc-ink)]">QB · RB · WR · WR · SK · SK · PC · PC · SF</span>
         </div>
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900/80">
-        <div className="grid grid-cols-[220px_repeat(4,minmax(0,1fr))] border-b border-gray-800 bg-black/30 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+      <section className="cfc-card overflow-hidden">
+        <div
+          className="grid grid-cols-[220px_repeat(4,minmax(0,1fr))] px-4 py-3"
+          style={{
+            background: "var(--cfc-ink)",
+            color: "#fff",
+            fontFamily: "var(--font-body)",
+            fontSize: 10,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
+        >
           <div>Lineup Slot</div>
           <div className="px-2">Starter</div>
           <div className="px-2">Backup</div>
@@ -379,29 +421,54 @@ function DepthChartTab() {
           {gridState.map((row, rowIdx) => (
             <div
               key={`${row.slot}-${rowIdx}`}
-              className="grid grid-cols-[220px_repeat(4,minmax(0,1fr))] border-b border-gray-800/80 px-3 py-2 last:border-b-0"
+              className="grid grid-cols-[220px_repeat(4,minmax(0,1fr))] px-4 py-3"
+              style={{
+                borderTop: "1px solid var(--cfc-muted-border)",
+                background: rowIdx % 2 === 0 ? "var(--cfc-card)" : "var(--cfc-canvas)",
+              }}
             >
-              <div className="pr-3 text-sm font-semibold text-gray-200">{row.slot}</div>
+              <div className="pr-3 text-sm font-bold text-[var(--cfc-ink)] flex items-center">
+                {row.slot}
+              </div>
               {row.candidates.map((name, colIdx) => {
                 const meta = depthPlayerMeta[name];
                 const role = colIdx === 0 ? "Starter" : colIdx === 1 ? "Backup" : "Depth";
+                const isStarter = colIdx === 0;
+                const posClass =
+                  meta?.position === "QB"
+                    ? "cfc-pos cfc-pos-qb"
+                    : meta?.position === "RB"
+                      ? "cfc-pos cfc-pos-rb"
+                      : meta?.position === "WR"
+                        ? "cfc-pos cfc-pos-wr"
+                        : meta?.position === "TE"
+                          ? "cfc-pos cfc-pos-te"
+                          : "cfc-pos cfc-pos-flex";
                 return (
-                  <div key={`${row.slot}-${name}-${colIdx}`} className="px-2">
+                  <div key={`${row.slot}-${name}-${colIdx}`} className="px-1.5">
                     <button
                       type="button"
                       draggable
                       onDragStart={() => setDragSource({ row: rowIdx, col: colIdx })}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={() => handleDrop(rowIdx, colIdx)}
-                      className="w-full rounded-lg border border-gray-800 bg-black/35 p-2 text-left transition hover:border-gray-600"
+                      className={isStarter ? "cfc-player-card w-full p-2 text-left" : "cfc-player-card-bench w-full p-2 text-left"}
+                      style={{ cursor: "grab" }}
                     >
-                      <p className="truncate text-sm font-semibold text-white">{name}</p>
-                      <p className="truncate text-xs text-gray-400">
-                        {meta?.position ?? "--"} • {meta?.nflTeam ?? "--"}
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={posClass} style={{ fontSize: 9 }}>
+                          {meta?.position ?? "—"}
+                        </span>
+                        <span className="cfc-chip" style={{ fontSize: 8, padding: "2px 6px" }}>
+                          {role}
+                        </span>
+                      </div>
+                      <p className={`truncate text-sm font-bold ${isStarter ? "text-[var(--cfc-ink)]" : ""}`}>
+                        {name}
                       </p>
-                      <span className="mt-1 inline-block rounded-full border border-gray-700 bg-gray-900 px-2 py-0.5 text-[10px] font-semibold text-gray-300">
-                        {role}
-                      </span>
+                      <p className="cfc-mono truncate text-[10px]" style={{ color: "var(--cfc-muted)" }}>
+                        {meta?.nflTeam ?? "—"}
+                      </p>
                     </button>
                   </div>
                 );
@@ -540,54 +607,64 @@ function TradeChartTab() {
   );
 
   return (
-    <div className="space-y-4">
-      <section className="rounded-xl border border-gray-800 bg-gray-900/80 p-4">
-        <div className="flex items-center justify-between gap-3">
+    <div className="space-y-5">
+      <section className="cfc-card p-5">
+        <div className="cfc-section">
+          <span className="cfc-section-tag">Trade Chart</span>
+          <span className="cfc-section-line" />
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-white">Trade Chart</h2>
-            <p className="mt-1 text-sm text-gray-400">Owned-player team-adjusted values with manual override support.</p>
+            <h2 className="font-headline text-2xl text-[var(--cfc-ink)]">Owned-Player Values</h2>
+            <p className="mt-1 text-sm" style={{ color: "var(--cfc-muted)" }}>
+              Team-adjusted values with manual override support.
+            </p>
           </div>
           <button
             type="button"
             onClick={() => load(false)}
             disabled={loading}
-            className="rounded-md bg-gray-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-gray-600 disabled:opacity-60"
+            className="cfc-btn cfc-btn-ink"
           >
             Refresh
           </button>
         </div>
-        {error ? <p className="mt-2 text-sm text-red-300">{error}</p> : null}
+        {error ? (
+          <p className="mt-3 cfc-toast cfc-toast-error" style={{ display: "block" }}>
+            {error}
+          </p>
+        ) : null}
       </section>
 
-      <section className="overflow-hidden rounded-xl border border-gray-800 bg-gray-900/80">
+      <section className="cfc-card overflow-hidden">
         <div className="max-h-[65vh] overflow-auto">
-          <table className="min-w-full table-fixed border-collapse">
-            <thead className="sticky top-0 z-10 bg-black/80 text-xs uppercase tracking-wide text-gray-400">
+          <table className="cfc-table">
+            <thead>
               <tr>
-                <th className="w-[20%] px-3 py-2 text-left">Player</th>
-                <th className="w-[8%] px-3 py-2 text-right">Base</th>
-                <th className="w-[8%] px-3 py-2 text-right">Auto</th>
-                <th className="w-[8%] px-3 py-2 text-right">Final</th>
-                <th className="w-[8%] px-3 py-2 text-right">Delta</th>
-                <th className="w-[6%] px-3 py-2 text-right">1sts</th>
-                <th className="w-[6%] px-3 py-2 text-right">2nds</th>
-                <th className="w-[6%] px-3 py-2 text-right">3rds</th>
-                <th className="w-[10%] px-3 py-2 text-right">Total %</th>
-                <th className="w-[20%] px-3 py-2 text-right">Actions</th>
+                <th>Player</th>
+                <th style={{ textAlign: "right" }}>Base</th>
+                <th style={{ textAlign: "right" }}>Auto</th>
+                <th style={{ textAlign: "right" }}>Final</th>
+                <th style={{ textAlign: "right" }}>Delta</th>
+                <th style={{ textAlign: "right" }}>1sts</th>
+                <th style={{ textAlign: "right" }}>2nds</th>
+                <th style={{ textAlign: "right" }}>3rds</th>
+                <th style={{ textAlign: "right" }}>Total %</th>
+                <th style={{ textAlign: "right" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading && displayRows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-sm text-gray-400">
-                    Loading trade chart...
+                  <td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>
+                    Loading trade chart…
                   </td>
                 </tr>
               ) : null}
 
               {!loading && displayRows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-8 text-center text-sm text-gray-400">
+                  <td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>
                     No owned players found for this team.
                   </td>
                 </tr>
@@ -596,75 +673,104 @@ function TradeChartTab() {
               {displayRows.map((row) => {
                 const picks = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
                 const isSaving = savingPlayerId === row.sleeper_player_id;
+                const posClass =
+                  row.position === "QB"
+                    ? "cfc-pos cfc-pos-qb"
+                    : row.position === "RB"
+                      ? "cfc-pos cfc-pos-rb"
+                      : row.position === "WR"
+                        ? "cfc-pos cfc-pos-wr"
+                        : row.position === "TE"
+                          ? "cfc-pos cfc-pos-te"
+                          : "cfc-pos cfc-pos-flex";
                 return (
-                  <tr key={row.sleeper_player_id} className="border-t border-gray-800">
-                    <td className="px-3 py-2">
-                      <p className="text-sm font-semibold text-white">{row.player_name ?? row.sleeper_player_id}</p>
-                      <p className="text-xs text-gray-400">
-                        {row.position ?? "--"} • {row.nfl_team ?? "--"}
-                        {row.is_overridden ? " • overridden" : ""}
-                      </p>
+                  <tr key={row.sleeper_player_id}>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        <span className={posClass} style={{ fontSize: 9 }}>
+                          {row.position ?? "—"}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-[var(--cfc-ink)] truncate">
+                            {row.player_name ?? row.sleeper_player_id}
+                          </p>
+                          <p className="cfc-mono text-[10px]" style={{ color: "var(--cfc-muted)" }}>
+                            {row.nfl_team ?? "—"}
+                            {row.is_overridden ? " · overridden" : ""}
+                          </p>
+                        </div>
+                      </div>
                     </td>
-                    <td className="px-3 py-2 text-right text-sm text-gray-200">{Math.round(row.base_value).toLocaleString()}</td>
-                    <td className="px-3 py-2 text-right text-sm text-gray-200">{Math.round(row.auto_value).toLocaleString()}</td>
-                    <td className="px-3 py-2 text-right text-sm text-gray-200">{Math.round(row.final_value).toLocaleString()}</td>
+                    <td className="cfc-mono" style={{ textAlign: "right" }}>{Math.round(row.base_value).toLocaleString()}</td>
+                    <td className="cfc-mono" style={{ textAlign: "right" }}>{Math.round(row.auto_value).toLocaleString()}</td>
+                    <td className="cfc-mono" style={{ textAlign: "right", fontWeight: 700 }}>{Math.round(row.final_value).toLocaleString()}</td>
                     <td
-                      className={[
-                        "px-3 py-2 text-right text-sm font-semibold",
-                        row.delta_vs_base > 0 ? "text-emerald-400" : row.delta_vs_base < 0 ? "text-red-400" : "text-gray-300",
-                      ].join(" ")}
+                      className="cfc-mono"
+                      style={{
+                        textAlign: "right",
+                        fontWeight: 700,
+                        color:
+                          row.delta_vs_base > 0
+                            ? "var(--cfc-blue)"
+                            : row.delta_vs_base < 0
+                              ? "var(--cfc-red)"
+                              : "var(--cfc-muted)",
+                      }}
                     >
                       {row.delta_vs_base > 0 ? "+" : ""}
                       {Math.round(row.delta_vs_base).toLocaleString()}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td style={{ textAlign: "right" }}>
                       <input
                         type="number"
                         step="1"
                         min={0}
                         value={picks.firsts}
                         onChange={(e) => setPickValue(row.sleeper_player_id, "firsts", Number(e.target.value))}
-                        className="w-14 rounded-md border border-gray-700 bg-black px-2 py-1 text-right text-sm text-white outline-none ring-red-500/50 focus:ring-2"
+                        className="cfc-input cfc-mono"
+                        style={{ width: 64, padding: "4px 8px", textAlign: "right" }}
                       />
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td style={{ textAlign: "right" }}>
                       <input
                         type="number"
                         step="1"
                         min={0}
                         value={picks.seconds}
                         onChange={(e) => setPickValue(row.sleeper_player_id, "seconds", Number(e.target.value))}
-                        className="w-14 rounded-md border border-gray-700 bg-black px-2 py-1 text-right text-sm text-white outline-none ring-red-500/50 focus:ring-2"
+                        className="cfc-input cfc-mono"
+                        style={{ width: 64, padding: "4px 8px", textAlign: "right" }}
                       />
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td style={{ textAlign: "right" }}>
                       <input
                         type="number"
                         step="1"
                         min={0}
                         value={picks.thirds}
                         onChange={(e) => setPickValue(row.sleeper_player_id, "thirds", Number(e.target.value))}
-                        className="w-14 rounded-md border border-gray-700 bg-black px-2 py-1 text-right text-sm text-white outline-none ring-red-500/50 focus:ring-2"
+                        className="cfc-input cfc-mono"
+                        style={{ width: 64, padding: "4px 8px", textAlign: "right" }}
                       />
                     </td>
-                    <td className="px-3 py-2 text-right text-xs text-gray-300">
+                    <td className="cfc-mono" style={{ textAlign: "right", fontSize: 11, color: "var(--cfc-muted)" }}>
                       {(row.total_modifier_pct * 100).toFixed(1)}%
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td style={{ textAlign: "right" }}>
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
                           disabled={isSaving}
                           onClick={() => saveOverride(row, false)}
-                          className="rounded-md bg-red-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-red-500 disabled:opacity-60"
+                          className="cfc-btn cfc-btn-primary cfc-btn-sm"
                         >
-                          {isSaving ? "Saving..." : "Save"}
+                          {isSaving ? "Saving…" : "Save"}
                         </button>
                         <button
                           type="button"
                           disabled={isSaving || !row.is_overridden}
                           onClick={() => saveOverride(row, true)}
-                          className="rounded-md bg-gray-700 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-gray-600 disabled:opacity-60"
+                          className="cfc-btn cfc-btn-sm"
                         >
                           Clear
                         </button>
@@ -686,16 +792,21 @@ export default function TeamHqView() {
   const tab = searchParams.get("tab") || "strategy";
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-black text-gray-100">
-      <div className="mx-auto flex h-full w-full max-w-7xl flex-col px-4 py-6">
-        <header className="mb-4 flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-white">Team HQ</h1>
-          <span className="text-sm text-gray-400">Front office command center</span>
+    <main className="min-h-[calc(100vh-44px)] bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
+      <div className="mx-auto flex w-full max-w-7xl flex-col px-4 py-6 sm:px-6">
+        <header className="mb-5 flex flex-wrap items-center gap-4">
+          <div className="cfc-section" style={{ marginBottom: 0 }}>
+            <span className="cfc-section-tag">Team HQ</span>
+            <h1 className="font-headline text-3xl text-[var(--cfc-ink)]">Front Office</h1>
+          </div>
+          <span className="text-sm" style={{ color: "var(--cfc-muted)" }}>
+            Strategy · Depth Chart · Trade Chart
+          </span>
         </header>
 
         <TeamHqTabs />
 
-        <div className="flex-1 overflow-y-auto pb-4">
+        <div className="pb-6">
           {tab === "depth-chart" ? (
             <DepthChartTab />
           ) : tab === "trade-chart" ? (

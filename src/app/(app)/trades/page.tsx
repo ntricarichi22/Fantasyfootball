@@ -50,12 +50,12 @@ const getStoredTeam = () => {
 /*  Helpers                                                             */
 /* ------------------------------------------------------------------ */
 
-const threadStatusColors: Record<string, string> = {
-  open: "bg-amber-600/80 text-amber-50",
-  accepted: "bg-emerald-600/80 text-emerald-50",
-  declined: "bg-red-600/80 text-red-50",
-  withdrawn: "bg-gray-600/80 text-gray-50",
-  closed: "bg-gray-700/80 text-gray-300",
+const threadStatusClass: Record<string, string> = {
+  open: "cfc-chip cfc-chip-yellow",
+  accepted: "cfc-chip cfc-chip-blue",
+  declined: "cfc-chip cfc-chip-red",
+  withdrawn: "cfc-chip",
+  closed: "cfc-chip cfc-chip-ink",
 };
 
 const timeAgo = (dateStr: string) => {
@@ -156,29 +156,37 @@ function TradesInboxPageInner() {
       : threads.filter((t) => t.status === "open");
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-black text-gray-100">
-      <div className="mx-auto flex h-full w-full max-w-4xl flex-col px-4 py-6">
+    <main className="min-h-[calc(100vh-44px)] bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
+      <div className="mx-auto flex w-full max-w-4xl flex-col px-4 py-6 sm:px-6">
         {/* Header */}
-        <header className="mb-4 flex items-center gap-4">
-          <h1 className="text-2xl font-bold text-white">Trade Center</h1>
-          <span className="text-sm text-gray-400">{teamName || `Team ${rosterId}`}</span>
+        <header className="mb-5 flex flex-wrap items-center gap-4">
+          <div className="cfc-section" style={{ marginBottom: 0 }}>
+            <span className="cfc-section-tag">Trade Center</span>
+            <h1 className="font-headline text-3xl text-[var(--cfc-ink)]">Inbox</h1>
+          </div>
+          <span className="text-sm" style={{ color: "var(--cfc-muted)" }}>
+            {teamName || `Team ${rosterId}`}
+          </span>
         </header>
 
         {/* Trade Center tabs */}
         <TradeCenterTabs />
 
         {/* Thread list */}
-        <div className="flex-1 space-y-2 overflow-y-auto">
+        <div className="space-y-3">
           {loading ? (
-            <div className="flex items-center justify-center py-12 text-gray-500">
+            <div
+              className="cfc-card flex items-center justify-center py-12"
+              style={{ color: "var(--cfc-muted)" }}
+            >
               Loading…
             </div>
           ) : filteredThreads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-              <p className="text-lg font-semibold">
+            <div className="cfc-card flex flex-col items-center justify-center py-12 text-center">
+              <p className="font-headline text-2xl text-[var(--cfc-ink)]">
                 {view === "history" ? "No trade history" : "No active trades"}
               </p>
-              <p className="mt-1 text-sm text-gray-600">
+              <p className="mt-2 text-sm" style={{ color: "var(--cfc-muted)" }}>
                 {view === "history"
                   ? "Accepted and declined trades will appear here."
                   : "Open trade threads with other teams will appear here."}
@@ -196,34 +204,31 @@ function TradesInboxPageInner() {
                   key={thread.id}
                   type="button"
                   onClick={() => router.push(`/trades/${thread.id}`)}
-                  className={[
-                    "w-full rounded-lg border p-4 text-left transition hover:border-gray-600 hover:bg-gray-900/80",
-                    isOpen
-                      ? "border-red-500/40 bg-red-950/20"
-                      : "border-gray-800 bg-gray-900/50",
-                  ].join(" ")}
+                  className="cfc-card w-full p-4 text-left transition"
+                  style={{ cursor: "pointer" }}
                 >
                   <div className="flex items-center gap-3">
                     {isOpen && (
-                      <span className="h-2 w-2 flex-shrink-0 rounded-full bg-red-500" />
+                      <span
+                        className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+                        style={{ background: "var(--cfc-red)" }}
+                      />
                     )}
-                    <span className="flex-1 text-sm font-semibold text-white">
+                    <span className="flex-1 font-headline text-lg text-[var(--cfc-ink)] truncate">
                       {counterpartName}
                     </span>
-                    <span className="text-xs text-gray-500">
+                    <span className="cfc-mono text-xs" style={{ color: "var(--cfc-muted)" }}>
                       {timeAgo(thread.last_activity_at)}
                     </span>
-                    <span
-                      className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase ${threadStatusColors[thread.status] || "bg-gray-700 text-gray-300"}`}
-                    >
+                    <span className={threadStatusClass[thread.status] || "cfc-chip"}>
                       {thread.status}
                     </span>
                   </div>
-                  <div className="mt-2 flex items-center gap-4 text-xs text-gray-400">
+                  <div className="mt-2 flex flex-wrap items-center gap-4 text-xs" style={{ color: "var(--cfc-muted)" }}>
                     {thread.last_offer_at && (
                       <span>
                         Last offer:{" "}
-                        <strong className="text-gray-200">
+                        <strong className="cfc-mono text-[var(--cfc-ink)]">
                           {timeAgo(thread.last_offer_at)}
                         </strong>
                       </span>

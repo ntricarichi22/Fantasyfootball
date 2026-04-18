@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ACTIVE_TEAM_TIMEOUT_MINUTES } from "../lib/activeTeams";
@@ -134,8 +133,6 @@ const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
 const DROPPABLE_BORDER_CLASS = "border border-blue-600/50";
 const MIN_TEAM_COUNT = 1;
-const NOISE_OVERLAY_DATA_URI =
-  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='0.18'/%3E%3C/svg%3E";
 
 let playerDictCache: Record<string, SleeperPlayer> | null = null;
 let playerDictCacheTime = 0;
@@ -1729,87 +1726,125 @@ export default function Home() {
   const showWelcome = !isDraftRoute && !selectedTeam;
 
   return (
-    <main className="relative min-h-screen overflow-hidden text-white">
+    <main className="relative min-h-screen text-[var(--cfc-ink)]">
       {leagueIdError && (
-        <div className="relative z-20 mx-auto mb-4 mt-4 w-[calc(100%-2rem)] max-w-4xl rounded-xl border border-amber-400/60 bg-amber-500/20 px-4 py-3 text-sm text-amber-50 backdrop-blur">
+        <div
+          className="relative z-20 mx-auto mb-4 mt-4 w-[calc(100%-2rem)] max-w-4xl px-4 py-3"
+          style={{
+            background: "var(--cfc-yellow)",
+            color: "var(--cfc-ink)",
+            border: "var(--cfc-border)",
+            borderRadius: "8px",
+            boxShadow: "var(--cfc-shadow-sm)",
+            fontSize: 13,
+            fontWeight: 600,
+          }}
+        >
           {leagueIdError} Live Sleeper data is unavailable until it is set.
         </div>
       )}
       {redirectingToDraft ? (
-        <div className="flex min-h-screen items-center justify-center bg-black/80">
-          <p className="text-lg font-semibold text-gray-100">Entering Draft Room...</p>
+        <div className="flex min-h-screen items-center justify-center bg-[var(--cfc-canvas)]">
+          <p className="font-headline text-2xl text-[var(--cfc-ink)]">Entering Draft Room…</p>
         </div>
       ) : redirectingToWelcome ? (
-        <div className="flex min-h-screen items-center justify-center bg-black/80">
-          <p className="text-lg font-semibold text-gray-100">Returning to team select...</p>
+        <div className="flex min-h-screen items-center justify-center bg-[var(--cfc-canvas)]">
+          <p className="font-headline text-2xl text-[var(--cfc-ink)]">Returning to team select…</p>
         </div>
       ) : showWelcome ? (
-        <div className="relative flex min-h-screen flex-col overflow-hidden px-4 pb-10 pt-6 sm:px-8 lg:px-12">
-          <Image
-            src="/welcome-bg.png"
-            alt="CFC Draft welcome background"
-            fill
-            priority
-            sizes="100vw"
-            style={{ objectFit: "cover", objectPosition: "center top" }}
-          />
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/20 via-black/35 to-black/60" />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(0,0,0,0)_48%,rgba(0,0,0,0.58)_100%)]" />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_12%,rgba(0,0,0,0.3),transparent_46%),radial-gradient(circle_at_82%_10%,rgba(0,0,0,0.3),transparent_44%),radial-gradient(circle_at_50%_82%,rgba(0,0,0,0.32),transparent_55%)]" />
-          <div
-            className="pointer-events-none absolute inset-0 opacity-25 mix-blend-soft-light"
-            style={{ backgroundImage: `url("${NOISE_OVERLAY_DATA_URI}")` }}
-          />
-
-          <div className="relative z-10 flex min-h-screen flex-col justify-between">
-            <div className="relative mx-auto w-full max-w-6xl pt-4 text-center">
-              <div className="absolute right-1 top-1 sm:right-4 sm:top-4 md:right-6">
-                <span className="flex items-center gap-2 rounded-full bg-red-600/90 px-4 py-2 text-[11px] font-black uppercase tracking-[0.32em] text-white shadow-[0_0_24px_rgba(255,56,56,0.45)] ring-1 ring-white/20">
-                  <span className="h-2.5 w-2.5 rounded-full bg-white shadow-[0_0_0_6px_rgba(255,255,255,0.2)]" />
-                  Live
-                </span>
-              </div>
-
-              <div className="mx-auto flex max-w-4xl flex-col items-center space-y-3 sm:space-y-4 lg:space-y-5">
-                <p className="text-[28px] font-semibold uppercase tracking-[0.5em] text-gray-100/90 drop-shadow-[0_6px_20px_rgba(0,0,0,0.65)] sm:text-[34px] md:text-[42px]">
-                  WELCOME TO THE
-                </p>
-                <p className="text-[64px] font-black uppercase tracking-[0.16em] text-white drop-shadow-[0_10px_32px_rgba(0,0,0,0.65)] sm:text-[78px] md:text-[92px] lg:text-[104px]">
-                  2026
-                </p>
-                <p className="text-[70px] font-black uppercase tracking-[0.18em] drop-shadow-[0_12px_34px_rgba(0,0,0,0.7)] sm:text-[86px] md:text-[102px] lg:text-[114px]">
-                  <span className="text-[#ff2d2d] drop-shadow-[0_0_24px_rgba(255,45,45,0.55)]">CFC</span>{" "}
-                  <span className="bg-[linear-gradient(120deg,#ffffff,#d7dde7,#ffffff)] bg-clip-text text-transparent drop-shadow-[0_0_28px_rgba(255,255,255,0.45)]">
-                    DRAFT
-                  </span>
-                </p>
-                <p className="text-lg font-semibold uppercase tracking-[0.35em] text-gray-100/85 drop-shadow-[0_5px_18px_rgba(0,0,0,0.6)] sm:text-xl md:text-2xl">
-                  One Round. No Mercy.
-                </p>
-              </div>
+        /* =========================================================
+           WELCOME / TEAM-SELECT SCREEN
+           ========================================================= */
+        <div className="relative flex min-h-screen flex-col items-center justify-center px-4 py-10 sm:px-8">
+          <div className="w-full max-w-3xl">
+            {/* Hero badge */}
+            <div className="cfc-section">
+              <span className="cfc-section-tag">Live · 2026</span>
+              <span className="cfc-section-line" />
+              <span
+                className="cfc-chip cfc-chip-blue"
+                style={{ display: "inline-flex" }}
+              >
+                <span
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    background: "#fff",
+                    marginRight: 6,
+                  }}
+                />
+                12 teams connected
+              </span>
             </div>
 
-            <div className="mx-auto w-full max-w-3xl rounded-[32px] border border-cyan-100/35 bg-white/12 px-7 py-8 shadow-[0_0_38px_rgba(59,130,246,0.32),0_10px_45px_rgba(0,0,0,0.45)] backdrop-blur-2xl sm:px-9 sm:py-10">
-              <div className="flex items-center justify-between pb-5">
-                <p className="text-sm uppercase tracking-[0.32em] text-cyan-100/85">
-                  Choose your squad
-                </p>
-                <div className="h-1 w-16 rounded-full bg-cyan-200/70 shadow-[0_0_24px_3px_rgba(125,249,255,0.5)]" />
+            {/* Big hero card */}
+            <div
+              className="cfc-card mb-6"
+              style={{ padding: "32px 28px", background: "var(--cfc-card)" }}
+            >
+              <p
+                className="font-headline uppercase"
+                style={{
+                  fontSize: 16,
+                  letterSpacing: "0.32em",
+                  color: "var(--cfc-muted)",
+                  marginBottom: 8,
+                }}
+              >
+                Welcome to the
+              </p>
+              <h1
+                className="font-headline"
+                style={{
+                  fontSize: "clamp(64px, 11vw, 120px)",
+                  lineHeight: 0.95,
+                  letterSpacing: "-0.02em",
+                  color: "var(--cfc-ink)",
+                  margin: 0,
+                }}
+              >
+                <span className="cfc-mono" style={{ color: "var(--cfc-red)", fontWeight: 800 }}>2026</span>{" "}
+                <span style={{ color: "var(--cfc-ink)" }}>CFC</span>{" "}
+                <span style={{ color: "var(--cfc-blue)" }}>DRAFT</span>
+              </h1>
+              <p
+                className="font-headline uppercase"
+                style={{
+                  fontSize: 14,
+                  letterSpacing: "0.28em",
+                  color: "var(--cfc-ink)",
+                  marginTop: 12,
+                }}
+              >
+                One round. No mercy.
+              </p>
+            </div>
+
+            {/* Team select panel */}
+            <div className="cfc-card" style={{ padding: 22 }}>
+              <div className="cfc-section">
+                <span className="cfc-section-tag cfc-section-tag-blue">Choose your squad</span>
+                <span className="cfc-section-line" />
               </div>
 
               {errorMessage && (
-                <p className="mb-4 rounded-lg border border-red-500/35 bg-red-500/15 px-3 py-2 text-sm text-red-100">
+                <p
+                  className="cfc-toast cfc-toast-error mb-3"
+                  style={{ display: "block" }}
+                >
                   {errorMessage}
                 </p>
               )}
 
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <select
-                  className="w-full appearance-none rounded-2xl border border-white/25 bg-black/45 px-5 py-4 text-lg font-semibold text-white shadow-inner shadow-black/40 outline-none ring-1 ring-white/10 transition focus:border-cyan-300/70 focus:ring-cyan-300/60 backdrop-blur"
+                  className="cfc-select"
+                  style={{ fontSize: 15, fontWeight: 600 }}
                   value={teamSelectionInput}
                   onChange={(e) => setTeamSelectionInput(e.target.value)}
                 >
-                  <option value="">-- Choose Team --</option>
+                  <option value="">— Choose Team —</option>
                   {availableTeams.map((team) => (
                     <option key={team.id} value={toId(team.id)}>
                       {team.name}
@@ -1818,102 +1853,122 @@ export default function Home() {
                 </select>
 
                 <button
-                  className="w-full rounded-2xl bg-gradient-to-r from-red-600 via-orange-500 to-yellow-400 px-6 py-4 text-lg font-extrabold uppercase tracking-wide text-black shadow-[0_15px_35px_rgba(0,0,0,0.45),0_0_36px_rgba(255,125,69,0.45)] transition duration-150 hover:-translate-y-0.5 hover:shadow-[0_18px_38px_rgba(0,0,0,0.5),0_0_42px_rgba(255,150,90,0.5)] disabled:translate-y-0 disabled:cursor-not-allowed disabled:bg-gray-700/70 disabled:text-gray-200/90 disabled:shadow-none"
+                  className="cfc-btn cfc-btn-accent w-full"
+                  style={{ fontSize: 15, padding: "12px 16px", fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase" }}
                   onClick={handleEnterDraftRoom}
                   disabled={!teamSelectionInput || claimingTeam}
                 >
-                  {claimingTeam ? "Joining..." : "Enter at Your Own Peril"}
+                  {claimingTeam ? "Joining…" : "Enter at Your Own Peril"}
                 </button>
               </div>
 
-              <p className="mt-4 text-xs text-gray-200/85">
+              <p className="mt-4 text-xs" style={{ color: "var(--cfc-muted)" }}>
                 Teams are hidden while in use and for {ACTIVE_TEAM_TIMEOUT_MINUTES}{" "}
                 {ACTIVE_TEAM_TIMEOUT_MINUTES === 1 ? "minute" : "minutes"} after their last activity.
               </p>
             </div>
-
-            <p className="mt-5 text-center text-xs font-semibold uppercase tracking-[0.35em] text-emerald-100/85 drop-shadow-[0_6px_18px_rgba(0,0,0,0.55)] sm:text-sm">
-              12 TEAMS CONNECTED
-            </p>
           </div>
         </div>
       ) : (
-        <div className="flex h-screen flex-col gap-4 bg-black px-4 pb-6 overflow-hidden">
-          <div className="mb-4 flex w-full max-w-6xl flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-            <h1 className="text-5xl font-bold">CFC Offseason Draft</h1>
+        <div className="flex h-[calc(100vh-44px)] min-h-[600px] flex-col gap-4 px-4 pt-4 pb-4 overflow-hidden">
+          {/* Header */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="cfc-section" style={{ marginBottom: 0 }}>
+              <span className="cfc-section-tag">Draft Room</span>
+              <h1 className="font-headline text-3xl sm:text-4xl text-[var(--cfc-ink)]">
+                CFC Offseason Draft
+              </h1>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {isCommissionerSelected ? (
+                <>
+                  <button
+                    className="cfc-btn cfc-btn-accent"
+                    onClick={handleStartDraftClick}
+                    disabled={!startReady || draftStarted || clockActionPending}
+                  >
+                    Start Draft
+                  </button>
+                  <button
+                    className="cfc-btn cfc-btn-primary"
+                    onClick={isDraftPaused ? handleResumeDraft : handlePauseDraft}
+                    disabled={clockActionPending || draftStatus === "not_started"}
+                  >
+                    {isDraftPaused ? "Resume Draft" : "Pause Draft"}
+                  </button>
+                </>
+              ) : null}
+              <button
+                className="cfc-btn cfc-btn-danger"
+                onClick={handleLeaveDraftRoom}
+                disabled={!selectedTeam}
+              >
+                Leave Draft Room
+              </button>
+              {isDraftPaused ? (
+                <span className="cfc-chip cfc-chip-yellow" style={{ fontSize: 11 }}>
+                  Draft is paused
+                </span>
+              ) : null}
+            </div>
           </div>
-          <div className="flex flex-wrap items-center justify-start gap-3">
-            {isCommissionerSelected ? (
-              <>
-                <button
-                  className="rounded-lg bg-green-600 px-5 py-2 text-sm font-semibold text-white transition hover:bg-green-500 disabled:cursor-not-allowed disabled:bg-green-800"
-                  onClick={handleStartDraftClick}
-                  disabled={!startReady || draftStarted || clockActionPending}
-                >
-                  Start Draft
-                </button>
-                <button
-                  className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
-                  onClick={isDraftPaused ? handleResumeDraft : handlePauseDraft}
-                  disabled={clockActionPending || draftStatus === "not_started"}
-                >
-                  {isDraftPaused ? "Resume Draft" : "Pause Draft"}
-                </button>
-              </>
-            ) : null}
-            <button
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:bg-red-900"
-              onClick={handleLeaveDraftRoom}
-              disabled={!selectedTeam}
-            >
-              Leave Draft Room
-            </button>
-            {isDraftPaused ? (
-              <span className="text-sm font-semibold text-amber-300">Draft is paused</span>
-            ) : null}
-          </div>
+
           <div className="flex flex-1 gap-4 overflow-hidden">
-            <div className="w-1/4 bg-gray-900 p-4 border-r border-gray-800 flex flex-col overflow-hidden">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xl font-bold mb-2">
+            {/* LEFT: Active team panel */}
+            <div className="cfc-card w-1/4 min-w-[260px] flex flex-col overflow-hidden p-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="font-headline text-xl text-[var(--cfc-ink)] truncate">
                   {teams.find((t) => toId(t.id) === selectedTeam)?.name || selectedTeam}
                 </h2>
                 {statusMessage && (
-                  <span className="text-xs text-emerald-300">{statusMessage}</span>
+                  <span className="cfc-chip cfc-chip-blue" style={{ fontSize: 9 }}>
+                    {statusMessage}
+                  </span>
                 )}
               </div>
-              <div className="mb-3">
-                <label className="text-xs text-gray-400 block mb-1" htmlFor="team-switcher">
+              <div className="mt-3 mb-3">
+                <label
+                  className="block mb-1 text-[10px] font-bold uppercase tracking-[0.08em]"
+                  style={{ color: "var(--cfc-muted)" }}
+                  htmlFor="team-switcher"
+                >
                   View another team
                 </label>
                 <select
                   id="team-switcher"
-                  className="w-full bg-black border border-gray-700 p-2 rounded-lg text-white"
+                  className="cfc-select"
                   value={selectedTeam}
                   disabled
                   aria-label="Team selection is locked. Use Leave Draft Room to switch teams."
                   aria-describedby="team-switcher-helper"
                 >
-                  <option value="">-- Choose Team --</option>
+                  <option value="">— Choose Team —</option>
                   {teams.map((team) => (
                     <option key={team.id} value={toId(team.id)}>
                       {team.name}
                     </option>
                   ))}
                 </select>
-                <p id="team-switcher-helper" className="mt-1 text-[11px] text-gray-500">
+                <p
+                  id="team-switcher-helper"
+                  className="mt-1 text-[10px]"
+                  style={{ color: "var(--cfc-muted)" }}
+                >
                   Leave the draft room to switch teams.
                 </p>
               </div>
               {errorMessage && (
-                <p className="mb-3 text-sm text-red-400">{errorMessage}</p>
+                <p className="cfc-toast cfc-toast-error mb-3" style={{ display: "block" }}>
+                  {errorMessage}
+                </p>
               )}
 
               <div className="flex-1 overflow-y-auto space-y-5 pr-1">
                 <div>
-                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                    Starting Lineup
-                  </h3>
+                  <div className="cfc-section">
+                    <span className="cfc-section-tag">Starting Lineup</span>
+                    <span className="cfc-section-line" />
+                  </div>
                   <div className="space-y-2">
                     {visibleLineupSlots.length ? (
                       visibleLineupSlots.map(({ slot }, idx) => {
@@ -1932,20 +1987,20 @@ export default function Home() {
                           <div
                             key={`${slot}-${idx}`}
                             tabIndex={0}
-                            className={`flex items-center justify-between rounded-lg bg-gray-800 px-3 py-2 text-left ${droppableClasses}`}
+                            className={`cfc-player-card flex items-center justify-between px-3 py-2 ${droppableClasses}`}
                             aria-label={slotAriaLabel}
                             onDragOver={(e) => handleSlotDragOver(e)}
                             onDrop={(e) => handleSlotDrop(e, idx)}
                             onKeyDown={(e) => handleSlotKeyDown(e, idx)}
                           >
-                            <span className="text-sm font-semibold text-gray-300">
+                            <span className="cfc-pos cfc-pos-flex" style={{ fontSize: 10 }}>
                               {slot}
                             </span>
-                            <div className="text-right">
-                              <div className="text-sm font-medium">
+                            <div className="text-right min-w-0">
+                              <div className="text-sm font-semibold text-[var(--cfc-ink)] truncate">
                                 {playerId ? name : "Empty"}
                               </div>
-                              <div className="text-xs text-gray-400">
+                              <div className="text-[10px]" style={{ color: "var(--cfc-muted)" }}>
                                 {slotMeta}
                               </div>
                             </div>
@@ -1953,7 +2008,7 @@ export default function Home() {
                         );
                       })
                     ) : (
-                      <p className="text-gray-400 text-sm">
+                      <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
                         Roster positions unavailable.
                       </p>
                     )}
@@ -1961,29 +2016,34 @@ export default function Home() {
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                    Bench
-                  </h3>
+                  <div className="cfc-section">
+                    <span
+                      className="cfc-section-tag"
+                      style={{ background: "var(--cfc-muted)", color: "#fff" }}
+                    >
+                      Bench
+                    </span>
+                    <span className="cfc-section-line" />
+                  </div>
                   {benchPlayers.length ? (
                     <div className="space-y-2">
                       {benchPlayers.map((playerId) => {
                         const { name, meta } = playerLabel(playerId, playerDictionary);
                         return (
-                          <div
-                            key={playerId}
-                            className="rounded-lg bg-gray-800 px-3 py-2"
-                          >
+                          <div key={playerId} className="cfc-player-card-bench px-3 py-2">
                             <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-medium">{name}</div>
-                                <div className="text-xs text-gray-400">
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold text-[var(--cfc-ink)] truncate">
+                                  {name}
+                                </div>
+                                <div className="text-[10px]" style={{ color: "var(--cfc-muted)" }}>
                                   {meta || "Bench"}
                                 </div>
                               </div>
                               <div
                                 role="button"
                                 tabIndex={0}
-                                className="flex items-center gap-1 rounded-full border border-gray-700 bg-gray-900 px-2 py-1 text-[11px] font-semibold text-gray-200 hover:border-blue-400 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 focus-visible:outline-offset-2"
+                                className="cfc-chip cfc-chip-interactive"
                                 draggable
                                 aria-label={`Drag ${name} to a starting slot`}
                                 onDragStart={(e) => handleBenchDragStart(e, playerId)}
@@ -1998,48 +2058,61 @@ export default function Home() {
                       })}
                     </div>
                   ) : (
-                    <p className="text-gray-400 text-sm">No bench players.</p>
+                    <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
+                      No bench players.
+                    </p>
                   )}
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                    Draft Picks
-                  </h3>
+                  <div className="cfc-section">
+                    <span className="cfc-section-tag cfc-section-tag-blue">Draft Picks</span>
+                    <span className="cfc-section-line" />
+                  </div>
                   {draftOrderAvailable === false ? (
-                    <p className="mb-2 text-xs text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
+                    <p
+                      className="mb-2 text-xs cfc-toast cfc-toast-warning"
+                      style={{ display: "block" }}
+                    >
+                      {DRAFT_ORDER_UNAVAILABLE_MESSAGE}
+                    </p>
                   ) : null}
                   {activeRoster?.draft_picks?.length ? (
                     <ul className="space-y-2">
                       {activeRoster.draft_picks.map((pick, idx) => (
                         <li
                           key={`${pick.season}-${pick.round}-${idx}`}
-                          className="rounded-lg bg-gray-800 px-3 py-2 text-sm"
+                          className="cfc-player-card px-3 py-2 text-sm cfc-mono text-[var(--cfc-ink)]"
                         >
                           {draftPickText(pick)}
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <p className="text-gray-400 text-sm">No draft picks found.</p>
+                    <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
+                      No draft picks found.
+                    </p>
                   )}
                 </div>
 
                 <div>
-                  <h3 className="text-lg font-semibold mb-2 text-gray-200">
-                    Drafted Players
-                  </h3>
+                  <div className="cfc-section">
+                    <span className="cfc-section-tag cfc-section-tag-yellow">Drafted Players</span>
+                    <span className="cfc-section-line" />
+                  </div>
                   {draftedPlayersForTeam.length ? (
                     <div className="space-y-3">
                       {draftedPlayersForTeam.map((player) => (
                         <div
                           key={`${player.id}-${player.name}`}
-                          className="rounded-lg bg-gray-800 px-3 py-3 space-y-2"
+                          className="cfc-player-card px-3 py-3 space-y-2"
                         >
                           <div className="flex items-center justify-between">
-                            <div>
-                              <div className="text-sm font-medium">{player.name}</div>
-                              <div className="text-xs text-gray-400">
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-[var(--cfc-ink)] truncate">
+                                {player.name}
+                              </div>
+                              <div className="text-[10px]" style={{ color: "var(--cfc-muted)" }}>
                                 {[player.positions.join("/"), player.team]
                                   .filter(Boolean)
                                   .join(" • ") || "Drafted player"}
@@ -2050,7 +2123,8 @@ export default function Home() {
                           {visibleLineupSlots.length ? (
                             <div className="flex items-center gap-2">
                               <select
-                                className="flex-1 rounded-md bg-gray-900 border border-gray-700 px-2 py-1 text-sm"
+                                className="cfc-select"
+                                style={{ flex: 1, fontSize: 12, padding: "5px 8px" }}
                                 value={slotSelections[player.id] || ""}
                                 onChange={(e) =>
                                   setSlotSelections((prev) => ({
@@ -2059,7 +2133,7 @@ export default function Home() {
                                   }))
                                 }
                               >
-                                <option value="">Move to slot...</option>
+                                <option value="">Move to slot…</option>
                                 {visibleLineupSlots.map(({ slot }, idx) => (
                                   <option key={`${slot}-${idx}`} value={String(idx)}>
                                     {slot}
@@ -2067,7 +2141,7 @@ export default function Home() {
                                 ))}
                               </select>
                               <button
-                                className="rounded-md bg-blue-600 px-3 py-1 text-sm font-semibold text-white disabled:bg-blue-900"
+                                className="cfc-btn cfc-btn-primary cfc-btn-sm"
                                 disabled={!slotSelections[player.id]}
                                 onClick={() => {
                                   const selectionValue = slotSelections[player.id];
@@ -2090,7 +2164,7 @@ export default function Home() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-gray-400 text-sm">
+                    <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
                       Drafted players will appear here.
                     </p>
                   )}
@@ -2098,7 +2172,8 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex-1 flex flex-col gap-4 overflow-hidden bg-transparent">
+            {/* CENTER: Timer + available players */}
+            <div className="flex-1 flex flex-col gap-4 overflow-hidden">
               <DraftTimer
                 teams={draftTimerTeams}
                 nextPickIndex={nextPickIndex}
@@ -2116,80 +2191,92 @@ export default function Home() {
                 clockSeconds={clockSecondsLeft}
                 onStartRequest={handleStartClockRequest}
               />
-              <div className="flex-1 w-full bg-gray-900 rounded-xl p-6 space-y-4 shadow-lg border border-gray-800 flex flex-col overflow-hidden">
-                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+              <div className="cfc-card flex-1 w-full p-4 flex flex-col overflow-hidden">
+                <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between mb-3">
                   <div>
-                    <h3 className="text-2xl font-semibold">Available Players</h3>
-                    <p className="text-sm text-gray-400">
-                      Eligible QB / RB / WR / TE players not currently rostered.
+                    <div className="cfc-section" style={{ marginBottom: 6 }}>
+                      <span className="cfc-section-tag cfc-section-tag-blue">Available</span>
+                    </div>
+                    <h3 className="font-headline text-2xl text-[var(--cfc-ink)]">Available Players</h3>
+                    <p className="text-xs" style={{ color: "var(--cfc-muted)" }}>
+                      Eligible QB / RB / WR / TE not currently rostered.
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <input
-                      className="rounded-lg bg-gray-800 px-3 py-2 text-sm text-white placeholder:text-gray-500 border border-gray-700 focus:border-blue-500 outline-none"
+                      className="cfc-input"
+                      style={{ width: 220 }}
                       placeholder="Search by name"
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                     />
                     {!onClockRosterId ? (
-                      <span className="text-xs text-amber-300">
-                        Start the draft to enable selections.
+                      <span className="cfc-chip cfc-chip-yellow">
+                        Start the draft to enable selections
                       </span>
                     ) : null}
                     {isDraftPaused ? (
-                      <span className="text-xs text-amber-300">Draft is paused.</span>
+                      <span className="cfc-chip cfc-chip-yellow">Draft is paused</span>
                     ) : null}
                   </div>
                 </div>
 
-                <div className="flex-1 overflow-hidden rounded-lg border border-gray-800">
+                <div className="flex-1 overflow-hidden cfc-card-flat" style={{ boxShadow: "none" }}>
                   <div className="h-full overflow-y-auto">
-                    <table className="min-w-full divide-y divide-gray-800 text-sm">
-                      <thead className="bg-gray-800 sticky top-0 z-10">
+                    <table className="cfc-table">
+                      <thead>
                         <tr>
-                          <th className="px-4 py-3 text-left font-semibold text-gray-200">
-                            Player Name
-                          </th>
-                          <th className="px-4 py-3 text-left font-semibold text-gray-200">
-                            Position
-                          </th>
-                          <th className="px-4 py-3 text-left font-semibold text-gray-200">Team</th>
-                          <th className="px-4 py-3 text-left font-semibold text-gray-200">Age</th>
-                          <th className="px-4 py-3 text-right font-semibold text-gray-200">
-                            Action
-                          </th>
+                          <th>Player Name</th>
+                          <th>Position</th>
+                          <th>Team</th>
+                          <th>Age</th>
+                          <th style={{ textAlign: "right" }}>Action</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-800 bg-gray-900/60">
+                      <tbody>
                         {availablePlayers.length ? (
-                          availablePlayers.map((player) => (
-                            <tr key={player.id} className="hover:bg-gray-800/60 transition">
-                              <td className="px-4 py-3">
-                                <div className="font-medium text-white">{player.name}</div>
-                              </td>
-                              <td className="px-4 py-3 text-gray-200">{player.position}</td>
-                              <td className="px-4 py-3 text-gray-300">{player.team}</td>
-                              <td className="px-4 py-3 text-gray-300">{player.ageLabel}</td>
-                              <td className="px-4 py-3 text-right">
-                                <button
-                                  className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-blue-900"
-                                  disabled={
-                                    isDraftPaused ||
-                                    !onClockRosterId ||
-                                    (!isCommissionerSelected && selectedTeam !== onClockRosterId)
-                                  }
-                                  onClick={() => handleAvailablePlayerSelect(player)}
-                                >
-                                  Select
-                                </button>
-                              </td>
-                            </tr>
-                          ))
+                          availablePlayers.map((player) => {
+                            const posClass =
+                              player.position === "QB"
+                                ? "cfc-pos cfc-pos-qb"
+                                : player.position === "RB"
+                                  ? "cfc-pos cfc-pos-rb"
+                                  : player.position === "WR"
+                                    ? "cfc-pos cfc-pos-wr"
+                                    : player.position === "TE"
+                                      ? "cfc-pos cfc-pos-te"
+                                      : "cfc-pos cfc-pos-flex";
+                            return (
+                              <tr key={player.id}>
+                                <td>
+                                  <div className="font-semibold text-[var(--cfc-ink)]">{player.name}</div>
+                                </td>
+                                <td>
+                                  <span className={posClass}>{player.position}</span>
+                                </td>
+                                <td className="cfc-mono" style={{ color: "var(--cfc-ink)" }}>{player.team}</td>
+                                <td className="cfc-mono" style={{ color: "var(--cfc-muted)" }}>{player.ageLabel}</td>
+                                <td style={{ textAlign: "right" }}>
+                                  <button
+                                    className="cfc-btn cfc-btn-primary cfc-btn-sm"
+                                    disabled={
+                                      isDraftPaused ||
+                                      !onClockRosterId ||
+                                      (!isCommissionerSelected && selectedTeam !== onClockRosterId)
+                                    }
+                                    onClick={() => handleAvailablePlayerSelect(player)}
+                                  >
+                                    Select
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
                             <td
                               colSpan={5}
-                              className="px-4 py-6 text-center text-gray-400 text-sm"
+                              style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}
                             >
                               No available players match the filters.
                             </td>
@@ -2202,34 +2289,54 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="w-1/4 flex flex-col h-full">
-              <div className="flex-1 bg-gray-900 p-4 border-l border-gray-800 rounded-xl flex flex-col overflow-hidden">
-                <h2 className="text-xl font-bold">Draft Log</h2>
+            {/* RIGHT: Draft log */}
+            <div className="w-1/4 min-w-[260px] flex flex-col">
+              <div className="cfc-card flex-1 p-4 flex flex-col overflow-hidden">
+                <div className="cfc-section">
+                  <span className="cfc-section-tag cfc-section-tag-ink">Draft Log</span>
+                  <span className="cfc-section-line" />
+                </div>
                 {draftLog.length ? (
-                  <div className="mt-3 flex-1 overflow-y-auto divide-y divide-gray-800 pr-1">
+                  <div className="mt-1 flex-1 overflow-y-auto pr-1">
                     {draftLog.map((entry) => {
                       const positionLabel = (entry.positions || []).join("/");
+                      const firstPos = (entry.positions || [])[0]?.toUpperCase() || "";
+                      const posClass =
+                        firstPos === "QB"
+                          ? "cfc-pos cfc-pos-qb"
+                          : firstPos === "RB"
+                            ? "cfc-pos cfc-pos-rb"
+                            : firstPos === "WR"
+                              ? "cfc-pos cfc-pos-wr"
+                              : firstPos === "TE"
+                                ? "cfc-pos cfc-pos-te"
+                                : "cfc-pos cfc-pos-flex";
                       return (
                         <div
                           key={entry.pickIndex}
-                          className="group flex items-center gap-3 px-1 py-2 text-sm text-gray-200"
+                          className="group flex items-center gap-2 px-1 py-2 text-sm border-b"
+                          style={{ borderColor: "var(--cfc-muted-border)" }}
                         >
-                          <span className="text-xs text-gray-400 w-14 shrink-0">
+                          <span
+                            className="cfc-mono w-12 shrink-0 text-xs font-bold"
+                            style={{ color: "var(--cfc-muted)" }}
+                          >
                             {entry.pickNumber}
                           </span>
-                          <span className="text-sm font-semibold text-gray-100 truncate">
+                          <span className="text-xs font-semibold text-[var(--cfc-ink)] truncate w-20 shrink-0">
                             {entry.teamName}
                           </span>
-                          <span className="flex-1 truncate text-gray-100">
+                          <span className="flex-1 truncate text-[var(--cfc-ink)]">
                             {entry.playerName}
                           </span>
-                          <span className="text-xs text-gray-300 uppercase shrink-0">
+                          <span className={posClass} style={{ fontSize: 9 }}>
                             {positionLabel || "—"}
                           </span>
                           {isCommissionerSelected ? (
                             <button
                               type="button"
-                              className="ml-1 shrink-0 rounded-full px-2 text-xs text-gray-400 opacity-0 transition group-hover:opacity-100 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
+                              className="ml-1 shrink-0 px-2 text-xs opacity-0 transition group-hover:opacity-100"
+                              style={{ color: "var(--cfc-red)", fontWeight: 700 }}
                               aria-label={`Undo pick ${entry.pickNumber}`}
                               onClick={() => handleUndoPick(entry)}
                             >
@@ -2241,7 +2348,9 @@ export default function Home() {
                     })}
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-gray-400">No picks have been made yet.</p>
+                  <p className="mt-3 text-sm" style={{ color: "var(--cfc-muted)" }}>
+                    No picks have been made yet.
+                  </p>
                 )}
               </div>
             </div>

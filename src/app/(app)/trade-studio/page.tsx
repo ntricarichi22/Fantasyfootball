@@ -246,11 +246,11 @@ const fairnessFromValues = (sent: number, received: number): FairnessGrade => {
 };
 
 const fairnessStyles: Record<FairnessGrade, string> = {
-  Fair: "border-emerald-600/60 bg-emerald-900 text-emerald-100",
-  "Slight Overpay": "border-amber-600/60 bg-amber-900 text-amber-100",
-  Overpay: "border-red-700/60 bg-red-900 text-red-100",
-  "Slight Underpay": "border-sky-700/60 bg-sky-900 text-sky-100",
-  Underpay: "border-gray-700 bg-gray-900 text-gray-100",
+  Fair: "cfc-chip-blue",
+  "Slight Overpay": "cfc-chip-yellow",
+  Overpay: "cfc-chip-red",
+  "Slight Underpay": "cfc-chip-yellow",
+  Underpay: "cfc-chip-ink",
 };
 
 const isOfferWithinBounds = (giveValue: number, receiveAssets: OfferAssetDetail[], minRatio = 0.9, maxRatio = 1.1) => {
@@ -1688,38 +1688,38 @@ export function TradeStudioView() {
     const key = availabilityKeyForPlayer(player.id);
     const isAvailable = availability[key] || false;
     const rowClasses = [
-      "flex items-center gap-3 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
+      "flex items-center gap-3 rounded-lg px-3 py-2 text-xs sm:text-sm transition border-[2.5px]",
       isAvailable
-        ? "border-emerald-500/80 bg-emerald-900/50 shadow-[0_0_0_1px_rgba(16,185,129,0.6)]"
-        : "border-gray-800 bg-gray-950",
+        ? "border-[var(--cfc-blue)] bg-[var(--cfc-card)] shadow-[3px_3px_0_var(--cfc-ink)]"
+        : "cfc-card-muted",
     ].join(" ");
     return (
       <div key={player.id} className={rowClasses}>
         <div className="flex min-w-0 flex-1 flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 flex-wrap items-center gap-2">
-            <span className="font-semibold text-white break-words">{player.name}</span>
+            <span className="font-semibold break-words">{player.name}</span>
             {isAvailable ? (
-              <span className="rounded-full bg-emerald-600/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50">
+              <span className="cfc-chip cfc-chip-blue text-[10px]">
                 Shop
               </span>
             ) : null}
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300 sm:text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] sm:text-xs" >
             <span>{player.position}</span>
-            <span className="text-gray-600">•</span>
+            <span>•</span>
             <span className="whitespace-nowrap">{player.team}</span>
-            <span className="text-gray-600">•</span>
+            <span>•</span>
             <span className="whitespace-nowrap">{player.ageLabel}</span>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-          <span className="text-[11px] text-gray-400 sm:text-xs">Shop?</span>
-          <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
+          <span className="text-[11px] sm:text-xs" >Shop?</span>
+          <div className="flex overflow-hidden rounded-lg border-[2px] border-[var(--cfc-ink)]">
             <button
               type="button"
               onClick={() => setAvailabilityForKey(key, true)}
-              className={`px-2 py-1 font-semibold ${
-                isAvailable ? "bg-emerald-700 text-white" : "text-gray-300 hover:bg-gray-800"
+              className={`px-2 py-1 font-semibold text-xs ${
+                isAvailable ? "bg-[var(--cfc-blue)] " : "bg-[var(--cfc-card)] hover:bg-[var(--cfc-canvas)]"
               }`}
             >
               Y
@@ -1727,8 +1727,8 @@ export function TradeStudioView() {
             <button
               type="button"
               onClick={() => setAvailabilityForKey(key, false)}
-              className={`px-2 py-1 font-semibold ${
-                !isAvailable ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800"
+              className={`px-2 py-1 font-semibold text-xs ${
+                !isAvailable ? "bg-[var(--cfc-ink)] " : "bg-[var(--cfc-card)] hover:bg-[var(--cfc-canvas)]"
               }`}
             >
               N
@@ -1905,18 +1905,18 @@ export function TradeStudioView() {
   const offerPosition = offerTotal ? activeOfferIndex + 1 : 0;
 
   return (
-    <main className="h-screen overflow-hidden bg-black text-gray-100">
+    <main className="min-h-[calc(100vh-44px)] overflow-hidden">
       {leagueIdError && (
-        <div className="mx-auto mb-4 mt-4 w-[calc(100%-2rem)] max-w-3xl rounded-lg border border-amber-400/60 bg-amber-500/15 px-4 py-3 text-sm text-amber-50">
+        <div className="mx-auto mb-4 mt-4 w-[calc(100%-2rem)] max-w-3xl rounded-lg cfc-toast cfc-toast-warning px-4 py-3 text-sm">
           {leagueIdError} Live Sleeper data is unavailable until it is set.
         </div>
       )}
       <div className="mx-auto flex h-full max-w-7xl flex-col px-4 py-8">
         <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h1 className="text-4xl font-bold text-white">{pageTitle}</h1>
+          <h1 className="text-4xl font-headline font-bold">{pageTitle}</h1>
           <Link
             href="/"
-            className="inline-flex items-center justify-center rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white transition hover:bg-gray-700"
+            className="cfc-btn"
           >
             Back to Home
           </Link>
@@ -1927,22 +1927,22 @@ export function TradeStudioView() {
         <div className="h-[calc(100vh-140px)] min-h-0 overflow-hidden">
           {!selectedTeam ? (
             <div className="flex h-full items-center justify-center">
-              <div className="w-full max-w-xl rounded-xl border border-gray-800 bg-gray-900 p-6 shadow-lg">
+              <div className="w-full max-w-xl cfc-card p-6">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-semibold text-white">Choose your team</h2>
-                  <span className="text-xs text-gray-400">Locked after selection</span>
+                  <h2 className="text-xl font-semibold">Choose your team</h2>
+                  <span className="text-xs">Locked after selection</span>
                 </div>
-                <p className="mt-2 text-sm text-gray-400">
+                <p className="mt-2 text-sm text-xs">
                   We’ll load your roster and draft picks from Sleeper once you pick a team.
                 </p>
-                {errorMessage ? <p className="mt-3 text-sm text-red-400">{errorMessage}</p> : null}
+                {errorMessage ? <p className="mt-3 text-sm text-sm">{errorMessage}</p> : null}
                 <div className="mt-4">
-                  <label className="mb-3 block text-xs text-gray-400" htmlFor="team-picker">
+                  <label className="mb-3 block text-xs" htmlFor="team-picker">
                     Sleeper team
                   </label>
                   <select
                     id="team-picker"
-                    className="w-full rounded-lg border border-gray-700 bg-black px-3 py-2 text-sm text-white"
+                    className="cfc-select w-full"
                     disabled={!!selectedTeam}
                     value={selectedTeam}
                     onChange={(e) => {
@@ -1962,42 +1962,42 @@ export function TradeStudioView() {
           ) : (
             <div className="grid h-full min-h-0 grid-cols-1 gap-6 xl:grid-cols-[520px_1fr]">
               <div className="flex h-full min-h-0 flex-col gap-4">
-                <section className="flex h-full flex-[3] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                <section className="flex h-full flex-[3] min-h-0 flex-col overflow-hidden cfc-card p-4">
                   <div className="mb-2 flex items-center justify-between">
                     <div>
-                      <h2 className="text-lg font-semibold text-white">Roster</h2>
-                      <p className="text-xs text-gray-500">
+                      <h2 className="text-lg font-semibold">Roster</h2>
+                      <p className="text-xs text-xs">
                         Toggle Shop? to mark assets; offers update automatically.
                       </p>
                     </div>
-                    <span className="text-xs text-gray-400">{teamName}</span>
+                    <span className="text-xs">{teamName}</span>
                   </div>
                   <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
                     {startingPlayers.length ? (
                       <div className="space-y-2">
-                        <p className="text-[11px] uppercase tracking-wide text-gray-400">Starting lineup</p>
+                        <p className="text-[11px] uppercase tracking-wide text-xs">Starting lineup</p>
                         {startingPlayers.map(renderPlayerRow)}
                       </div>
                     ) : null}
                     {benchPlayers.length ? (
                       <div className="space-y-2">
-                        <p className="text-[11px] uppercase tracking-wide text-gray-400">Bench</p>
+                        <p className="text-[11px] uppercase tracking-wide text-xs">Bench</p>
                         {benchPlayers.map(renderPlayerRow)}
                       </div>
                     ) : null}
                     {!startingPlayers.length && !benchPlayers.length ? (
-                      <p className="text-sm text-gray-400">No players loaded.</p>
+                      <p className="text-sm text-xs">No players loaded.</p>
                     ) : null}
                   </div>
                 </section>
 
-                <section className="flex h-full flex-[2] min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+                <section className="flex h-full flex-[2] min-h-0 flex-col overflow-hidden cfc-card p-4">
                   <div className="mb-2 flex items-center justify-between">
                     <div>
-                      <h2 className="text-lg font-semibold text-white">Draft Picks</h2>
-                      <p className="text-xs text-gray-500">Shop picks separately; each scrolls inside this card.</p>
+                      <h2 className="text-lg font-semibold">Draft Picks</h2>
+                      <p className="text-xs text-xs">Shop picks separately; each scrolls inside this card.</p>
                     </div>
-                    <span className="text-xs text-gray-400">{teamName}</span>
+                    <span className="text-xs">{teamName}</span>
                   </div>
                   {draftOrderAvailable === false ? (
                     <p className="mb-2 text-xs text-amber-300">{DRAFT_ORDER_UNAVAILABLE_MESSAGE}</p>
@@ -2011,8 +2011,8 @@ export function TradeStudioView() {
                         const rowClasses = [
                           "flex items-center gap-3 rounded-lg border px-3 py-2 text-xs sm:text-sm transition",
                           isAvailable
-                            ? "border-emerald-500/80 bg-emerald-900/50 shadow-[0_0_0_1px_rgba(16,185,129,0.6)]"
-                            : "border-gray-800 bg-gray-950",
+                            ? "border-[var(--cfc-blue)] bg-[var(--cfc-card)] shadow-[3px_3px_0_var(--cfc-ink)] border-[2.5px]"
+                            : "cfc-card-muted",
                         ].join(" ");
                         return (
                           <div key={key} className={rowClasses}>
@@ -2020,25 +2020,25 @@ export function TradeStudioView() {
                               <div className="flex min-w-0 flex-wrap items-center gap-2">
                                 <span className="font-semibold text-white break-words">{label}</span>
                                 {isAvailable ? (
-                                  <span className="rounded-full bg-emerald-600/80 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-50">
+                                  <span className="cfc-chip cfc-chip-blue text-[10px]">
                                     Shop
                                   </span>
                                 ) : null}
                               </div>
-                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-300 sm:text-xs">
+                              <div className="flex flex-wrap items-center gap-2 text-[11px] text-sm sm:text-xs">
                                 <span>{pick.season || "Future"}</span>
                                 <span className="text-gray-600">•</span>
                                 <span>{pick.round ? `Round ${pick.round}` : "Round tbd"}</span>
                               </div>
                             </div>
                             <div className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-                              <span className="text-[11px] text-gray-400 sm:text-xs">Shop?</span>
-                              <div className="flex overflow-hidden rounded-full border border-gray-700 bg-gray-900">
+                              <span className="text-[11px] text-xs sm:text-xs">Shop?</span>
+                              <div className="flex overflow-hidden rounded-full border-[2px] border-[var(--cfc-ink)]">
                                 <button
                                   type="button"
                                   onClick={() => setAvailabilityForKey(key, true)}
                                   className={`px-2 py-1 font-semibold ${
-                                    isAvailable ? "bg-emerald-700 text-white" : "text-gray-300 hover:bg-gray-800"
+                                    isAvailable ? "bg-[var(--cfc-blue)] " : "text-sm hover:bg-[var(--cfc-canvas)]"
                                   }`}
                                 >
                                   Y
@@ -2047,7 +2047,7 @@ export function TradeStudioView() {
                                   type="button"
                                   onClick={() => setAvailabilityForKey(key, false)}
                                   className={`px-2 py-1 font-semibold ${
-                                    !isAvailable ? "bg-gray-800 text-white" : "text-gray-300 hover:bg-gray-800"
+                                    !isAvailable ? "bg-[var(--cfc-ink)] " : "text-sm hover:bg-[var(--cfc-canvas)]"
                                   }`}
                                 >
                                   N
@@ -2058,19 +2058,19 @@ export function TradeStudioView() {
                         );
                       })
                     ) : (
-                      <p className="text-sm text-gray-400">No draft picks found.</p>
+                      <p className="text-sm text-xs">No draft picks found.</p>
                     )}
                   </div>
                 </section>
               </div>
 
-              <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-gray-800 bg-gray-900 p-4 shadow-lg">
+              <section className="flex h-full min-h-0 flex-col overflow-hidden cfc-card p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <h2 className="text-lg font-semibold text-white">Trade Workbench</h2>
-                    <span className="rounded-full bg-indigo-900 px-3 py-1 text-xs font-semibold text-indigo-200">Beta</span>
+                    <h2 className="text-lg font-semibold">Trade Workbench</h2>
+                    <span className="cfc-chip cfc-chip-blue text-xs">Beta</span>
                   </div>
-                  <span className="text-xs text-gray-400">Offers auto-refresh</span>
+                  <span className="text-xs">Offers auto-refresh</span>
                 </div>
                 <div className="flex h-full min-h-0 flex-col overflow-hidden">
                   <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -2088,8 +2088,8 @@ export function TradeStudioView() {
                           className={[
                             "rounded-full px-3 py-1 text-xs font-semibold transition",
                             selected
-                              ? "bg-indigo-700 text-white"
-                              : "border border-gray-700 bg-gray-800 text-gray-300 hover:border-indigo-500/60 hover:text-white",
+                              ? "cfc-chip cfc-chip-blue cfc-chip-active"
+                              : "cfc-chip cfc-chip-interactive",
                           ].join(" ")}
                         >
                           {tab.label}
@@ -2099,14 +2099,14 @@ export function TradeStudioView() {
                   </div>
                   <div className="flex-1 min-h-0">
                     {activeWorkbenchTab === "trade-block" ? (
-                      <div className="flex h-full min-h-0 flex-col rounded-lg border border-gray-800 bg-gray-950/70 p-3">
+                      <div className="flex h-full min-h-0 flex-col rounded-lg border cfc-card-muted/70 p-3">
                         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                           <div>
-                            <p className="text-xs uppercase tracking-wide text-gray-400">Offer Suggestions</p>
-                            <p className="text-sm font-semibold text-white">Offers refresh as you mark Shop items.</p>
+                            <p className="text-xs uppercase tracking-wide text-xs">Offer Suggestions</p>
+                            <p className="text-sm font-semibold ">Offers refresh as you mark Shop items.</p>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="rounded-full border border-emerald-700/60 bg-emerald-900/60 px-3 py-1 text-[11px] font-semibold text-emerald-50">
+                            <span className="cfc-chip cfc-chip-blue text-[11px]">
                               Auto
                             </span>
                             <div className="flex items-center gap-2">
@@ -2114,7 +2114,7 @@ export function TradeStudioView() {
                                 type="button"
                                 onClick={goToPreviousOffer}
                                 disabled={!offerSuggestions.length}
-                                className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                                className="cfc-btn cfc-btn-sm disabled:opacity-50"
                               >
                                 Prev
                               </button>
@@ -2122,7 +2122,7 @@ export function TradeStudioView() {
                                 type="button"
                                 onClick={goToNextOffer}
                                 disabled={!offerSuggestions.length}
-                                className="rounded-md border border-gray-700 px-3 py-1 text-xs font-semibold text-gray-200 transition hover:border-indigo-500 hover:text-white disabled:cursor-not-allowed disabled:border-gray-800 disabled:text-gray-500"
+                                className="cfc-btn cfc-btn-sm disabled:opacity-50"
                               >
                                 Next
                               </button>
@@ -2134,9 +2134,9 @@ export function TradeStudioView() {
                           <>
                             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                               <div>
-                                <p className="text-[11px] uppercase tracking-wide text-gray-400">Partner</p>
-                                <p className="text-base font-semibold text-white">{currentOffer?.partner ?? ""}</p>
-                                <p className="text-xs text-gray-500">
+                                <p className="text-[11px] uppercase tracking-wide text-xs">Partner</p>
+                                <p className="text-base font-semibold ">{currentOffer?.partner ?? ""}</p>
+                                <p className="text-xs text-xs">
                                   {currentOffer
                                     ? `You send ${Math.round(currentOffer.valueSent)} • You receive ${Math.round(currentOffer.valueReceived)}`
                                     : null}
@@ -2144,11 +2144,11 @@ export function TradeStudioView() {
                               </div>
                               <div className="min-w-[200px] flex-1 sm:flex-none">
                                 <label
-                                  className="flex items-center justify-between text-xs text-gray-400"
+                                  className="flex items-center justify-between text-xs"
                                   htmlFor="aggression-slider"
                                 >
                                   <span>Conservative to Aggressive</span>
-                                  <span className="text-[11px] text-gray-500">{offerAggression}%</span>
+                                  <span className="text-[11px] text-xs">{offerAggression}%</span>
                                 </label>
                                 <input
                                   id="aggression-slider"
@@ -2159,7 +2159,7 @@ export function TradeStudioView() {
                                   onChange={(e) => setOfferAggression(Number(e.target.value))}
                                   className="mt-1 h-2 w-full cursor-pointer accent-indigo-500"
                                 />
-                                <div className="mt-1 flex justify-between text-[11px] text-gray-500">
+                                <div className="mt-1 flex justify-between text-[11px] text-xs">
                                   <span>Conservative</span>
                                   <span>Aggressive</span>
                                 </div>
@@ -2167,27 +2167,27 @@ export function TradeStudioView() {
                             </div>
                             <div className="flex-1 overflow-y-auto">
                               <div className="grid gap-3 sm:grid-cols-2">
-                                <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
-                                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                                <div className="cfc-card-flat p-3">
+                                  <p className="text-xs uppercase tracking-wide text-xs">
                                     You send ({teamName})
                                   </p>
-                                  <ul className="mt-2 space-y-2 text-sm text-gray-200">
+                                  <ul className="mt-2 space-y-2 text-sm text-sm">
                                     {currentOffer?.send?.map((item, idx) => (
                                       <li
                                         key={`${currentOffer?.id}-send-${item.id}`}
-                                        className={`rounded-md border px-2 py-2 ${idx === 0 ? "border-indigo-700/60 bg-indigo-950/40" : "border-gray-800 bg-gray-900"}`}
+                                        className={`rounded-md border px-2 py-2 ${idx === 0 ? "border-[var(--cfc-blue)] bg-[var(--cfc-blue)]/10" : "cfc-card-muted"}`}
                                       >
                                         <div className="flex items-center justify-between gap-3">
                                           <div className="min-w-0">
                                             <div className="flex items-center gap-2">
-                                              <p className="truncate font-semibold text-white">{item.label}</p>
+                                              <p className="truncate font-semibold ">{item.label}</p>
                                               {idx === 0 ? (
-                                                <span className="rounded-full bg-indigo-700/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-indigo-100">
+                                                <span className="cfc-chip cfc-chip-blue text-[9px]">
                                                   Headline
                                                 </span>
                                               ) : null}
                                             </div>
-                                            <p className="text-[11px] text-gray-500">
+                                            <p className="text-[11px] text-xs">
                                               {item.type === "player"
                                                 ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
                                                 : "Draft pick"}
@@ -2195,11 +2195,11 @@ export function TradeStudioView() {
                                           </div>
                                           <div className="flex items-center gap-2">
                                             {item.isUnvalued ? (
-                                              <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                                              <span className="cfc-chip text-[10px]">
                                                 Unvalued
                                               </span>
                                             ) : null}
-                                            <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
+                                            <span className="cfc-chip text-[11px]">
                                               {Math.round(item.value)}
                                             </span>
                                           </div>
@@ -2208,27 +2208,27 @@ export function TradeStudioView() {
                                     ))}
                                   </ul>
                                 </div>
-                                <div className="rounded-lg border border-gray-800 bg-black/40 p-3">
-                                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                                <div className="cfc-card-flat p-3">
+                                  <p className="text-xs uppercase tracking-wide text-xs">
                                     You receive ({currentOffer?.partner ?? ""})
                                   </p>
-                                  <ul className="mt-2 space-y-2 text-sm text-gray-200">
+                                  <ul className="mt-2 space-y-2 text-sm text-sm">
                                     {currentOffer?.receive?.map((item, idx) => (
                                       <li
                                         key={`${currentOffer?.id}-receive-${item.id}`}
-                                        className={`rounded-md border px-2 py-2 ${idx === 0 ? "border-emerald-700/60 bg-emerald-950/40" : "border-gray-800 bg-gray-900"}`}
+                                        className={`rounded-md border px-2 py-2 ${idx === 0 ? "border-[var(--cfc-blue)] bg-[var(--cfc-blue)]/10" : "cfc-card-muted"}`}
                                       >
                                         <div className="flex items-center justify-between gap-3">
                                           <div className="min-w-0">
                                             <div className="flex items-center gap-2">
-                                              <p className="truncate font-semibold text-white">{item.label}</p>
+                                              <p className="truncate font-semibold ">{item.label}</p>
                                               {idx === 0 ? (
-                                                <span className="rounded-full bg-emerald-700/60 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-100">
+                                                <span className="cfc-chip cfc-chip-blue text-[9px]">
                                                   Headline
                                                 </span>
                                               ) : null}
                                             </div>
-                                            <p className="text-[11px] text-gray-500">
+                                            <p className="text-[11px] text-xs">
                                               {item.type === "player"
                                                 ? `${item.position || "Flex"} • ${item.team || "FA"} • ${item.ageLabel ?? "–"}`
                                                 : "Draft pick"}
@@ -2236,11 +2236,11 @@ export function TradeStudioView() {
                                           </div>
                                           <div className="flex items-center gap-2">
                                             {item.isUnvalued ? (
-                                              <span className="rounded-full bg-gray-800 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-gray-300">
+                                              <span className="cfc-chip text-[10px]">
                                                 Unvalued
                                               </span>
                                             ) : null}
-                                            <span className="rounded-md bg-gray-800 px-2 py-1 text-[11px] text-gray-200">
+                                            <span className="cfc-chip text-[11px]">
                                               {Math.round(item.value)}
                                             </span>
                                           </div>
@@ -2255,7 +2255,7 @@ export function TradeStudioView() {
                                   {currentOffer?.tags?.map((tag) => (
                                     <span
                                       key={`${currentOffer.id}-tag-${tag}`}
-                                      className="rounded-full border border-indigo-700/60 bg-indigo-900/60 px-3 py-1 text-[11px] font-semibold text-indigo-50"
+                                      className="cfc-chip cfc-chip-blue text-[11px]"
                                     >
                                       {tag}
                                     </span>
@@ -2264,14 +2264,14 @@ export function TradeStudioView() {
                                     <span
                                       className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
                                         fairnessStyles[currentOffer.fairness] ??
-                                        "border-gray-700 bg-gray-800 text-gray-200"
+                                        "border-gray-700 bg-[var(--cfc-ink)] text-sm"
                                       }`}
                                     >
                                       {currentOffer.fairness}
                                     </span>
                                   ) : null}
                                 </div>
-                                <p className="text-sm text-gray-200">{currentOffer?.explanation ?? ""}</p>
+                                <p className="text-sm text-sm">{currentOffer?.explanation ?? ""}</p>
                               </div>
                             </div>
                             <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
@@ -2279,25 +2279,25 @@ export function TradeStudioView() {
                                 <button
                                   type="button"
                                   onClick={regenerateOffers}
-                                  className="rounded-md border border-indigo-700 bg-indigo-900 px-3 py-2 text-xs font-semibold text-indigo-50 transition hover:border-indigo-500 hover:text-white"
+                                  className="cfc-btn cfc-btn-primary cfc-btn-sm"
                                 >
                                   Generate again
                                 </button>
                                 <button
                                   type="button"
                                   onClick={handleSendOffer}
-                                  className="rounded-md border border-emerald-700 bg-emerald-800 px-3 py-2 text-xs font-semibold text-emerald-50 transition hover:border-emerald-600 hover:text-white"
+                                  className="cfc-btn cfc-btn-accent cfc-btn-sm"
                                 >
                                   Send Offer
                                 </button>
                               </div>
-                              <span className="text-xs text-gray-400">
+                              <span className="text-xs">
                                 Offer carousel {offerPosition} of {offerTotal}
                               </span>
                             </div>
                           </>
                         ) : (
-                          <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-gray-800 bg-black/40 p-4 text-sm text-gray-400">
+                          <div className="flex flex-1 items-center justify-center cfc-card-muted border-dashed p-4 text-sm">
                             {tradeBlock.length
                               ? "No fair offers met the constraints. Adjust your Shop list or aggression to try again."
                               : "Toggle Shop? on players or picks to see suggestions."}
@@ -2305,56 +2305,56 @@ export function TradeStudioView() {
                         )}
                       </div>
                     ) : activeWorkbenchTab === "incoming" ? (
-                      <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto rounded-lg border border-gray-800 bg-black/40 p-3 text-sm">
+                      <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto cfc-card-flat p-3 text-sm">
                         {incomingOffers.length > 0 ? (
                           incomingOffers.map((offer) => {
                             const fromName = rosterNames[Number(offer.from_team_id)] || `Team ${offer.from_team_id}`;
                             return (
                               <div
                                 key={offer.id}
-                                className="rounded-lg border border-gray-700 bg-gray-900 p-3"
+                                className="cfc-card p-3"
                               >
                                 <div className="mb-2 flex items-center justify-between">
-                                  <span className="text-xs font-semibold text-white">
+                                  <span className="text-xs font-semibold ">
                                     From: {fromName}
                                   </span>
-                                  <span className="rounded-full bg-indigo-900/60 px-2 py-0.5 text-[10px] font-bold text-indigo-200">
+                                  <span className="cfc-chip cfc-chip-blue text-[10px]">
                                     {offer.grade_label}
                                   </span>
                                 </div>
                                 <div className="grid grid-cols-2 gap-3 text-xs">
                                   <div>
-                                    <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-500">You receive</p>
+                                    <p className="mb-1 text-[10px] uppercase tracking-wide text-xs">You receive</p>
                                     {(offer.assets_to ?? []).map((a) => (
-                                      <p key={a.key} className="text-gray-300">{a.label} ({a.value.toLocaleString()})</p>
+                                      <p key={a.key} className="text-sm">{a.label} ({a.value.toLocaleString()})</p>
                                     ))}
-                                    <p className="mt-1 font-semibold text-gray-200">Total: {offer.to_value.toLocaleString()}</p>
+                                    <p className="mt-1 font-semibold text-sm">Total: {offer.to_value.toLocaleString()}</p>
                                   </div>
                                   <div>
-                                    <p className="mb-1 text-[10px] uppercase tracking-wide text-gray-500">You send</p>
+                                    <p className="mb-1 text-[10px] uppercase tracking-wide text-xs">You send</p>
                                     {(offer.assets_from ?? []).map((a) => (
-                                      <p key={a.key} className="text-gray-300">{a.label} ({a.value.toLocaleString()})</p>
+                                      <p key={a.key} className="text-sm">{a.label} ({a.value.toLocaleString()})</p>
                                     ))}
-                                    <p className="mt-1 font-semibold text-gray-200">Total: {offer.from_value.toLocaleString()}</p>
+                                    <p className="mt-1 font-semibold text-sm">Total: {offer.from_value.toLocaleString()}</p>
                                   </div>
                                 </div>
-                                <p className="mt-1 text-[10px] text-gray-500">
+                                <p className="mt-1 text-[10px] text-xs">
                                   {new Date(offer.created_at).toLocaleString()}
                                 </p>
                               </div>
                             );
                           })
                         ) : (
-                          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-gray-400">
+                          <div className="flex flex-1 flex-col items-center justify-center gap-2 text-xs">
                             <p>No incoming offers yet.</p>
-                            <p className="text-xs text-gray-500">Generate offers or await league activity.</p>
+                            <p className="text-xs text-xs">Generate offers or await league activity.</p>
                           </div>
                         )}
                       </div>
                     ) : (
-                      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-gray-800 bg-black/40 text-sm text-gray-400">
+                      <div className="flex h-full flex-col items-center justify-center gap-2 rounded-lg border border-dashed cfc-card-muted text-sm">
                         <p>Chat coming soon.</p>
-                        <p className="text-xs text-gray-500">Collaborate with league mates here.</p>
+                        <p className="text-xs text-xs">Collaborate with league mates here.</p>
                       </div>
                     )}
                   </div>

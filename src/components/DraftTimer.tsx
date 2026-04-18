@@ -181,27 +181,39 @@ export default function DraftTimer({
   }, [completePick, externalPick, onExternalPickHandled]);
 
   return (
-    <div className="w-full max-w-4xl space-y-4">
-      <div className="flex flex-wrap items-center gap-4 rounded-xl bg-slate-900 px-6 py-4 shadow-lg">
-        <span className="font-mono text-3xl font-bold uppercase tracking-wide text-white">
-          ON THE CLOCK:
+    <div className="w-full">
+      <div className="cfc-card-ink flex flex-wrap items-center gap-4 px-5 py-4">
+        <span
+          className="font-headline text-[11px] font-bold uppercase tracking-[0.2em]"
+          style={{ color: "#999" }}
+        >
+          On the clock
         </span>
-        <span className="font-mono text-3xl font-semibold text-white">
+        <span className="font-headline text-2xl text-white truncate">
           {currentTeamName}
         </span>
-        <span className="rounded-full bg-slate-800 px-3 py-1 font-mono text-3xl font-semibold text-slate-100">
+        <span
+          className="cfc-mono text-lg"
+          style={{
+            background: "var(--cfc-yellow)",
+            color: "var(--cfc-ink)",
+            padding: "4px 10px",
+            border: "2px solid var(--cfc-ink)",
+            borderRadius: "4px",
+            fontWeight: 800,
+          }}
+        >
           {pickLabel}
         </span>
         <span
-          className={`ml-auto font-mono text-3xl tabular-nums ${
-            isCritical ? "text-red-300" : "text-white"
+          className={`ml-auto cfc-mono text-4xl font-extrabold tabular ${
+            isCritical ? "text-[var(--cfc-red)]" : "text-white"
           }`}
         >
           {String(minutes).padStart(2, "0")}:
           {String(seconds).padStart(2, "0")}
         </span>
       </div>
-
     </div>
   );
 }

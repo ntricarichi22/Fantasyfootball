@@ -296,7 +296,7 @@ export default function HistorianChat() {
   );
 
   return (
-    <div className="flex h-full min-h-screen flex-1 bg-[#0b0c10]">
+    <div className="flex h-full min-h-[calc(100vh-44px)] flex-1">
       <ConversationSidebar
         conversations={state.conversations}
         activeId={state.activeId}
@@ -319,11 +319,11 @@ export default function HistorianChat() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex items-center gap-3 border-b border-white/5 bg-[#0d0f16] px-4 py-3">
+        <div className="flex items-center gap-3 px-4 py-3 border-b-[2.5px] border-[var(--cfc-ink)] bg-[var(--cfc-card)]">
           <button
             type="button"
             onClick={() => setSidebarOpen((v) => !v)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-gray-300 transition hover:bg-white/5 hover:text-white"
+            className="cfc-btn cfc-btn-sm"
             aria-label={sidebarOpen ? "Hide conversations" : "Show conversations"}
           >
             {sidebarOpen ? (
@@ -333,14 +333,14 @@ export default function HistorianChat() {
             )}
             <Menu className="h-4 w-4 md:hidden" />
           </button>
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-red-600/20 ring-1 ring-red-500/40">
-            <ScrollText className="h-4 w-4 text-red-400" />
+          <div className="cfc-ai-icon">
+            <ScrollText className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-white">
+            <p className="truncate text-sm font-semibold">
               {activeConversation?.title ?? "CFC Historian"}
             </p>
-            <p className="text-[11px] text-gray-500">
+            <p className="text-[11px]" style={{ color: "var(--cfc-muted)" }}>
               League history assistant
             </p>
           </div>
@@ -372,7 +372,7 @@ export default function HistorianChat() {
         </div>
 
         {/* Input */}
-        <div className="border-t border-white/5 bg-[#0d0f16] px-4 py-3">
+        <div className="border-t-[2.5px] border-[var(--cfc-ink)] bg-[var(--cfc-card)] px-4 py-3">
           <div className="mx-auto w-full max-w-3xl">
             <ChatInput
               value={input}
@@ -380,10 +380,10 @@ export default function HistorianChat() {
               onSend={handleSend}
               disabled={isLoading}
             />
-            <p className="mt-2 text-center text-[11px] text-gray-500">
-              Press <kbd className="rounded bg-white/5 px-1">Enter</kbd> to send,{" "}
-              <kbd className="rounded bg-white/5 px-1">Shift</kbd> +{" "}
-              <kbd className="rounded bg-white/5 px-1">Enter</kbd> for newline.
+            <p className="mt-2 text-center text-[11px]" style={{ color: "var(--cfc-muted)" }}>
+              Press <kbd className="cfc-chip text-[10px] px-1">Enter</kbd> to send,{" "}
+              <kbd className="cfc-chip text-[10px] px-1">Shift</kbd> +{" "}
+              <kbd className="cfc-chip text-[10px] px-1">Enter</kbd> for newline.
             </p>
           </div>
         </div>

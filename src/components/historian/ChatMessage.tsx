@@ -45,15 +45,15 @@ export function ChatMessage({ message, question }: Props) {
     return (
       <div className="flex justify-end gap-3">
         <div className="flex max-w-[85%] flex-col items-end">
-          <div className="rounded-2xl rounded-tr-md bg-red-600/90 px-4 py-3 text-sm leading-relaxed text-white shadow-[0_10px_30px_rgba(239,68,68,0.18)]">
+          <div className="cfc-card-ink px-4 py-3 text-sm leading-relaxed">
             <p className="whitespace-pre-wrap">{message.content}</p>
           </div>
-          <span className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
+          <span className="mt-1 text-[10px] uppercase tracking-wider" style={{ color: "var(--cfc-muted)" }}>
             {formatTimestamp(message.timestamp)}
           </span>
         </div>
-        <div className="mt-1 flex h-8 w-8 flex-none items-center justify-center rounded-full bg-white/10 text-gray-300">
-          <User className="h-4 w-4" />
+        <div className="mt-1 cfc-ai-icon bg-[var(--cfc-card)] border-[var(--cfc-muted-border)]">
+          <User className="h-4 w-4" style={{ color: "var(--cfc-ink)" }} />
         </div>
       </div>
     );
@@ -62,23 +62,16 @@ export function ChatMessage({ message, question }: Props) {
   const isError = message.isError;
   return (
     <div className="flex justify-start gap-3">
-      <div
-        className={[
-          "mt-1 flex h-8 w-8 flex-none items-center justify-center rounded-full ring-1",
-          isError
-            ? "bg-amber-500/15 text-amber-300 ring-amber-500/40"
-            : "bg-red-600/20 text-red-300 ring-red-500/40",
-        ].join(" ")}
-      >
-        {isError ? <AlertTriangle className="h-4 w-4" /> : <ScrollText className="h-4 w-4" />}
+      <div className="mt-1 cfc-ai-icon">
+        {isError ? <AlertTriangle className="h-4 w-4" style={{ color: "var(--cfc-yellow)" }} /> : <ScrollText className="h-4 w-4" />}
       </div>
       <div className="flex max-w-[85%] flex-col items-start">
         <div
           className={[
-            "rounded-2xl rounded-tl-md border px-4 py-3 shadow-sm",
+            "px-4 py-3",
             isError
-              ? "border-amber-500/30 bg-amber-500/10 text-amber-100"
-              : "border-white/5 bg-[#171a23] text-gray-100",
+              ? "cfc-toast cfc-toast-warning"
+              : "cfc-card",
           ].join(" ")}
         >
           {isError ? (
@@ -87,19 +80,19 @@ export function ChatMessage({ message, question }: Props) {
             <Markdown text={message.content} />
           )}
         </div>
-        <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wider text-gray-500">
+        <div className="mt-1 flex items-center gap-2 text-[10px] uppercase tracking-wider" style={{ color: "var(--cfc-muted)" }}>
           <span>{formatTimestamp(message.timestamp)}</span>
           {!isError && (
             <button
               type="button"
               onClick={handleCopy}
-              className="group inline-flex items-center gap-1 rounded px-1.5 py-0.5 normal-case tracking-normal text-gray-500 transition hover:bg-white/5 hover:text-gray-200"
+              className="cfc-chip cfc-chip-interactive text-[11px] normal-case tracking-normal inline-flex items-center gap-1"
               aria-label="Copy answer"
             >
               {copied ? (
                 <>
-                  <Check className="h-3 w-3 text-emerald-400" />
-                  <span className="text-[11px] text-emerald-400">Copied!</span>
+                  <Check className="h-3 w-3" style={{ color: "var(--cfc-blue)" }} />
+                  <span className="text-[11px]" style={{ color: "var(--cfc-blue)" }}>Copied!</span>
                 </>
               ) : (
                 <>
@@ -118,14 +111,14 @@ export function ChatMessage({ message, question }: Props) {
 export function TypingIndicator() {
   return (
     <div className="flex justify-start gap-3">
-      <div className="mt-1 flex h-8 w-8 flex-none items-center justify-center rounded-full bg-red-600/20 text-red-300 ring-1 ring-red-500/40">
+      <div className="mt-1 cfc-ai-icon">
         <ScrollText className="h-4 w-4" />
       </div>
-      <div className="rounded-2xl rounded-tl-md border border-white/5 bg-[#171a23] px-4 py-3">
+      <div className="cfc-card px-4 py-3">
         <div className="flex items-center gap-1.5" aria-label="Historian is typing">
-          <span className="h-2 w-2 animate-bounce rounded-full bg-red-400 [animation-delay:-0.3s]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-red-400 [animation-delay:-0.15s]" />
-          <span className="h-2 w-2 animate-bounce rounded-full bg-red-400" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--cfc-red)] [animation-delay:-0.3s]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--cfc-red)] [animation-delay:-0.15s]" />
+          <span className="h-2 w-2 animate-bounce rounded-full bg-[var(--cfc-red)]" />
         </div>
       </div>
     </div>

@@ -1,10 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ArrowLeftRight, Compass, Gauge, ScrollText } from "lucide-react";
 
 import { getLeagueId } from "../lib/config";
 
@@ -39,6 +37,14 @@ const safeLeagueId = () => {
     return "";
   }
 };
+
+const TICKER_ITEMS: Array<{ name: string; text: string }> = [
+  { name: "DRAFT ROOM", text: "Live · 2026 offseason draft is open" },
+  { name: "TRADE CENTER", text: "AI counter-offers ready in your inbox" },
+  { name: "TEAM HQ", text: "Strategy · depth chart · trade chart" },
+  { name: "HISTORIAN", text: "Ask the league archive anything" },
+  { name: "CFC", text: "Cleveland Football Club · est. 2010" },
+];
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -87,10 +93,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   const navItems = useMemo(
     () => [
-      { href: "/draft", label: "Draft Room", icon: Compass },
-      { href: "/historian", label: "CFC Historian", icon: ScrollText },
-      { href: "/team-hq", label: "Team HQ", icon: Gauge },
-      { href: "/trades", label: "Trade Center", icon: ArrowLeftRight, badge: true },
+      { href: "/draft", label: "Draft Room" },
+      { href: "/historian", label: "Historian" },
+      { href: "/team-hq", label: "Team HQ" },
+      { href: "/trades", label: "Trade Center", badge: true as const },
     ],
     []
   );
@@ -126,83 +132,101 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const teamName =
     selection.teamName || (selection.rosterId ? `Team ${selection.rosterId}` : "Not selected");
 
+  // Ticker is rendered twice for seamless looping
+  const tickerItems = [...TICKER_ITEMS, ...TICKER_ITEMS];
+
   return (
-    <div className="flex min-h-screen bg-[#0b0c10] text-white">
-      <aside className="flex h-screen w-60 flex-col border-r border-white/5 bg-[#0f1118] px-4 py-6">
-        <div className="mb-8 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-red-600/20 ring-1 ring-red-500/40">
-            <Image
-              src="/file.svg"
-              alt="CFC logo"
-              width={32}
-              height={32}
-              className="object-contain opacity-90"
-            />
-          </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.22em] text-gray-400">CFC Draft</p>
-            <p className="text-base font-semibold text-white">2026 Command</p>
-          </div>
-        </div>
+    <div className="flex min-h-screen flex-col bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
+      {/* TOP BAR — ink/black, yellow CFC logo, underlined active nav */}
+      <header className="cfc-topbar sticky top-0 z-40">
+        <div className="mx-auto flex w-full max-w-7xl items-center gap-6 px-4 py-3 sm:px-6">
+          <Link href="/" className="cfc-topbar-logo shrink-0" aria-label="CFC home">
+            CFC
+          </Link>
 
-        <nav className="flex-1 space-y-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isTradeCenterItem = item.href === "/trades";
-            const active = isTradeCenterItem
-              ? (pathname === "/trades" ||
-                  pathname?.startsWith("/trades/") ||
-                  pathname === "/trade-studio" ||
-                  pathname === "/trade-builder")
-              : item.href === "/team-hq"
-                ? (pathname === "/team-hq" ||
-                    pathname?.startsWith("/team-hq/") ||
-                    pathname === "/team-snapshot")
-                : (pathname === item.href || pathname?.startsWith(`${item.href}/`));
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={[
-                  "group flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-semibold transition",
-                  active
-                    ? "bg-red-600/80 text-white shadow-[0_10px_30px_rgba(239,68,68,0.22)]"
-                    : "text-gray-300 hover:bg-white/5 hover:text-white",
-                ].join(" ")}
-              >
-                <Icon
+          <nav className="flex flex-1 items-center gap-5 overflow-x-auto cfc-no-scrollbar">
+            {navItems.map((item) => {
+              const isTradeCenterItem = item.href === "/trades";
+              const active = isTradeCenterItem
+                ? (pathname === "/trades" ||
+                    pathname?.startsWith("/trades/") ||
+                    pathname === "/trade-studio" ||
+                    pathname === "/trade-builder")
+                : item.href === "/team-hq"
+                  ? (pathname === "/team-hq" ||
+                      pathname?.startsWith("/team-hq/") ||
+                      pathname === "/team-snapshot")
+                  : (pathname === item.href || pathname?.startsWith(`${item.href}/`));
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
                   className={[
-                    "h-5 w-5 transition",
-                    active ? "text-white" : "text-gray-400 group-hover:text-white",
+                    "cfc-topbar-link relative",
+                    active ? "cfc-topbar-link-active" : "",
                   ].join(" ")}
-                />
-                <span className="flex-1">{item.label}</span>
-                {"badge" in item && item.badge && unreadCount > 0 && (
-                  <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
-                    {unreadCount > 99 ? "99+" : unreadCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
+                >
+                  <span>{item.label}</span>
+                  {item.badge && unreadCount > 0 && (
+                    <span
+                      className="ml-2 inline-flex h-4 min-w-4 items-center justify-center px-1 align-middle"
+                      style={{
+                        background: "var(--cfc-red)",
+                        color: "#fff",
+                        border: "1.5px solid #1A1A1A",
+                        borderRadius: "4px",
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "9px",
+                        fontWeight: 800,
+                        lineHeight: 1,
+                      }}
+                    >
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </nav>
 
-        <div className="mt-6 rounded-lg border border-white/5 bg-white/5 px-3 py-3">
-          <p className="text-xs uppercase tracking-[0.2em] text-gray-400">Team</p>
-          <p className="mt-1 text-sm font-semibold text-white">{teamName || "Not selected"}</p>
-          <button
-            type="button"
-            onClick={handleSwitchTeam}
-            className="mt-3 w-full rounded-md bg-white/10 px-3 py-2 text-sm font-semibold text-white transition hover:bg-white/20"
-          >
-            Switch Team
-          </button>
+          <div className="hidden sm:flex items-center gap-3">
+            <div className="text-right leading-tight">
+              <p
+                className="text-[9px] font-bold uppercase tracking-[0.18em]"
+                style={{ color: "#999" }}
+              >
+                Active Team
+              </p>
+              <p className="text-xs font-semibold text-white truncate max-w-[180px]">
+                {teamName}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleSwitchTeam}
+              className="cfc-btn cfc-btn-accent cfc-btn-sm"
+            >
+              Switch
+            </button>
+          </div>
         </div>
-      </aside>
+      </header>
 
-      <div className="flex min-h-screen flex-1 flex-col bg-[#0b0c10]">
-        <div className="flex-1 overflow-y-auto">{children}</div>
-      </div>
+      {/* CONTENT */}
+      <main className="flex-1 bg-[var(--cfc-canvas)]">{children}</main>
+
+      {/* TICKER BAR — blue, scrolling activity */}
+      <footer className="cfc-ticker">
+        <div className="cfc-ticker-track">
+          {tickerItems.map((item, idx) => (
+            <span key={idx} className="inline-flex items-center gap-3">
+              <span className="cfc-ticker-name">{item.name}</span>
+              <span>{item.text}</span>
+              <span className="cfc-ticker-dot" />
+            </span>
+          ))}
+        </div>
+      </footer>
     </div>
   );
 }

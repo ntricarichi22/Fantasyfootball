@@ -17,7 +17,7 @@ function TeamHqTabsInner() {
   const basePath = pathname === "/team-snapshot" ? "/team-snapshot" : "/team-hq";
 
   return (
-    <div className="mb-4 flex gap-1 rounded-lg border border-gray-800 bg-gray-900/60 p-1">
+    <div className="cfc-tabs mb-5">
       {TABS.map((tab) => {
         const href = `${basePath}?tab=${encodeURIComponent(tab.value)}`;
         const isActive = active === tab.value;
@@ -25,10 +25,7 @@ function TeamHqTabsInner() {
           <Link
             key={tab.value}
             href={href}
-            className={[
-              "rounded-md px-4 py-2 text-sm font-semibold transition",
-              isActive ? "bg-red-600/80 text-white" : "text-gray-400 hover:bg-white/5 hover:text-white",
-            ].join(" ")}
+            className={["cfc-tab", isActive ? "cfc-tab-active" : ""].join(" ")}
           >
             {tab.label}
           </Link>
@@ -40,7 +37,7 @@ function TeamHqTabsInner() {
 
 export default function TeamHqTabs() {
   return (
-    <Suspense fallback={<div className="mb-4 h-10 rounded-lg border border-gray-800 bg-gray-900/60" />}>
+    <Suspense fallback={<div className="cfc-tabs mb-5" style={{ height: 40 }} />}>
       <TeamHqTabsInner />
     </Suspense>
   );

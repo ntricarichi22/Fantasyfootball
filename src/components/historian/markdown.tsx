@@ -19,7 +19,7 @@ function renderInline(text: string): ReactNode[] {
     if (!tok) return null;
     if (tok.startsWith("**") && tok.endsWith("**")) {
       return (
-        <strong key={i} className="font-semibold text-white">
+        <strong key={i} className="font-semibold text-[var(--cfc-ink)]">
           {tok.slice(2, -2)}
         </strong>
       );
@@ -28,7 +28,12 @@ function renderInline(text: string): ReactNode[] {
       return (
         <code
           key={i}
-          className="rounded bg-white/10 px-1 py-0.5 font-mono text-[0.85em] text-red-200"
+          className="cfc-mono rounded px-1 py-0.5 text-[0.85em]"
+          style={{
+            background: "var(--cfc-canvas)",
+            border: "1px solid var(--cfc-muted-border)",
+            color: "var(--cfc-ink)",
+          }}
         >
           {tok.slice(1, -1)}
         </code>
@@ -89,7 +94,7 @@ function parseBlocks(src: string): Block[] {
 export function Markdown({ text }: { text: string }) {
   const blocks = parseBlocks(text);
   return (
-    <div className="space-y-3 text-sm leading-relaxed text-gray-100">
+    <div className="space-y-3 text-sm leading-relaxed text-[var(--cfc-ink)]">
       {blocks.map((block, i) => {
         if (block.kind === "p") {
           return (
@@ -100,17 +105,33 @@ export function Markdown({ text }: { text: string }) {
         }
         if (block.kind === "ul") {
           return (
-            <ul key={i} className="ml-5 list-disc space-y-1 marker:text-red-400">
+            <ul
+              key={i}
+              className="ml-5 list-disc space-y-1"
+              style={{ listStyleType: "disc", color: "var(--cfc-red)" }}
+            >
               {block.items.map((item, j) => (
-                <li key={j}>{renderInline(item)}</li>
+                <li key={j}>
+                  <span style={{ color: "var(--cfc-ink)" }}>
+                    {renderInline(item)}
+                  </span>
+                </li>
               ))}
             </ul>
           );
         }
         return (
-          <ol key={i} className="ml-5 list-decimal space-y-1 marker:text-red-400">
+          <ol
+            key={i}
+            className="ml-5 list-decimal space-y-1"
+            style={{ listStyleType: "decimal", color: "var(--cfc-red)" }}
+          >
             {block.items.map((item, j) => (
-              <li key={j}>{renderInline(item)}</li>
+              <li key={j}>
+                <span style={{ color: "var(--cfc-ink)" }}>
+                  {renderInline(item)}
+                </span>
+              </li>
             ))}
           </ol>
         );
