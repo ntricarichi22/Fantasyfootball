@@ -5,20 +5,17 @@
 
 ---
 
-## Original Prompt (reconstructed)
+## Original Prompt
 
-> _The verbatim original chat is not preserved in the repo. The summary below captures the intent of the kickoff conversation that produced this work._
+The verbatim kickoff prompt is preserved at
+[`./original-prompt.md`](./original-prompt.md). It defines the build order
+(Clock Bar → Board → Scouting Card → Roster → Assistant GM → Ticker → Global
+Mode → Mobile → Trade Integration), the exact letter-grade rubrics, the
+component file layout, the Anthropic API call shape, and an explicit "Do NOT"
+list (no rounded corners, no gradients, no graying-out drafted players, no API
+calls on card click, etc.).
 
-The CFC Draft War Room is fully designed (see `draft-war-room-spec.md` and the
-reference screenshots in this folder). Today the draft room ships as a single
-~2,360-line `src/app/page.tsx` that already handles realtime sync, the pick
-clock, pick submission, and a basic player board.
-
-The ask was: **rebuild the draft room screen to match the spec, and turn the
-clock bar + draft ticker into global app chrome that appears on every page
-while a draft is active** — without breaking what already works.
-
-The follow-up question that produced this strategy doc was effectively:
+The follow-up question that produced **this** strategy doc was effectively:
 **"Stack one giant PR, or slice it up? If we slice it, how thin?"**
 
 The answer: slice it thin, merge serially, never let a stack go more than two
