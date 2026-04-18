@@ -98,6 +98,9 @@ export async function GET() {
   );
 
   const teamCount = draftState.teamCount || rosters.length;
+  if (teamCount <= 0) {
+    return NextResponse.json({ data: null });
+  }
   const round = Math.floor(nextPickIndex / teamCount) + 1;
   const slot = (nextPickIndex % teamCount) + 1;
   const pickKey = formatPickKey(draftState.season, round, slot);

@@ -111,7 +111,6 @@ export default function ClockBar() {
 
   const franchiseName =
     (isYourPick ? selection.teamName : context?.onClockTeamName) ||
-    context?.onClockTeamName ||
     (selection.rosterId ? `Roster ${selection.rosterId}` : "Loading…");
 
   const round = context?.round ?? 0;
