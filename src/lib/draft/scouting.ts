@@ -123,7 +123,9 @@ export const buildCapitalGrade = (player: SleeperPlayer | undefined): ScoutingGr
   const round = player.draft_round ?? null;
   const pick = player.draft_pick ?? null;
   const overall = overallPick(round, pick);
-  const letter = round === null && pick === null ? "D" : draftCapitalGrade(overall);
+  // Undrafted (no round and no pick) → D; otherwise map overall pick → letter.
+  const isUndrafted = round === null && pick === null;
+  const letter: LetterGrade | "TBD" = isUndrafted ? "D" : draftCapitalGrade(overall);
   const team = player.team || "FA";
   if (round && pick) {
     return {
@@ -133,11 +135,14 @@ export const buildCapitalGrade = (player: SleeperPlayer | undefined): ScoutingGr
     };
   }
   return {
-    letter: letter === "TBD" ? "TBD" : "D",
+    letter,
     title: "Draft Capital",
-    detail: round || pick ? `${team} · TBD` : `${team} · Undrafted`,
+    detail: isUndrafted ? `${team} · Undrafted` : `${team} · TBD`,
   };
 };
+
+const teamContextFor = (contextMap: NflTeamContextMap, team: string | undefined): NflTeamContext =>
+  (team && contextMap[team]) || {};
 
 /* ----- NFL team trade-context map (shared by situation + opportunity) -- */
 
@@ -172,7 +177,7 @@ export const buildSituationGrade = (
   if (!team) {
     return { letter: "TBD", title: "Situation", detail: "TBD" };
   }
-  const context = contextMap[team] || {};
+  const context = teamContextFor(contextMap, team);
 
   if (position === "WR" || position === "TE") {
     const qb = context.QB;
@@ -230,7 +235,7 @@ export const buildOpportunityGrade = (
   if (!team || !position) {
     return { letter: "TBD", title: "Opportunity", detail: "TBD" };
   }
-  const incumbent = (contextMap[team] || {})[position as PositionKey];
+  const incumbent = teamContextFor(contextMap, team)[position as PositionKey];
   if (!incumbent || incumbent.value < 15) {
     return {
       letter: "A+",

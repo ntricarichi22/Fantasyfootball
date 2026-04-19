@@ -18,6 +18,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   LINEUP_CACHE_KEY,
   MIN_TEAM_COUNT,
+  PRECOMPUTED_GRADES_COUNT,
   SELECTED_TEAM_CACHE_KEY,
   STATUS_MESSAGE_TIMEOUT_MS,
 } from "../lib/draft/constants";
@@ -538,7 +539,7 @@ export default function Home() {
 
   const precomputedScoutingGrades = useMemo(() => {
     const map = new Map<string, ScoutingGradeSet>();
-    availablePlayers.slice(0, 20).forEach((p) => {
+    availablePlayers.slice(0, PRECOMPUTED_GRADES_COUNT).forEach((p) => {
       map.set(p.id, buildScoutingGrades(playerDictionary[p.id], p.position, nflTeamContext));
     });
     return map;

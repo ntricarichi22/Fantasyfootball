@@ -11,6 +11,9 @@ import {
 } from "../../lib/draft/scouting";
 import type { AvailablePlayer, SleeperPlayer } from "../../lib/draft/types";
 
+/** Must match the `cfc-card-out` keyframes duration in globals.css. */
+const CLOSE_ANIMATION_MS = 500;
+
 type Props = {
   player: AvailablePlayer;
   sleeperPlayer: SleeperPlayer | undefined;
@@ -166,7 +169,7 @@ export function ScoutingCardModal({
   const requestClose = () => {
     if (closing) return;
     setClosing(true);
-    window.setTimeout(onClose, 480);
+    window.setTimeout(onClose, CLOSE_ANIMATION_MS);
   };
 
   // Close on Escape
