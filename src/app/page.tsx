@@ -29,6 +29,7 @@ import type {
   DraftLogEntry,
   DraftedPlayer,
 } from "../lib/draft/types";
+import { normalizeProspectName } from "../lib/draft/types";
 import {
   calculatePickNumber,
   generateSessionId,
@@ -550,7 +551,7 @@ export default function Home() {
           playerDictionary[p.id],
           p.position,
           nflTeamContext,
-          rookieProspects[p.id] ?? null
+          rookieProspects[normalizeProspectName(p.name)] ?? null
         )
       );
     });
@@ -959,7 +960,7 @@ export default function Home() {
         <ScoutingCardModal
           player={scoutingPlayer}
           sleeperPlayer={playerDictionary[scoutingPlayer.id]}
-          rookieProspect={rookieProspects[scoutingPlayer.id] ?? null}
+          rookieProspect={rookieProspects[normalizeProspectName(scoutingPlayer.name)] ?? null}
           precomputedGrades={precomputedScoutingGrades.get(scoutingPlayer.id) ?? null}
           contextMap={nflTeamContext}
           canDraft={

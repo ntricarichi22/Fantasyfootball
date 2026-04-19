@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { normalizeProspectName } from "@/lib/draft/types";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -197,6 +198,63 @@ function findSleeperId(
   return null;
 }
 
+type EspnSearchHit = {
+  id?: string | number;
+  uid?: string;
+  type?: string;
+  // Some ESPN responses use `id`, others nest under `link` etc. We probe
+  // multiple shapes and pull the first numeric id we find.
+  defaultRef?: { $ref?: string };
+  link?: { web?: { href?: string } };
+};
+
+type EspnSearchResult = {
+  results?: Array<{
+    type?: string;
+    contents?: EspnSearchHit[];
+  }>;
+};
+
+const ESPN_ID_RE = /\/id\/(\d+)/;
+
+/**
+ * Look up a college-football player headshot URL on ESPN. Returns the
+ * combiner CDN URL (200×200) or null if no id can be parsed. Failures are
+ * silent — the caller treats null as "no avatar yet".
+ */
+async function fetchEspnHeadshotUrl(displayName: string): Promise<string | null> {
+  const query = encodeURIComponent(displayName);
+  const url = `https://site.api.espn.com/apis/common/v3/search?query=${query}&limit=1&type=player`;
+  let espnId: string | null = null;
+  try {
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return null;
+    const json = (await res.json()) as EspnSearchResult;
+    const hit = json?.results?.find((r) => r?.contents?.length)?.contents?.[0];
+    if (!hit) return null;
+    if (typeof hit.id === "number" || typeof hit.id === "string") {
+      const raw = String(hit.id);
+      if (/^\d+$/.test(raw)) espnId = raw;
+    }
+    if (!espnId && hit.uid) {
+      const m = hit.uid.match(/:(\d+)$/);
+      if (m) espnId = m[1];
+    }
+    if (!espnId && hit.defaultRef?.$ref) {
+      const m = hit.defaultRef.$ref.match(ESPN_ID_RE);
+      if (m) espnId = m[1];
+    }
+    if (!espnId && hit.link?.web?.href) {
+      const m = hit.link.web.href.match(ESPN_ID_RE);
+      if (m) espnId = m[1];
+    }
+  } catch {
+    return null;
+  }
+  if (!espnId) return null;
+  return `https://a.espncdn.com/combiner/i?img=/i/headshots/college-football/players/full/${espnId}.png&w=200&h=200`;
+}
+
 export async function POST(req: Request) {
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
@@ -222,6 +280,22 @@ export async function POST(req: Request) {
   const dictionaryCount = Object.keys(dictionary).length;
   const index = buildSleeperIndex(dictionary);
 
+  // Fetch any existing rows so we can re-use their `player_id` (including
+  // bootstrap `tmp_*` placeholders) and update in place. We key by
+  // normalized name because that's the only field guaranteed stable
+  // between runs.
+  const { data: existingRows, error: existingErr } = await supabase
+    .from("rookie_prospects")
+    .select("player_id,name");
+  if (existingErr) {
+    return jsonError(`Failed to read existing rookie_prospects: ${existingErr.message}`, 500);
+  }
+  const existingByName = new Map<string, string>();
+  for (const row of existingRows ?? []) {
+    const key = normalizeProspectName(row?.name);
+    if (key && row?.player_id) existingByName.set(key, String(row.player_id));
+  }
+
   const matched: Array<{
     player_id: string;
     name: string;
@@ -233,20 +307,27 @@ export async function POST(req: Request) {
     nfl_team: null;
     nfl_draft_round: null;
     nfl_draft_pick: null;
-    avatar_url: null;
+    avatar_url: string | null;
   }> = [];
   const unmatched: string[] = [];
   const matchSample: Array<{ name: string; player_id: string }> = [];
+  let avatarHits = 0;
 
   for (const p of PROSPECTS) {
     const pid = findSleeperId(p, index, dictionary);
     const displayName = `${p.first} ${p.last}`;
-    if (!pid) {
-      unmatched.push(displayName);
-      continue;
-    }
+    // Always pull the ESPN headshot — it's keyed off the player name and
+    // is independent of whether we found a Sleeper id.
+    const avatarUrl = await fetchEspnHeadshotUrl(displayName);
+    if (avatarUrl) avatarHits += 1;
+    if (!pid) unmatched.push(displayName);
+    // Re-use any existing player_id (e.g. a bootstrap `tmp_*` placeholder)
+    // so the upsert updates in place rather than creating a duplicate row.
+    const nameKey = normalizeProspectName(displayName);
+    const playerId =
+      pid ?? existingByName.get(nameKey) ?? `tmp_${nameKey}`;
     matched.push({
-      player_id: pid,
+      player_id: playerId,
       name: displayName,
       position: p.position,
       college: p.college,
@@ -256,9 +337,9 @@ export async function POST(req: Request) {
       nfl_team: null,
       nfl_draft_round: null,
       nfl_draft_pick: null,
-      avatar_url: null,
+      avatar_url: avatarUrl,
     });
-    if (matchSample.length < 5) {
+    if (pid && matchSample.length < 5) {
       matchSample.push({ name: displayName, player_id: pid });
     }
   }
@@ -298,6 +379,8 @@ export async function POST(req: Request) {
     sleeper_player_count: dictionaryCount,
     requested: PROSPECTS.length,
     matched: matched.length,
+    sleeper_id_matches: matched.length - unmatched.length,
+    avatar_hits: avatarHits,
     synced: matched.length,
     unmatched,
     sample: matchSample,

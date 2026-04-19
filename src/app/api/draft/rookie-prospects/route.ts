@@ -1,15 +1,19 @@
 import { NextResponse } from "next/server";
 
+import { normalizeProspectName } from "@/lib/draft/types";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Returns the curated rookie-prospect rows from Supabase keyed by Sleeper
- * `player_id`. The draft war room consumes this on page load and uses each
- * row as a fallback for fields Sleeper doesn't have on file (college, age,
- * height_inches, weight) plus the post-NFL-draft fields (nfl_team,
- * nfl_draft_round, nfl_draft_pick) that drive the Draft Capital grade.
+ * Returns the curated rookie-prospect rows from Supabase keyed by the
+ * normalized player name (lowercase a-z0-9). Keying by name (instead of
+ * Sleeper `player_id`) lets the war room consume bootstrap rows that
+ * carry placeholder ids like `tmp_*` before the NFL draft assigns real
+ * Sleeper ids. The draft board uses these rows as a fallback for fields
+ * Sleeper doesn't have on file (college, age, height_inches, weight)
+ * plus the post-NFL-draft fields (nfl_team, nfl_draft_round,
+ * nfl_draft_pick) that drive the Draft Capital grade.
  */
 export async function GET() {
   const { client, error } = getSupabaseAdminClient();
@@ -30,7 +34,8 @@ export async function GET() {
 
   const result: Record<string, unknown> = {};
   (data ?? []).forEach((row) => {
-    if (row?.player_id) result[String(row.player_id)] = row;
+    const key = normalizeProspectName(row?.name);
+    if (key) result[key] = row;
   });
 
   return NextResponse.json({ data: result });

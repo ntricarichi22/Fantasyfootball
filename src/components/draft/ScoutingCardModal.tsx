@@ -195,7 +195,9 @@ export function ScoutingCardModal({
   onClose,
 }: Props) {
   const [closing, setClosing] = useState(false);
-  const [imgError, setImgError] = useState(false);
+  // Two-stage avatar fallback: primary src (rookie_prospects.avatar_url, e.g.
+  // an ESPN headshot) → secondary src (Sleeper CDN thumbnail) → silhouette.
+  const [avatarStage, setAvatarStage] = useState<0 | 1 | 2>(0);
 
   const requestClose = () => {
     if (closing) return;
@@ -227,9 +229,14 @@ export function ScoutingCardModal({
     player.isRookie ? "Rookie" : "Veteran",
   ].filter(Boolean);
 
-  const avatarUrl = sleeperPlayer?.player_id
+  const sleeperAvatarUrl = sleeperPlayer?.player_id
     ? `https://sleepercdn.com/content/nfl/players/thumb/${sleeperPlayer.player_id}.jpg`
     : null;
+  const prospectAvatarUrl = rookieProspect?.avatar_url || null;
+  const avatarCandidates = [prospectAvatarUrl, sleeperAvatarUrl].filter(
+    (u): u is string => Boolean(u)
+  );
+  const activeAvatarUrl = avatarCandidates[avatarStage] ?? null;
 
   // Stat values: prefer the live Sleeper bio, fall back to rookie_prospects,
   // and surface "—" when neither source has it. Sleeper stores height as a
@@ -324,12 +331,15 @@ export function ScoutingCardModal({
               {/* Header */}
               <div style={headerStyle}>
                 <div style={avatarStyle}>
-                  {avatarUrl && !imgError ? (
+                  {activeAvatarUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={avatarUrl}
+                      key={activeAvatarUrl}
+                      src={activeAvatarUrl}
                       alt=""
-                      onError={() => setImgError(true)}
+                      onError={() =>
+                        setAvatarStage((stage) => (stage < 2 ? ((stage + 1) as 0 | 1 | 2) : stage))
+                      }
                       style={{ width: "100%", height: "100%", objectFit: "cover" }}
                     />
                   ) : (
