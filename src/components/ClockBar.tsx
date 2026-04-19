@@ -17,7 +17,6 @@ const BAR_RED = "#E8503A";
 const INK = "#1A1A1A";
 const PAPER = "#FEFCF9";
 const YELLOW = "#F5C230";
-const GREEN = "#4CAF50";
 const DIVIDER_ON_BAR = "rgba(255,255,255,0.2)";
 const LABEL_ON_BAR = "rgba(255,255,255,0.5)";
 // Translucent INK (#1A1A1A → 26,26,26) used for labels/colons inside the
@@ -328,11 +327,143 @@ export default function ClockBar() {
     );
   }
 
-  // ----- Active / pending / pick-in clock bar ------------------------------
+  // ----- "THE PICK IS IN" bar ----------------------------------------------
+  // When a pick has been submitted but not yet announced, the clock bar
+  // becomes a dedicated dramatic layout: franchise name | big yellow
+  // "THE PICK IS IN" | announcing-in countdown. Same on every page — there's
+  // nothing to act on, the pick is locked in.
+  if (isPickIn) {
+    const submittedTeamName =
+      context?.onClockTeamName ||
+      (context?.onClockRosterId ? `Roster ${context.onClockRosterId}` : "Loading…");
+
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          background: BAR_BLUE,
+          borderTop: `2.5px solid ${INK}`,
+          borderBottom: `2.5px solid ${INK}`,
+          boxShadow: `4px 4px 0 ${INK}`,
+        }}
+      >
+        <div
+          className="flex w-full"
+          style={{
+            height: 64,
+            alignItems: "stretch",
+            color: PAPER,
+          }}
+        >
+          {/* LEFT — Franchise that just made the pick */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0 20px",
+              borderRight: `2px solid ${DIVIDER_ON_BAR}`,
+              flex: "0 0 auto",
+              minWidth: 0,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-headline)",
+                fontWeight: 800,
+                fontSize: 15,
+                color: PAPER,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                lineHeight: 1.1,
+                minWidth: 0,
+              }}
+              title={submittedTeamName}
+            >
+              {submittedTeamName}
+            </span>
+          </div>
+
+          {/* CENTER — "THE PICK IS IN" — the star of the show */}
+          <div
+            style={{
+              flex: "1 1 auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "0 20px",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-headline)",
+                fontWeight: 800,
+                fontSize: 26,
+                color: YELLOW,
+                textTransform: "uppercase",
+                letterSpacing: "4px",
+                whiteSpace: "nowrap",
+                lineHeight: 1,
+              }}
+            >
+              The Pick Is In
+            </span>
+          </div>
+
+          {/* RIGHT — "ANNOUNCING IN" countdown */}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              padding: "0 20px",
+              minWidth: 130,
+              background: BAR_BLUE,
+              borderLeft: `2px solid ${DIVIDER_ON_BAR}`,
+              flex: "0 0 auto",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontWeight: 600,
+                fontSize: 8,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: LABEL_ON_BAR,
+                lineHeight: 1,
+                marginBottom: 4,
+              }}
+            >
+              Announcing In
+            </span>
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontWeight: 700,
+                fontSize: 20,
+                color: PAPER,
+                lineHeight: 1,
+                fontVariantNumeric: "tabular-nums",
+              }}
+            >
+              {formatTimer(announceSeconds)}
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ----- Active / pending clock bar ----------------------------------------
   const isPending = !isActive;
   const isYourPick =
     !isPending &&
-    !isPickIn &&
     !!selection.rosterId &&
     !!context?.onClockRosterId &&
     selection.rosterId === context.onClockRosterId;
@@ -341,24 +472,17 @@ export default function ClockBar() {
     | "your-pick"
     | "on-clock-draft"
     | "on-clock-other"
-    | "pick-in-draft"
-    | "pick-in-other"
     | "pending";
 
   const onClockState: BarState = isPending
     ? "pending"
-    : isPickIn
-      ? isDraftRoute
-        ? "pick-in-draft"
-        : "pick-in-other"
-      : isYourPick && isDraftRoute
-        ? "your-pick"
-        : isDraftRoute
-          ? "on-clock-draft"
-          : "on-clock-other";
+    : isYourPick && isDraftRoute
+      ? "your-pick"
+      : isDraftRoute
+        ? "on-clock-draft"
+        : "on-clock-other";
 
   const isRed = onClockState === "your-pick";
-  const isPickInState = onClockState === "pick-in-draft" || onClockState === "pick-in-other";
   // Item 1: blue is the new default; red is reserved for "your pick".
   const background = isRed ? BAR_RED : BAR_BLUE;
   const dividerColor = DIVIDER_ON_BAR;
@@ -373,35 +497,30 @@ export default function ClockBar() {
     ? state?.status === "paused"
       ? "Draft paused"
       : "Draft not started"
-    : isPickInState
-      ? "The pick is in"
-      : isRed
-        ? "Your pick"
-        : "On the clock";
+    : isRed
+      ? "Your pick"
+      : "On the clock";
   // Chip border per spec:
-  //   - "pick is in"  → green
   //   - "your pick"   → white (on red bar)
   //   - default blue  → translucent white (rgba(255,255,255,0.5))
-  const chipBorder = isPickInState
-    ? `1.5px solid ${GREEN}`
-    : isRed
-      ? `1.5px solid ${PAPER}`
-      : `1.5px solid ${LABEL_ON_BAR}`;
+  const chipBorder = isRed
+    ? `1.5px solid ${PAPER}`
+    : `1.5px solid ${LABEL_ON_BAR}`;
   // Chip text color: white in every state on the new blue bar.
   const chipColor = PAPER;
 
   const actionLabel =
     onClockState === "your-pick"
       ? "Shop this pick"
-      : onClockState === "on-clock-draft" || onClockState === "pick-in-draft"
+      : onClockState === "on-clock-draft"
         ? "Trade up"
-        : onClockState === "on-clock-other" || onClockState === "pick-in-other"
+        : onClockState === "on-clock-other"
           ? "Back to draft"
           : null;
 
   const handleAction = () => {
     if (onClockState === "pending") return;
-    if (onClockState === "on-clock-other" || onClockState === "pick-in-other") {
+    if (onClockState === "on-clock-other") {
       router.push(DRAFT_ROUTE);
     } else {
       // "Shop this pick" and "Trade up" both go to the trade center.
@@ -417,11 +536,7 @@ export default function ClockBar() {
 
   const round = context?.round ?? 0;
   const pick = context?.pick ?? 0;
-  const timerLabel = isPending
-    ? "--:--"
-    : isPickInState
-      ? formatTimer(announceSeconds)
-      : formatTimer(tickedSeconds);
+  const timerLabel = isPending ? "--:--" : formatTimer(tickedSeconds);
 
   // Segment styling shared between cells. No rounded corners — segments are
   // separated by vertical dividers within a single bar.
