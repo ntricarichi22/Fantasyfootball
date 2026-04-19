@@ -43,6 +43,12 @@ export interface SleeperPlayer {
   years_exp?: number;
   birth_date?: string;
   age?: number;
+  // Optional bio / draft fields populated by Sleeper's player dictionary.
+  college?: string | null;
+  height?: string | null;
+  weight?: string | null;
+  draft_round?: number | null;
+  draft_pick?: number | null;
 }
 
 export interface DraftedPlayer {
@@ -58,7 +64,18 @@ export interface AvailablePlayer {
   position: string;
   team: string;
   ageLabel: string;
+  /** True when Sleeper marks the player with 0 years of experience. */
+  isRookie: boolean;
+  /** College name (rookies) or empty string. Used as the school/team column source. */
+  school: string;
+  /** Normalized 0-100 value derived from board sort rank. */
+  valueScore: number;
+  /** Personalized 0-100 fit derived from the logged-in owner's positional weakness. */
+  fitScore: number;
 }
+
+/** Filter chip selection for the draft board. */
+export type DraftBoardFilter = "ALL" | "QB" | "RB" | "PASS" | "ROOKIE" | "VET";
 
 export interface DraftLogEntry {
   pickIndex: number;

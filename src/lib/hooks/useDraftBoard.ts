@@ -4,13 +4,18 @@ import { useMemo } from "react";
 
 import { SKILL_POSITIONS } from "../draft/constants";
 import { computeAge, normalizePositions } from "../draft/helpers";
+import { computeFitScore, valueScoreFromRank } from "../draft/scouting";
 import type { AvailablePlayer, SleeperPlayer } from "../draft/types";
+import type { TeamProfile } from "../trade/profile";
 
 type Params = {
   playerDictionary: Record<string, SleeperPlayer>;
   playerValues: Record<string, number>;
   searchTerm: string;
   unavailablePlayers: Set<string>;
+  /** Logged-in owner's team profile (for fit-score personalization). */
+  ownerProfile?: TeamProfile | null;
+  teamCount?: number;
 };
 
 /**
@@ -18,16 +23,23 @@ type Params = {
  *
  * Pure derived state: same inputs always produce the same output. Mirrors the
  * inline `availablePlayers` useMemo previously held in the draft room page.
+ *
+ * Each row carries `valueScore` (universal, normalized 0-100 from the board
+ * sort) and `fitScore` (personalized to `ownerProfile`'s positional weakness)
+ * so the board's V/F progress bars can render without recomputing per row.
  */
 export function useDraftBoard({
   playerDictionary,
   playerValues,
   searchTerm,
   unavailablePlayers,
+  ownerProfile,
+  teamCount,
 }: Params): AvailablePlayer[] {
   return useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    const players: AvailablePlayer[] = [];
+    type Draft = Omit<AvailablePlayer, "valueScore" | "fitScore"> & { _value: number };
+    const players: Draft[] = [];
 
     Object.entries(playerDictionary).forEach(([playerId, player]) => {
       if (unavailablePlayers.has(playerId)) return;
@@ -62,22 +74,41 @@ export function useDraftBoard({
         position: normalizedPositions[0] || "",
         team: player.team || "FA",
         ageLabel: ageValue ? String(ageValue) : "–",
+        isRookie,
+        school: player.college || "",
+        _value: hasValue ? Number(value) : Number.NEGATIVE_INFINITY,
       });
     });
 
-    return players.sort((a, b) => {
-      const aValue = playerValues[a.id];
-      const bValue = playerValues[b.id];
-      const aHasValue = typeof aValue === "number" && Number.isFinite(aValue);
-      const bHasValue = typeof bValue === "number" && Number.isFinite(bValue);
-
-      if (aHasValue && bHasValue && aValue !== bValue) {
-        return bValue - aValue;
-      }
-
+    players.sort((a, b) => {
+      const aHasValue = Number.isFinite(a._value);
+      const bHasValue = Number.isFinite(b._value);
+      if (aHasValue && bHasValue && a._value !== b._value) return b._value - a._value;
       if (aHasValue && !bHasValue) return -1;
       if (!aHasValue && bHasValue) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [playerDictionary, playerValues, searchTerm, unavailablePlayers]);
+
+    const total = players.length;
+    const resolvedTeamCount = teamCount && teamCount > 0 ? teamCount : 12;
+    const profile = ownerProfile ?? null;
+
+    return players.map((p, index) => {
+      const valueScore = valueScoreFromRank(index, total);
+      const partial: AvailablePlayer = {
+        id: p.id,
+        name: p.name,
+        position: p.position,
+        team: p.team,
+        ageLabel: p.ageLabel,
+        isRookie: p.isRookie,
+        school: p.school,
+        valueScore,
+        fitScore: 0,
+      };
+      partial.fitScore = computeFitScore(partial, profile, resolvedTeamCount);
+      return partial;
+    });
+  }, [playerDictionary, playerValues, searchTerm, unavailablePlayers, ownerProfile, teamCount]);
 }
+

@@ -1,99 +1,145 @@
-import type { AvailablePlayer } from "../../lib/draft/types";
+"use client";
+
+import { useMemo, useState } from "react";
+
+import { filterDraftBoard } from "../../lib/draft/scouting";
+import type { AvailablePlayer, DraftBoardFilter } from "../../lib/draft/types";
 import { DraftBoardRow } from "./DraftBoardRow";
+import { FilterChips } from "./FilterChips";
 
 type Props = {
   availablePlayers: AvailablePlayer[];
-  searchTerm: string;
-  onSearchTermChange: (value: string) => void;
   onClockRosterId: string;
   isDraftPaused: boolean;
-  isCommissionerSelected: boolean;
-  selectedTeam: string;
   onPlayerSelect: (player: AvailablePlayer) => void;
 };
 
 export function DraftBoardTable({
   availablePlayers,
-  searchTerm,
-  onSearchTermChange,
   onClockRosterId,
   isDraftPaused,
-  isCommissionerSelected,
-  selectedTeam,
   onPlayerSelect,
 }: Props) {
-  const selectDisabled =
-    isDraftPaused ||
-    !onClockRosterId ||
-    (!isCommissionerSelected && selectedTeam !== onClockRosterId);
+  const [filter, setFilter] = useState<DraftBoardFilter>("ALL");
+  const filtered = useMemo(() => filterDraftBoard(availablePlayers, filter), [availablePlayers, filter]);
 
   return (
-    <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-      <div className="cfc-card flex-1 w-full p-4 flex flex-col overflow-hidden">
-        <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between mb-3">
-          <div>
-            <div className="cfc-section" style={{ marginBottom: 6 }}>
-              <span className="cfc-section-tag cfc-section-tag-blue">Available</span>
-            </div>
-            <h3 className="font-headline text-2xl text-[var(--cfc-ink)]">Available Players</h3>
-            <p className="text-xs" style={{ color: "var(--cfc-muted)" }}>
-              Eligible QB / RB / WR / TE not currently rostered.
-            </p>
-          </div>
+    <div className="flex-1 flex flex-col gap-3 overflow-hidden">
+      <div
+        style={{
+          background: "#F5F0E6",
+          border: "2px solid #1A1A1A",
+          borderRadius: 0,
+          padding: 12,
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+          <FilterChips active={filter} onChange={setFilter} />
           <div className="flex items-center gap-2 flex-wrap">
-            <input
-              className="cfc-input"
-              style={{ width: 220 }}
-              placeholder="Search by name"
-              value={searchTerm}
-              onChange={(e) => onSearchTermChange(e.target.value)}
-            />
             {!onClockRosterId ? (
-              <span className="cfc-chip cfc-chip-yellow">
+              <span
+                style={{
+                  fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: "#1A1A1A",
+                  background: "#F5C230",
+                  border: "1.5px solid #1A1A1A",
+                  padding: "4px 8px",
+                  borderRadius: 0,
+                }}
+              >
                 Start the draft to enable selections
               </span>
             ) : null}
             {isDraftPaused ? (
-              <span className="cfc-chip cfc-chip-yellow">Draft is paused</span>
+              <span
+                style={{
+                  fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: "#1A1A1A",
+                  background: "#F5C230",
+                  border: "1.5px solid #1A1A1A",
+                  padding: "4px 8px",
+                  borderRadius: 0,
+                }}
+              >
+                Draft is paused
+              </span>
             ) : null}
           </div>
         </div>
 
-        <div className="flex-1 overflow-hidden cfc-card-flat" style={{ boxShadow: "none" }}>
-          <div className="h-full overflow-y-auto">
-            <table className="cfc-table">
-              <thead>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            overflowY: "auto",
+            background: "#FEFCF9",
+            border: "2px solid #1A1A1A",
+            borderRadius: 0,
+          }}
+        >
+          <table
+            className="cfc-board-table"
+            style={{
+              width: "100%",
+              borderCollapse: "collapse",
+              fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+            }}
+          >
+            <thead>
+              <tr
+                style={{
+                  background: "#1A1A1A",
+                  color: "#FEFCF9",
+                  fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
+                  fontSize: 8,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                }}
+              >
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>#</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Pos</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Player</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>School / Team</th>
+                <th style={{ textAlign: "center", padding: "6px 8px" }}>Type</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Value</th>
+                <th style={{ textAlign: "left", padding: "6px 8px" }}>Fit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.length ? (
+                filtered.map((player, idx) => (
+                  <DraftBoardRow
+                    key={player.id}
+                    rank={idx + 1}
+                    player={player}
+                    onClick={onPlayerSelect}
+                  />
+                ))
+              ) : (
                 <tr>
-                  <th>Player Name</th>
-                  <th>Position</th>
-                  <th>Team</th>
-                  <th>Age</th>
-                  <th style={{ textAlign: "right" }}>Action</th>
+                  <td
+                    colSpan={7}
+                    style={{
+                      textAlign: "center",
+                      padding: "24px 12px",
+                      color: "#8C7E6A",
+                      fontSize: 12,
+                    }}
+                  >
+                    No available players match this filter.
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {availablePlayers.length ? (
-                  availablePlayers.map((player) => (
-                    <DraftBoardRow
-                      key={player.id}
-                      player={player}
-                      selectDisabled={selectDisabled}
-                      onSelect={onPlayerSelect}
-                    />
-                  ))
-                ) : (
-                  <tr>
-                    <td
-                      colSpan={5}
-                      style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}
-                    >
-                      No available players match the filters.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
