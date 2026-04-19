@@ -25,10 +25,10 @@ const cardStyle: CSSProperties = {
 const cardHeaderStyle: CSSProperties = {
   background: "#F5F0E6",
   borderBottom: "1.5px solid #1A1A1A",
-  padding: "5px 8px",
+  padding: "7px 12px",
   fontFamily: "var(--font-headline)",
   fontWeight: 700,
-  fontSize: 8,
+  fontSize: 10,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
   color: "#1A1A1A",
@@ -36,7 +36,7 @@ const cardHeaderStyle: CSSProperties = {
 };
 
 const bodyStyle: CSSProperties = {
-  padding: "6px 8px 8px",
+  padding: "8px 12px 10px",
   overflowY: "auto",
   flex: 1,
   minHeight: 0,
@@ -45,16 +45,16 @@ const bodyStyle: CSSProperties = {
 const rowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
-  gap: 6,
-  padding: "2px 0",
+  gap: 10,
+  padding: "5px 0",
 };
 
 const slotLabelStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontWeight: 600,
-  fontSize: 7,
+  fontSize: 10,
   color: "#999",
-  width: 22,
+  width: 38,
   flexShrink: 0,
   textTransform: "uppercase",
   letterSpacing: "0.04em",
@@ -63,7 +63,7 @@ const slotLabelStyle: CSSProperties = {
 const playerNameStyle: CSSProperties = {
   fontFamily: "var(--font-body)",
   fontWeight: 500,
-  fontSize: 9,
+  fontSize: 12,
   color: "#1A1A1A",
   whiteSpace: "nowrap",
   overflow: "hidden",
@@ -81,13 +81,13 @@ const emptyStyle: CSSProperties = {
 const dividerStyle: CSSProperties = {
   fontFamily: "var(--font-headline)",
   fontWeight: 700,
-  fontSize: 7,
+  fontSize: 9,
   color: "#999",
   letterSpacing: "0.08em",
   textTransform: "uppercase",
-  marginTop: 8,
-  marginBottom: 4,
-  paddingTop: 4,
+  marginTop: 10,
+  marginBottom: 6,
+  paddingTop: 6,
   borderTop: "1px solid #C8C3B8",
 };
 
@@ -124,7 +124,7 @@ export function LineupCard({
             );
           })
         ) : (
-          <div style={{ fontSize: 9, color: "#8C7E6A" }}>Lineup unavailable.</div>
+          <div style={{ fontSize: 11, color: "#8C7E6A" }}>Lineup unavailable.</div>
         )}
 
         <div style={dividerStyle}>Bench</div>
@@ -136,7 +136,7 @@ export function LineupCard({
             </div>
           ))
         ) : (
-          <div style={{ fontSize: 9, color: "#8C7E6A", paddingLeft: 28 }}>—</div>
+          <div style={{ fontSize: 11, color: "#8C7E6A", paddingLeft: 48 }}>—</div>
         )}
       </div>
     </div>

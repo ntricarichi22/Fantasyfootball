@@ -21,7 +21,7 @@ type Props = {
   teamCount: number;
 };
 
-export const ROSTER_PANEL_WIDTH = 160;
+export const ROSTER_PANEL_WIDTH = 270;
 export const ROSTER_PANEL_HANDLE_WIDTH = 18;
 
 const wrapperStyle: CSSProperties = {
@@ -45,7 +45,7 @@ const panelBaseStyle: CSSProperties = {
 const headerStyle: CSSProperties = {
   background: "#F5F0E6",
   borderBottom: "1.5px solid #1A1A1A",
-  padding: "6px 8px",
+  padding: "8px 12px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
@@ -55,7 +55,7 @@ const headerStyle: CSSProperties = {
 const titleStyle: CSSProperties = {
   fontFamily: "var(--font-headline)",
   fontWeight: 700,
-  fontSize: 11,
+  fontSize: 13,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
   color: "#1A1A1A",
@@ -63,7 +63,7 @@ const titleStyle: CSSProperties = {
 
 const closeStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
-  fontSize: 12,
+  fontSize: 14,
   color: "#999",
   cursor: "pointer",
   background: "transparent",
@@ -73,10 +73,10 @@ const closeStyle: CSSProperties = {
 };
 
 const cardsWrapperStyle: CSSProperties = {
-  padding: 6,
+  padding: 10,
   display: "flex",
   flexDirection: "column",
-  gap: 6,
+  gap: 10,
   flex: 1,
   minHeight: 0,
   overflow: "hidden",

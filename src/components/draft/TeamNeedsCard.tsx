@@ -33,10 +33,10 @@ const cardStyle: CSSProperties = {
 const cardHeaderStyle: CSSProperties = {
   background: "#F5F0E6",
   borderBottom: "1.5px solid #1A1A1A",
-  padding: "5px 8px",
+  padding: "7px 12px",
   fontFamily: "var(--font-headline)",
   fontWeight: 700,
-  fontSize: 8,
+  fontSize: 10,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
   color: "#1A1A1A",
@@ -45,21 +45,21 @@ const cardHeaderStyle: CSSProperties = {
 const badgeStyle = (pos: PositionKey): CSSProperties => ({
   fontFamily: "var(--font-mono)",
   fontWeight: 700,
-  fontSize: 7,
+  fontSize: 10,
   letterSpacing: "0.04em",
   background: POSITION_BADGE[pos].bg,
   color: POSITION_BADGE[pos].color,
   border: "1px solid #1A1A1A",
   borderRadius: 0,
-  padding: "2px 4px",
-  width: 22,
+  padding: "3px 6px",
+  width: 32,
   textAlign: "center",
   flexShrink: 0,
 });
 
 const trackStyle: CSSProperties = {
   flex: 1,
-  height: 6,
+  height: 8,
   background: "#EEE7D9",
   border: "1px solid #1A1A1A",
   borderRadius: 0,
@@ -76,10 +76,10 @@ const fillStyle = (pct: number): CSSProperties => ({
 
 const labelStyle: CSSProperties = {
   fontFamily: "var(--font-body)",
-  fontSize: 7,
+  fontSize: 10,
   fontWeight: 600,
   color: "#999",
-  width: 50,
+  width: 60,
   flexShrink: 0,
   textAlign: "right",
 };
@@ -130,7 +130,7 @@ export function TeamNeedsCard({
   return (
     <div style={cardStyle} aria-label={`Team needs (core strength ${Math.round(coreStrength)})`}>
       <div style={cardHeaderStyle}>Team Needs</div>
-      <div style={{ padding: "8px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
+      <div style={{ padding: "10px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
         {POSITIONS.map((pos) => {
           const { level, pct } = computeNeed(
             pos,
@@ -142,7 +142,7 @@ export function TeamNeedsCard({
           return (
             <div
               key={pos}
-              style={{ display: "flex", alignItems: "center", gap: 6 }}
+              style={{ display: "flex", alignItems: "center", gap: 10 }}
               aria-label={`${pos}: ${level}`}
             >
               <span style={badgeStyle(pos)}>{pos}</span>
