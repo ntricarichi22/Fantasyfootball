@@ -210,200 +210,202 @@ export function ScoutingCardModal({
         aria-modal="true"
         aria-label={`Scouting card for ${player.name}`}
       >
-        {/* Front face — visible only during the flip transition */}
-        <div className="cfc-scout-face" style={{ background: "#FEFCF9" }}>
-          <div
-            style={{
-              padding: 16,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-              height: "100%",
-              justifyContent: "center",
-              alignItems: "center",
-            }}
-          >
+        <div className="cfc-scout-flipper">
+          {/* Front face — visible only during the flip transition */}
+          <div className="cfc-scout-face" style={{ background: "#FEFCF9" }}>
             <div
               style={{
-                fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-                fontWeight: 700,
-                fontSize: 18,
-                color: "#1A1A1A",
+                padding: 16,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+                height: "100%",
+                justifyContent: "center",
+                alignItems: "center",
               }}
             >
-              {player.name}
-            </div>
-            <div
-              style={{
-                fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                fontSize: 11,
-                color: "#777",
-              }}
-            >
-              {subtitleParts.join(" · ")}
-            </div>
-          </div>
-        </div>
-
-        {/* Back face — the scouting card */}
-        <div className="cfc-scout-face cfc-scout-face-back">
-          {/* 80s left-edge stripe */}
-          <div style={stripeStyle}>
-            <div style={{ flex: 1, background: "#E8503A" }} />
-            <div style={{ flex: 1, background: "#F5C230" }} />
-            <div style={{ flex: 1, background: "#3366CC" }} />
-          </div>
-
-          <div style={{ paddingLeft: 6, height: "100%", display: "flex", flexDirection: "column" }}>
-            {/* Header */}
-            <div style={headerStyle}>
-              <div style={avatarStyle}>
-                {avatarUrl && !imgError ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={avatarUrl}
-                    alt=""
-                    onError={() => setImgError(true)}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                  />
-                ) : (
-                  <SilhouetteAvatar />
-                )}
-              </div>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-                    fontWeight: 700,
-                    fontSize: 19,
-                    lineHeight: 1.15,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {player.name}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                    fontSize: 12,
-                    color: "#999",
-                    marginTop: 2,
-                  }}
-                >
-                  {subtitleParts.join(" · ")}
-                </div>
-              </div>
-            </div>
-
-            {/* Stat boxes */}
-            <div style={{ display: "flex", gap: 8, padding: 10 }}>
-              <div style={statBoxStyle}>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                    fontWeight: 700,
-                    fontSize: 16,
-                    color: "#1A1A1A",
-                  }}
-                >
-                  {player.ageLabel}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                    fontSize: 9,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    color: "#777",
-                    marginTop: 2,
-                  }}
-                >
-                  Age
-                </div>
-              </div>
-              <div style={statBoxStyle}>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                    fontWeight: 700,
-                    fontSize: 16,
-                    color: "#1A1A1A",
-                  }}
-                >
-                  {sleeperPlayer?.height || "–"}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                    fontSize: 9,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    color: "#777",
-                    marginTop: 2,
-                  }}
-                >
-                  Height
-                </div>
-              </div>
-              <div style={statBoxStyle}>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                    fontWeight: 700,
-                    fontSize: 16,
-                    color: "#1A1A1A",
-                  }}
-                >
-                  {sleeperPlayer?.weight ? `${sleeperPlayer.weight}` : "–"}
-                </div>
-                <div
-                  style={{
-                    fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                    fontSize: 9,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.06em",
-                    color: "#777",
-                    marginTop: 2,
-                  }}
-                >
-                  Weight
-                </div>
-              </div>
-            </div>
-
-            {/* Grades */}
-            <div style={{ flex: 1, overflow: "hidden" }}>
-              <GradeRow {...grades.capital} />
-              <GradeRow {...grades.situation} />
-              <GradeRow {...grades.opportunity} />
-            </div>
-
-            {/* Draft button (only when on the clock) */}
-            {canDraft && (
-              <button
-                type="button"
-                onClick={() => onDraft(player)}
+              <div
                 style={{
-                  margin: 10,
-                  padding: "10px 14px",
-                  background: "#E8503A",
-                  color: "#FFFFFF",
-                  border: "2.5px solid #1A1A1A",
-                  borderRadius: 0,
-                  boxShadow: "3px 3px 0 #1A1A1A",
                   fontFamily: 'var(--font-headline, "Syne", sans-serif)',
                   fontWeight: 700,
-                  fontSize: 13,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  cursor: "pointer",
+                  fontSize: 18,
+                  color: "#1A1A1A",
                 }}
               >
-                Draft This Player
-              </button>
-            )}
+                {player.name}
+              </div>
+              <div
+                style={{
+                  fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+                  fontSize: 11,
+                  color: "#777",
+                }}
+              >
+                {subtitleParts.join(" · ")}
+              </div>
+            </div>
+          </div>
+
+          {/* Back face — the scouting card */}
+          <div className="cfc-scout-face cfc-scout-face-back">
+            {/* 80s left-edge stripe */}
+            <div style={stripeStyle}>
+              <div style={{ flex: 1, background: "#E8503A" }} />
+              <div style={{ flex: 1, background: "#F5C230" }} />
+              <div style={{ flex: 1, background: "#3366CC" }} />
+            </div>
+
+            <div style={{ paddingLeft: 6, height: "100%", display: "flex", flexDirection: "column" }}>
+              {/* Header */}
+              <div style={headerStyle}>
+                <div style={avatarStyle}>
+                  {avatarUrl && !imgError ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={avatarUrl}
+                      alt=""
+                      onError={() => setImgError(true)}
+                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    />
+                  ) : (
+                    <SilhouetteAvatar />
+                  )}
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-headline, "Syne", sans-serif)',
+                      fontWeight: 700,
+                      fontSize: 19,
+                      lineHeight: 1.15,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {player.name}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+                      fontSize: 12,
+                      color: "#999",
+                      marginTop: 2,
+                    }}
+                  >
+                    {subtitleParts.join(" · ")}
+                  </div>
+                </div>
+              </div>
+
+              {/* Stat boxes */}
+              <div style={{ display: "flex", gap: 8, padding: 10 }}>
+                <div style={statBoxStyle}>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
+                      fontWeight: 700,
+                      fontSize: 16,
+                      color: "#1A1A1A",
+                    }}
+                  >
+                    {player.ageLabel}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+                      fontSize: 9,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      color: "#777",
+                      marginTop: 2,
+                    }}
+                  >
+                    Age
+                  </div>
+                </div>
+                <div style={statBoxStyle}>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
+                      fontWeight: 700,
+                      fontSize: 16,
+                      color: "#1A1A1A",
+                    }}
+                  >
+                    {sleeperPlayer?.height || "–"}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+                      fontSize: 9,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      color: "#777",
+                      marginTop: 2,
+                    }}
+                  >
+                    Height
+                  </div>
+                </div>
+                <div style={statBoxStyle}>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
+                      fontWeight: 700,
+                      fontSize: 16,
+                      color: "#1A1A1A",
+                    }}
+                  >
+                    {sleeperPlayer?.weight ? `${sleeperPlayer.weight}` : "–"}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+                      fontSize: 9,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.06em",
+                      color: "#777",
+                      marginTop: 2,
+                    }}
+                  >
+                    Weight
+                  </div>
+                </div>
+              </div>
+
+              {/* Grades */}
+              <div style={{ flex: 1, overflow: "hidden" }}>
+                <GradeRow {...grades.capital} />
+                <GradeRow {...grades.situation} />
+                <GradeRow {...grades.opportunity} />
+              </div>
+
+              {/* Draft button (only when on the clock) */}
+              {canDraft && (
+                <button
+                  type="button"
+                  onClick={() => onDraft(player)}
+                  style={{
+                    margin: 10,
+                    padding: "10px 14px",
+                    background: "#E8503A",
+                    color: "#FFFFFF",
+                    border: "2.5px solid #1A1A1A",
+                    borderRadius: 0,
+                    boxShadow: "3px 3px 0 #1A1A1A",
+                    fontFamily: 'var(--font-headline, "Syne", sans-serif)',
+                    fontWeight: 700,
+                    fontSize: 13,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                    cursor: "pointer",
+                  }}
+                >
+                  Draft This Player
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>

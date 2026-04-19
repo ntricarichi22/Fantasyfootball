@@ -670,20 +670,36 @@ body {
   outline-offset: -2px;
 }
 
-/* Scouting card flip-modal animations. The outer overlay fades in; the
-   inner card scales up from a small "lift" state and rotates 180deg over
-   ~0.65s to reveal the back face. Reverse on exit. */
+/* Scouting card flip-modal animations.
+
+   Canonical 3D-flip pattern: the OUTER element owns `perspective` and is
+   never rotated itself (it only scales/translates for the entrance
+   animation). An INNER `.cfc-scout-flipper` carries `transform-style:
+   preserve-3d` and is the element that actually rotates 180° around Y.
+   This keeps the 3D context intact so `backface-visibility: hidden` on
+   the two faces reliably hides the front and reveals the back. Combining
+   `perspective` with a rotating `translate(-50%,-50%) scale() rotateY()`
+   on a single element flattens 3D in Chromium/Safari and causes the
+   back face to disappear (the "white card with mirrored text" bug). */
 @keyframes cfc-overlay-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-@keyframes cfc-card-in {
-  from { transform: translate(-50%, -50%) scale(0.35) rotateY(0deg); opacity: 0.6; }
-  to { transform: translate(-50%, -50%) scale(1) rotateY(180deg); opacity: 1; }
+@keyframes cfc-card-scale-in {
+  from { transform: translate(-50%, -50%) scale(0.35); opacity: 0.6; }
+  to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
-@keyframes cfc-card-out {
-  from { transform: translate(-50%, -50%) scale(1) rotateY(180deg); opacity: 1; }
-  to { transform: translate(-50%, -50%) scale(0.35) rotateY(0deg); opacity: 0; }
+@keyframes cfc-card-scale-out {
+  from { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  to { transform: translate(-50%, -50%) scale(0.35); opacity: 0; }
+}
+@keyframes cfc-card-flip-in {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(180deg); }
+}
+@keyframes cfc-card-flip-out {
+  from { transform: rotateY(180deg); }
+  to { transform: rotateY(0deg); }
 }
 
 .cfc-scout-overlay {
@@ -703,12 +719,21 @@ body {
   width: 340px;
   height: 480px;
   perspective: 1400px;
-  transform-style: preserve-3d;
   z-index: 1001;
-  animation: cfc-card-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: cfc-card-scale-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 .cfc-scout-card[data-closing="true"] {
-  animation: cfc-card-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: cfc-card-scale-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.cfc-scout-flipper {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  animation: cfc-card-flip-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.cfc-scout-card[data-closing="true"] .cfc-scout-flipper {
+  animation: cfc-card-flip-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
 .cfc-scout-face {
   position: absolute;
