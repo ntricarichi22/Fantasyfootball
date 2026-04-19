@@ -126,7 +126,7 @@ export const buildCapitalGrade = (player: SleeperPlayer | undefined): ScoutingGr
   // Undrafted (no round and no pick) → D; otherwise map overall pick → letter.
   const isUndrafted = round === null && pick === null;
   const letter: LetterGrade | "TBD" = isUndrafted ? "D" : draftCapitalGrade(overall);
-  const team = player.team || "FA";
+  const team = player.team || "—";
   if (round && pick) {
     return {
       letter,
