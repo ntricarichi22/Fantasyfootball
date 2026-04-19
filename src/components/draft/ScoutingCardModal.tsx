@@ -232,12 +232,18 @@ export function ScoutingCardModal({
     : null;
 
   // Stat values: prefer the live Sleeper bio, fall back to rookie_prospects,
-  // and surface "—" when neither source has it.
+  // and surface "—" when neither source has it. Sleeper stores height as a
+  // raw inches string (e.g. "72"), so always run it through the formatter
+  // rather than displaying the raw number.
   const ageDisplay =
     (player.ageLabel && player.ageLabel !== "–" && player.ageLabel) ||
     (typeof rookieProspect?.age === "number" ? String(rookieProspect.age) : "—");
+  const sleeperHeightInches =
+    typeof sleeperPlayer?.height === "string" && /^\d+$/.test(sleeperPlayer.height)
+      ? Number(sleeperPlayer.height)
+      : null;
   const heightDisplay =
-    sleeperPlayer?.height ||
+    formatHeightInches(sleeperHeightInches) ||
     formatHeightInches(rookieProspect?.height_inches) ||
     "—";
   const weightDisplay =

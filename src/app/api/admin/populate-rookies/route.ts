@@ -79,11 +79,16 @@ type SleeperPlayerRecord = {
   first_name?: string;
   last_name?: string;
   full_name?: string;
+  search_full_name?: string;
+  search_first_name?: string;
+  search_last_name?: string;
   position?: string;
   fantasy_positions?: string[];
+  team?: string | null;
+  college?: string | null;
 };
 
-const norm = (s: string | undefined) =>
+const norm = (s: string | undefined | null) =>
   (s ?? "")
     .toLowerCase()
     .normalize("NFKD")
@@ -95,36 +100,91 @@ function jsonError(message: string, status = 400) {
   return NextResponse.json({ ok: false, error: message }, { status });
 }
 
-function findSleeperId(
-  prospect: Prospect,
+/**
+ * Build a position-bucketed index keyed by the same normalized full-name
+ * Sleeper uses internally (`search_full_name`) so the lookup is O(1) per
+ * prospect. We bucket by position because there are duplicate names across
+ * positions (e.g. "Chris Bell" the WR vs others) and the dictionary is huge.
+ */
+function buildSleeperIndex(
   dictionary: Record<string, SleeperPlayerRecord>
-): string | null {
-  const targetFirst = norm(prospect.first);
-  const targetLast = norm(prospect.last);
-  const targetFull = `${targetFirst}${targetLast}`;
-  const targetPos = prospect.position;
+): Map<string, Map<string, string>> {
+  const buckets = new Map<string, Map<string, string>>();
+  const positionsOfInterest = new Set(["QB", "RB", "WR", "TE"]);
 
   for (const [pid, p] of Object.entries(dictionary)) {
     if (!p || typeof p !== "object") continue;
+    const positions = new Set(
+      [p.position, ...(p.fantasy_positions ?? [])]
+        .filter(Boolean)
+        .map((x) => String(x).toUpperCase())
+    );
+    const matchedPositions = [...positions].filter((pos) => positionsOfInterest.has(pos));
+    if (matchedPositions.length === 0) continue;
+
+    // Prefer Sleeper's already-normalized search field; fall back to our own
+    // normalization of the explicit name fields.
+    const searchFull = norm(p.search_full_name) || norm(p.full_name);
+    const composedFull =
+      norm(p.search_first_name) + norm(p.search_last_name) ||
+      norm(p.first_name) + norm(p.last_name);
+    const keys = new Set([searchFull, composedFull].filter(Boolean));
+
+    for (const pos of matchedPositions) {
+      let bucket = buckets.get(pos);
+      if (!bucket) {
+        bucket = new Map();
+        buckets.set(pos, bucket);
+      }
+      for (const key of keys) {
+        // First write wins so we don't clobber an exact full-name match with
+        // a noisier later one.
+        if (!bucket.has(key)) bucket.set(key, pid);
+      }
+    }
+  }
+  return buckets;
+}
+
+function findSleeperId(
+  prospect: Prospect,
+  index: Map<string, Map<string, string>>,
+  dictionary: Record<string, SleeperPlayerRecord>
+): string | null {
+  const bucket = index.get(prospect.position);
+  if (!bucket) return null;
+
+  const targetFirst = norm(prospect.first);
+  const targetLast = norm(prospect.last);
+  const targetFull = `${targetFirst}${targetLast}`;
+
+  // Step 1: exact normalized full-name hit (handles ~95% of matches).
+  const exact = bucket.get(targetFull);
+  if (exact) return exact;
+
+  // Step 2: try without suffix tokens like "Jr"/"II"/"III" on the prospect
+  // side (Sleeper often drops them).
+  const strippedLast = targetLast.replace(/(jr|sr|ii|iii|iv|v)$/i, "");
+  if (strippedLast && strippedLast !== targetLast) {
+    const stripped = bucket.get(`${targetFirst}${strippedLast}`);
+    if (stripped) return stripped;
+  }
+
+  // Step 3: full scan within the position bucket as a last resort —
+  // last-name match + first-initial match. This catches things like
+  // "Skyler Bell" / "Chris Bell" that share a last name but differ on first.
+  for (const [pid, p] of Object.entries(dictionary)) {
     const positions = [p.position, ...(p.fantasy_positions ?? [])]
       .filter(Boolean)
       .map((x) => String(x).toUpperCase());
-    if (!positions.includes(targetPos)) continue;
+    if (!positions.includes(prospect.position)) continue;
 
-    const first = norm(p.first_name);
-    const last = norm(p.last_name);
-    const full = norm(p.full_name);
+    const last = norm(p.search_last_name) || norm(p.last_name);
+    const first = norm(p.search_first_name) || norm(p.first_name);
+    if (!last || !first) continue;
 
-    if (first === targetFirst && last === targetLast) return pid;
-    if (full && full === targetFull) return pid;
-    // Looser fallback: last name match + first-name initial match (handles
-    // suffix/punctuation differences like "Mike Washington Jr.").
-    if (
-      last === targetLast &&
-      first &&
-      targetFirst &&
-      first.charAt(0) === targetFirst.charAt(0)
-    ) {
+    const lastMatches = last === targetLast || last === strippedLast;
+    if (lastMatches && first.charAt(0) === targetFirst.charAt(0)) {
       return pid;
     }
   }
@@ -153,6 +213,8 @@ export async function POST(req: Request) {
     return jsonError(`Sleeper fetch failed: ${sleeperRes.status}`, 502);
   }
   const dictionary = (await sleeperRes.json()) as Record<string, SleeperPlayerRecord>;
+  const dictionaryCount = Object.keys(dictionary).length;
+  const index = buildSleeperIndex(dictionary);
 
   const matched: Array<{
     player_id: string;
@@ -168,9 +230,10 @@ export async function POST(req: Request) {
     avatar_url: null;
   }> = [];
   const unmatched: string[] = [];
+  const matchSample: Array<{ name: string; player_id: string }> = [];
 
   for (const p of PROSPECTS) {
-    const pid = findSleeperId(p, dictionary);
+    const pid = findSleeperId(p, index, dictionary);
     const displayName = `${p.first} ${p.last}`;
     if (!pid) {
       unmatched.push(displayName);
@@ -189,21 +252,50 @@ export async function POST(req: Request) {
       nfl_draft_pick: null,
       avatar_url: null,
     });
+    if (matchSample.length < 5) {
+      matchSample.push({ name: displayName, player_id: pid });
+    }
   }
 
+  let upsertError: string | null = null;
   if (matched.length) {
     const { error: upsertErr } = await supabase
       .from("rookie_prospects")
       .upsert(matched, { onConflict: "player_id" });
     if (upsertErr) {
-      return jsonError(`Upsert failed: ${upsertErr.message}`, 500);
+      upsertError = upsertErr.message;
     }
+  }
+
+  // Verify the table contents post-upsert so the caller can confirm the
+  // rows actually landed.
+  const { count: tableCount, error: countError } = await supabase
+    .from("rookie_prospects")
+    .select("player_id", { count: "exact", head: true });
+
+  if (upsertError) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Upsert failed: ${upsertError}`,
+        sleeper_player_count: dictionaryCount,
+        requested: PROSPECTS.length,
+        matched: matched.length,
+        unmatched,
+      },
+      { status: 500 }
+    );
   }
 
   return NextResponse.json({
     ok: true,
+    sleeper_player_count: dictionaryCount,
     requested: PROSPECTS.length,
+    matched: matched.length,
     synced: matched.length,
     unmatched,
+    sample: matchSample,
+    rookie_prospects_row_count: tableCount ?? null,
+    rookie_prospects_count_error: countError?.message ?? null,
   });
 }
