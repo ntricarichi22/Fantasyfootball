@@ -163,9 +163,15 @@ function findSleeperId(
   if (exact) return exact;
 
   // Step 2: try without suffix tokens like "Jr"/"II"/"III" on the prospect
-  // side (Sleeper often drops them).
-  const strippedLast = targetLast.replace(/(jr|sr|ii|iii|iv|v)$/i, "");
-  if (strippedLast && strippedLast !== targetLast) {
+  // side (Sleeper often drops them). Require at least 3 chars to remain so
+  // we don't accidentally strip the tail of a short name (e.g. "Levi").
+  const SUFFIX_RE = /(jr|sr|iii|ii|iv|v)$/;
+  const suffixMatch = targetLast.match(SUFFIX_RE);
+  const strippedLast =
+    suffixMatch && targetLast.length - suffixMatch[0].length >= 3
+      ? targetLast.slice(0, targetLast.length - suffixMatch[0].length)
+      : targetLast;
+  if (strippedLast !== targetLast) {
     const stripped = bucket.get(`${targetFirst}${strippedLast}`);
     if (stripped) return stripped;
   }
