@@ -43,6 +43,12 @@ export interface SleeperPlayer {
   years_exp?: number;
   birth_date?: string;
   age?: number;
+  // Optional bio / draft fields populated by Sleeper's player dictionary.
+  college?: string | null;
+  height?: string | null;
+  weight?: string | null;
+  draft_round?: number | null;
+  draft_pick?: number | null;
 }
 
 export interface DraftedPlayer {
@@ -58,7 +64,18 @@ export interface AvailablePlayer {
   position: string;
   team: string;
   ageLabel: string;
+  /** True when Sleeper marks the player with 0 years of experience. */
+  isRookie: boolean;
+  /** College name (rookies) or empty string. Used as the school/team column source. */
+  school: string;
+  /** Normalized 0-100 value derived from board sort rank. */
+  valueScore: number;
+  /** Personalized 0-100 fit derived from the logged-in owner's positional weakness. */
+  fitScore: number;
 }
+
+/** Filter chip selection for the draft board. */
+export type DraftBoardFilter = "ALL" | "QB" | "RB" | "PASS" | "ROOKIE" | "VET";
 
 export interface DraftLogEntry {
   pickIndex: number;
@@ -83,3 +100,39 @@ export type ActiveTeamApiRow = {
   sessionId?: string;
   session_id?: string;
 };
+
+/**
+ * Curated rookie-prospect bio loaded from Supabase `rookie_prospects`. Used
+ * as a per-field fallback when the live Sleeper player dictionary is missing
+ * data (college, age, height_inches, weight) and as the source of NFL
+ * Draft outcome fields (nfl_team, nfl_draft_round, nfl_draft_pick).
+ */
+export interface RookieProspect {
+  player_id: string;
+  name?: string | null;
+  position?: string | null;
+  college?: string | null;
+  age?: number | null;
+  height_inches?: number | null;
+  weight?: number | null;
+  nfl_team?: string | null;
+  nfl_draft_round?: number | null;
+  nfl_draft_pick?: number | null;
+  avatar_url?: string | null;
+}
+
+export type RookieProspectMap = Record<string, RookieProspect>;
+
+/**
+ * Lowercase + strip everything except a-z/0-9. Used to key rookie_prospects
+ * rows by player name so the fallback works regardless of whether the
+ * Supabase row's `player_id` matches Sleeper's (e.g. when bootstrap rows
+ * use `tmp_*` placeholders pre-NFL-draft).
+ */
+export function normalizeProspectName(name: string | null | undefined): string {
+  return (name ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "");
+}

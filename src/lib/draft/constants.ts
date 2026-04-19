@@ -19,5 +19,7 @@ export const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 export const EMPTY_SLOT = "";
 export const STATUS_MESSAGE_TIMEOUT_MS = 3000;
 export const SKILL_POSITIONS = ["QB", "RB", "WR", "TE"];
+/** Number of top-ranked prospects whose scouting grades are pre-computed on draft page load. */
+export const PRECOMPUTED_GRADES_COUNT = 20;
 export const DROPPABLE_BORDER_CLASS = "border border-blue-600/50";
 export const MIN_TEAM_COUNT = 1;

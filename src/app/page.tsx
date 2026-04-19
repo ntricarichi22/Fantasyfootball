@@ -18,6 +18,7 @@ import {
   HEARTBEAT_INTERVAL_MS,
   LINEUP_CACHE_KEY,
   MIN_TEAM_COUNT,
+  PRECOMPUTED_GRADES_COUNT,
   SELECTED_TEAM_CACHE_KEY,
   STATUS_MESSAGE_TIMEOUT_MS,
 } from "../lib/draft/constants";
@@ -28,6 +29,7 @@ import type {
   DraftLogEntry,
   DraftedPlayer,
 } from "../lib/draft/types";
+import { normalizeProspectName } from "../lib/draft/types";
 import {
   calculatePickNumber,
   generateSessionId,
@@ -45,11 +47,16 @@ import { DraftBoardTable } from "../components/draft/DraftBoardTable";
 import { DraftControls } from "../components/draft/DraftControls";
 import { DraftLogPanel } from "../components/draft/DraftLogPanel";
 import { RosterDisplay } from "../components/draft/RosterDisplay";
+import { ScoutingCardModal } from "../components/draft/ScoutingCardModal";
 import { WelcomeScreen } from "../components/draft/WelcomeScreen";
 import { useDraftBoard } from "../lib/hooks/useDraftBoard";
 import { useDraftClock } from "../lib/hooks/useDraftClock";
 import { useDraftRoomLog } from "../lib/hooks/useDraftRoomLog";
+import { useNflTeamContext } from "../lib/hooks/useNflTeamContext";
+import { useRookieProspects } from "../lib/hooks/useRookieProspects";
 import { useSleeperData } from "../lib/hooks/useSleeperData";
+import { buildLeagueProfiles } from "../lib/trade/profile";
+import { buildScoutingGrades, type ScoutingGradeSet } from "../lib/draft/scouting";
 
 export default function Home() {
   const router = useRouter();
@@ -79,7 +86,6 @@ export default function Home() {
   });
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
-  const [searchTerm, setSearchTerm] = useState("");
   const [draggedBenchPlayer, setDraggedBenchPlayer] = useState("");
   const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
@@ -490,12 +496,69 @@ export default function Home() {
     [draftedPlayerIds, rosteredPlayerIds]
   );
 
+  const teamCount = useMemo(() => rosters.length || teams.length || 12, [rosters.length, teams.length]);
+
+  const tradeProfiles = useMemo(() => {
+    if (!rosters.length || !Object.keys(playerDictionary).length) return null;
+    const profileTeams = rosters.map((roster) => ({
+      rosterId: roster.roster_id,
+      players: (roster.players ?? []).map((player) => {
+        const id = toId(player);
+        const info = playerDictionary[id];
+        const position =
+          info?.position?.toUpperCase() || info?.fantasy_positions?.[0]?.toUpperCase();
+        const value = playerValues[id];
+        return {
+          id,
+          position,
+          value: typeof value === "number" && Number.isFinite(value) ? value : 0,
+          age: null,
+        };
+      }),
+      picks: roster.draft_picks ?? [],
+    }));
+    return buildLeagueProfiles(profileTeams, {
+      teamCount,
+      cfcValues: playerValues,
+    });
+  }, [playerDictionary, playerValues, rosters, teamCount]);
+
+  const ownerProfile = useMemo(() => {
+    if (!tradeProfiles || !selectedTeam) return null;
+    return tradeProfiles[selectedTeam] ?? tradeProfiles[Number(selectedTeam)] ?? null;
+  }, [selectedTeam, tradeProfiles]);
+
+  const rookieProspects = useRookieProspects();
+
   const availablePlayers = useDraftBoard({
     playerDictionary,
     playerValues,
-    searchTerm,
+    searchTerm: "",
     unavailablePlayers,
+    ownerProfile,
+    teamCount,
+    rookieProspects,
   });
+
+  const nflTeamContext = useNflTeamContext(leagueId);
+
+  const precomputedScoutingGrades = useMemo(() => {
+    const map = new Map<string, ScoutingGradeSet>();
+    availablePlayers.slice(0, PRECOMPUTED_GRADES_COUNT).forEach((p) => {
+      map.set(
+        p.id,
+        buildScoutingGrades(
+          playerDictionary[p.id],
+          p.position,
+          nflTeamContext,
+          rookieProspects[normalizeProspectName(p.name)] ?? null
+        )
+      );
+    });
+    return map;
+  }, [availablePlayers, playerDictionary, nflTeamContext, rookieProspects]);
+
+  const [scoutingPlayer, setScoutingPlayer] = useState<AvailablePlayer | null>(null);
 
   const handlePickMade = useCallback(
     async (teamName: string, selection: string) => {
@@ -880,13 +943,9 @@ export default function Home() {
 
             <DraftBoardTable
               availablePlayers={availablePlayers}
-              searchTerm={searchTerm}
-              onSearchTermChange={setSearchTerm}
               onClockRosterId={onClockRosterId}
               isDraftPaused={isDraftPaused}
-              isCommissionerSelected={isCommissionerSelected}
-              selectedTeam={selectedTeam}
-              onPlayerSelect={handleAvailablePlayerSelect}
+              onPlayerSelect={(player) => setScoutingPlayer(player)}
             />
 
             <DraftLogPanel
@@ -896,6 +955,25 @@ export default function Home() {
             />
           </div>
         </div>
+      )}
+      {scoutingPlayer && (
+        <ScoutingCardModal
+          player={scoutingPlayer}
+          sleeperPlayer={playerDictionary[scoutingPlayer.id]}
+          rookieProspect={rookieProspects[normalizeProspectName(scoutingPlayer.name)] ?? null}
+          precomputedGrades={precomputedScoutingGrades.get(scoutingPlayer.id) ?? null}
+          contextMap={nflTeamContext}
+          canDraft={
+            !isDraftPaused &&
+            !!onClockRosterId &&
+            (isCommissionerSelected || selectedTeam === onClockRosterId)
+          }
+          onDraft={(p) => {
+            void handleAvailablePlayerSelect(p);
+            setScoutingPlayer(null);
+          }}
+          onClose={() => setScoutingPlayer(null)}
+        />
       )}
     </main>
   );

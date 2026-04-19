@@ -642,3 +642,158 @@ body {
   background: var(--cfc-yellow);
   color: var(--cfc-ink);
 }
+
+/* =====================================================================
+   DRAFT BOARD (PR 4)
+   ===================================================================== */
+
+/* Per-row layout for the redesigned available-players board. Sticky thead
+   sits inside a cream wrapper; rows have ink hairline separators and a
+   subtle hover lift that signals "click to scout". */
+.cfc-board-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  border-bottom: 2px solid #1A1A1A;
+}
+.cfc-board-table tbody td {
+  padding: 10px;
+  border-top: 1px solid #1A1A1A;
+  background: #FEFCF9;
+  vertical-align: middle;
+}
+.cfc-board-table tbody tr:hover td {
+  background: #F5F0E6;
+}
+.cfc-board-table tbody tr:focus-visible {
+  outline: 2px solid #3366CC;
+  outline-offset: -2px;
+}
+
+/* Scouting card flip-modal animations.
+
+   Canonical 3D-flip pattern: the OUTER element owns `perspective` and is
+   never rotated itself (it only scales/translates for the entrance
+   animation). An INNER `.cfc-scout-flipper` carries `transform-style:
+   preserve-3d` and is the element that actually rotates 180° around Y.
+   This keeps the 3D context intact so `backface-visibility: hidden` on
+   the two faces reliably hides the front and reveals the back. Combining
+   `perspective` with a rotating `translate(-50%,-50%) scale() rotateY()`
+   on a single element flattens 3D in Chromium/Safari and causes the
+   back face to disappear (the "white card with mirrored text" bug). */
+@keyframes cfc-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cfc-card-scale-in {
+  from { transform: translate(-50%, -50%) scale(0.35); opacity: 0.6; }
+  to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+}
+@keyframes cfc-card-scale-out {
+  from { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+  to { transform: translate(-50%, -50%) scale(0.35); opacity: 0; }
+}
+@keyframes cfc-card-flip-in {
+  from { transform: rotateY(0deg); }
+  to { transform: rotateY(180deg); }
+}
+@keyframes cfc-card-flip-out {
+  from { transform: rotateY(180deg); }
+  to { transform: rotateY(0deg); }
+}
+
+.cfc-scout-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 26, 26, 0.6);
+  z-index: 1000;
+  animation: cfc-overlay-in 200ms ease-out both;
+}
+.cfc-scout-overlay[data-closing="true"] {
+  animation: cfc-overlay-in 200ms ease-out reverse both;
+}
+.cfc-scout-card {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 340px;
+  height: 480px;
+  perspective: 1400px;
+  z-index: 1001;
+  animation: cfc-card-scale-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  /* Hard offset shadow per spec — no blur, no rounded corners. */
+  filter: drop-shadow(6px 6px 0 #1A1A1A);
+}
+.cfc-scout-card[data-closing="true"] {
+  animation: cfc-card-scale-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.cfc-scout-flipper {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  -webkit-transform-style: preserve-3d;
+  animation: cfc-card-flip-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.cfc-scout-card[data-closing="true"] .cfc-scout-flipper {
+  animation: cfc-card-flip-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.cfc-scout-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border: 2.5px solid #1A1A1A;
+  background: #FEFCF9;
+  overflow: hidden;
+}
+.cfc-scout-face-back {
+  transform: rotateY(180deg);
+}
+.cfc-scout-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 14px;
+  line-height: 1;
+  color: #999;
+  cursor: pointer;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cfc-scout-close:hover {
+  color: #1A1A1A;
+}
+.cfc-scout-draft-btn {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 10px;
+  padding: 12px 14px;
+  background: #E8503A;
+  color: #FFFFFF;
+  border: 2.5px solid #1A1A1A;
+  border-radius: 0;
+  box-shadow: 3px 3px 0 #1A1A1A;
+  font-family: var(--font-headline, "Syne", sans-serif);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out;
+}
+.cfc-scout-draft-btn:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #1A1A1A;
+}
+.cfc-scout-draft-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 #1A1A1A;
+}
