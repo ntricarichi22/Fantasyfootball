@@ -1,12 +1,10 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { type DragEvent, type KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  formatDraftPickLabel,
   formatPickKey,
   PICK_SLOT_SEASON,
-  type DraftPick,
 } from "../lib/picks";
 import { getLeagueId } from "../lib/config";
 import { supabase } from "../lib/supabaseClient";
@@ -14,7 +12,6 @@ import {
   ACTIVE_TEAMS_REFRESH_MS,
   DRAFTED_CACHE_KEY,
   DRAFT_LOG_CACHE_KEY,
-  EMPTY_SLOT,
   HEARTBEAT_INTERVAL_MS,
   LINEUP_CACHE_KEY,
   MIN_TEAM_COUNT,
@@ -35,18 +32,15 @@ import {
   generateSessionId,
   getStoredSessionSelection,
   isBenchSlot,
-  isPlayerEligible,
   normalizeDraftLogEntry,
-  normalizePositions,
   nextPickIndexFromLog,
-  playerLabel,
   resolveDraftedPlayer,
   toId,
 } from "../lib/draft/helpers";
 import { DraftBoardTable } from "../components/draft/DraftBoardTable";
 import { DraftControls } from "../components/draft/DraftControls";
 import { DraftLogPanel } from "../components/draft/DraftLogPanel";
-import { RosterDisplay } from "../components/draft/RosterDisplay";
+import { RosterPanel } from "../components/draft/RosterPanel";
 import { ScoutingCardModal } from "../components/draft/ScoutingCardModal";
 import { WelcomeScreen } from "../components/draft/WelcomeScreen";
 import { useDraftBoard } from "../lib/hooks/useDraftBoard";
@@ -55,7 +49,8 @@ import { useDraftRoomLog } from "../lib/hooks/useDraftRoomLog";
 import { useNflTeamContext } from "../lib/hooks/useNflTeamContext";
 import { useRookieProspects } from "../lib/hooks/useRookieProspects";
 import { useSleeperData } from "../lib/hooks/useSleeperData";
-import { buildLeagueProfiles } from "../lib/trade/profile";
+import { buildLeagueProfiles, type PositionKey } from "../lib/trade/profile";
+import type { StarterAsset } from "../lib/trade/starterLevel";
 import { buildScoutingGrades, type ScoutingGradeSet } from "../lib/draft/scouting";
 
 export default function Home() {
@@ -85,8 +80,7 @@ export default function Home() {
     setErrorMessage,
   });
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
-  const [slotSelections, setSlotSelections] = useState<Record<string, string>>({});
-  const [draggedBenchPlayer, setDraggedBenchPlayer] = useState("");
+  const [rosterPanelOpen, setRosterPanelOpen] = useState(true);
   const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
   const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
@@ -109,7 +103,6 @@ export default function Home() {
     commissionerRosterId,
     leagueData,
     draftState,
-    draftOrderAvailable,
     rosters,
     rosterNames,
     playerDictionary,
@@ -446,12 +439,6 @@ export default function Home() {
     [baseLineup, visibleLineupSlots]
   );
 
-  const getPlayerPositions = (playerId: string) =>
-    normalizePositions(
-      playerDictionary[playerId]?.fantasy_positions,
-      playerDictionary[playerId]?.position
-    );
-
   const lineupSet = useMemo(() => new Set(resolvedLineup.filter(Boolean)), [resolvedLineup]);
 
   const benchPlayers = useMemo(() => {
@@ -460,11 +447,6 @@ export default function Home() {
       .map((p) => toId(p))
       .filter((p) => p && !lineupSet.has(p));
   }, [activeRoster?.players, lineupSet]);
-
-  const draftedPlayersForTeam = useMemo(
-    () => draftedPlayersState[selectedTeam] || [],
-    [draftedPlayersState, selectedTeam]
-  );
 
   const rosteredPlayerIds = useMemo(() => {
     const set = new Set<string>();
@@ -527,6 +509,39 @@ export default function Home() {
     if (!tradeProfiles || !selectedTeam) return null;
     return tradeProfiles[selectedTeam] ?? tradeProfiles[Number(selectedTeam)] ?? null;
   }, [selectedTeam, tradeProfiles]);
+
+  const ownerStarterAssets = useMemo<StarterAsset[]>(() => {
+    if (!activeRoster) return [];
+    return (activeRoster.players ?? []).map((player) => {
+      const id = toId(player);
+      const info = playerDictionary[id];
+      const position =
+        info?.position?.toUpperCase() || info?.fantasy_positions?.[0]?.toUpperCase();
+      const rawValue = playerValues[id];
+      const value = typeof rawValue === "number" && Number.isFinite(rawValue) ? rawValue : 0;
+      return { id, position, adjustedValue: value, age: null };
+    });
+  }, [activeRoster, playerDictionary, playerValues]);
+
+  const hasEmptyStarterSlot = useMemo<Record<PositionKey, boolean>>(() => {
+    const result: Record<PositionKey, boolean> = {
+      QB: false,
+      RB: false,
+      WR: false,
+      TE: false,
+    };
+    visibleLineupSlots.forEach(({ slot, index }) => {
+      const playerId = baseLineup[index];
+      if (playerId) return;
+      const upper = slot.trim().toUpperCase();
+      if (upper === "QB") result.QB = true;
+      else if (upper === "RB") result.RB = true;
+      else if (upper === "WR") result.WR = true;
+      else if (upper === "TE") result.TE = true;
+      // FLX/SUPER_FLEX/REC_FLEX are not tied to a single position; ignore.
+    });
+    return result;
+  }, [baseLineup, visibleLineupSlots]);
 
   const rookieProspects = useRookieProspects();
 
@@ -622,110 +637,6 @@ export default function Home() {
       teams,
     ]
   );
-
-  const assignPlayerToSlot = (
-    playerId: string,
-    slotIndex: number,
-    playerName: string,
-    positions: string[]
-  ) => {
-    if (!selectedTeam || !rosterPositions.length) return;
-    const targetSlot = visibleLineupSlots[slotIndex];
-    if (!targetSlot) return;
-
-    const slotLabel = targetSlot.slot;
-    if (!isPlayerEligible(slotLabel, positions)) {
-      setStatusMessage(`${playerName} is not eligible for ${slotLabel}.`);
-      return;
-    }
-
-    const updatedLineup = [...baseLineup];
-    const normalizedPlayerId = toId(playerId);
-    if (!normalizedPlayerId) return;
-
-    updatedLineup[targetSlot.index] = normalizedPlayerId;
-    const existingIndex = updatedLineup.findIndex(
-      (id, idx) => idx !== targetSlot.index && id === normalizedPlayerId
-    );
-    if (existingIndex !== -1) {
-      updatedLineup[existingIndex] = EMPTY_SLOT;
-    }
-
-    setLineupOverrides((prev) => ({
-      ...prev,
-      [selectedTeam]: updatedLineup,
-    }));
-    setStatusMessage(`${playerName} moved to ${slotLabel}.`);
-  };
-
-  const moveDraftedPlayerToSlot = (player: DraftedPlayer, slotIndex: number) => {
-    assignPlayerToSlot(player.id, slotIndex, player.name, player.positions);
-  };
-
-  const moveBenchPlayerToSlot = (playerId: string, slotIndex: number) => {
-    const { name } = playerLabel(playerId, playerDictionary);
-    const positions = getPlayerPositions(playerId) || [];
-    assignPlayerToSlot(playerId, slotIndex, name || "Player", positions);
-  };
-
-  const handleBenchDragStart = (event: DragEvent<HTMLElement>, playerId: string) => {
-    event.dataTransfer.setData("text/plain", playerId);
-    setDraggedBenchPlayer(playerId);
-  };
-
-  const handleBenchKeyDown = (event: KeyboardEvent<HTMLElement>, playerId: string) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      const benchName = playerLabel(playerId, playerDictionary).name;
-      setDraggedBenchPlayer(playerId);
-      setStatusMessage(`Select a starting slot and press Enter to place ${benchName}.`);
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      setDraggedBenchPlayer("");
-      setStatusMessage("Move cancelled.");
-    }
-  };
-
-  const handleBenchDragEnd = () => setDraggedBenchPlayer("");
-
-  const handleSlotDragOver = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-  };
-
-  const handleSlotDrop = (event: DragEvent<HTMLDivElement>, slotIndex: number) => {
-    event.preventDefault();
-    const playerId = event.dataTransfer.getData("text/plain");
-    if (!playerId) return;
-    moveBenchPlayerToSlot(playerId, slotIndex);
-    setDraggedBenchPlayer("");
-  };
-
-  const handleSlotKeyDown = (event: KeyboardEvent<HTMLDivElement>, slotIndex: number) => {
-    if (event.key === "Escape") {
-      if (draggedBenchPlayer) {
-        event.preventDefault();
-        setDraggedBenchPlayer("");
-        setStatusMessage("Move cancelled.");
-      }
-      return;
-    }
-
-    if (!draggedBenchPlayer) return;
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      moveBenchPlayerToSlot(draggedBenchPlayer, slotIndex);
-      setDraggedBenchPlayer("");
-    }
-  };
-
-  const draftPickText = (pick: DraftPick) =>
-    formatDraftPickLabel(pick, {
-      teamCount: draftState?.teamCount ?? (rosters.length || teams.length || 1),
-      originalTeamNames: rosterNames,
-      draftOrderAvailable: draftOrderAvailable === true,
-      slotSeason: draftState?.season ?? PICK_SLOT_SEASON,
-    });
 
   const handleLeaveDraftRoom = useCallback(async () => {
     await releaseActiveTeam();
@@ -914,31 +825,17 @@ export default function Home() {
           </div>
 
           <div className="flex flex-1 gap-4 overflow-hidden">
-            <RosterDisplay
-              teams={teams}
-              selectedTeam={selectedTeam}
-              statusMessage={statusMessage}
-              errorMessage={errorMessage}
+            <RosterPanel
+              isOpen={rosterPanelOpen}
+              onToggle={() => setRosterPanelOpen((prev) => !prev)}
               visibleLineupSlots={visibleLineupSlots}
               resolvedLineup={resolvedLineup}
-              playerDictionary={playerDictionary}
-              draggedBenchPlayer={draggedBenchPlayer}
               benchPlayers={benchPlayers}
-              draftOrderAvailable={draftOrderAvailable}
-              activeRosterDraftPicks={activeRoster?.draft_picks}
-              draftedPlayersForTeam={draftedPlayersForTeam}
-              slotSelections={slotSelections}
-              draftPickText={draftPickText}
-              onSlotSelectionChange={(playerId, value) =>
-                setSlotSelections((prev) => ({ ...prev, [playerId]: value }))
-              }
-              onMoveDraftedPlayerToSlot={moveDraftedPlayerToSlot}
-              onSlotDragOver={handleSlotDragOver}
-              onSlotDrop={handleSlotDrop}
-              onSlotKeyDown={handleSlotKeyDown}
-              onBenchDragStart={handleBenchDragStart}
-              onBenchDragEnd={handleBenchDragEnd}
-              onBenchKeyDown={handleBenchKeyDown}
+              playerDictionary={playerDictionary}
+              ownerProfile={ownerProfile}
+              starterAssets={ownerStarterAssets}
+              hasEmptyStarterSlot={hasEmptyStarterSlot}
+              teamCount={teamCount}
             />
 
             <DraftBoardTable
