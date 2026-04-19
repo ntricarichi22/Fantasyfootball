@@ -20,6 +20,36 @@ import {
 } from "./ChatInterface";
 import { RecommendationCard, type Recommendation } from "./RecommendationCard";
 
+export type LeagueTeamContext = {
+  rosterId: string;
+  teamName: string;
+  players: Array<{ name: string; pos: string; value: number }>;
+  needs: string[];
+  mode: string;
+  posture: string;
+  positionBands: Record<string, string>;
+};
+
+export type LeagueDraftContext = {
+  status: string;
+  isPaused: boolean;
+  totalPicks: number;
+  picksRemaining: number;
+  teams: LeagueTeamContext[];
+  fullAvailablePlayers: Array<{
+    id: string;
+    name: string;
+    pos: string;
+    team: string;
+    school: string;
+    rookie: boolean;
+    age: string;
+    value: number;
+    fit: number;
+  }>;
+  myTeamTradeValues: Array<{ name: string; pos: string; value: number }>;
+};
+
 type Props = {
   teamName: string;
   ownerProfile: TeamProfile | null;
@@ -31,6 +61,7 @@ type Props = {
   isOnClock: boolean;
   isDraftPaused: boolean;
   onDraftPlayer: (player: AvailablePlayer) => void;
+  leagueContext: LeagueDraftContext | null;
 };
 
 export const ASSISTANT_GM_PANEL_WIDTH = 270;
@@ -179,6 +210,7 @@ export function AssistantGmPanel({
   isOnClock,
   isDraftPaused,
   onDraftPlayer,
+  leagueContext,
 }: Props) {
   // ----- briefing -----
   const [trendsText, setTrendsText] = useState("");
@@ -286,8 +318,13 @@ export function AssistantGmPanel({
   // Refresh the recommendation whenever the relevant inputs change. The key
   // dedupes back-to-back fetches caused by unrelated re-renders.
   useEffect(() => {
+    // Bug 2 guard: only fire after available players, the user's roster
+    // (ownerProfile), team needs, and the league context have all loaded.
     if (!teamName) return;
     if (availablePlayers.length === 0) return;
+    if (!ownerProfile) return;
+    if (teamNeeds.length === 0) return;
+    if (!leagueContext) return;
 
     const key = [
       teamName,
@@ -301,49 +338,69 @@ export function AssistantGmPanel({
     recommendationKeyRef.current = key;
 
     const controller = new AbortController();
+
+    const myTeamSummary = leagueContext.teams.find(
+      (t) => t.teamName === teamName
+    );
+
+    const requestPayload = {
+      mode: "recommendation" as const,
+      teamName,
+      teamNeeds,
+      availablePlayers: leagueContext.fullAvailablePlayers,
+      recentPicks: draftLog.slice(-RECENT_PICKS_SHOWN).map(summarizePick),
+      roster: ownerProfile
+        ? {
+            mode: ownerProfile.mode,
+            posture: ownerProfile.posture,
+            positionRanks: ownerProfile.positionRanks,
+            positionBands: ownerProfile.positionBands,
+            averageAge: ownerProfile.averageAge,
+            players: myTeamSummary?.players ?? [],
+          }
+        : null,
+      myTeamTradeValues: leagueContext.myTeamTradeValues,
+      leagueContext,
+    };
+
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setRecommendationLoading(true);
     setRecommendationError("");
+
+    console.log("[AssistantGM] recommendation request", requestPayload);
 
     fetch("/api/llm/draft-assistant", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify({
-        mode: "recommendation",
-        teamName,
-        teamNeeds,
-        availablePlayers: topBoard,
-        recentPicks: draftLog.slice(-RECENT_PICKS_SHOWN).map(summarizePick),
-        roster: ownerProfile
-          ? {
-              mode: ownerProfile.mode,
-              posture: ownerProfile.posture,
-              positionRanks: ownerProfile.positionRanks,
-              positionBands: ownerProfile.positionBands,
-              averageAge: ownerProfile.averageAge,
-            }
-          : null,
-      }),
+      body: JSON.stringify(requestPayload),
     })
       .then(async (response) => {
         const json = (await response.json().catch(() => null)) as {
           ok?: boolean;
           recommendation?: Recommendation;
           error?: string;
+          raw?: string;
         } | null;
+        console.log("[AssistantGM] recommendation response", {
+          status: response.status,
+          json,
+        });
         if (!response.ok || !json?.ok || !json.recommendation) {
-          throw new Error(json?.error || "Recommendation unavailable");
+          throw new Error(
+            json?.error || `Recommendation unavailable (${response.status})`
+          );
         }
         setRecommendation(json.recommendation);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
-        setRecommendationError(
+        const message =
           error instanceof Error
             ? error.message
-            : "Recommendation unavailable right now."
-        );
+            : "Recommendation unavailable right now.";
+        console.error("[AssistantGM] recommendation error", error);
+        setRecommendationError(`Error: ${message}`);
       })
       .finally(() => {
         if (!controller.signal.aborted) setRecommendationLoading(false);
@@ -353,11 +410,11 @@ export function AssistantGmPanel({
   }, [
     teamName,
     teamNeeds,
-    topBoard,
     availablePlayers,
     draftLog,
     ownerProfile,
     currentPickNumber,
+    leagueContext,
   ]);
 
   const handleSendChat = useCallback(
@@ -370,31 +427,45 @@ export function AssistantGmPanel({
       setChatPending(true);
       setChatError("");
 
+      // Bug 3: rebuild the full draft context fresh on every send so the
+      // assistant always sees the latest available pool, draft log,
+      // current pick, all team rosters, and team needs.
+      const myTeamSummary =
+        leagueContext?.teams.find((t) => t.teamName === teamName) ?? null;
+
+      const requestPayload = {
+        mode: "chat" as const,
+        teamName,
+        teamNeeds,
+        availablePlayers: leagueContext?.fullAvailablePlayers ?? topBoard,
+        draftLog: draftLog.map(summarizePick),
+        roster: ownerProfile
+          ? {
+              mode: ownerProfile.mode,
+              posture: ownerProfile.posture,
+              positionRanks: ownerProfile.positionRanks,
+              positionBands: ownerProfile.positionBands,
+              averageAge: ownerProfile.averageAge,
+              players: myTeamSummary?.players ?? [],
+            }
+          : null,
+        currentPick: {
+          round: currentRound,
+          pick: currentPickNumber,
+          onClock: onClockTeamName,
+        },
+        isDraftPaused,
+        leagueContext,
+        myTeamTradeValues: leagueContext?.myTeamTradeValues ?? [],
+        messages: nextMessages,
+      };
+
+      console.log("[AssistantGM] chat request", requestPayload);
+
       fetch("/api/llm/draft-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          mode: "chat",
-          teamName,
-          teamNeeds,
-          availablePlayers: topBoard,
-          draftLog: draftLog.slice(-RECENT_PICKS_SHOWN).map(summarizePick),
-          roster: ownerProfile
-            ? {
-                mode: ownerProfile.mode,
-                posture: ownerProfile.posture,
-                positionRanks: ownerProfile.positionRanks,
-                positionBands: ownerProfile.positionBands,
-                averageAge: ownerProfile.averageAge,
-              }
-            : null,
-          currentPick: {
-            round: currentRound,
-            pick: currentPickNumber,
-            onClock: onClockTeamName,
-          },
-          messages: nextMessages,
-        }),
+        body: JSON.stringify(requestPayload),
       })
         .then(async (response) => {
           const json = (await response.json().catch(() => null)) as {
@@ -402,6 +473,10 @@ export function AssistantGmPanel({
             text?: string;
             error?: string;
           } | null;
+          console.log("[AssistantGM] chat response", {
+            status: response.status,
+            json,
+          });
           if (!response.ok || !json?.ok) {
             throw new Error(json?.error || "Assistant GM is unavailable.");
           }
@@ -411,6 +486,7 @@ export function AssistantGmPanel({
           ]);
         })
         .catch((error: unknown) => {
+          console.error("[AssistantGM] chat error", error);
           setChatError(
             error instanceof Error
               ? error.message
@@ -429,6 +505,8 @@ export function AssistantGmPanel({
       currentRound,
       currentPickNumber,
       onClockTeamName,
+      isDraftPaused,
+      leagueContext,
     ]
   );
 

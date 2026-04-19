@@ -79,7 +79,7 @@ const cardsWrapperStyle: CSSProperties = {
   gap: 10,
   flex: 1,
   minHeight: 0,
-  overflow: "hidden",
+  overflowY: "auto",
 };
 
 const handleStyle = (isOpen: boolean): CSSProperties => ({

@@ -22,6 +22,26 @@ type ChatMessage = {
   content: string;
 };
 
+type LeagueTeamContext = {
+  rosterId?: string;
+  teamName?: string;
+  players?: Array<{ name: string; pos: string; value: number }>;
+  needs?: string[];
+  mode?: string;
+  posture?: string;
+  positionBands?: Record<string, string>;
+};
+
+type LeagueDraftContext = {
+  status?: string;
+  isPaused?: boolean;
+  totalPicks?: number;
+  picksRemaining?: number;
+  teams?: LeagueTeamContext[];
+  fullAvailablePlayers?: unknown;
+  myTeamTradeValues?: Array<{ name: string; pos: string; value: number }>;
+};
+
 type AssistantRequest = {
   mode: "briefing" | "recommendation" | "chat";
   teamName?: string;
@@ -31,6 +51,9 @@ type AssistantRequest = {
   recentPicks?: unknown;
   draftLog?: unknown;
   currentPick?: { round?: number; pick?: number; onClock?: string };
+  isDraftPaused?: boolean;
+  leagueContext?: LeagueDraftContext | null;
+  myTeamTradeValues?: Array<{ name: string; pos: string; value: number }>;
   messages?: ChatMessage[];
 };
 
@@ -77,12 +100,20 @@ function buildRecommendationMessages(body: AssistantRequest): {
     `"rationale":"<one sentence reason>","confidence":<integer 0-100>}\n` +
     "Do not wrap the JSON in code fences. Do not include any prose outside the JSON.";
 
+  const ctx = body.leagueContext || {};
   const userContent =
     `Team: ${body.teamName ?? "Unknown"}.\n` +
     `Roster: ${JSON.stringify(body.roster ?? [])}.\n` +
     `Team needs: ${JSON.stringify(body.teamNeeds ?? {})}.\n` +
     `Available players: ${JSON.stringify(body.availablePlayers ?? [])}.\n` +
     `Recent picks: ${JSON.stringify(body.recentPicks ?? [])}.\n` +
+    `My team trade values: ${JSON.stringify(body.myTeamTradeValues ?? [])}.\n` +
+    `League draft state: ${JSON.stringify({
+      status: ctx.status,
+      isPaused: ctx.isPaused,
+      totalPicks: ctx.totalPicks,
+      picksRemaining: ctx.picksRemaining,
+    })}.\n` +
     `Recommend the best pick now.`;
 
   return { system, messages: [{ role: "user", content: userContent }] };
@@ -96,19 +127,90 @@ function buildChatMessages(body: AssistantRequest): {
   const round = body.currentPick?.round ?? "?";
   const pick = body.currentPick?.pick ?? "?";
   const onClock = body.currentPick?.onClock ?? "Unknown";
+  const ctx = body.leagueContext || {};
+  const status = ctx.status || (body.isDraftPaused ? "paused" : "running");
+  const totalPicks = ctx.totalPicks ?? 0;
+  const picksRemaining = ctx.picksRemaining ?? 0;
+  const allTeams: LeagueTeamContext[] = ctx.teams || [];
+
+  // PICKS MADE SO FAR — list of {pickNumber, playerName, position, teamName}
+  const picksLines = Array.isArray(body.draftLog)
+    ? (body.draftLog as Array<{
+        pick?: string | number;
+        player?: string;
+        pos?: string;
+        team?: string;
+      }>)
+        .map(
+          (p) =>
+            `Pick ${p.pick ?? "?"}: ${p.player ?? "?"} (${p.pos ?? "?"}) to ${p.team ?? "?"}`
+        )
+        .join("\n")
+    : "";
+
+  // AVAILABLE PLAYERS
+  const availLines = Array.isArray(body.availablePlayers)
+    ? (body.availablePlayers as Array<{
+        name?: string;
+        pos?: string;
+        school?: string;
+        team?: string;
+        value?: number;
+        fit?: number;
+      }>)
+        .slice(0, 200)
+        .map(
+          (p) =>
+            `${p.name ?? "?"} - ${p.pos ?? "?"} - ${p.school || p.team || ""} - Value: ${p.value ?? 0}, Fit: ${p.fit ?? 0}`
+        )
+        .join("\n")
+    : "";
+
+  // MY TEAM ROSTER
+  const myTeam = allTeams.find((t) => t.teamName === body.teamName);
+  const myRosterLines = myTeam
+    ? (myTeam.players ?? [])
+        .map((p) => `${p.pos || "?"}: ${p.name}`)
+        .join("\n")
+    : JSON.stringify(body.roster ?? []);
+
+  const myNeedsLines = JSON.stringify(body.teamNeeds ?? []);
+
+  // ALL TEAM ROSTERS AND NEEDS
+  const allTeamsLines = allTeams
+    .map((t) => {
+      const players = (t.players ?? [])
+        .slice(0, 20)
+        .map((p) => `  - ${p.pos || "?"}: ${p.name} (val ${p.value ?? 0})`)
+        .join("\n");
+      const needs = (t.needs ?? []).join(", ") || "—";
+      return `Team: ${t.teamName} [mode: ${t.mode || "?"}, posture: ${t.posture || "?"}]\nNeeds: ${needs}\nKey players:\n${players}`;
+    })
+    .join("\n\n");
+
+  // TRADE VALUES (active team)
+  const tradeValuesLines = (body.myTeamTradeValues ?? [])
+    .map((p) => `${p.name} (${p.pos || "?"}): ${p.value}`)
+    .join("\n");
 
   const system =
     `You are the Assistant GM for the ${teamName} in the CFC dynasty fantasy football league. ` +
-    "You are an expert dynasty analyst. Be concise and direct. You know this team's roster " +
-    "inside and out.\n\n" +
-    `TEAM ROSTER: ${JSON.stringify(body.roster ?? [])}\n` +
-    `TEAM NEEDS: ${JSON.stringify(body.teamNeeds ?? {})}\n` +
-    `DRAFT BOARD (available players): ${JSON.stringify(body.availablePlayers ?? [])}\n` +
-    `PICKS MADE SO FAR: ${JSON.stringify(body.draftLog ?? [])}\n` +
-    `CURRENT STATE: ${onClock} is on the clock, Round ${round}, Pick ${pick}\n\n` +
-    "Answer questions about draft strategy, player comparisons, and trade ideas. When " +
-    "recommending a pick, include a confidence percentage. Keep responses tight (1-3 short " +
-    "paragraphs).";
+    `You have deep knowledge of every team's roster, needs, and strategy.\n\n` +
+    `CURRENT DRAFT STATE:\n` +
+    `- Status: ${status}\n` +
+    `- Current pick: Round ${round}, Pick ${pick}\n` +
+    `- Team on the clock: ${onClock}\n` +
+    `- Picks remaining: ${picksRemaining} of ${totalPicks}\n\n` +
+    `PICKS MADE SO FAR:\n${picksLines || "(no picks yet)"}\n\n` +
+    `AVAILABLE PLAYERS (not yet drafted):\n${availLines || "(none)"}\n\n` +
+    `MY TEAM (${teamName}) ROSTER:\n${myRosterLines || "(empty)"}\n\n` +
+    `MY TEAM NEEDS:\n${myNeedsLines}\n\n` +
+    `ALL TEAM ROSTERS AND NEEDS:\n${allTeamsLines || "(unavailable)"}\n\n` +
+    `TRADE VALUES (${teamName}):\n${tradeValuesLines || "(unavailable)"}\n\n` +
+    `You are an expert dynasty fantasy football analyst. Be concise and direct. ` +
+    `When recommending picks, include a confidence percentage. When analyzing other ` +
+    `teams, use their actual roster data and needs. Always reference specific player ` +
+    `names and positions.`;
 
   const messages: ChatMessage[] = (body.messages ?? []).filter(
     (m): m is ChatMessage =>
@@ -249,7 +351,9 @@ export async function POST(request: NextRequest) {
 
     if (body.mode === "recommendation") {
       const { system, messages } = buildRecommendationMessages(body);
+      console.log("[draft-assistant] recommendation system prompt length", system.length);
       const text = await callAnthropic(apiKey, system, messages, 500);
+      console.log("[draft-assistant] recommendation raw response", text);
       const parsed = tryParseRecommendation(text);
       if (!parsed) {
         return NextResponse.json(
@@ -262,7 +366,8 @@ export async function POST(request: NextRequest) {
 
     if (body.mode === "chat") {
       const { system, messages } = buildChatMessages(body);
-      const text = await callAnthropic(apiKey, system, messages, 1000);
+      console.log("[draft-assistant] chat system prompt length", system.length);
+      const text = await callAnthropic(apiKey, system, messages, 1200);
       return NextResponse.json({ ok: true, text });
     }
 
@@ -271,6 +376,7 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   } catch (error) {
+    console.error("[draft-assistant] error", error);
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "Unknown error" },
       { status: 500 }

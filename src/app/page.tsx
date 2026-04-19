@@ -557,6 +557,100 @@ export default function Home() {
 
   const nflTeamContext = useNflTeamContext(leagueId);
 
+  // Build the rich league context payload that the Assistant GM needs to
+  // answer questions about every team's roster, needs, and trade values.
+  // Recomputed whenever the underlying data changes so each chat send / each
+  // recommendation request sees the latest state.
+  const leagueContext = useMemo(() => {
+    if (!tradeProfiles) return null;
+    if (!rosters.length) return null;
+
+    const totalPicks = teamCountForDraft * (rosterPositions.length || 0);
+    const picksRemaining = Math.max(totalPicks - nextPickIndex, 0);
+
+    const teamsContext = rosters.map((roster) => {
+      const rid = toId(roster.roster_id);
+      const teamRecord = teams.find((t) => toId(t.id) === rid);
+      const profile = tradeProfiles[rid] ?? tradeProfiles[Number(rid)] ?? null;
+      const players = (roster.players ?? [])
+        .map((p) => {
+          const id = toId(p);
+          const info = playerDictionary[id];
+          if (!info) return null;
+          const fullName =
+            info.full_name ||
+            [info.first_name, info.last_name].filter(Boolean).join(" ") ||
+            id;
+          const pos =
+            info.position?.toUpperCase() ||
+            info.fantasy_positions?.[0]?.toUpperCase() ||
+            "";
+          const value = playerValues[id];
+          return {
+            name: fullName,
+            pos,
+            value:
+              typeof value === "number" && Number.isFinite(value)
+                ? Math.round(value)
+                : 0,
+          };
+        })
+        .filter((p): p is { name: string; pos: string; value: number } => !!p)
+        .sort((a, b) => b.value - a.value);
+      return {
+        rosterId: String(rid),
+        teamName: teamRecord?.name || `Team ${rid}`,
+        players,
+        needs: profile?.needs ?? [],
+        mode: profile?.mode ?? "",
+        posture: profile?.posture ?? "",
+        positionBands: (profile?.positionBands as Record<string, string>) ?? {},
+      };
+    });
+
+    const fullAvailablePlayers = availablePlayers.slice(0, 200).map((p) => ({
+      id: p.id,
+      name: p.name,
+      pos: p.position,
+      team: p.team,
+      school: p.school,
+      rookie: p.isRookie,
+      age: p.ageLabel,
+      value: Math.round(p.valueScore),
+      fit: Math.round(p.fitScore),
+    }));
+
+    const myTeamSummary = teamsContext.find((t) => t.rosterId === selectedTeam);
+    const myTeamTradeValues = (myTeamSummary?.players ?? []).map((p) => ({
+      name: p.name,
+      pos: p.pos,
+      value: p.value,
+    }));
+
+    return {
+      status: isDraftPaused ? "paused" : draftStatus || "idle",
+      isPaused: isDraftPaused,
+      totalPicks,
+      picksRemaining,
+      teams: teamsContext,
+      fullAvailablePlayers,
+      myTeamTradeValues,
+    };
+  }, [
+    tradeProfiles,
+    rosters,
+    teams,
+    playerDictionary,
+    playerValues,
+    availablePlayers,
+    selectedTeam,
+    isDraftPaused,
+    draftStatus,
+    teamCountForDraft,
+    rosterPositions.length,
+    nextPickIndex,
+  ]);
+
   const precomputedScoutingGrades = useMemo(() => {
     const map = new Map<string, ScoutingGradeSet>();
     availablePlayers.slice(0, PRECOMPUTED_GRADES_COUNT).forEach((p) => {
@@ -802,7 +896,7 @@ export default function Home() {
           onEnterDraftRoom={handleEnterDraftRoom}
         />
       ) : (
-        <div className="flex h-[calc(100vh-44px)] min-h-[600px] flex-col gap-4 px-4 pt-4 pb-4 overflow-hidden">
+        <div className="flex h-[calc(100vh_-_50px_-_69px_-_38px)] min-h-[480px] flex-col gap-4 px-4 pt-4 pb-4 overflow-hidden">
           {/* Header */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="cfc-section" style={{ marginBottom: 0 }}>
@@ -866,6 +960,7 @@ export default function Home() {
               onDraftPlayer={(player) => {
                 void handleAvailablePlayerSelect(player);
               }}
+              leagueContext={leagueContext}
             />
           </div>
         </div>
