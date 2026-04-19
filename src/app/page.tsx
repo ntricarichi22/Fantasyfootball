@@ -39,7 +39,7 @@ import {
 } from "../lib/draft/helpers";
 import { DraftBoardTable } from "../components/draft/DraftBoardTable";
 import { DraftControls } from "../components/draft/DraftControls";
-import { DraftLogPanel } from "../components/draft/DraftLogPanel";
+import { AssistantGmPanel } from "../components/draft/AssistantGmPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
 import { ScoutingCardModal } from "../components/draft/ScoutingCardModal";
 import { WelcomeScreen } from "../components/draft/WelcomeScreen";
@@ -757,6 +757,9 @@ export default function Home() {
     },
     [deleteDraftLogEntry, nextPickIndex, setDraftLog]
   );
+  // Reserved for future commissioner controls (the Assistant GM panel
+  // replaces the draft log on desktop, so the inline undo button is gone).
+  void handleUndoPick;
 
   const hasActiveSession = !!selectedTeam && !!sessionId;
   const redirectingToDraft = !isDraftRoute && hasActiveSession;
@@ -845,10 +848,24 @@ export default function Home() {
               onPlayerSelect={(player) => setScoutingPlayer(player)}
             />
 
-            <DraftLogPanel
+            <AssistantGmPanel
+              teamName={
+                teams.find((t) => toId(t.id) === selectedTeam)?.name || ""
+              }
+              ownerProfile={ownerProfile}
+              availablePlayers={availablePlayers}
               draftLog={draftLog}
-              isCommissionerSelected={isCommissionerSelected}
-              onUndoPick={handleUndoPick}
+              onClockTeamName={onClockTeamName}
+              currentRound={Math.floor(nextPickIndex / teamCountForDraft) + 1}
+              currentPickNumber={nextPickIndex + 1}
+              isOnClock={
+                !!onClockRosterId &&
+                (isCommissionerSelected || selectedTeam === onClockRosterId)
+              }
+              isDraftPaused={isDraftPaused}
+              onDraftPlayer={(player) => {
+                void handleAvailablePlayerSelect(player);
+              }}
             />
           </div>
         </div>
