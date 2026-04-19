@@ -148,6 +148,10 @@ export default function ClockBar() {
       // Best-effort: another client (or the next poll) will retry.
       announceFiredRef.current = null;
     });
+    // Backup trigger: a plain GET also runs the server-side auto-announce
+    // logic, ensuring the pick is revealed even if the POST above fails or
+    // is dropped.
+    fetch("/api/draft-state", { cache: "no-store" }).catch(() => {});
   }, [isPickIn, announceSeconds, state?.pick_announced_at]);
 
   // Pre-draft countdown re-tick: when there is a future start, advance
