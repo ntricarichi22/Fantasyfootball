@@ -28,10 +28,10 @@ type Props = {
 const baseChipStyle: CSSProperties = {
   fontFamily: 'var(--font-headline, "Syne", sans-serif)',
   fontWeight: 700,
-  fontSize: 8,
+  fontSize: 11,
   letterSpacing: "0.06em",
   textTransform: "uppercase",
-  padding: "6px 10px",
+  padding: "9px 14px",
   border: "1.5px solid #1A1A1A",
   borderRadius: 0,
   background: "#FEFCF9",

@@ -15,10 +15,10 @@ const positionBadgeStyle = (pos: string): CSSProperties => {
     display: "inline-block",
     fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
     fontWeight: 700,
-    fontSize: 7,
+    fontSize: 10,
     letterSpacing: "0.04em",
-    padding: "2px 5px",
-    border: "1px solid #1A1A1A",
+    padding: "3px 7px",
+    border: "1.5px solid #1A1A1A",
     borderRadius: 0,
     color: "#FFFFFF",
     lineHeight: 1.2,
@@ -33,11 +33,11 @@ const typeChipStyle = (isRookie: boolean): CSSProperties => ({
   display: "inline-block",
   fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
   fontWeight: 600,
-  fontSize: 7,
+  fontSize: 10,
   letterSpacing: "0.05em",
   textTransform: "uppercase",
-  padding: "2px 5px",
-  border: "1px solid #1A1A1A",
+  padding: "3px 7px",
+  border: "1.5px solid #1A1A1A",
   borderRadius: 0,
   background: isRookie ? "#F5C230" : "#E8503A",
   color: isRookie ? "#1A1A1A" : "#FFFFFF",
@@ -50,10 +50,10 @@ const progressBar = (value: number, color: string) => {
     <div
       style={{
         position: "relative",
-        height: 5,
+        height: 8,
         width: "100%",
         background: "#eee",
-        border: "0.5px solid #ccc",
+        border: "1px solid #ccc",
       }}
     >
       <div
@@ -70,14 +70,18 @@ const progressBar = (value: number, color: string) => {
   );
 };
 
-const barLabelStyle: CSSProperties = {
-  fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-  fontWeight: 600,
-  fontSize: 6,
-  letterSpacing: "0.05em",
-  color: "#1A1A1A",
-  width: 8,
-  textAlign: "left",
+/**
+ * Pick the value to display in the School / Team column.
+ *   - Rookies: prefer college; if Sleeper has no college on file, fall back
+ *     to the NFL team (e.g. drafted rookies will already have a team) and
+ *     finally to "—" rather than the misleading "FA" placeholder.
+ *   - Vets: NFL team, or "—" if Sleeper has no team (true free agent).
+ */
+const schoolOrTeam = (player: AvailablePlayer): string => {
+  if (player.isRookie) {
+    return player.school || player.team || "—";
+  }
+  return player.team || "—";
 };
 
 export function DraftBoardRow({ rank, player, onClick }: Props) {
@@ -97,14 +101,14 @@ export function DraftBoardRow({ rank, player, onClick }: Props) {
         style={{
           fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
           fontWeight: 600,
-          fontSize: 9,
+          fontSize: 12,
           color: "#999",
-          width: 26,
+          width: 36,
         }}
       >
         {rank}
       </td>
-      <td style={{ width: 36 }}>
+      <td style={{ width: 48 }}>
         <span style={positionBadgeStyle(player.position)}>{player.position}</span>
       </td>
       <td>
@@ -112,7 +116,7 @@ export function DraftBoardRow({ rank, player, onClick }: Props) {
           style={{
             fontFamily: 'var(--font-headline, "Syne", sans-serif)',
             fontWeight: 700,
-            fontSize: 10,
+            fontSize: 14,
             color: "#1A1A1A",
             lineHeight: 1.2,
           }}
@@ -123,29 +127,24 @@ export function DraftBoardRow({ rank, player, onClick }: Props) {
       <td
         style={{
           fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-          fontSize: 9,
+          fontSize: 12,
           color: "#777",
         }}
       >
-        {player.isRookie ? player.school || player.team : player.team}
+        {schoolOrTeam(player)}
       </td>
-      <td style={{ textAlign: "center", width: 50 }}>
+      <td style={{ textAlign: "center", width: 70 }}>
         <span style={typeChipStyle(player.isRookie)}>
           {player.isRookie ? "RK" : "VET"}
         </span>
       </td>
-      <td style={{ width: 80, padding: "8px 6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={barLabelStyle}>V</span>
-          {progressBar(player.valueScore, "#3366CC")}
-        </div>
+      <td style={{ width: 110, padding: "10px 10px" }}>
+        {progressBar(player.valueScore, "#3366CC")}
       </td>
-      <td style={{ width: 80, padding: "8px 6px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <span style={barLabelStyle}>F</span>
-          {progressBar(player.fitScore, "#F5C230")}
-        </div>
+      <td style={{ width: 110, padding: "10px 10px" }}>
+        {progressBar(player.fitScore, "#F5C230")}
       </td>
     </tr>
   );
 }
+

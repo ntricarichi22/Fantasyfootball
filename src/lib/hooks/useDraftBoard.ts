@@ -72,7 +72,11 @@ export function useDraftBoard({
         id: playerId,
         name,
         position: normalizedPositions[0] || "",
-        team: player.team || "FA",
+        // Sleeper sometimes leaves `team` null (free agents, undrafted rookies).
+        // Keep the empty string here so the row can decide what to display
+        // (college for rookies, "—" placeholder otherwise) instead of
+        // forcing every blank into a misleading "FA".
+        team: player.team || "",
         ageLabel: ageValue ? String(ageValue) : "–",
         isRookie,
         school: player.college || "",
@@ -89,12 +93,19 @@ export function useDraftBoard({
       return a.name.localeCompare(b.name);
     });
 
-    const total = players.length;
     const resolvedTeamCount = teamCount && teamCount > 0 ? teamCount : 12;
     const profile = ownerProfile ?? null;
+    // Anchor the value bar on the actual top `cfc_value` so the #1 player
+    // shows ~100 and the rest fall off in proportion to their real trade
+    // value (a power curve), instead of a smooth rank-based gradient where
+    // every player in the top 100 looks ~equally elite.
+    const topValue = players.find((p) => Number.isFinite(p._value))?._value ?? 0;
 
     return players.map((p, index) => {
-      const valueScore = valueScoreFromRank(index, total);
+      const valueScore =
+        topValue > 0 && Number.isFinite(p._value)
+          ? Math.round(Math.max(0, Math.min(100, (p._value / topValue) * 100)))
+          : valueScoreFromRank(index, players.length);
       const partial: AvailablePlayer = {
         id: p.id,
         name: p.name,

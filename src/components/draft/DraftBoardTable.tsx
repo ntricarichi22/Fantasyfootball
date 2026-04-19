@@ -99,18 +99,18 @@ export function DraftBoardTable({
                   background: "#1A1A1A",
                   color: "#FEFCF9",
                   fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                  fontSize: 8,
+                  fontSize: 10,
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
                 }}
               >
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>#</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Pos</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Player</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>School / Team</th>
-                <th style={{ textAlign: "center", padding: "6px 8px" }}>Type</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Value</th>
-                <th style={{ textAlign: "left", padding: "6px 8px" }}>Fit</th>
+                <th style={{ textAlign: "left", padding: "8px 10px" }}>#</th>
+                <th style={{ textAlign: "left", padding: "8px 10px" }}>Pos</th>
+                <th style={{ textAlign: "left", padding: "8px 10px" }}>Player</th>
+                <th style={{ textAlign: "left", padding: "8px 10px" }}>School / Team</th>
+                <th style={{ textAlign: "center", padding: "8px 10px" }}>Type</th>
+                <th style={{ textAlign: "left", padding: "8px 10px" }}>Value</th>
+                <th style={{ textAlign: "left", padding: "8px 10px" }}>Fit</th>
               </tr>
             </thead>
             <tbody>
