@@ -721,6 +721,8 @@ body {
   perspective: 1400px;
   z-index: 1001;
   animation: cfc-card-scale-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  /* Hard offset shadow per spec — no blur, no rounded corners. */
+  filter: drop-shadow(6px 6px 0 #1A1A1A);
 }
 .cfc-scout-card[data-closing="true"] {
   animation: cfc-card-scale-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
@@ -746,4 +748,52 @@ body {
 }
 .cfc-scout-face-back {
   transform: rotateY(180deg);
+}
+.cfc-scout-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-mono, "JetBrains Mono", monospace);
+  font-size: 14px;
+  line-height: 1;
+  color: #999;
+  cursor: pointer;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cfc-scout-close:hover {
+  color: #1A1A1A;
+}
+.cfc-scout-draft-btn {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 10px;
+  padding: 12px 14px;
+  background: #E8503A;
+  color: #FFFFFF;
+  border: 2.5px solid #1A1A1A;
+  border-radius: 0;
+  box-shadow: 3px 3px 0 #1A1A1A;
+  font-family: var(--font-headline, "Syne", sans-serif);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 80ms ease-out, box-shadow 80ms ease-out;
+}
+.cfc-scout-draft-btn:hover {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #1A1A1A;
+}
+.cfc-scout-draft-btn:active {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 #1A1A1A;
 }

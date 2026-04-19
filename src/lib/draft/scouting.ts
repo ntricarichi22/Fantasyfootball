@@ -1,5 +1,10 @@
 import type { PositionKey, TeamProfile } from "../trade/profile";
-import type { AvailablePlayer, DraftBoardFilter, SleeperPlayer } from "./types";
+import type {
+  AvailablePlayer,
+  DraftBoardFilter,
+  RookieProspect,
+  SleeperPlayer,
+} from "./types";
 
 /**
  * Map a player's position to a board-filter group. Returns null for positions
@@ -84,7 +89,7 @@ export type LetterGrade =
   | "D";
 
 export type ScoutingGrade = {
-  letter: LetterGrade | "TBD";
+  letter: LetterGrade | "TBD" | "—";
   title: string;
   detail: string;
 };
@@ -116,28 +121,40 @@ const overallPick = (round: number | null | undefined, pick: number | null | und
   return null;
 };
 
-export const buildCapitalGrade = (player: SleeperPlayer | undefined): ScoutingGrade => {
-  if (!player) {
-    return { letter: "TBD", title: "Draft Capital", detail: "TBD" };
+export const buildCapitalGrade = (
+  player: SleeperPlayer | undefined,
+  prospect?: RookieProspect | null
+): ScoutingGrade => {
+  // Prefer the curated rookie_prospects bio when present (post-NFL-draft
+  // the table is updated with team / round / pick); fall back to whatever
+  // Sleeper has on file. If neither has the NFL Draft outcome yet, show
+  // the "Pending" placeholder rather than an empty card.
+  const round = prospect?.nfl_draft_round ?? player?.draft_round ?? null;
+  const pick = prospect?.nfl_draft_pick ?? player?.draft_pick ?? null;
+  const team = prospect?.nfl_team ?? player?.team ?? null;
+
+  if (round === null && pick === null) {
+    return {
+      letter: "—",
+      title: "Draft Capital",
+      detail: team ? `${team} · NFL Draft — April 23-25` : "NFL Draft — April 23-25",
+    };
   }
-  const round = player.draft_round ?? null;
-  const pick = player.draft_pick ?? null;
+
   const overall = overallPick(round, pick);
-  // Undrafted (no round and no pick) → D; otherwise map overall pick → letter.
-  const isUndrafted = round === null && pick === null;
-  const letter: LetterGrade | "TBD" = isUndrafted ? "D" : draftCapitalGrade(overall);
-  const team = player.team || "—";
+  const letter: LetterGrade | "TBD" = draftCapitalGrade(overall);
+  const teamLabel = team || "—";
   if (round && pick) {
     return {
       letter,
       title: "Draft Capital",
-      detail: `${team} · Round ${round}, Pick ${pick}`,
+      detail: `${teamLabel} · Round ${round}, Pick ${pick}`,
     };
   }
   return {
     letter,
     title: "Draft Capital",
-    detail: isUndrafted ? `${team} · Undrafted` : `${team} · TBD`,
+    detail: `${teamLabel} · TBD`,
   };
 };
 
@@ -171,11 +188,12 @@ const valueTier = (value: number): { letter: LetterGrade; tier: string } => {
 export const buildSituationGrade = (
   player: SleeperPlayer | undefined,
   position: string,
-  contextMap: NflTeamContextMap
+  contextMap: NflTeamContextMap,
+  prospect?: RookieProspect | null
 ): ScoutingGrade => {
-  const team = player?.team;
+  const team = prospect?.nfl_team ?? player?.team;
   if (!team) {
-    return { letter: "TBD", title: "Situation", detail: "TBD" };
+    return { letter: "—", title: "Situation", detail: "Pending NFL Draft" };
   }
   const context = teamContextFor(contextMap, team);
 
@@ -229,11 +247,12 @@ export const buildSituationGrade = (
 export const buildOpportunityGrade = (
   player: SleeperPlayer | undefined,
   position: string,
-  contextMap: NflTeamContextMap
+  contextMap: NflTeamContextMap,
+  prospect?: RookieProspect | null
 ): ScoutingGrade => {
-  const team = player?.team;
+  const team = prospect?.nfl_team ?? player?.team;
   if (!team || !position) {
-    return { letter: "TBD", title: "Opportunity", detail: "TBD" };
+    return { letter: "—", title: "Opportunity", detail: "Pending NFL Draft" };
   }
   const incumbent = teamContextFor(contextMap, team)[position as PositionKey];
   if (!incumbent || incumbent.value < 15) {
@@ -267,11 +286,12 @@ export const buildOpportunityGrade = (
 export const buildScoutingGrades = (
   player: SleeperPlayer | undefined,
   position: string,
-  contextMap: NflTeamContextMap
+  contextMap: NflTeamContextMap,
+  prospect?: RookieProspect | null
 ): ScoutingGradeSet => ({
-  capital: buildCapitalGrade(player),
-  situation: buildSituationGrade(player, position, contextMap),
-  opportunity: buildOpportunityGrade(player, position, contextMap),
+  capital: buildCapitalGrade(player, prospect),
+  situation: buildSituationGrade(player, position, contextMap, prospect),
+  opportunity: buildOpportunityGrade(player, position, contextMap, prospect),
 });
 
 /* ------------------------------------------------------------------ *
@@ -279,7 +299,7 @@ export const buildScoutingGrades = (
  * ------------------------------------------------------------------ */
 
 export const gradeColors = (
-  letter: LetterGrade | "TBD"
+  letter: LetterGrade | "TBD" | "—"
 ): { bg: string; text: string } => {
   switch (letter) {
     case "A+":
@@ -288,17 +308,17 @@ export const gradeColors = (
     case "A-":
       return { bg: "#d0e0f7", text: "#3366CC" };
     case "B+":
-      return { bg: "#F5C230", text: "#8a6d00" };
     case "B":
+      return { bg: "#F5C230", text: "#8a6d00" };
     case "B-":
-      return { bg: "#f1e4b8", text: "#8a6d00" };
+      return { bg: "#ffe0b2", text: "#8a6d00" };
     case "C+":
     case "C":
     case "C-":
-      return { bg: "#eadfd0", text: "#7a5b3a" };
+      return { bg: "#eee", text: "#666" };
     case "D":
-      return { bg: "#e9c8c1", text: "#8a3322" };
+      return { bg: "#eee", text: "#999" };
     default:
-      return { bg: "#eee", text: "#777" };
+      return { bg: "#eee", text: "#999" };
   }
 };

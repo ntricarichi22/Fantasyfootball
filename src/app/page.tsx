@@ -52,6 +52,7 @@ import { useDraftBoard } from "../lib/hooks/useDraftBoard";
 import { useDraftClock } from "../lib/hooks/useDraftClock";
 import { useDraftRoomLog } from "../lib/hooks/useDraftRoomLog";
 import { useNflTeamContext } from "../lib/hooks/useNflTeamContext";
+import { useRookieProspects } from "../lib/hooks/useRookieProspects";
 import { useSleeperData } from "../lib/hooks/useSleeperData";
 import { buildLeagueProfiles } from "../lib/trade/profile";
 import { buildScoutingGrades, type ScoutingGradeSet } from "../lib/draft/scouting";
@@ -526,6 +527,8 @@ export default function Home() {
     return tradeProfiles[selectedTeam] ?? tradeProfiles[Number(selectedTeam)] ?? null;
   }, [selectedTeam, tradeProfiles]);
 
+  const rookieProspects = useRookieProspects();
+
   const availablePlayers = useDraftBoard({
     playerDictionary,
     playerValues,
@@ -533,6 +536,7 @@ export default function Home() {
     unavailablePlayers,
     ownerProfile,
     teamCount,
+    rookieProspects,
   });
 
   const nflTeamContext = useNflTeamContext(leagueId);
@@ -540,10 +544,18 @@ export default function Home() {
   const precomputedScoutingGrades = useMemo(() => {
     const map = new Map<string, ScoutingGradeSet>();
     availablePlayers.slice(0, PRECOMPUTED_GRADES_COUNT).forEach((p) => {
-      map.set(p.id, buildScoutingGrades(playerDictionary[p.id], p.position, nflTeamContext));
+      map.set(
+        p.id,
+        buildScoutingGrades(
+          playerDictionary[p.id],
+          p.position,
+          nflTeamContext,
+          rookieProspects[p.id] ?? null
+        )
+      );
     });
     return map;
-  }, [availablePlayers, playerDictionary, nflTeamContext]);
+  }, [availablePlayers, playerDictionary, nflTeamContext, rookieProspects]);
 
   const [scoutingPlayer, setScoutingPlayer] = useState<AvailablePlayer | null>(null);
 
@@ -947,6 +959,7 @@ export default function Home() {
         <ScoutingCardModal
           player={scoutingPlayer}
           sleeperPlayer={playerDictionary[scoutingPlayer.id]}
+          rookieProspect={rookieProspects[scoutingPlayer.id] ?? null}
           precomputedGrades={precomputedScoutingGrades.get(scoutingPlayer.id) ?? null}
           contextMap={nflTeamContext}
           canDraft={

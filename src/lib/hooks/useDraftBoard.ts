@@ -5,7 +5,11 @@ import { useMemo } from "react";
 import { SKILL_POSITIONS } from "../draft/constants";
 import { computeAge, normalizePositions } from "../draft/helpers";
 import { computeFitScore, valueScoreFromRank } from "../draft/scouting";
-import type { AvailablePlayer, SleeperPlayer } from "../draft/types";
+import type {
+  AvailablePlayer,
+  RookieProspectMap,
+  SleeperPlayer,
+} from "../draft/types";
 import type { TeamProfile } from "../trade/profile";
 
 type Params = {
@@ -16,6 +20,8 @@ type Params = {
   /** Logged-in owner's team profile (for fit-score personalization). */
   ownerProfile?: TeamProfile | null;
   teamCount?: number;
+  /** Curated rookie pool used as a fallback for fields Sleeper lacks. */
+  rookieProspects?: RookieProspectMap;
 };
 
 /**
@@ -35,11 +41,13 @@ export function useDraftBoard({
   unavailablePlayers,
   ownerProfile,
   teamCount,
+  rookieProspects,
 }: Params): AvailablePlayer[] {
   return useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
     type Draft = Omit<AvailablePlayer, "valueScore" | "fitScore"> & { _value: number };
     const players: Draft[] = [];
+    const prospectMap = rookieProspects ?? {};
 
     Object.entries(playerDictionary).forEach(([playerId, player]) => {
       if (unavailablePlayers.has(playerId)) return;
@@ -53,10 +61,12 @@ export function useDraftBoard({
       const value = playerValues[playerId];
       const hasValue = Number.isFinite(value);
       const isActive = player.active === true || player.status?.toLowerCase() === "active";
+      const prospect = prospectMap[playerId];
       const isRookie =
-        player.years_exp !== undefined &&
-        player.years_exp !== null &&
-        Number(player.years_exp) === 0;
+        (player.years_exp !== undefined &&
+          player.years_exp !== null &&
+          Number(player.years_exp) === 0) ||
+        Boolean(prospect);
 
       if (!(isActive || isRookie || hasValue)) return;
 
@@ -67,7 +77,12 @@ export function useDraftBoard({
 
       if (query && !name.toLowerCase().includes(query)) return;
 
-      const ageValue = computeAge(player);
+      const sleeperAge = computeAge(player);
+      const ageValue =
+        sleeperAge ?? (typeof prospect?.age === "number" ? prospect.age : null);
+      // Sleeper rookies often have null `college`; fall back to the curated
+      // rookie_prospects bio so the school column populates correctly.
+      const school = player.college || prospect?.college || "";
       players.push({
         id: playerId,
         name,
@@ -76,10 +91,10 @@ export function useDraftBoard({
         // Keep the empty string here so the row can decide what to display
         // (college for rookies, "—" placeholder otherwise) instead of
         // forcing every blank into a misleading "FA".
-        team: player.team || "",
+        team: player.team || prospect?.nfl_team || "",
         ageLabel: ageValue ? String(ageValue) : "–",
         isRookie,
-        school: player.college || "",
+        school,
         _value: hasValue ? Number(value) : Number.NEGATIVE_INFINITY,
       });
     });
@@ -120,6 +135,6 @@ export function useDraftBoard({
       partial.fitScore = computeFitScore(partial, profile, resolvedTeamCount);
       return partial;
     });
-  }, [playerDictionary, playerValues, searchTerm, unavailablePlayers, ownerProfile, teamCount]);
+  }, [playerDictionary, playerValues, searchTerm, unavailablePlayers, ownerProfile, teamCount, rookieProspects]);
 }
 

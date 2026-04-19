@@ -100,3 +100,25 @@ export type ActiveTeamApiRow = {
   sessionId?: string;
   session_id?: string;
 };
+
+/**
+ * Curated rookie-prospect bio loaded from Supabase `rookie_prospects`. Used
+ * as a per-field fallback when the live Sleeper player dictionary is missing
+ * data (college, age, height_inches, weight) and as the source of NFL
+ * Draft outcome fields (nfl_team, nfl_draft_round, nfl_draft_pick).
+ */
+export interface RookieProspect {
+  player_id: string;
+  name?: string | null;
+  position?: string | null;
+  college?: string | null;
+  age?: number | null;
+  height_inches?: number | null;
+  weight?: number | null;
+  nfl_team?: string | null;
+  nfl_draft_round?: number | null;
+  nfl_draft_pick?: number | null;
+  avatar_url?: string | null;
+}
+
+export type RookieProspectMap = Record<string, RookieProspect>;

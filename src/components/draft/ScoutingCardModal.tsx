@@ -9,7 +9,11 @@ import {
   type NflTeamContextMap,
   type ScoutingGradeSet,
 } from "../../lib/draft/scouting";
-import type { AvailablePlayer, SleeperPlayer } from "../../lib/draft/types";
+import type {
+  AvailablePlayer,
+  RookieProspect,
+  SleeperPlayer,
+} from "../../lib/draft/types";
 
 /** Must match the `cfc-card-out` keyframes duration in globals.css. */
 const CLOSE_ANIMATION_MS = 500;
@@ -17,6 +21,9 @@ const CLOSE_ANIMATION_MS = 500;
 type Props = {
   player: AvailablePlayer;
   sleeperPlayer: SleeperPlayer | undefined;
+  /** Curated rookie bio used as fallback for college / age / height / weight
+   *  and as the source of post-NFL-draft team / round / pick. */
+  rookieProspect?: RookieProspect | null;
   /** Pre-computed grades when available (top-N rookies); otherwise computed lazily. */
   precomputedGrades: ScoutingGradeSet | null;
   contextMap: NflTeamContextMap;
@@ -46,10 +53,10 @@ const headerStyle: CSSProperties = {
 };
 
 const avatarStyle: CSSProperties = {
-  width: 56,
-  height: 56,
+  width: 60,
+  height: 60,
   background: "#3366CC",
-  border: "2px solid #F5C230",
+  border: "2.5px solid #F5C230",
   borderRadius: 0,
   flexShrink: 0,
   display: "flex",
@@ -71,6 +78,22 @@ const statBoxStyle: CSSProperties = {
   textAlign: "center",
 };
 
+const statValueStyle: CSSProperties = {
+  fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
+  fontWeight: 700,
+  fontSize: 18,
+  color: "#1A1A1A",
+};
+
+const statLabelStyle: CSSProperties = {
+  fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
+  fontSize: 10,
+  textTransform: "uppercase",
+  letterSpacing: "0.06em",
+  color: "#777",
+  marginTop: 2,
+};
+
 const gradeRowStyle: CSSProperties = {
   display: "flex",
   alignItems: "stretch",
@@ -83,7 +106,7 @@ function GradeRow({
   title,
   detail,
 }: {
-  letter: LetterGrade | "TBD";
+  letter: LetterGrade | "TBD" | "—";
   title: string;
   detail: string;
 }) {
@@ -148,15 +171,23 @@ function GradeRow({
 function SilhouetteAvatar() {
   return (
     <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
-      <circle cx="16" cy="11" r="6" fill="#FEFCF9" />
-      <path d="M4 30c0-7 6-12 12-12s12 5 12 12" fill="#FEFCF9" />
+      <circle cx="16" cy="11" r="6" fill="#aaa" />
+      <path d="M4 30c0-7 6-12 12-12s12 5 12 12" fill="#aaa" />
     </svg>
   );
 }
 
+const formatHeightInches = (inches: number | null | undefined): string | null => {
+  if (typeof inches !== "number" || !Number.isFinite(inches) || inches <= 0) return null;
+  const ft = Math.floor(inches / 12);
+  const inch = inches % 12;
+  return `${ft}'${inch}"`;
+};
+
 export function ScoutingCardModal({
   player,
   sleeperPlayer,
+  rookieProspect,
   precomputedGrades,
   contextMap,
   canDraft,
@@ -183,17 +214,35 @@ export function ScoutingCardModal({
   }, []);
 
   const grades: ScoutingGradeSet =
-    precomputedGrades ?? buildScoutingGrades(sleeperPlayer, player.position, contextMap);
+    precomputedGrades ??
+    buildScoutingGrades(sleeperPlayer, player.position, contextMap, rookieProspect);
 
+  // College fallback: rookie_prospects → Sleeper → AvailablePlayer.school
+  // (which itself already merges Sleeper + prospect inside useDraftBoard).
+  const college =
+    rookieProspect?.college || sleeperPlayer?.college || player.school || "";
   const subtitleParts = [
     player.position,
-    player.isRookie ? player.school || sleeperPlayer?.college || "" : player.team,
+    player.isRookie ? college : player.team,
     player.isRookie ? "Rookie" : "Veteran",
   ].filter(Boolean);
 
   const avatarUrl = sleeperPlayer?.player_id
     ? `https://sleepercdn.com/content/nfl/players/thumb/${sleeperPlayer.player_id}.jpg`
     : null;
+
+  // Stat values: prefer the live Sleeper bio, fall back to rookie_prospects,
+  // and surface "—" when neither source has it.
+  const ageDisplay =
+    (player.ageLabel && player.ageLabel !== "–" && player.ageLabel) ||
+    (typeof rookieProspect?.age === "number" ? String(rookieProspect.age) : "—");
+  const heightDisplay =
+    sleeperPlayer?.height ||
+    formatHeightInches(rookieProspect?.height_inches) ||
+    "—";
+  const weightDisplay =
+    (sleeperPlayer?.weight && `${sleeperPlayer.weight} lbs`) ||
+    (rookieProspect?.weight ? `${rookieProspect.weight} lbs` : "—");
 
   return (
     <>
@@ -255,6 +304,16 @@ export function ScoutingCardModal({
               <div style={{ flex: 1, background: "#3366CC" }} />
             </div>
 
+            {/* Close X */}
+            <button
+              type="button"
+              onClick={requestClose}
+              aria-label="Close scouting card"
+              className="cfc-scout-close"
+            >
+              ✕
+            </button>
+
             <div style={{ paddingLeft: 6, height: "100%", display: "flex", flexDirection: "column" }}>
               {/* Header */}
               <div style={headerStyle}>
@@ -276,7 +335,7 @@ export function ScoutingCardModal({
                     style={{
                       fontFamily: 'var(--font-headline, "Syne", sans-serif)',
                       fontWeight: 700,
-                      fontSize: 19,
+                      fontSize: 20,
                       lineHeight: 1.15,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
@@ -288,7 +347,7 @@ export function ScoutingCardModal({
                   <div
                     style={{
                       fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                      fontSize: 12,
+                      fontSize: 13,
                       color: "#999",
                       marginTop: 2,
                     }}
@@ -301,76 +360,16 @@ export function ScoutingCardModal({
               {/* Stat boxes */}
               <div style={{ display: "flex", gap: 8, padding: 10 }}>
                 <div style={statBoxStyle}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                      fontWeight: 700,
-                      fontSize: 16,
-                      color: "#1A1A1A",
-                    }}
-                  >
-                    {player.ageLabel}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                      fontSize: 9,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      color: "#777",
-                      marginTop: 2,
-                    }}
-                  >
-                    Age
-                  </div>
+                  <div style={statValueStyle}>{ageDisplay}</div>
+                  <div style={statLabelStyle}>Age</div>
                 </div>
                 <div style={statBoxStyle}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                      fontWeight: 700,
-                      fontSize: 16,
-                      color: "#1A1A1A",
-                    }}
-                  >
-                    {sleeperPlayer?.height || "–"}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                      fontSize: 9,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      color: "#777",
-                      marginTop: 2,
-                    }}
-                  >
-                    Height
-                  </div>
+                  <div style={statValueStyle}>{heightDisplay}</div>
+                  <div style={statLabelStyle}>Height</div>
                 </div>
                 <div style={statBoxStyle}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-                      fontWeight: 700,
-                      fontSize: 16,
-                      color: "#1A1A1A",
-                    }}
-                  >
-                    {sleeperPlayer?.weight ? `${sleeperPlayer.weight}` : "–"}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                      fontSize: 9,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.06em",
-                      color: "#777",
-                      marginTop: 2,
-                    }}
-                  >
-                    Weight
-                  </div>
+                  <div style={statValueStyle}>{weightDisplay}</div>
+                  <div style={statLabelStyle}>Weight</div>
                 </div>
               </div>
 
@@ -386,21 +385,7 @@ export function ScoutingCardModal({
                 <button
                   type="button"
                   onClick={() => onDraft(player)}
-                  style={{
-                    margin: 10,
-                    padding: "10px 14px",
-                    background: "#E8503A",
-                    color: "#FFFFFF",
-                    border: "2.5px solid #1A1A1A",
-                    borderRadius: 0,
-                    boxShadow: "3px 3px 0 #1A1A1A",
-                    fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-                    fontWeight: 700,
-                    fontSize: 13,
-                    letterSpacing: "0.08em",
-                    textTransform: "uppercase",
-                    cursor: "pointer",
-                  }}
+                  className="cfc-scout-draft-btn"
                 >
                   Draft This Player
                 </button>
