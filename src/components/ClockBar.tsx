@@ -139,9 +139,9 @@ export default function ClockBar() {
 
   // Trigger 1: announcement countdown hit 0 with a submitted pick.
   useEffect(() => {
+    console.log('[tick-trigger-1-top]', { isPickIn, announceSeconds });
     if (!isPickIn) return;
     if (announceSeconds > 0) return;
-    console.log('[tick-trigger-1]', { announceSeconds, isPickIn, pick_announced_at: state?.pick_announced_at });
     const key = `announce:${state?.pick_announced_at ?? ""}`;
     if (tickFiredRef.current === key) return;
     tickFiredRef.current = key;
