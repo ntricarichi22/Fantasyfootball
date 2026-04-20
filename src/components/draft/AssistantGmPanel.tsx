@@ -46,6 +46,7 @@ export type LeagueDraftContext = {
     age: string;
     value: number;
     fit: number;
+    tradeValue: number;
   }>;
   myTeamTradeValues: Array<{ name: string; pos: string; value: number }>;
 };
@@ -72,7 +73,7 @@ const wrapperStyle: CSSProperties = {
   flexShrink: 0,
   height: "100%",
   background: "#FEFCF9",
-  borderLeft: "2px solid #1A1A1A",
+  borderLeft: "2.5px solid #1A1A1A",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
@@ -343,11 +344,16 @@ export function AssistantGmPanel({
       (t) => t.teamName === teamName
     );
 
+    // Fix 4: keep the recommendation prompt small (top 15) and time it out
+    // after 15s so the card doesn't spin forever.
+    const recommendationPool = leagueContext.fullAvailablePlayers.slice(0, 15);
+    const timeoutId = setTimeout(() => controller.abort("timeout"), 15000);
+
     const requestPayload = {
       mode: "recommendation" as const,
       teamName,
       teamNeeds,
-      availablePlayers: leagueContext.fullAvailablePlayers,
+      availablePlayers: recommendationPool,
       recentPicks: draftLog.slice(-RECENT_PICKS_SHOWN).map(summarizePick),
       roster: ownerProfile
         ? {
@@ -360,7 +366,11 @@ export function AssistantGmPanel({
           }
         : null,
       myTeamTradeValues: leagueContext.myTeamTradeValues,
-      leagueContext,
+      leagueContext: {
+        ...leagueContext,
+        // Trim to the same top-15 so the server prompt stays small.
+        fullAvailablePlayers: recommendationPool,
+      },
     };
 
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -394,7 +404,15 @@ export function AssistantGmPanel({
         setRecommendation(json.recommendation);
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) return;
+        if (controller.signal.aborted) {
+          if (controller.signal.reason === "timeout") {
+            console.error("[AssistantGM] recommendation timed out");
+            setRecommendationError(
+              "Recommendation timed out — ask me in chat instead"
+            );
+          }
+          return;
+        }
         const message =
           error instanceof Error
             ? error.message
@@ -403,10 +421,15 @@ export function AssistantGmPanel({
         setRecommendationError(`Error: ${message}`);
       })
       .finally(() => {
+        clearTimeout(timeoutId);
         if (!controller.signal.aborted) setRecommendationLoading(false);
+        else setRecommendationLoading(false);
       });
 
-    return () => controller.abort();
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
   }, [
     teamName,
     teamNeeds,

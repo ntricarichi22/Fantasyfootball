@@ -148,7 +148,9 @@ function buildChatMessages(body: AssistantRequest): {
         .join("\n")
     : "";
 
-  // AVAILABLE PLAYERS
+  // AVAILABLE PLAYERS — use real trade values from cfc_trade_values_current
+  // so the model can compare prospects against rostered players on the same
+  // scale. Limit to top 36 to keep prompt size in check.
   const availLines = Array.isArray(body.availablePlayers)
     ? (body.availablePlayers as Array<{
         name?: string;
@@ -157,12 +159,16 @@ function buildChatMessages(body: AssistantRequest): {
         team?: string;
         value?: number;
         fit?: number;
+        tradeValue?: number;
       }>)
-        .slice(0, 200)
-        .map(
-          (p) =>
-            `${p.name ?? "?"} - ${p.pos ?? "?"} - ${p.school || p.team || ""} - Value: ${p.value ?? 0}, Fit: ${p.fit ?? 0}`
-        )
+        .slice(0, 36)
+        .map((p) => {
+          const tradeVal =
+            typeof p.tradeValue === "number" && Number.isFinite(p.tradeValue)
+              ? p.tradeValue
+              : 0;
+          return `${p.name ?? "?"} - ${p.pos ?? "?"} - ${p.school || p.team || ""} - Trade Value: ${tradeVal}`;
+        })
         .join("\n")
     : "";
 
@@ -207,6 +213,9 @@ function buildChatMessages(body: AssistantRequest): {
     `MY TEAM NEEDS:\n${myNeedsLines}\n\n` +
     `ALL TEAM ROSTERS AND NEEDS:\n${allTeamsLines || "(unavailable)"}\n\n` +
     `TRADE VALUES (${teamName}):\n${tradeValuesLines || "(unavailable)"}\n\n` +
+    `Trade values are on a consistent scale. A player with trade value 288 is worth ` +
+    `roughly 2.6x a player valued at 109. Use these values for direct comparisons ` +
+    `between prospects and rostered players.\n\n` +
     `You are an expert dynasty fantasy football analyst. Be concise and direct. ` +
     `When recommending picks, include a confidence percentage. When analyzing other ` +
     `teams, use their actual roster data and needs. Always reference specific player ` +

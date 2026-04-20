@@ -72,6 +72,8 @@ export interface AvailablePlayer {
   valueScore: number;
   /** Personalized 0-100 fit derived from the logged-in owner's positional weakness. */
   fitScore: number;
+  /** Raw trade value from cfc_trade_values_current (0 if missing). */
+  tradeValue: number;
 }
 
 /** Filter chip selection for the draft board. */

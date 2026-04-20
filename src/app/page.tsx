@@ -608,7 +608,10 @@ export default function Home() {
       };
     });
 
-    const fullAvailablePlayers = availablePlayers.slice(0, 200).map((p) => ({
+    // Cap at top 36 — see Fix 2: keeps Anthropic prompt token count
+    // manageable while still giving the assistant enough breadth to
+    // compare against rostered players.
+    const fullAvailablePlayers = availablePlayers.slice(0, 36).map((p) => ({
       id: p.id,
       name: p.name,
       pos: p.position,
@@ -618,6 +621,7 @@ export default function Home() {
       age: p.ageLabel,
       value: Math.round(p.valueScore),
       fit: Math.round(p.fitScore),
+      tradeValue: p.tradeValue,
     }));
 
     const myTeamSummary = teamsContext.find((t) => t.rosterId === selectedTeam);
