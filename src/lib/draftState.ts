@@ -16,7 +16,7 @@ export type DraftStateRow = {
   updated_at?: string | null;
 };
 
-export const INITIAL_PICK_SECONDS = 30 * 60;
+export const INITIAL_PICK_SECONDS = Number(process.env.NEXT_PUBLIC_PICK_SECONDS) || 30 * 60;
 
 const normalizeNumber = (value: unknown, fallback: number = INITIAL_PICK_SECONDS) => {
   if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.round(value));
