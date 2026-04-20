@@ -4,10 +4,11 @@ import { getLeagueId } from "../../../lib/config";
 import {
   computeRemainingSeconds,
   INITIAL_PICK_SECONDS,
-  normalizeDraftStateRow,
   type DraftClockStatus,
   type DraftStateRow,
 } from "../../../lib/draftState";
+import { processAutoAdvance } from "../../../lib/draftAutoAdvance";
+import { fetchDraftState, upsertDraftState } from "./shared";
 
 export const dynamic = "force-dynamic";
 
@@ -33,297 +34,11 @@ const normalizeSeconds = (value: unknown, fallback: number = INITIAL_PICK_SECOND
   return fallback;
 };
 
-const SELECT_COLS =
-  "league_id, status, seconds_remaining, clock_started_at, pick_submitted, pick_announced_at, current_pick_index, starts_at";
-
-type SupabaseClient = ReturnType<typeof getSupabaseAdminClient>["client"];
-
-const fetchDraftState = async (
-  client: SupabaseClient,
-  leagueId: string
-) => {
-  if (!client) return null;
-  const { data, error } = await client
-    .from("draft_state")
-    .select(SELECT_COLS)
-    .eq("league_id", leagueId)
-    .maybeSingle();
-
-  if (error) {
-    console.warn("Unable to fetch draft_state", error);
-    return null;
-  }
-
-  return normalizeDraftStateRow(data as Partial<DraftStateRow>);
-};
-
-/** Build the full write payload, defaulting unspecified cadence fields to "no pending pick". */
-const buildWritePayload = (
-  payload: Partial<DraftStateRow> & { league_id: string }
-): Record<string, unknown> => ({
-  league_id: payload.league_id,
-  status: payload.status,
-  seconds_remaining: payload.seconds_remaining,
-  clock_started_at: payload.clock_started_at,
-  pick_submitted: payload.pick_submitted ?? false,
-  pick_announced_at: payload.pick_announced_at ?? null,
-  current_pick_index: payload.current_pick_index ?? null,
-});
-
-const upsertDraftState = async (
-  client: SupabaseClient,
-  payload: Partial<DraftStateRow> & { league_id: string }
-) => {
-  if (!client) return { data: null, error: "Missing client" };
-
-  const writePayload = buildWritePayload(payload);
-
-  // Try upsert with explicit conflict target so it works regardless of
-  // the table's primary key definition.
-  const upsertResult = await client
-    .from("draft_state")
-    .upsert(writePayload, { onConflict: "league_id" })
-    .select(SELECT_COLS)
-    .maybeSingle();
-
-  if (!upsertResult.error) {
-    return { data: normalizeDraftStateRow(upsertResult.data as Partial<DraftStateRow>), error: null };
-  }
-
-  // Fallback: try an update (row already exists) then an insert (new row).
-  const updateResult = await client
-    .from("draft_state")
-    .update(writePayload)
-    .eq("league_id", payload.league_id)
-    .select(SELECT_COLS)
-    .maybeSingle();
-
-  if (!updateResult.error && updateResult.data) {
-    return { data: normalizeDraftStateRow(updateResult.data as Partial<DraftStateRow>), error: null };
-  }
-
-  const insertResult = await client
-    .from("draft_state")
-    .insert(writePayload)
-    .select(SELECT_COLS)
-    .maybeSingle();
-
-  if (!insertResult.error) {
-    return { data: normalizeDraftStateRow(insertResult.data as Partial<DraftStateRow>), error: null };
-  }
-
-  // Insert may fail due to a concurrent insert (race condition). Retry update.
-  const retryUpdate = await client
-    .from("draft_state")
-    .update(writePayload)
-    .eq("league_id", payload.league_id)
-    .select(SELECT_COLS)
-    .maybeSingle();
-
-  if (!retryUpdate.error && retryUpdate.data) {
-    return { data: normalizeDraftStateRow(retryUpdate.data as Partial<DraftStateRow>), error: null };
-  }
-
-  // Last resort: write without RETURNING and read separately.  This avoids
-  // failures caused by column mismatches in the SELECT / RETURNING clause.
-  const plainUpsert = await client
-    .from("draft_state")
-    .upsert(writePayload, { onConflict: "league_id" });
-
-  if (!plainUpsert.error) {
-    const readBack = await client
-      .from("draft_state")
-      .select(SELECT_COLS)
-      .eq("league_id", payload.league_id)
-      .maybeSingle();
-
-    return {
-      data: normalizeDraftStateRow((readBack.data ?? writePayload) as Partial<DraftStateRow>),
-      error: null,
-    };
-  }
-
-  return { data: null, error: plainUpsert.error?.message ?? insertResult.error?.message ?? "Unknown error" };
-};
-
-/** Maximum number of cascading auto-advances per request. Prevents runaway
- *  loops while still allowing several stale picks / skips to clear in one go
- *  (e.g. the server was idle overnight). */
-const MAX_AUTO_ADVANCE_STEPS = 12;
-
-/**
- * Single-step auto-announce / skip processor.
- *
- * If a pick has been submitted and its announcement time has passed, mark
- * the matching draft_log row announced and advance the draft to the next
- * pick with a fresh clock.  If no pick was submitted but the on-the-clock
- * timer has run out, write a `is_skip = true` placeholder row to draft_log,
- * mark it announced (so it consumes the slot for the board / ticker / log),
- * and advance.
- *
- * Returns the (possibly-updated) state and a status describing what
- * happened.  Idempotent: if nothing is due, the input state is returned
- * unchanged with status "not_ready".
- */
-const processAutoAnnouncementStep = async (
-  client: SupabaseClient,
-  leagueId: string,
-  state: DraftStateRow,
-  options: { force?: boolean } = {}
-): Promise<{
-  data: DraftStateRow | null;
-  status: "announced" | "skipped" | "not_ready";
-  error?: string | null;
-}> => {
-  if (!client) return { data: state, status: "not_ready", error: "Missing client" };
-
-  const announceMs = state.pick_announced_at
-    ? new Date(state.pick_announced_at).getTime()
-    : NaN;
-  const announcementReady =
-    state.pick_submitted === true && Number.isFinite(announceMs) && Date.now() >= announceMs;
-  const skipReady =
-    !state.pick_submitted &&
-    state.status === "running" &&
-    computeRemainingSeconds(state) <= 0;
-
-  if (!options.force && !announcementReady && !skipReady) {
-    return { data: state, status: "not_ready" };
-  }
-
-  const nowIso = new Date().toISOString();
-  const currentIndex = state.current_pick_index ?? null;
-
-  if (announcementReady && currentIndex !== null) {
-    // Idempotent: filter on is_announced=false so a concurrent announcer
-    // doesn't double-mark the row.
-    const { error: updateLogError } = await client
-      .from("draft_log")
-      .update({ is_announced: true, announced_at: nowIso })
-      .eq("pick_index", currentIndex)
-      .eq("is_announced", false);
-    if (updateLogError) {
-      console.warn("[draft-state] Unable to mark draft_log row announced", updateLogError);
-    } else {
-      console.log(
-        `[draft-state] auto-announce fired for pick_index=${currentIndex} (league=${leagueId})`
-      );
-    }
-  }
-
-  // On auto-skip, write a placeholder draft_log row so the slot is consumed
-  // and downstream views (board, ticker, log) can render a "SKIPPED" cell.
-  // The row is marked is_announced=true immediately because there is no
-  // pending announcement window for a skip.
-  if (!announcementReady && skipReady && currentIndex !== null) {
-    const { error: insertSkipError } = await client.from("draft_log").upsert(
-      [
-        {
-          pick_index: currentIndex,
-          // pick_number / team_count / team_name aren't known to this code
-          // path (those come from the draft order, resolved client-side).
-          // Leaving them blank is OK — the ticker / log already tolerate
-          // missing fields and skip-rows are filtered by is_skip downstream
-          // when needed.
-          pick_number: null,
-          team_count: null,
-          team_name: null,
-          roster_id: null,
-          player_id: null,
-          player_name: null,
-          positions: [],
-          nfl_team: null,
-          submitted_at: nowIso,
-          announced_at: nowIso,
-          is_announced: true,
-          is_skip: true,
-        },
-      ],
-      { onConflict: "pick_index" }
-    );
-    if (insertSkipError) {
-      console.warn(
-        `[draft-state] Unable to write skip row for pick_index=${currentIndex}`,
-        insertSkipError
-      );
-    } else {
-      console.log(
-        `[draft-state] auto-skip fired for pick_index=${currentIndex} (league=${leagueId})`
-      );
-    }
-  }
-
-  const nextIndex = currentIndex !== null ? currentIndex + 1 : null;
-  const nextState: Partial<DraftStateRow> & { league_id: string } = {
-    league_id: leagueId,
-    status: "running",
-    seconds_remaining: INITIAL_PICK_SECONDS,
-    clock_started_at: nowIso,
-    pick_submitted: false,
-    pick_announced_at: null,
-    current_pick_index: nextIndex,
-  };
-  const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
-  if (updateError) {
-    return { data: state, status: "not_ready", error: updateError };
-  }
-  return {
-    data: updated,
-    status: announcementReady ? "announced" : "skipped",
-  };
-};
-
-/**
- * Loop-driving wrapper around `processAutoAnnouncementStep`. Cascades up to
- * MAX_AUTO_ADVANCE_STEPS times so that a stretch of expired windows (server
- * was idle / no client polled for a while) all clear in a single request.
- *
- * Returns the final state and the most recent step status. Per-step status
- * "not_ready" terminates the loop early — there is nothing more to do.
- */
-const processAutoAnnouncement = async (
-  client: SupabaseClient,
-  leagueId: string,
-  state: DraftStateRow,
-  options: { force?: boolean } = {}
-): Promise<{
-  data: DraftStateRow | null;
-  status: "announced" | "skipped" | "not_ready";
-  error?: string | null;
-  steps?: number;
-}> => {
-  let current = state;
-  let lastStatus: "announced" | "skipped" | "not_ready" = "not_ready";
-  let steps = 0;
-
-  for (let i = 0; i < MAX_AUTO_ADVANCE_STEPS; i += 1) {
-    // `force` only applies to the first step; cascading steps must always
-    // re-evaluate readiness against the freshly-advanced state.
-    const stepOptions = i === 0 ? options : {};
-    const result = await processAutoAnnouncementStep(client, leagueId, current, stepOptions);
-    if (result.error) {
-      return { data: result.data ?? current, status: lastStatus, error: result.error, steps };
-    }
-    if (result.status === "not_ready") {
-      // Nothing else to do — return the running state.
-      return { data: result.data ?? current, status: lastStatus, steps };
-    }
-    if (result.data) {
-      current = result.data;
-    }
-    lastStatus = result.status;
-    steps += 1;
-  }
-
-  if (steps > 0) {
-    console.log(
-      `[draft-state] auto-advance loop finished after ${steps} step(s); current_pick_index=${current.current_pick_index} (league=${leagueId})`
-    );
-  }
-
-  return { data: current, status: lastStatus, steps };
-};
-
+/** GET is intentionally pure: it reads and returns the current draft state
+ *  without ever mutating it. Auto-announce / auto-skip logic now lives
+ *  exclusively in `POST /api/draft-tick` (and `POST /api/draft-state` with
+ *  action: "announce" for legacy callers). This eliminates the race window
+ *  where multiple simultaneous polls would each try to advance the draft. */
 export async function GET() {
   const leagueId = safeLeagueId();
   if (!leagueId) {
@@ -335,20 +50,7 @@ export async function GET() {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
 
-  let state = await fetchDraftState(client, leagueId);
-
-  // Auto-advance the draft on poll: if the announcement window has expired
-  // for a submitted pick, reveal it and start the next team's clock.  If
-  // no pick was submitted and the on-the-clock timer ran out, skip the
-  // team.  Idempotent — concurrent pollers will just see the already-
-  // advanced state.
-  if (state) {
-    const result = await processAutoAnnouncement(client, leagueId, state);
-    if (result.data) {
-      state = result.data;
-    }
-  }
-
+  const state = await fetchDraftState(client, leagueId);
   return NextResponse.json({ data: state });
 }
 
@@ -496,7 +198,13 @@ export async function POST(request: NextRequest) {
     // has not yet been reached, just return the current state unchanged so
     // multiple clients calling this in parallel is harmless.
     const force = body.force === true;
-    const result = await processAutoAnnouncement(client, leagueId, existing, { force });
+    const result = await processAutoAdvance(
+      client,
+      leagueId,
+      existing,
+      (payload) => upsertDraftState(client, payload),
+      { force }
+    );
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 500 });
     }

@@ -27,6 +27,7 @@ import type {
   DraftedPlayer,
 } from "../lib/draft/types";
 import { normalizeProspectName } from "../lib/draft/types";
+import { playChime } from "../lib/chime";
 import {
   calculatePickNumber,
   generateSessionId,
@@ -703,6 +704,12 @@ export default function Home() {
 
       const { ok, isAnnounced } = await persistDraftLogEntry(entry);
       if (!ok) return false;
+
+      // The submitting user hears the chime immediately ("I just made my
+      // pick" moment). The full league hears it again 30 minutes later when
+      // the auto-announce reveal animation fires. Both calls go through
+      // playChime() and respect the shared mute toggle.
+      playChime();
 
       // When the pick is on a still-open 30-min window, the API returns
       // isAnnounced=false and the pick is hidden until the announcement fires.

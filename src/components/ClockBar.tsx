@@ -8,6 +8,7 @@ import { useDraftClockContext } from "../lib/hooks/useDraftClockContext";
 import { computeSecondsUntilAnnouncement } from "../lib/draftState";
 import { getSupabaseClient } from "../lib/supabaseClient";
 import { normalizeProspectName } from "../lib/draft/types";
+import { playChime, toggleChimeMuted, useChimeMuted } from "../lib/chime";
 
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 const DRAFT_ROUTE = "/draft";
@@ -128,33 +129,46 @@ export default function ClockBar() {
     return () => window.clearInterval(id);
   }, [isPickIn, state]);
 
-  // When the announcement countdown hits 0, fire a single best-effort
-  // "announce" call so whichever client is watching nudges the server to
-  // reveal the pick and advance the clock. Multiple clients calling this is
-  // safe because the API is idempotent (it no-ops once the pick is announced).
-  const announceFiredRef = useRef<string | null>(null);
+  // When any local timer hits 0, fire a single best-effort tick to
+  // /api/draft-tick so the server runs the auto-announce / auto-skip logic
+  // immediately. Multiple clients calling this is safe — the endpoint is
+  // idempotent (it no-ops once the relevant state has already advanced).
+  // Each effect debounces per pick_announced_at / clock_started_at key so
+  // we don't hammer the endpoint.
+  const tickFiredRef = useRef<string | null>(null);
+
+  // Trigger 1: announcement countdown hit 0 with a submitted pick.
   useEffect(() => {
-    if (!isPickIn) {
-      announceFiredRef.current = null;
-      return;
-    }
+    if (!isPickIn) return;
     if (announceSeconds > 0) return;
-    const key = state?.pick_announced_at ?? "";
-    if (announceFiredRef.current === key) return;
-    announceFiredRef.current = key;
-    fetch("/api/draft-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "announce" }),
-    }).catch(() => {
+    const key = `announce:${state?.pick_announced_at ?? ""}`;
+    if (tickFiredRef.current === key) return;
+    tickFiredRef.current = key;
+    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
       // Best-effort: another client (or the next poll) will retry.
-      announceFiredRef.current = null;
+      tickFiredRef.current = null;
     });
-    // Backup trigger: a plain GET also runs the server-side auto-announce
-    // logic, ensuring the pick is revealed even if the POST above fails or
-    // is dropped.
-    fetch("/api/draft-state", { cache: "no-store" }).catch(() => {});
   }, [isPickIn, announceSeconds, state?.pick_announced_at]);
+
+  // Trigger 2: on-the-clock timer hit 0 with NO pick submitted (auto-skip).
+  useEffect(() => {
+    if (isPickIn) return;
+    if (!isActive || state?.status !== "running") return;
+    if (tickedSeconds > 0) return;
+    const key = `skip:${state?.clock_started_at ?? ""}:${state?.current_pick_index ?? ""}`;
+    if (tickFiredRef.current === key) return;
+    tickFiredRef.current = key;
+    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
+      tickFiredRef.current = null;
+    });
+  }, [
+    isPickIn,
+    isActive,
+    state?.status,
+    tickedSeconds,
+    state?.clock_started_at,
+    state?.current_pick_index,
+  ]);
 
   // ----- Reveal animation + chime + mute ----------------------------------
   // When the server flips a draft_log row from is_announced=false → true
@@ -176,15 +190,12 @@ export default function ClockBar() {
 
   const [revealedPick, setRevealedPick] = useState<RevealedPick | null>(null);
   const [revealPhase, setRevealPhase] = useState<RevealPhase>("slide-out");
-  const [muted, setMuted] = useState(false);
+  // Mute state lives in the shared `chime` module so the submit-pick
+  // handler in app/page.tsx and any other caller see the same flag.
+  const muted = useChimeMuted();
 
-  // Refs: keep latest mute value accessible inside the timeout-scheduled chime
-  // callback without re-subscribing to realtime, and dedupe reveals by pick
-  // index so re-deliveries / strict-mode double-runs don't double-trigger.
-  const mutedRef = useRef(muted);
-  useEffect(() => {
-    mutedRef.current = muted;
-  }, [muted]);
+  // Refs: dedupe reveals by pick index so re-deliveries / strict-mode
+  // double-runs don't double-trigger.
   const lastRevealedIndexRef = useRef<number | null>(null);
   const collegeMapRef = useRef<Record<string, string> | null>(null);
   const revealTimeoutsRef = useRef<number[]>([]);
@@ -262,15 +273,9 @@ export default function ClockBar() {
       // Phase 2 + 3 start after Phase 1 completes (0.85s).
       const t1 = window.setTimeout(() => {
         setRevealPhase("fly-in");
-        if (!mutedRef.current) {
-          try {
-            void new Audio("/nfl-draft-chime.mp3").play().catch(() => {
-              // Browser autoplay policy may block; nothing actionable.
-            });
-          } catch {
-            // Audio constructor unavailable — ignore.
-          }
-        }
+        // playChime() is a no-op when muted and silently swallows browser
+        // autoplay-policy errors.
+        playChime();
       }, 850);
 
       // Total reveal duration: ~1.75s animation + 8s hold = 9.75s.
@@ -548,7 +553,7 @@ export default function ClockBar() {
             </div>
           ) : null}
         </div>
-        <MuteToggle muted={muted} onToggle={() => setMuted((m) => !m)} />
+        <MuteToggle muted={muted} onToggle={toggleChimeMuted} />
       </div>
     );
   }
@@ -825,7 +830,7 @@ export default function ClockBar() {
             </span>
           </div>
         </div>
-        <MuteToggle muted={muted} onToggle={() => setMuted((m) => !m)} />
+        <MuteToggle muted={muted} onToggle={toggleChimeMuted} />
       </div>
     );
   }
@@ -1073,7 +1078,7 @@ export default function ClockBar() {
           </button>
         ) : null}
       </div>
-      <MuteToggle muted={muted} onToggle={() => setMuted((m) => !m)} />
+      <MuteToggle muted={muted} onToggle={toggleChimeMuted} />
     </div>
   );
 }
