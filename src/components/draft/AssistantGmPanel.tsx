@@ -422,8 +422,7 @@ export function AssistantGmPanel({
       })
       .finally(() => {
         clearTimeout(timeoutId);
-        if (!controller.signal.aborted) setRecommendationLoading(false);
-        else setRecommendationLoading(false);
+        setRecommendationLoading(false);
       });
 
     return () => {
