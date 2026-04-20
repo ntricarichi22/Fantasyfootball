@@ -61,6 +61,13 @@ const safeLeagueId = (): string => {
  *
  * Designed to be called once at the AppShell level and shared via
  * `DraftStatusProvider` so individual pages do not each fetch independently.
+ *
+ * Scope is intentionally `draft_state`-only. `draft_log` updates (which drive
+ * the board's "available players" filter, the roster panel, and the
+ * Assistant GM context) flow through `useDraftRoomLog` (page-level) and
+ * `useDraftLog` (global ticker) — both of which subscribe to `draft_log`
+ * directly. Subscribing to `draft_log` here too would duplicate fan-out
+ * without giving any consumer of `DraftStatus` new information.
  */
 export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus {
   const { pollMs = DEFAULT_POLL_MS, disabled = false } = options;

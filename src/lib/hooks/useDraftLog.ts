@@ -204,23 +204,53 @@ export function useDraftTicker({ disabled = false }: { disabled?: boolean } = {}
     const client = getSupabaseClient();
     if (!client) return;
 
+    // Explicit per-event handlers (rather than `event: "*"`) so that an
+    // UPDATE-only fan-out failure on draft_log — the same shape that has
+    // caused the board to look stale after auto-announce — is independent
+    // of INSERT / DELETE.
+    const onChange = (label: string) => () => {
+      console.log(`[draft-ticker] realtime ${label} -> refetching draft log`);
+      fetchPicks();
+    };
     const channel = client
       .channel("draft-ticker-log-updates")
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "draft_log" },
-        () => {
-          fetchPicks();
-        }
+        { event: "INSERT", schema: "public", table: "draft_log" },
+        onChange("INSERT")
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "draft_log" },
+        onChange("UPDATE")
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "draft_log" },
+        onChange("DELETE")
       );
 
     try {
-      channel.subscribe();
+      channel.subscribe((status) => {
+        console.log(`[draft-ticker] realtime channel status=${status}`);
+        if (status === "SUBSCRIBED") {
+          // Catch any events that landed between the initial fetch and the
+          // channel becoming live.
+          fetchPicks();
+        }
+      });
     } catch (error) {
       console.warn("Unable to subscribe to draft_log for ticker", error);
     }
 
+    // Polling fallback so a silently-dropped Realtime channel can't keep the
+    // ticker stale for more than 30 seconds.
+    const pollInterval = window.setInterval(() => {
+      fetchPicks();
+    }, 30_000);
+
     return () => {
+      window.clearInterval(pollInterval);
       client.removeChannel(channel);
     };
   }, [disabled, fetchPicks]);
