@@ -1,11 +1,14 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useDraftStatusContext } from "./DraftStatusProvider";
 import { useDraftClockContext } from "../lib/hooks/useDraftClockContext";
 import { computeSecondsUntilAnnouncement } from "../lib/draftState";
+import { getSupabaseClient } from "../lib/supabaseClient";
+import { normalizeProspectName } from "../lib/draft/types";
+import { playChime, toggleChimeMuted, useChimeMuted } from "../lib/chime";
 
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 const DRAFT_ROUTE = "/draft";
@@ -126,33 +129,198 @@ export default function ClockBar() {
     return () => window.clearInterval(id);
   }, [isPickIn, state]);
 
-  // When the announcement countdown hits 0, fire a single best-effort
-  // "announce" call so whichever client is watching nudges the server to
-  // reveal the pick and advance the clock. Multiple clients calling this is
-  // safe because the API is idempotent (it no-ops once the pick is announced).
-  const announceFiredRef = useRef<string | null>(null);
+  // When any local timer hits 0, fire a single best-effort tick to
+  // /api/draft-tick so the server runs the auto-announce / auto-skip logic
+  // immediately. Multiple clients calling this is safe — the endpoint is
+  // idempotent (it no-ops once the relevant state has already advanced).
+  // Each effect debounces per pick_announced_at / clock_started_at key so
+  // we don't hammer the endpoint.
+  const tickFiredRef = useRef<string | null>(null);
+
+  // Trigger 1: announcement countdown hit 0 with a submitted pick.
   useEffect(() => {
-    if (!isPickIn) {
-      announceFiredRef.current = null;
-      return;
-    }
+    if (!isPickIn) return;
     if (announceSeconds > 0) return;
-    const key = state?.pick_announced_at ?? "";
-    if (announceFiredRef.current === key) return;
-    announceFiredRef.current = key;
-    fetch("/api/draft-state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "announce" }),
-    }).catch(() => {
+    const key = `announce:${state?.pick_announced_at ?? ""}`;
+    if (tickFiredRef.current === key) return;
+    tickFiredRef.current = key;
+    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
       // Best-effort: another client (or the next poll) will retry.
-      announceFiredRef.current = null;
+      tickFiredRef.current = null;
     });
-    // Backup trigger: a plain GET also runs the server-side auto-announce
-    // logic, ensuring the pick is revealed even if the POST above fails or
-    // is dropped.
-    fetch("/api/draft-state", { cache: "no-store" }).catch(() => {});
   }, [isPickIn, announceSeconds, state?.pick_announced_at]);
+
+  // Trigger 2: on-the-clock timer hit 0 with NO pick submitted (auto-skip).
+  useEffect(() => {
+    if (isPickIn) return;
+    if (!isActive || state?.status !== "running") return;
+    if (tickedSeconds > 0) return;
+    const key = `skip:${state?.clock_started_at ?? ""}:${state?.current_pick_index ?? ""}`;
+    if (tickFiredRef.current === key) return;
+    tickFiredRef.current = key;
+    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
+      tickFiredRef.current = null;
+    });
+  }, [
+    isPickIn,
+    isActive,
+    state?.status,
+    tickedSeconds,
+    state?.clock_started_at,
+    state?.current_pick_index,
+  ]);
+
+  // ----- Reveal animation + chime + mute ----------------------------------
+  // When the server flips a draft_log row from is_announced=false → true
+  // (the "auto-announce" moment), drive a 3-phase animation on every
+  // connected client:
+  //   Phase 1 (0 → 0.85s)  "THE PICK IS IN" slides straight down + countdown fades
+  //   Phase 2 (at 0.85s)   chime plays (gated by mute)
+  //   Phase 3 (0.85 → 1.75) reveal line flies in from above with bounce-settle
+  //   Hold (1.75 → 9.75s)  reveal line stays on screen
+  //   After 9.75s          fall back to whatever the draft state now requires
+  type RevealedPick = {
+    pickIndex: number;
+    teamName: string;
+    playerName: string;
+    position: string;
+    school: string;
+  };
+  type RevealPhase = "slide-out" | "fly-in";
+
+  const [revealedPick, setRevealedPick] = useState<RevealedPick | null>(null);
+  const [revealPhase, setRevealPhase] = useState<RevealPhase>("slide-out");
+  // Mute state lives in the shared `chime` module so the submit-pick
+  // handler in app/page.tsx and any other caller see the same flag.
+  const muted = useChimeMuted();
+
+  // Refs: dedupe reveals by pick index so re-deliveries / strict-mode
+  // double-runs don't double-trigger.
+  const lastRevealedIndexRef = useRef<number | null>(null);
+  const collegeMapRef = useRef<Record<string, string> | null>(null);
+  const revealTimeoutsRef = useRef<number[]>([]);
+
+  // Lazy-load the rookie-prospect college map exactly once. Used as the
+  // fallback school source when the announced row doesn't already carry one.
+  const loadCollegeMap = useCallback(async (): Promise<Record<string, string>> => {
+    if (collegeMapRef.current) return collegeMapRef.current;
+    try {
+      const res = await fetch("/api/draft/rookie-prospects", { cache: "force-cache" });
+      if (!res.ok) {
+        collegeMapRef.current = {};
+        return collegeMapRef.current;
+      }
+      const json = (await res.json()) as { data?: Record<string, unknown> };
+      const map: Record<string, string> = {};
+      Object.entries(json?.data ?? {}).forEach(([key, val]) => {
+        const college = (val as { college?: string | null } | null)?.college;
+        if (typeof college === "string" && college) map[key] = college;
+      });
+      collegeMapRef.current = map;
+      return map;
+    } catch {
+      collegeMapRef.current = {};
+      return collegeMapRef.current;
+    }
+  }, []);
+
+  // Cleanup any scheduled reveal timeouts on unmount so phase-advances don't
+  // fire after the bar has been torn down.
+  useEffect(() => {
+    return () => {
+      revealTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+      revealTimeoutsRef.current = [];
+    };
+  }, []);
+
+  const triggerReveal = useCallback(
+    async (row: Record<string, unknown> | null | undefined) => {
+      if (!row) return;
+      const pickIndexRaw = row.pick_index;
+      const pickIndex =
+        typeof pickIndexRaw === "number"
+          ? pickIndexRaw
+          : typeof pickIndexRaw === "string"
+            ? Number(pickIndexRaw)
+            : NaN;
+      if (!Number.isFinite(pickIndex)) return;
+      // Dedupe: same pick can't reveal twice (covers React strict-mode and
+      // duplicate realtime deliveries).
+      if (lastRevealedIndexRef.current === pickIndex) return;
+
+      const playerName = typeof row.player_name === "string" ? row.player_name : "";
+      // Skip rows have no player; nothing to reveal.
+      if (!playerName) return;
+
+      lastRevealedIndexRef.current = pickIndex;
+
+      const teamName = typeof row.team_name === "string" && row.team_name ? row.team_name : "—";
+      const positionsRaw = Array.isArray(row.positions) ? row.positions : [];
+      const position =
+        (positionsRaw.find((v) => typeof v === "string") as string | undefined)?.toUpperCase() ||
+        "—";
+
+      const map = await loadCollegeMap();
+      const school = map[normalizeProspectName(playerName)] || "—";
+
+      // Clear any pending phase timers from a prior reveal.
+      revealTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+      revealTimeoutsRef.current = [];
+
+      setRevealedPick({ pickIndex, teamName, playerName, position, school });
+      setRevealPhase("slide-out");
+
+      // Phase 2 + 3 start after Phase 1 completes (0.85s).
+      const t1 = window.setTimeout(() => {
+        setRevealPhase("fly-in");
+        // playChime() is a no-op when muted and silently swallows browser
+        // autoplay-policy errors.
+        playChime();
+      }, 850);
+
+      // Total reveal duration: ~1.75s animation + 8s hold = 9.75s.
+      const t2 = window.setTimeout(() => {
+        setRevealedPick(null);
+        setRevealPhase("slide-out");
+      }, 9750);
+
+      revealTimeoutsRef.current = [t1, t2];
+    },
+    [loadCollegeMap]
+  );
+
+  // Subscribe to draft_log UPDATE events; trigger the reveal animation when
+  // is_announced flips false → true (and the row is not a skip).
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+    const channel = supabase.channel("clock-bar-draft-log-reveal").on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "draft_log" },
+      (payload) => {
+        const newRow = (payload.new ?? null) as Record<string, unknown> | null;
+        const oldRow = (payload.old ?? null) as Record<string, unknown> | null;
+        if (!newRow) return;
+        const wasAnnounced = oldRow?.is_announced === true;
+        const isAnnouncedNow = newRow.is_announced === true;
+        if (!isAnnouncedNow || wasAnnounced) return;
+        if (newRow.is_skip === true) return;
+        void triggerReveal(newRow);
+      }
+    );
+    try {
+      channel.subscribe();
+    } catch (error) {
+      console.warn("Unable to subscribe to draft_log reveal updates", error);
+    }
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch {
+        // ignore teardown errors
+      }
+    };
+  }, [triggerReveal]);
 
   // Pre-draft countdown re-tick: when there is a future start, advance
   // `countdownNow` every second so the displayed values update.
@@ -186,8 +354,209 @@ export default function ClockBar() {
 
   // Visibility: render the bar when the draft is active OR we're on the draft
   // route OR a pre-draft countdown is scheduled (so the countdown shows
-  // globally on every page, per spec).
-  if (!isActive && !isDraftRoute && !hasFutureStart) return null;
+  // globally on every page, per spec). Also keep the bar mounted while a
+  // reveal animation is in flight so all clients see the dramatic moment
+  // regardless of the page they're on.
+  if (!isActive && !isDraftRoute && !hasFutureStart && !revealedPick) return null;
+
+  // ----- Pick reveal animation --------------------------------------------
+  // Replaces every other layout for ~9.75s. Phase 1 slides the old "THE PICK
+  // IS IN" text down (transform translateY 0→100px, cubic-bezier(0.5,0,0.75,0.1))
+  // while the right-side countdown fades; Phase 3 flies the player line in
+  // from above (translateY -100px → 0, cubic-bezier(0.2,1.05,0.35,1)).
+  if (revealedPick) {
+    const isFlyIn = revealPhase === "fly-in";
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: "relative",
+          background: BAR_BLUE,
+          borderTop: `2.5px solid ${INK}`,
+          borderBottom: `2.5px solid ${INK}`,
+          boxShadow: `4px 4px 0 ${INK}`,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          className="flex w-full"
+          style={{
+            height: 64,
+            alignItems: "stretch",
+            color: PAPER,
+          }}
+        >
+          {/* LEFT — Franchise that just made the pick */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              padding: "0 20px",
+              borderRight: `2px solid ${DIVIDER_ON_BAR}`,
+              flex: "0 0 auto",
+              minWidth: 0,
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "var(--font-headline)",
+                fontWeight: 800,
+                fontSize: 14,
+                color: PAPER,
+                textTransform: "uppercase",
+                letterSpacing: "0.5px",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                lineHeight: 1.1,
+                minWidth: 0,
+              }}
+              title={revealedPick.teamName}
+            >
+              {revealedPick.teamName}
+            </span>
+          </div>
+
+          {/* CENTER — animated reveal area */}
+          <div
+            style={{
+              flex: "1 1 auto",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minWidth: 0,
+              padding: "0 20px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            {/* Phase 1: outgoing "THE PICK IS IN" — only rendered until phase flips */}
+            {!isFlyIn ? (
+              <span
+                style={{
+                  position: "absolute",
+                  fontFamily: "var(--font-headline)",
+                  fontWeight: 800,
+                  fontSize: 26,
+                  color: YELLOW,
+                  textTransform: "uppercase",
+                  letterSpacing: "4px",
+                  whiteSpace: "nowrap",
+                  lineHeight: 1,
+                  transform: "translateY(100px)",
+                  transition: "transform 0.85s cubic-bezier(0.5, 0, 0.75, 0.1)",
+                  // Initial frame: above 0 → animate to 100px on mount.
+                  // Achieved by mounting at 0 then immediately transitioning.
+                  willChange: "transform",
+                }}
+                ref={(el) => {
+                  if (!el) return;
+                  // Set the start frame, then on next paint set the end frame so
+                  // the transition runs.
+                  el.style.transform = "translateY(0)";
+                  requestAnimationFrame(() => {
+                    el.style.transform = "translateY(100px)";
+                  });
+                }}
+              >
+                The Pick Is In
+              </span>
+            ) : null}
+
+            {/* Phase 3: incoming reveal line, flies down from above */}
+            {isFlyIn ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  whiteSpace: "nowrap",
+                  transform: "translateY(0)",
+                  transition: "transform 0.9s cubic-bezier(0.2, 1.05, 0.35, 1)",
+                  willChange: "transform",
+                  fontFamily: "var(--font-headline)",
+                  fontWeight: 800,
+                  fontSize: 14,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.5px",
+                  lineHeight: 1,
+                }}
+                ref={(el) => {
+                  if (!el) return;
+                  el.style.transform = "translateY(-100px)";
+                  requestAnimationFrame(() => {
+                    el.style.transform = "translateY(0)";
+                  });
+                }}
+              >
+                <span style={{ color: "rgba(255,255,255,0.75)" }}>Select</span>
+                <span style={{ color: YELLOW }}>{revealedPick.playerName}</span>
+                <span style={{ color: "rgba(255,255,255,0.5)" }}>·</span>
+                <span style={{ color: PAPER }}>{revealedPick.position}</span>
+                <span style={{ color: "rgba(255,255,255,0.5)" }}>·</span>
+                <span style={{ color: "rgba(255,255,255,0.75)" }}>{revealedPick.school}</span>
+              </div>
+            ) : null}
+          </div>
+
+          {/* RIGHT — fading-out "ANNOUNCING IN" placeholder during Phase 1 only */}
+          {!isFlyIn ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "0 20px",
+                minWidth: 130,
+                background: BAR_BLUE,
+                borderLeft: `2px solid ${DIVIDER_ON_BAR}`,
+                flex: "0 0 auto",
+                opacity: 0,
+                transition: "opacity 0.5s ease-out",
+              }}
+              ref={(el) => {
+                if (!el) return;
+                el.style.opacity = "1";
+                requestAnimationFrame(() => {
+                  el.style.opacity = "0";
+                });
+              }}
+            >
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 600,
+                  fontSize: 8,
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  color: LABEL_ON_BAR,
+                  lineHeight: 1,
+                  marginBottom: 4,
+                }}
+              >
+                Announcing In
+              </span>
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontWeight: 700,
+                  fontSize: 20,
+                  color: PAPER,
+                  lineHeight: 1,
+                  fontVariantNumeric: "tabular-nums",
+                }}
+              >
+                00:00
+              </span>
+            </div>
+          ) : null}
+        </div>
+        <MuteToggle muted={muted} onToggle={toggleChimeMuted} />
+      </div>
+    );
+  }
 
   // ----- Pre-draft countdown bar -------------------------------------------
   if (hasFutureStart) {
@@ -346,6 +715,7 @@ export default function ClockBar() {
         role="status"
         aria-live="polite"
         style={{
+          position: "relative",
           background: BAR_BLUE,
           borderTop: `2.5px solid ${INK}`,
           borderBottom: `2.5px solid ${INK}`,
@@ -460,6 +830,7 @@ export default function ClockBar() {
             </span>
           </div>
         </div>
+        <MuteToggle muted={muted} onToggle={toggleChimeMuted} />
       </div>
     );
   }
@@ -577,6 +948,7 @@ export default function ClockBar() {
       role="status"
       aria-live="polite"
       style={{
+        position: "relative",
         background,
         borderTop: `2.5px solid ${INK}`,
         borderBottom: `2.5px solid ${INK}`,
@@ -706,6 +1078,7 @@ export default function ClockBar() {
           </button>
         ) : null}
       </div>
+      <MuteToggle muted={muted} onToggle={toggleChimeMuted} />
     </div>
   );
 }
@@ -766,5 +1139,71 @@ function CountdownColon() {
     >
       :
     </span>
+  );
+}
+
+/**
+ * Small mute / unmute toggle anchored to the top-right corner of the clock
+ * bar. Controls whether the draft chime plays when a pick auto-announces.
+ * State is held by the parent so it persists across renders within the
+ * session (no localStorage per spec).
+ */
+function MuteToggle({ muted, onToggle }: { muted: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-label={muted ? "Unmute draft chime" : "Mute draft chime"}
+      title={muted ? "Unmute draft chime" : "Mute draft chime"}
+      style={{
+        position: "absolute",
+        top: 4,
+        right: 6,
+        width: 22,
+        height: 22,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "transparent",
+        border: "none",
+        padding: 0,
+        cursor: "pointer",
+        color: "rgba(255,255,255,0.6)",
+        opacity: 0.85,
+      }}
+    >
+      <SpeakerIcon muted={muted} />
+    </button>
+  );
+}
+
+function SpeakerIcon({ muted }: { muted: boolean }) {
+  // Simple inline SVG. Speaker body is shared; muted variant adds a strike;
+  // unmuted variant adds two arc waves.
+  return (
+    <svg
+      width={14}
+      height={14}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M3 6 H5 L9 3 V13 L5 10 H3 Z" fill="currentColor" />
+      {muted ? (
+        <>
+          <line x1={11} y1={6} x2={14} y2={10} />
+          <line x1={14} y1={6} x2={11} y2={10} />
+        </>
+      ) : (
+        <>
+          <path d="M11.5 6 Q12.5 8 11.5 10" />
+          <path d="M13 4.5 Q15 8 13 11.5" />
+        </>
+      )}
+    </svg>
   );
 }
