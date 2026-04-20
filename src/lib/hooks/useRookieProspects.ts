@@ -17,8 +17,15 @@ export function useRookieProspects(): RookieProspectMap {
     (async () => {
       try {
         const res = await fetch("/api/draft/rookie-prospects", { cache: "no-store" });
-        if (!res.ok) return;
+        if (!res.ok) {
+          console.warn("[rookie-prospects] HTTP", res.status, res.statusText);
+          return;
+        }
         const json = (await res.json()) as { data?: Record<string, RookieProspect> };
+        const count = json?.data ? Object.keys(json.data).length : 0;
+        console.debug("[rookie-prospects] loaded", count, "rows", {
+          sampleKeys: json?.data ? Object.keys(json.data).slice(0, 5) : [],
+        });
         if (!cancelled && json?.data) setMap(json.data);
       } catch (err) {
         console.warn("Failed to load rookie prospects", err);

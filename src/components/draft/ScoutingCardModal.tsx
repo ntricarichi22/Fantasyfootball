@@ -154,20 +154,20 @@ function FrontCard({
         </div>
       </div>
 
-      {/* Player name over Zubaz */}
+      {/* Player name over Zubaz — allow shrink/wrap so long names like
+          "Jeremiyah Love" don't get truncated. */}
       <div
         style={{
           fontFamily: SYNE,
           fontWeight: 800,
-          fontSize: 19,
+          fontSize: 17,
+          lineHeight: 1.05,
           color: "#FEFCF9",
           textTransform: "uppercase",
-          letterSpacing: "2px",
+          letterSpacing: "1.5px",
           textShadow: "2px 2px 0 #1A1A1A",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
           padding: "8px 10px 4px",
+          wordBreak: "break-word",
         }}
       >
         {player.name}
@@ -254,6 +254,7 @@ function GradeLetterCell({ letter }: { letter: LetterGrade | "TBD" | "—" }) {
         flexShrink: 0,
         background: "#F5F0E6",
         borderRight: "2px solid #1A1A1A",
+        padding: 6,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -399,19 +400,20 @@ function GradeRow({
     <div
       style={{
         display: "flex",
-        flex: 1,
-        minHeight: 0,
+        alignItems: "stretch",
         borderBottom: isLast ? undefined : "2.5px solid #1A1A1A",
       }}
     >
       <GradeLetterCell letter={grade.letter} />
       <GradeDetailsCell grade={grade} />
+      {/* Sidebar is flush with the grade content (no wrapper padding) and
+          fills the full row height via stretch alignment. */}
       <div
         style={{
           width: 120,
           flexShrink: 0,
-          padding: 6,
           display: "flex",
+          alignItems: "stretch",
         }}
       >
         {sidebar}
@@ -459,11 +461,26 @@ function BackCard({
 
   const college =
     sleeperPlayer?.college || rookieProspect?.college || player.school || "";
+  // Spec example: "Notre Dame · Running back" — show the full position name
+  // (mixed case) rather than the abbreviated chip code.
+  const positionFullName = ((): string => {
+    switch (player.position) {
+      case "QB":
+        return "Quarterback";
+      case "RB":
+        return "Running back";
+      case "WR":
+        return "Wide receiver";
+      case "TE":
+        return "Tight end";
+      default:
+        return player.position || "";
+    }
+  })();
   const teamOrSchool = player.isRookie ? college : player.team;
-  const schoolPosLabel = [teamOrSchool, player.position]
-    .filter((part) => part && part.length)
-    .join(" · ")
-    .toUpperCase() || "—";
+  const schoolPosLabel =
+    [teamOrSchool, positionFullName].filter((part) => part && part.length).join(" · ") ||
+    "—";
 
   return (
     <div className="cfc-scout-back">
@@ -487,7 +504,6 @@ function BackCard({
             fontFamily: DM_SANS,
             fontSize: 11,
             color: "#1A1A1A",
-            textTransform: "uppercase",
             letterSpacing: "1px",
             minWidth: 0,
             overflow: "hidden",
@@ -516,7 +532,7 @@ function BackCard({
       </div>
 
       {/* Three aligned rows */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column" }}>
         <GradeRow
           grade={grades.capital}
           sidebar={<MeterPanel label="Value" value={player.valueScore} fillColor="#3366CC" />}
@@ -574,6 +590,20 @@ export function ScoutingCardModal({
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Debug: when the card opens, log the data sources used to populate the bio
+  // bar and grade rows. Helps diagnose missing-age / missing-prospect issues
+  // (e.g. when the rookie_prospects API returns no row for a name).
+  useEffect(() => {
+    console.debug("[ScoutingCard] open", {
+      playerName: player.name,
+      playerAgeLabel: player.ageLabel,
+      sleeperPlayer,
+      rookieProspect,
+      rookieProspectAge: rookieProspect?.age ?? null,
+      rookieProspectCollege: rookieProspect?.college ?? null,
+    });
+  }, [player.name, player.ageLabel, sleeperPlayer, rookieProspect]);
 
   const grades: ScoutingGradeSet =
     precomputedGrades ??
