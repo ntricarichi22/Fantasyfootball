@@ -146,19 +146,26 @@ const upsertDraftState = async (
   return { data: null, error: plainUpsert.error?.message ?? insertResult.error?.message ?? "Unknown error" };
 };
 
+/** Maximum number of cascading auto-advances per request. Prevents runaway
+ *  loops while still allowing several stale picks / skips to clear in one go
+ *  (e.g. the server was idle overnight). */
+const MAX_AUTO_ADVANCE_STEPS = 12;
+
 /**
- * Auto-announce / skip processor.
+ * Single-step auto-announce / skip processor.
  *
  * If a pick has been submitted and its announcement time has passed, mark
  * the matching draft_log row announced and advance the draft to the next
  * pick with a fresh clock.  If no pick was submitted but the on-the-clock
- * timer has run out, skip the team (no draft_log entry) and advance.
+ * timer has run out, write a `is_skip = true` placeholder row to draft_log,
+ * mark it announced (so it consumes the slot for the board / ticker / log),
+ * and advance.
  *
  * Returns the (possibly-updated) state and a status describing what
  * happened.  Idempotent: if nothing is due, the input state is returned
  * unchanged with status "not_ready".
  */
-const processAutoAnnouncement = async (
+const processAutoAnnouncementStep = async (
   client: SupabaseClient,
   leagueId: string,
   state: DraftStateRow,
@@ -196,7 +203,53 @@ const processAutoAnnouncement = async (
       .eq("pick_index", currentIndex)
       .eq("is_announced", false);
     if (updateLogError) {
-      console.warn("Unable to mark draft_log row announced", updateLogError);
+      console.warn("[draft-state] Unable to mark draft_log row announced", updateLogError);
+    } else {
+      console.log(
+        `[draft-state] auto-announce fired for pick_index=${currentIndex} (league=${leagueId})`
+      );
+    }
+  }
+
+  // On auto-skip, write a placeholder draft_log row so the slot is consumed
+  // and downstream views (board, ticker, log) can render a "SKIPPED" cell.
+  // The row is marked is_announced=true immediately because there is no
+  // pending announcement window for a skip.
+  if (!announcementReady && skipReady && currentIndex !== null) {
+    const { error: insertSkipError } = await client.from("draft_log").upsert(
+      [
+        {
+          pick_index: currentIndex,
+          // pick_number / team_count / team_name aren't known to this code
+          // path (those come from the draft order, resolved client-side).
+          // Leaving them blank is OK — the ticker / log already tolerate
+          // missing fields and skip-rows are filtered by is_skip downstream
+          // when needed.
+          pick_number: null,
+          team_count: null,
+          team_name: null,
+          roster_id: null,
+          player_id: null,
+          player_name: null,
+          positions: [],
+          nfl_team: null,
+          submitted_at: nowIso,
+          announced_at: nowIso,
+          is_announced: true,
+          is_skip: true,
+        },
+      ],
+      { onConflict: "pick_index" }
+    );
+    if (insertSkipError) {
+      console.warn(
+        `[draft-state] Unable to write skip row for pick_index=${currentIndex}`,
+        insertSkipError
+      );
+    } else {
+      console.log(
+        `[draft-state] auto-skip fired for pick_index=${currentIndex} (league=${leagueId})`
+      );
     }
   }
 
@@ -218,6 +271,57 @@ const processAutoAnnouncement = async (
     data: updated,
     status: announcementReady ? "announced" : "skipped",
   };
+};
+
+/**
+ * Loop-driving wrapper around `processAutoAnnouncementStep`. Cascades up to
+ * MAX_AUTO_ADVANCE_STEPS times so that a stretch of expired windows (server
+ * was idle / no client polled for a while) all clear in a single request.
+ *
+ * Returns the final state and the most recent step status. Per-step status
+ * "not_ready" terminates the loop early — there is nothing more to do.
+ */
+const processAutoAnnouncement = async (
+  client: SupabaseClient,
+  leagueId: string,
+  state: DraftStateRow,
+  options: { force?: boolean } = {}
+): Promise<{
+  data: DraftStateRow | null;
+  status: "announced" | "skipped" | "not_ready";
+  error?: string | null;
+  steps?: number;
+}> => {
+  let current = state;
+  let lastStatus: "announced" | "skipped" | "not_ready" = "not_ready";
+  let steps = 0;
+
+  for (let i = 0; i < MAX_AUTO_ADVANCE_STEPS; i += 1) {
+    // `force` only applies to the first step; cascading steps must always
+    // re-evaluate readiness against the freshly-advanced state.
+    const stepOptions = i === 0 ? options : {};
+    const result = await processAutoAnnouncementStep(client, leagueId, current, stepOptions);
+    if (result.error) {
+      return { data: result.data ?? current, status: lastStatus, error: result.error, steps };
+    }
+    if (result.status === "not_ready") {
+      // Nothing else to do — return the running state.
+      return { data: result.data ?? current, status: lastStatus, steps };
+    }
+    if (result.data) {
+      current = result.data;
+    }
+    lastStatus = result.status;
+    steps += 1;
+  }
+
+  if (steps > 0) {
+    console.log(
+      `[draft-state] auto-advance loop finished after ${steps} step(s); current_pick_index=${current.current_pick_index} (league=${leagueId})`
+    );
+  }
+
+  return { data: current, status: lastStatus, steps };
 };
 
 export async function GET() {
