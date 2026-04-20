@@ -1,6 +1,7 @@
 import {
   computeRemainingSeconds,
   INITIAL_PICK_SECONDS,
+  normalizeBoolean,
   type DraftStateRow,
 } from "./draftState";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -45,14 +46,31 @@ const processStep = async (
   const announceMs = state.pick_announced_at
     ? new Date(state.pick_announced_at).getTime()
     : NaN;
+  // Accept any truthy boolean shape so that a row read by an alternate path
+  // (e.g. raw SQL driver returning the column as the string "true") can still
+  // trigger the auto-announce. The canonical /api/draft-tick path already
+  // normalizes via normalizeDraftStateRow; this is defense in depth.
+  const pickSubmitted = normalizeBoolean(state.pick_submitted);
   const announcementReady =
-    state.pick_submitted === true && Number.isFinite(announceMs) && Date.now() >= announceMs;
+    pickSubmitted && Number.isFinite(announceMs) && Date.now() >= announceMs;
   const skipReady =
-    !state.pick_submitted &&
+    !pickSubmitted &&
     state.status === "running" &&
     computeRemainingSeconds(state) <= 0;
 
   if (!options.force && !announcementReady && !skipReady) {
+    // Diagnostic: when the caller fired a tick and a pick is submitted, log
+    // why we judged the announcement not ready. Helps catch cases where
+    // upstream type coercion (e.g. boolean vs. string) silently disables the
+    // comparison. Cheap one-liner; safe to leave on.
+    if (pickSubmitted || (state.status === "running" && state.clock_started_at)) {
+      console.log(
+        `[draft-tick] not_ready league=${leagueId} pick_index=${state.current_pick_index} ` +
+          `submitted_raw=${state.pick_submitted} submitted_norm=${pickSubmitted} ` +
+          `announced_at=${state.pick_announced_at} announceMs=${announceMs} now=${Date.now()} ` +
+          `announcementReady=${announcementReady} skipReady=${skipReady}`
+      );
+    }
     return { data: state, status: "not_ready" };
   }
 

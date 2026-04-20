@@ -27,6 +27,47 @@ const normalizeNumber = (value: unknown, fallback: number = INITIAL_PICK_SECONDS
   return fallback;
 };
 
+/**
+ * Coerce a value that may be a Date, number (epoch ms), or string into an ISO
+ * string. Returns null for empty/invalid inputs. Postgres timestamptz columns
+ * normally come back from PostgREST as ISO strings, but we accept Date /
+ * number too so that locally-constructed rows or alternative drivers don't
+ * silently fall through to null (which previously broke the auto-announce
+ * comparison in `/api/draft-tick`).
+ */
+const normalizeIsoTimestamp = (value: unknown): string | null => {
+  if (value === null || value === undefined || value === "") return null;
+  if (value instanceof Date) {
+    const ms = value.getTime();
+    return Number.isFinite(ms) ? value.toISOString() : null;
+  }
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+  if (typeof value === "string") {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
+  }
+  return null;
+};
+
+/**
+ * Coerce a value that may be a real boolean, the strings "true"/"false"/"t"/"f",
+ * or 0/1 into a strict JS boolean. PostgREST returns booleans as real JS
+ * booleans, but historically a stricter `=== true` check here masked an
+ * upstream bug where any non-`true` shape (e.g. the string "true") silently
+ * disabled the auto-announce path.
+ */
+export const normalizeBoolean = (value: unknown): boolean => {
+  if (value === true) return true;
+  if (value === 1) return true;
+  if (typeof value === "string") {
+    const lowered = value.trim().toLowerCase();
+    return lowered === "true" || lowered === "t" || lowered === "1" || lowered === "yes";
+  }
+  return false;
+};
+
 export const normalizeDraftStateRow = (row?: Partial<DraftStateRow> | null): DraftStateRow | null => {
   if (!row) return null;
   const leagueId = typeof row.league_id === "string" ? row.league_id : "";
@@ -36,13 +77,10 @@ export const normalizeDraftStateRow = (row?: Partial<DraftStateRow> | null): Dra
       : "not_started";
 
   const secondsRemaining = normalizeNumber(row.seconds_remaining);
-  const clockStartedAt =
-    typeof row.clock_started_at === "string" && row.clock_started_at ? row.clock_started_at : null;
-  const startsAt =
-    typeof row.starts_at === "string" && row.starts_at ? row.starts_at : null;
-  const pickAnnouncedAt =
-    typeof row.pick_announced_at === "string" && row.pick_announced_at ? row.pick_announced_at : null;
-  const pickSubmitted = row.pick_submitted === true;
+  const clockStartedAt = normalizeIsoTimestamp(row.clock_started_at);
+  const startsAt = normalizeIsoTimestamp(row.starts_at);
+  const pickAnnouncedAt = normalizeIsoTimestamp(row.pick_announced_at);
+  const pickSubmitted = normalizeBoolean(row.pick_submitted);
   const currentPickIndex =
     typeof row.current_pick_index === "number" && Number.isFinite(row.current_pick_index)
       ? Math.max(0, Math.round(row.current_pick_index))
