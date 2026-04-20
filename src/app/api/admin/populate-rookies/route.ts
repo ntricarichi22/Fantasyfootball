@@ -286,19 +286,19 @@ export async function POST(req: Request) {
   // between runs.
   const { data: existingRows, error: existingErr } = await supabase
     .from("rookie_prospects")
-    .select("player_id,name");
+    .select("player_id,player_name");
   if (existingErr) {
     return jsonError(`Failed to read existing rookie_prospects: ${existingErr.message}`, 500);
   }
   const existingByName = new Map<string, string>();
   for (const row of existingRows ?? []) {
-    const key = normalizeProspectName(row?.name);
+    const key = normalizeProspectName(row?.player_name);
     if (key && row?.player_id) existingByName.set(key, String(row.player_id));
   }
 
   const matched: Array<{
     player_id: string;
-    name: string;
+    player_name: string;
     position: string;
     college: string;
     age: number;
@@ -328,7 +328,7 @@ export async function POST(req: Request) {
       pid ?? existingByName.get(nameKey) ?? `tmp_${nameKey}`;
     matched.push({
       player_id: playerId,
-      name: displayName,
+      player_name: displayName,
       position: p.position,
       college: p.college,
       age: p.age,

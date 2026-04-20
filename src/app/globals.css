@@ -670,36 +670,24 @@ body {
   outline-offset: -2px;
 }
 
-/* Scouting card flip-modal animations.
+/* Scouting card modal — two-card Zubaz layout.
 
-   Canonical 3D-flip pattern: the OUTER element owns `perspective` and is
-   never rotated itself (it only scales/translates for the entrance
-   animation). An INNER `.cfc-scout-flipper` carries `transform-style:
-   preserve-3d` and is the element that actually rotates 180° around Y.
-   This keeps the 3D context intact so `backface-visibility: hidden` on
-   the two faces reliably hides the front and reveals the back. Combining
-   `perspective` with a rotating `translate(-50%,-50%) scale() rotateY()`
-   on a single element flattens 3D in Chromium/Safari and causes the
-   back face to disappear (the "white card with mirrored text" bug). */
+   The modal renders TWO cards side-by-side: a portrait "front" card on
+   the left (Zubaz tiger-stripe pattern, photo, name, chips) and a
+   landscape "back" card on the right (clean cream analytical layout
+   with bio bar and three aligned grade rows). Both cards scale in
+   together as a single unit. */
 @keyframes cfc-overlay-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 @keyframes cfc-card-scale-in {
-  from { transform: translate(-50%, -50%) scale(0.35); opacity: 0.6; }
+  from { transform: translate(-50%, -50%) scale(0.55); opacity: 0; }
   to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
 @keyframes cfc-card-scale-out {
   from { transform: translate(-50%, -50%) scale(1); opacity: 1; }
-  to { transform: translate(-50%, -50%) scale(0.35); opacity: 0; }
-}
-@keyframes cfc-card-flip-in {
-  from { transform: rotateY(0deg); }
-  to { transform: rotateY(180deg); }
-}
-@keyframes cfc-card-flip-out {
-  from { transform: rotateY(180deg); }
-  to { transform: rotateY(0deg); }
+  to { transform: translate(-50%, -50%) scale(0.55); opacity: 0; }
 }
 
 .cfc-scout-overlay {
@@ -712,80 +700,92 @@ body {
 .cfc-scout-overlay[data-closing="true"] {
   animation: cfc-overlay-in 200ms ease-out reverse both;
 }
+/* Two-card layout: portrait "front" + landscape "back" sit side-by-side
+   inside a single fixed positioner. The whole pair scales together for
+   the open / close animation. */
 .cfc-scout-card {
   position: fixed;
   top: 50%;
   left: 50%;
-  width: 340px;
-  height: 480px;
-  perspective: 1400px;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 16px;
   z-index: 1001;
-  animation: cfc-card-scale-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
-  /* Hard offset shadow per spec — no blur, no rounded corners. */
-  filter: drop-shadow(6px 6px 0 #1A1A1A);
+  animation: cfc-card-scale-in 450ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  transform: translate(-50%, -50%);
 }
 .cfc-scout-card[data-closing="true"] {
-  animation: cfc-card-scale-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
+  animation: cfc-card-scale-out 380ms cubic-bezier(0.4, 0, 0.2, 1) both;
 }
-.cfc-scout-flipper {
-  position: absolute;
-  inset: 0;
-  transform-style: preserve-3d;
-  -webkit-transform-style: preserve-3d;
-  animation: cfc-card-flip-in 650ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-.cfc-scout-card[data-closing="true"] .cfc-scout-flipper {
-  animation: cfc-card-flip-out 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
-}
-.cfc-scout-face {
-  position: absolute;
-  inset: 0;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-  border: 2.5px solid #1A1A1A;
-  background: #FEFCF9;
+.cfc-scout-front {
+  position: relative;
+  width: 280px;
+  height: 400px;
+  border: 3.5px solid #1A1A1A;
+  box-shadow: 7px 7px 0 #1A1A1A;
+  background-image: url('/zubaz-card-bg-40fuzz.png');
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
-.cfc-scout-face-back {
-  transform: rotateY(180deg);
+.cfc-scout-back {
+  position: relative;
+  width: 400px;
+  height: 280px;
+  border: 3.5px solid #1A1A1A;
+  box-shadow: 7px 7px 0 #1A1A1A;
+  background: #FEFCF9;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .cfc-scout-close {
   position: absolute;
-  top: 8px;
-  right: 8px;
-  width: 22px;
-  height: 22px;
+  top: -34px;
+  right: 0;
+  width: 26px;
+  height: 26px;
   padding: 0;
-  background: transparent;
-  border: 0;
+  background: #FEFCF9;
+  border: 2.5px solid #1A1A1A;
+  border-radius: 0;
   font-family: var(--font-mono, "JetBrains Mono", monospace);
   font-size: 14px;
   line-height: 1;
-  color: #999;
+  color: #1A1A1A;
   cursor: pointer;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 2px 2px 0 #1A1A1A;
 }
 .cfc-scout-close:hover {
-  color: #1A1A1A;
+  background: #F5C230;
 }
 .cfc-scout-draft-btn {
-  display: block;
-  width: calc(100% - 20px);
-  margin: 10px;
-  padding: 12px 14px;
-  background: #E8503A;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  padding: 6px 10px;
+  background-image: url('/zubaz-card-bg-40fuzz.png');
+  background-size: cover;
+  background-position: center;
   color: #FFFFFF;
   border: 2.5px solid #1A1A1A;
   border-radius: 0;
   box-shadow: 3px 3px 0 #1A1A1A;
   font-family: var(--font-headline, "Syne", sans-serif);
-  font-weight: 700;
-  font-size: 14px;
-  letter-spacing: 0.08em;
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 1.5px;
   text-transform: uppercase;
+  text-shadow: 1px 1px 0 #1A1A1A;
   cursor: pointer;
   transition: transform 80ms ease-out, box-shadow 80ms ease-out;
 }
@@ -796,4 +796,14 @@ body {
 .cfc-scout-draft-btn:active {
   transform: translate(3px, 3px);
   box-shadow: 0 0 0 #1A1A1A;
+}
+@media (max-width: 760px) {
+  .cfc-scout-card {
+    flex-direction: column;
+    gap: 14px;
+  }
+  .cfc-scout-back {
+    width: 280px;
+    height: auto;
+  }
 }
