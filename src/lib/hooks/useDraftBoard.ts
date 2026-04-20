@@ -46,7 +46,7 @@ export function useDraftBoard({
 }: Params): AvailablePlayer[] {
   return useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
-    type Draft = Omit<AvailablePlayer, "valueScore" | "fitScore"> & { _value: number };
+    type Draft = Omit<AvailablePlayer, "valueScore" | "fitScore" | "tradeValue"> & { _value: number };
     const players: Draft[] = [];
     const prospectMap = rookieProspects ?? {};
 
@@ -113,17 +113,22 @@ export function useDraftBoard({
 
     const resolvedTeamCount = teamCount && teamCount > 0 ? teamCount : 12;
     const profile = ownerProfile ?? null;
+    // Limit the draft board to the top BOARD_LIMIT players. The board is for
+    // a 12-pick rookie/dynasty draft — showing 3,000 players is wasteful and
+    // slows down rendering significantly.
+    const BOARD_LIMIT = 50;
+    const trimmed = players.slice(0, BOARD_LIMIT);
     // Anchor the value bar on the actual top `cfc_value` so the #1 player
     // shows ~100 and the rest fall off in proportion to their real trade
     // value (a power curve), instead of a smooth rank-based gradient where
     // every player in the top 100 looks ~equally elite.
-    const topValue = players.find((p) => Number.isFinite(p._value))?._value ?? 0;
+    const topValue = trimmed.find((p) => Number.isFinite(p._value))?._value ?? 0;
 
-    return players.map((p, index) => {
+    return trimmed.map((p, index) => {
       const valueScore =
         topValue > 0 && Number.isFinite(p._value)
           ? Math.round(Math.max(0, Math.min(100, (p._value / topValue) * 100)))
-          : valueScoreFromRank(index, players.length);
+          : valueScoreFromRank(index, trimmed.length);
       const partial: AvailablePlayer = {
         id: p.id,
         name: p.name,
@@ -134,6 +139,7 @@ export function useDraftBoard({
         school: p.school,
         valueScore,
         fitScore: 0,
+        tradeValue: Number.isFinite(p._value) ? Math.round(p._value) : 0,
       };
       partial.fitScore = computeFitScore(partial, profile, resolvedTeamCount);
       return partial;

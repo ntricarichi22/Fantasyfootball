@@ -33,7 +33,7 @@ const wrapperStyle: CSSProperties = {
 
 const panelBaseStyle: CSSProperties = {
   background: "#FEFCF9",
-  borderRight: "2px solid #1A1A1A",
+  border: "2.5px solid #1A1A1A",
   borderRadius: 0,
   height: "100%",
   overflow: "hidden",
@@ -79,7 +79,7 @@ const cardsWrapperStyle: CSSProperties = {
   gap: 10,
   flex: 1,
   minHeight: 0,
-  overflow: "hidden",
+  overflowY: "auto",
 };
 
 const handleStyle = (isOpen: boolean): CSSProperties => ({
@@ -129,7 +129,7 @@ export function RosterPanel({
         style={{
           ...panelBaseStyle,
           width: isOpen ? ROSTER_PANEL_WIDTH : 0,
-          borderRightWidth: isOpen ? 2 : 0,
+          borderWidth: isOpen ? 2.5 : 0,
         }}
         aria-hidden={!isOpen}
       >
