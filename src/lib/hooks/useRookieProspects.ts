@@ -21,11 +21,20 @@ export function useRookieProspects(): RookieProspectMap {
           console.warn("[rookie-prospects] HTTP", res.status, res.statusText);
           return;
         }
-        const json = (await res.json()) as { data?: Record<string, RookieProspect> };
-        const count = json?.data ? Object.keys(json.data).length : 0;
-        console.debug("[rookie-prospects] loaded", count, "rows", {
-          sampleKeys: json?.data ? Object.keys(json.data).slice(0, 5) : [],
+        const json = (await res.json()) as {
+          data?: Record<string, RookieProspect>;
+          warning?: string;
+        };
+        const keys = json?.data ? Object.keys(json.data) : [];
+        const sampleKey = keys[0];
+        console.debug("[rookie-prospects] loaded", keys.length, "rows", {
+          warning: json?.warning ?? null,
+          sampleKeys: keys.slice(0, 5),
+          sampleRow: sampleKey && json?.data ? json.data[sampleKey] : null,
         });
+        if (json?.warning) {
+          console.warn("[rookie-prospects] API warning:", json.warning);
+        }
         if (!cancelled && json?.data) setMap(json.data);
       } catch (err) {
         console.warn("Failed to load rookie prospects", err);

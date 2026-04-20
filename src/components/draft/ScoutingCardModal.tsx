@@ -455,7 +455,7 @@ function BackCard({
   // player named "Jeremiyah Love" — if this logs `rookieProspect: null` then
   // the row is genuinely absent or its `name` column differs).
   if (typeof window !== "undefined") {
-    console.log("[ScoutingCard.BackCard] age lookup", {
+    console.debug("[ScoutingCard.BackCard] age lookup", {
       playerName: player.name,
       playerNameTrimmedLower: player.name?.trim().toLowerCase(),
       sleeperAge: player.ageLabel,

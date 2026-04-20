@@ -972,15 +972,22 @@ export default function Home() {
         const lookupKey = normalizeProspectName(scoutingPlayer.name);
         const prospect = rookieProspects[lookupKey] ?? null;
         // Debug: confirm whether the rookie_prospects map was fetched and
-        // whether the case-insensitive name lookup hit a row.
-        console.log("[page] ScoutingCardModal rookieProspect lookup", {
+        // whether the case-insensitive name lookup hit a row. Includes the
+        // full set of normalized keys + a sample row so we can verify the
+        // entire fetched dataset is present at card-open time.
+        const rookieKeys = Object.keys(rookieProspects);
+        console.debug("[page] ScoutingCardModal rookieProspect lookup", {
           playerName: scoutingPlayer.name,
           lookupKey,
-          rookieProspectsLoaded: Object.keys(rookieProspects).length,
+          rookieProspectsLoaded: rookieKeys.length,
           rookieProspectsHasKey: Object.prototype.hasOwnProperty.call(
             rookieProspects,
             lookupKey
           ),
+          rookieProspectsAllKeys: rookieKeys,
+          rookieProspectsSampleRow: rookieKeys[0]
+            ? rookieProspects[rookieKeys[0]]
+            : null,
           prospect,
         });
         return (
