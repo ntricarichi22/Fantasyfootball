@@ -67,17 +67,26 @@ type AnthropicResponse = {
 
 const MODEL = "claude-sonnet-4-5";
 
-// Strip any normalized 0-100 board scores (`value`, `fit`) from a list of
-// available-player payloads so the LLM only ever sees the raw cfc trade
-// value. Defense in depth — the client should already be sending the
-// scrubbed shape, but enforce it server-side too.
+// Strip any normalized 0-100 board scores from a list of available-player
+// payloads so the LLM only ever sees the raw cfc trade value. Defense in
+// depth — the client should already be sending the scrubbed shape, but
+// enforce it server-side too. Blocks both the short field names used by
+// `summarizeAvailable` (value/fit) and the raw `AvailablePlayer` field
+// names (valueScore/fitScore) in case a caller forwards an unmapped row.
+const NORMALIZED_SCORE_KEYS = new Set([
+  "value",
+  "fit",
+  "valueScore",
+  "fitScore",
+]);
+
 function sanitizeAvailableForLLM(input: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(input)) return [];
   return input.map((raw) => {
     const p = (raw ?? {}) as Record<string, unknown>;
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(p)) {
-      if (key === "value" || key === "fit") continue;
+      if (NORMALIZED_SCORE_KEYS.has(key)) continue;
       out[key] = p[key];
     }
     return out;
