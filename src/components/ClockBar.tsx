@@ -76,12 +76,26 @@ export default function ClockBar() {
       ? new Date(state.starts_at).getTime()
       : NaN;
 
-  // Pre-draft countdown ticking (per-second local). Initialized lazily so
-  // render is pure on the server snapshot.
-  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  // Pre-draft countdown ticking (per-second local). MUST be initialized to a
+  // stable value on first render so the SSR snapshot and the client hydration
+  // pass produce identical HTML — `useState(() => Date.now())` was causing
+  // React error #418 (hydration mismatch) because the server captured one
+  // wall-clock and the client captured another. The mismatch was throwing
+  // before useEffects had a chance to register, which silently disabled the
+  // /api/draft-tick auto-fire effects below. Initialize to 0 (which makes
+  // `hasFutureStart` false during SSR) and set the real `Date.now()` in the
+  // mount effect, then keep ticking it every second while a future start is
+  // scheduled (handled by the existing effect further down).
+  const [countdownNow, setCountdownNow] = useState(0);
+  useEffect(() => {
+    setCountdownNow(Date.now());
+  }, []);
 
   const hasFutureStart =
-    Number.isFinite(startsAtMs) && state?.status === "not_started" && startsAtMs > countdownNow;
+    Number.isFinite(startsAtMs) &&
+    state?.status === "not_started" &&
+    countdownNow > 0 &&
+    startsAtMs > countdownNow;
 
   // Poll clock context whenever the bar is rendered (active draft anywhere,
   // any visit to /draft, or a scheduled pre-draft countdown so we can show
@@ -134,33 +148,70 @@ export default function ClockBar() {
   // immediately. Multiple clients calling this is safe — the endpoint is
   // idempotent (it no-ops once the relevant state has already advanced).
   // Each effect debounces per pick_announced_at / clock_started_at key so
-  // we don't hammer the endpoint.
+  // we don't hammer the endpoint, and a global 2s floor prevents both
+  // triggers (or rapid state changes) from issuing back-to-back posts.
   const tickFiredRef = useRef<string | null>(null);
+  const lastTickFiredAtRef = useRef<number>(0);
+  // Per-client floor between consecutive POSTs to /api/draft-tick. The
+  // endpoint is idempotent so this is purely a noise / readability guard,
+  // not a correctness boundary — kept short enough that a real auto-skip
+  // following an auto-announce on the same tick still fires within 2s.
+  const TICK_RATE_LIMIT_MS = 2_000;
+
+  const fireTick = useCallback((source: "announce" | "skip", key: string) => {
+    if (tickFiredRef.current === key) return;
+    const now = Date.now();
+    if (now - lastTickFiredAtRef.current < TICK_RATE_LIMIT_MS) {
+      // Even across the two triggers we won't issue more than one POST
+      // per TICK_RATE_LIMIT_MS. Additional calls would be harmless but
+      // rate-limiting keeps the network tab readable.
+      return;
+    }
+    tickFiredRef.current = key;
+    lastTickFiredAtRef.current = now;
+    console.log(`[draft-tick] firing tick from client (source=${source}, key=${key})`);
+    fetch("/api/draft-tick", { method: "POST" })
+      .then((r) => r.json().catch(() => ({})))
+      .then((data) => {
+        console.log(`[draft-tick] response`, data);
+      })
+      .catch((err) => {
+        // Best-effort: another client (or the next poll) will retry. Clear
+        // the dedupe key so a follow-up render can retry too.
+        console.warn("[draft-tick] request failed", err);
+        tickFiredRef.current = null;
+      });
+  }, []);
 
   // Trigger 1: announcement countdown hit 0 with a submitted pick.
   useEffect(() => {
+    // Diagnostic: every render that reaches this effect logs the values
+    // that drive the firing decision. This is the line to look for in
+    // DevTools when the board appears stuck after a pick is submitted.
+    console.log(
+      `[draft-tick] announce-effect isPickIn=${isPickIn} announceSeconds=${announceSeconds} ` +
+        `pick_submitted=${state?.pick_submitted} pick_announced_at=${state?.pick_announced_at} ` +
+        `status=${state?.status}`
+    );
     if (!isPickIn) return;
     if (announceSeconds > 0) return;
-    const key = `announce:${state?.pick_announced_at ?? ""}`;
-    if (tickFiredRef.current === key) return;
-    tickFiredRef.current = key;
-    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
-      // Best-effort: another client (or the next poll) will retry.
-      tickFiredRef.current = null;
-    });
-  }, [isPickIn, announceSeconds, state?.pick_announced_at]);
+    fireTick("announce", `announce:${state?.pick_announced_at ?? ""}`);
+  }, [isPickIn, announceSeconds, state?.pick_announced_at, state?.pick_submitted, state?.status, fireTick]);
 
   // Trigger 2: on-the-clock timer hit 0 with NO pick submitted (auto-skip).
   useEffect(() => {
+    console.log(
+      `[draft-tick] skip-effect isPickIn=${isPickIn} isActive=${isActive} ` +
+        `status=${state?.status} tickedSeconds=${tickedSeconds} ` +
+        `pick_index=${state?.current_pick_index}`
+    );
     if (isPickIn) return;
     if (!isActive || state?.status !== "running") return;
     if (tickedSeconds > 0) return;
-    const key = `skip:${state?.clock_started_at ?? ""}:${state?.current_pick_index ?? ""}`;
-    if (tickFiredRef.current === key) return;
-    tickFiredRef.current = key;
-    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
-      tickFiredRef.current = null;
-    });
+    fireTick(
+      "skip",
+      `skip:${state?.clock_started_at ?? ""}:${state?.current_pick_index ?? ""}`
+    );
   }, [
     isPickIn,
     isActive,
@@ -168,6 +219,7 @@ export default function ClockBar() {
     tickedSeconds,
     state?.clock_started_at,
     state?.current_pick_index,
+    fireTick,
   ]);
 
   // ----- Reveal animation + chime + mute ----------------------------------
