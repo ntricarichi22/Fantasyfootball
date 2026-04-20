@@ -968,25 +968,41 @@ export default function Home() {
           </div>
         </div>
       )}
-      {scoutingPlayer && (
-        <ScoutingCardModal
-          player={scoutingPlayer}
-          sleeperPlayer={playerDictionary[scoutingPlayer.id]}
-          rookieProspect={rookieProspects[normalizeProspectName(scoutingPlayer.name)] ?? null}
-          precomputedGrades={precomputedScoutingGrades.get(scoutingPlayer.id) ?? null}
-          contextMap={nflTeamContext}
-          canDraft={
-            !isDraftPaused &&
-            !!onClockRosterId &&
-            (isCommissionerSelected || selectedTeam === onClockRosterId)
-          }
-          onDraft={(p) => {
-            void handleAvailablePlayerSelect(p);
-            setScoutingPlayer(null);
-          }}
-          onClose={() => setScoutingPlayer(null)}
-        />
-      )}
+      {scoutingPlayer && (() => {
+        const lookupKey = normalizeProspectName(scoutingPlayer.name);
+        const prospect = rookieProspects[lookupKey] ?? null;
+        // Debug: confirm whether the rookie_prospects map was fetched and
+        // whether the case-insensitive name lookup hit a row.
+        console.log("[page] ScoutingCardModal rookieProspect lookup", {
+          playerName: scoutingPlayer.name,
+          lookupKey,
+          rookieProspectsLoaded: Object.keys(rookieProspects).length,
+          rookieProspectsHasKey: Object.prototype.hasOwnProperty.call(
+            rookieProspects,
+            lookupKey
+          ),
+          prospect,
+        });
+        return (
+          <ScoutingCardModal
+            player={scoutingPlayer}
+            sleeperPlayer={playerDictionary[scoutingPlayer.id]}
+            rookieProspect={prospect}
+            precomputedGrades={precomputedScoutingGrades.get(scoutingPlayer.id) ?? null}
+            contextMap={nflTeamContext}
+            canDraft={
+              !isDraftPaused &&
+              !!onClockRosterId &&
+              (isCommissionerSelected || selectedTeam === onClockRosterId)
+            }
+            onDraft={(p) => {
+              void handleAvailablePlayerSelect(p);
+              setScoutingPlayer(null);
+            }}
+            onClose={() => setScoutingPlayer(null)}
+          />
+        );
+      })()}
     </main>
   );
 }

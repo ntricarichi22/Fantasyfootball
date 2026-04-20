@@ -154,14 +154,15 @@ function FrontCard({
         </div>
       </div>
 
-      {/* Player name over Zubaz — allow shrink/wrap so long names like
-          "Jeremiyah Love" don't get truncated. */}
+      {/* Player name over Zubaz — wraps to two lines for long names like
+          "Jeremiyah Love"; both lines stay visible because the photo well
+          uses flex:1 above and the chips row sits below. */}
       <div
         style={{
           fontFamily: SYNE,
           fontWeight: 800,
-          fontSize: 17,
-          lineHeight: 1.05,
+          fontSize: 18,
+          lineHeight: 1.1,
           color: "#FEFCF9",
           textTransform: "uppercase",
           letterSpacing: "1.5px",
@@ -442,6 +443,24 @@ function BackCard({
     (player.ageLabel && player.ageLabel !== "–" && player.ageLabel) ||
     (typeof rookieProspect?.age === "number" ? String(rookieProspect.age) : "—");
 
+  // Debug: log right at the age read site so we can see exactly what the
+  // back card sees when computing Age. Helps diagnose missing rookie_prospects
+  // matches (the upstream lookup in page.tsx normalizes both sides to lower-
+  // case alphanumerics, so a row keyed under "jeremiyahlove" should match a
+  // player named "Jeremiyah Love" — if this logs `rookieProspect: null` then
+  // the row is genuinely absent or its `name` column differs).
+  if (typeof window !== "undefined") {
+    console.log("[ScoutingCard.BackCard] age lookup", {
+      playerName: player.name,
+      playerNameTrimmedLower: player.name?.trim().toLowerCase(),
+      sleeperAge: player.ageLabel,
+      rookieProspect,
+      rookieProspectAge: rookieProspect?.age,
+      rookieProspectAgeType: typeof rookieProspect?.age,
+      ageDisplay,
+    });
+  }
+
   const sleeperHeightInches =
     typeof sleeperPlayer?.height === "string" && /^\d+$/.test(sleeperPlayer.height)
       ? Number(sleeperPlayer.height)
@@ -459,10 +478,16 @@ function BackCard({
       ? String(rookieProspect.weight)
       : "—";
 
-  const college =
-    sleeperPlayer?.college || rookieProspect?.college || player.school || "";
-  // Spec example: "Notre Dame · Running back" — show the full position name
-  // (mixed case) rather than the abbreviated chip code.
+  // Spec example: "Notre Dame · Running back" — always prefer the
+  // rookie_prospects college field (case-insensitive name lookup happens
+  // upstream in page.tsx via `normalizeProspectName`); fall through to
+  // Sleeper, the bootstrap row's `school`, and finally the NFL team.
+  const schoolOrTeam =
+    rookieProspect?.college ||
+    sleeperPlayer?.college ||
+    player.school ||
+    player.team ||
+    "";
   const positionFullName = ((): string => {
     switch (player.position) {
       case "QB":
@@ -477,9 +502,8 @@ function BackCard({
         return player.position || "";
     }
   })();
-  const teamOrSchool = player.isRookie ? college : player.team;
   const schoolPosLabel =
-    [teamOrSchool, positionFullName].filter((part) => part && part.length).join(" · ") ||
+    [schoolOrTeam, positionFullName].filter((part) => part && part.length).join(" · ") ||
     "—";
 
   return (
