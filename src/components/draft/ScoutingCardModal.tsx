@@ -4,9 +4,9 @@ import { useEffect, useState, type CSSProperties } from "react";
 
 import {
   buildScoutingGrades,
-  gradeColors,
   type LetterGrade,
   type NflTeamContextMap,
+  type ScoutingGrade,
   type ScoutingGradeSet,
 } from "../../lib/draft/scouting";
 import type {
@@ -15,8 +15,8 @@ import type {
   SleeperPlayer,
 } from "../../lib/draft/types";
 
-/** Must match the `cfc-card-out` keyframes duration in globals.css. */
-const CLOSE_ANIMATION_MS = 500;
+/** Must match the `cfc-card-scale-out` keyframes duration in globals.css. */
+const CLOSE_ANIMATION_MS = 380;
 
 type Props = {
   player: AvailablePlayer;
@@ -33,156 +33,519 @@ type Props = {
   onClose: () => void;
 };
 
-const stripeStyle: CSSProperties = {
-  position: "absolute",
-  top: 0,
-  bottom: 0,
-  left: 0,
-  width: 6,
-  display: "flex",
-  flexDirection: "column",
+const SYNE = 'var(--font-headline, "Syne", sans-serif)';
+const DM_SANS = 'var(--font-body, "DM Sans", sans-serif)';
+const MONO = 'var(--font-mono, "JetBrains Mono", monospace)';
+
+const formatHeight = (inches: number | null | undefined): string => {
+  if (typeof inches !== "number" || !Number.isFinite(inches) || inches <= 0) {
+    return "—";
+  }
+  return `${Math.floor(inches / 12)}'${inches % 12}"`;
 };
 
-const headerStyle: CSSProperties = {
-  background: "#1A1A1A",
-  color: "#FEFCF9",
-  padding: "14px 16px 14px 22px",
-  display: "flex",
-  alignItems: "center",
-  gap: 12,
-};
-
-const avatarStyle: CSSProperties = {
-  width: 60,
-  height: 60,
-  background: "#3366CC",
-  border: "2.5px solid #F5C230",
-  borderRadius: 0,
-  flexShrink: 0,
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "center",
-  color: "#FEFCF9",
-  fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-  fontWeight: 800,
-  fontSize: 22,
-  overflow: "hidden",
-};
-
-const statBoxStyle: CSSProperties = {
-  flex: 1,
-  background: "#F5F0E6",
-  border: "2px solid #1A1A1A",
-  borderRadius: 0,
-  padding: "8px 6px",
-  textAlign: "center",
-};
-
-const statValueStyle: CSSProperties = {
-  fontFamily: 'var(--font-mono, "JetBrains Mono", monospace)',
-  fontWeight: 700,
-  fontSize: 18,
-  color: "#1A1A1A",
-};
-
-const statLabelStyle: CSSProperties = {
-  fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-  fontSize: 10,
-  textTransform: "uppercase",
-  letterSpacing: "0.06em",
-  color: "#777",
-  marginTop: 2,
-};
-
-const gradeRowStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "stretch",
-  borderTop: "2px solid #1A1A1A",
-  minHeight: 56,
-};
-
-function GradeRow({
-  letter,
-  title,
-  detail,
-}: {
-  letter: LetterGrade | "TBD" | "—";
-  title: string;
-  detail: string;
-}) {
-  const colors = gradeColors(letter);
+function SilhouetteAvatar() {
   return (
-    <div style={gradeRowStyle}>
-      <div
-        style={{
-          width: 56,
-          background: colors.bg,
-          color: colors.text,
-          borderRight: "2px solid #1A1A1A",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-          fontWeight: 800,
-          fontSize: 26,
-          letterSpacing: "-0.02em",
-        }}
-      >
-        {letter}
-      </div>
+    <svg
+      viewBox="0 0 120 120"
+      width="62%"
+      height="62%"
+      aria-hidden="true"
+      style={{ display: "block" }}
+    >
+      <circle cx="60" cy="44" r="22" fill="rgba(160,168,176,0.9)" />
+      <ellipse cx="60" cy="108" rx="42" ry="26" fill="rgba(160,168,176,0.9)" />
+    </svg>
+  );
+}
+
+const chipBaseStyle: CSSProperties = {
+  fontFamily: MONO,
+  fontWeight: 700,
+  fontSize: 8,
+  letterSpacing: "1.5px",
+  textTransform: "uppercase",
+  border: "2.5px solid #1A1A1A",
+  borderRadius: 0,
+  boxShadow: "2px 2px 0 rgba(0,0,0,0.3)",
+  padding: "3px 6px",
+  lineHeight: 1.1,
+  display: "inline-flex",
+  alignItems: "center",
+};
+
+const positionChipStyle = (position: string): CSSProperties => {
+  let bg = "#3366CC";
+  let color = "#FFFFFF";
+  if (position === "QB") bg = "#E8503A";
+  else if (position === "WR" || position === "TE") {
+    bg = "#F5C230";
+    color = "#1A1A1A";
+  }
+  return { ...chipBaseStyle, background: bg, color };
+};
+
+function FrontCard({
+  player,
+  rookieProspect,
+  sleeperPlayer,
+}: {
+  player: AvailablePlayer;
+  rookieProspect: RookieProspect | null | undefined;
+  sleeperPlayer: SleeperPlayer | undefined;
+}) {
+  // Two-stage avatar fallback: primary (rookie_prospects.avatar_url, e.g. an
+  // ESPN headshot) → secondary (Sleeper CDN thumbnail) → silhouette.
+  const [avatarStage, setAvatarStage] = useState<0 | 1 | 2>(0);
+  const sleeperAvatarUrl = sleeperPlayer?.player_id
+    ? `https://sleepercdn.com/content/nfl/players/thumb/${sleeperPlayer.player_id}.jpg`
+    : null;
+  const prospectAvatarUrl = rookieProspect?.avatar_url || null;
+  const avatarCandidates = [prospectAvatarUrl, sleeperAvatarUrl].filter(
+    (u): u is string => Boolean(u)
+  );
+  const activeAvatarUrl = avatarCandidates[avatarStage] ?? null;
+
+  return (
+    <div className="cfc-scout-front">
+      {/* Photo area */}
       <div
         style={{
           flex: 1,
-          padding: "8px 12px",
+          margin: 10,
+          marginBottom: 0,
+          border: "3px solid #1A1A1A",
+          background: "rgba(200,208,216,0.88)",
+          position: "relative",
           display: "flex",
-          flexDirection: "column",
+          alignItems: "center",
           justifyContent: "center",
-          background: "#FEFCF9",
+          overflow: "hidden",
         }}
       >
+        {activeAvatarUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={activeAvatarUrl}
+            src={activeAvatarUrl}
+            alt=""
+            onError={() =>
+              setAvatarStage((stage) => (stage < 2 ? ((stage + 1) as 0 | 1 | 2) : stage))
+            }
+            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+          />
+        ) : (
+          <SilhouetteAvatar />
+        )}
         <div
           style={{
-            fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-            fontWeight: 700,
-            fontSize: 10,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "#1A1A1A",
+            position: "absolute",
+            bottom: 6,
+            right: 8,
+            fontFamily: SYNE,
+            fontWeight: 800,
+            fontSize: 14,
+            color: "rgba(245,194,48,0.5)",
+            letterSpacing: "4px",
+            pointerEvents: "none",
           }}
         >
-          {title}
+          CFC
         </div>
-        <div
-          style={{
-            fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-            fontSize: 11,
-            color: "#444",
-            marginTop: 2,
-            lineHeight: 1.3,
-          }}
-        >
-          {detail}
-        </div>
+      </div>
+
+      {/* Player name over Zubaz */}
+      <div
+        style={{
+          fontFamily: SYNE,
+          fontWeight: 800,
+          fontSize: 19,
+          color: "#FEFCF9",
+          textTransform: "uppercase",
+          letterSpacing: "2px",
+          textShadow: "2px 2px 0 #1A1A1A",
+          whiteSpace: "nowrap",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          padding: "8px 10px 4px",
+        }}
+      >
+        {player.name}
+      </div>
+
+      {/* Chips row */}
+      <div
+        style={{
+          display: "flex",
+          gap: 5,
+          padding: "2px 10px 10px",
+          flexWrap: "nowrap",
+        }}
+      >
+        <span style={positionChipStyle(player.position)}>{player.position || "—"}</span>
+        <span style={{ ...chipBaseStyle, background: "#1A1A1A", color: "#FEFCF9" }}>
+          2026
+        </span>
+        {player.isRookie && (
+          <span style={{ ...chipBaseStyle, background: "#F5C230", color: "#1A1A1A" }}>
+            Rookie Card
+          </span>
+        )}
       </div>
     </div>
   );
 }
 
-function SilhouetteAvatar() {
+function BioCell({
+  value,
+  label,
+  last = false,
+}: {
+  value: string;
+  label: string;
+  last?: boolean;
+}) {
   return (
-    <svg viewBox="0 0 32 32" width="34" height="34" aria-hidden="true">
-      <circle cx="16" cy="11" r="6" fill="#aaa" />
-      <path d="M4 30c0-7 6-12 12-12s12 5 12 12" fill="#aaa" />
-    </svg>
+    <div
+      style={{
+        flex: 1,
+        padding: "8px 10px",
+        borderRight: last ? undefined : "2px solid #1A1A1A",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "flex-start",
+        justifyContent: "center",
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: MONO,
+          fontWeight: 700,
+          fontSize: 13,
+          color: "#1A1A1A",
+          lineHeight: 1.1,
+        }}
+      >
+        {value}
+      </div>
+      <div
+        style={{
+          fontFamily: DM_SANS,
+          fontSize: 7,
+          color: "#777",
+          textTransform: "uppercase",
+          letterSpacing: "0.06em",
+          marginTop: 2,
+        }}
+      >
+        {label}
+      </div>
+    </div>
   );
 }
 
-const formatHeightInches = (inches: number | null | undefined): string | null => {
-  if (typeof inches !== "number" || !Number.isFinite(inches) || inches <= 0) return null;
-  const ft = Math.floor(inches / 12);
-  const inch = inches % 12;
-  return `${ft}'${inch}"`;
-};
+function GradeLetterCell({ letter }: { letter: LetterGrade | "TBD" | "—" }) {
+  const display = letter === "TBD" ? "—" : letter;
+  return (
+    <div
+      style={{
+        width: 42,
+        flexShrink: 0,
+        background: "#F5F0E6",
+        borderRight: "2px solid #1A1A1A",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: SYNE,
+        fontWeight: 800,
+        fontSize: 22,
+        color: "#1A1A1A",
+        lineHeight: 1,
+      }}
+    >
+      {display}
+    </div>
+  );
+}
+
+function GradeDetailsCell({ grade }: { grade: ScoutingGrade }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        padding: "6px 8px",
+        borderRight: "2.5px solid #1A1A1A",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        minWidth: 0,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: SYNE,
+          fontWeight: 700,
+          fontSize: 8,
+          textTransform: "uppercase",
+          letterSpacing: "1px",
+          color: "#1A1A1A",
+        }}
+      >
+        {grade.title}
+      </div>
+      <div
+        style={{
+          fontFamily: DM_SANS,
+          fontSize: 9,
+          color: "#1A1A1A",
+          lineHeight: 1.3,
+          marginTop: 2,
+        }}
+      >
+        {grade.detail}
+      </div>
+    </div>
+  );
+}
+
+function MeterPanel({
+  label,
+  value,
+  fillColor,
+}: {
+  label: string;
+  value: number;
+  fillColor: string;
+}) {
+  const pct = Math.max(0, Math.min(100, value));
+  return (
+    <div
+      style={{
+        flex: 1,
+        border: "2px solid #1A1A1A",
+        background: "#FEFCF9",
+        padding: "4px 6px",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        gap: 4,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "baseline",
+          justifyContent: "space-between",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: DM_SANS,
+            fontWeight: 600,
+            fontSize: 8,
+            textTransform: "uppercase",
+            color: "#1A1A1A",
+            letterSpacing: "0.06em",
+          }}
+        >
+          {label}
+        </span>
+        <span
+          style={{
+            fontFamily: MONO,
+            fontWeight: 700,
+            fontSize: 9,
+            color: "#1A1A1A",
+          }}
+        >
+          {pct}
+        </span>
+      </div>
+      <div
+        style={{
+          position: "relative",
+          height: 5,
+          width: "100%",
+          background: "#eee",
+          border: "1px solid #ccc",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: `${pct}%`,
+            background: fillColor,
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function GradeRow({
+  grade,
+  sidebar,
+  isLast,
+}: {
+  grade: ScoutingGrade;
+  sidebar: React.ReactNode;
+  isLast?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        flex: 1,
+        minHeight: 0,
+        borderBottom: isLast ? undefined : "2.5px solid #1A1A1A",
+      }}
+    >
+      <GradeLetterCell letter={grade.letter} />
+      <GradeDetailsCell grade={grade} />
+      <div
+        style={{
+          width: 120,
+          flexShrink: 0,
+          padding: 6,
+          display: "flex",
+        }}
+      >
+        {sidebar}
+      </div>
+    </div>
+  );
+}
+
+function BackCard({
+  player,
+  sleeperPlayer,
+  rookieProspect,
+  grades,
+  canDraft,
+  onDraft,
+}: {
+  player: AvailablePlayer;
+  sleeperPlayer: SleeperPlayer | undefined;
+  rookieProspect: RookieProspect | null | undefined;
+  grades: ScoutingGradeSet;
+  canDraft: boolean;
+  onDraft: (player: AvailablePlayer) => void;
+}) {
+  // Bio data: prefer Sleeper, fall back to rookie_prospects.
+  const ageDisplay =
+    (player.ageLabel && player.ageLabel !== "–" && player.ageLabel) ||
+    (typeof rookieProspect?.age === "number" ? String(rookieProspect.age) : "—");
+
+  const sleeperHeightInches =
+    typeof sleeperPlayer?.height === "string" && /^\d+$/.test(sleeperPlayer.height)
+      ? Number(sleeperPlayer.height)
+      : null;
+  const heightInches = sleeperHeightInches ?? rookieProspect?.height_inches ?? null;
+  const heightDisplay = formatHeight(heightInches);
+
+  const sleeperWeight =
+    typeof sleeperPlayer?.weight === "string" && sleeperPlayer.weight.trim().length
+      ? sleeperPlayer.weight
+      : null;
+  const weightDisplay = sleeperWeight
+    ? sleeperWeight
+    : rookieProspect?.weight
+      ? String(rookieProspect.weight)
+      : "—";
+
+  const college =
+    sleeperPlayer?.college || rookieProspect?.college || player.school || "";
+  const teamOrSchool = player.isRookie ? college : player.team;
+  const schoolPosLabel = [teamOrSchool, player.position]
+    .filter((part) => part && part.length)
+    .join(" · ")
+    .toUpperCase() || "—";
+
+  return (
+    <div className="cfc-scout-back">
+      {/* Top bio bar */}
+      <div
+        style={{
+          display: "flex",
+          background: "#F5F0E6",
+          borderBottom: "2.5px solid #1A1A1A",
+        }}
+      >
+        <BioCell value={ageDisplay} label="Age" />
+        <BioCell value={heightDisplay} label="Height" />
+        <BioCell value={weightDisplay} label="Weight" />
+        <div
+          style={{
+            flex: 2,
+            padding: "8px 10px",
+            display: "flex",
+            alignItems: "center",
+            fontFamily: DM_SANS,
+            fontSize: 11,
+            color: "#1A1A1A",
+            textTransform: "uppercase",
+            letterSpacing: "1px",
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {schoolPosLabel}
+        </div>
+      </div>
+
+      {/* Scouting report divider */}
+      <div
+        style={{
+          padding: "6px 8px 4px",
+          borderBottom: "2px solid #1A1A1A",
+          fontFamily: SYNE,
+          fontWeight: 800,
+          fontSize: 8,
+          color: "#1A1A1A",
+          textTransform: "uppercase",
+          letterSpacing: "3px",
+        }}
+      >
+        Scouting Report
+      </div>
+
+      {/* Three aligned rows */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <GradeRow
+          grade={grades.capital}
+          sidebar={<MeterPanel label="Value" value={player.valueScore} fillColor="#3366CC" />}
+        />
+        <GradeRow
+          grade={grades.situation}
+          sidebar={<MeterPanel label="Fit" value={player.fitScore} fillColor="#F5C230" />}
+        />
+        <GradeRow
+          grade={grades.opportunity}
+          isLast
+          sidebar={
+            canDraft ? (
+              <button
+                type="button"
+                onClick={() => onDraft(player)}
+                className="cfc-scout-draft-btn"
+              >
+                Draft Player
+              </button>
+            ) : (
+              <div style={{ flex: 1 }} aria-hidden="true" />
+            )
+          }
+        />
+      </div>
+    </div>
+  );
+}
 
 export function ScoutingCardModal({
   player,
@@ -195,9 +558,6 @@ export function ScoutingCardModal({
   onClose,
 }: Props) {
   const [closing, setClosing] = useState(false);
-  // Two-stage avatar fallback: primary src (rookie_prospects.avatar_url, e.g.
-  // an ESPN headshot) → secondary src (Sleeper CDN thumbnail) → silhouette.
-  const [avatarStage, setAvatarStage] = useState<0 | 1 | 2>(0);
 
   const requestClose = () => {
     if (closing) return;
@@ -219,44 +579,6 @@ export function ScoutingCardModal({
     precomputedGrades ??
     buildScoutingGrades(sleeperPlayer, player.position, contextMap, rookieProspect);
 
-  // College fallback: rookie_prospects → Sleeper → AvailablePlayer.school
-  // (which itself already merges Sleeper + prospect inside useDraftBoard).
-  const college =
-    rookieProspect?.college || sleeperPlayer?.college || player.school || "";
-  const subtitleParts = [
-    player.position,
-    player.isRookie ? college : player.team,
-    player.isRookie ? "Rookie" : "Veteran",
-  ].filter(Boolean);
-
-  const sleeperAvatarUrl = sleeperPlayer?.player_id
-    ? `https://sleepercdn.com/content/nfl/players/thumb/${sleeperPlayer.player_id}.jpg`
-    : null;
-  const prospectAvatarUrl = rookieProspect?.avatar_url || null;
-  const avatarCandidates = [prospectAvatarUrl, sleeperAvatarUrl].filter(
-    (u): u is string => Boolean(u)
-  );
-  const activeAvatarUrl = avatarCandidates[avatarStage] ?? null;
-
-  // Stat values: prefer the live Sleeper bio, fall back to rookie_prospects,
-  // and surface "—" when neither source has it. Sleeper stores height as a
-  // raw inches string (e.g. "72"), so always run it through the formatter
-  // rather than displaying the raw number.
-  const ageDisplay =
-    (player.ageLabel && player.ageLabel !== "–" && player.ageLabel) ||
-    (typeof rookieProspect?.age === "number" ? String(rookieProspect.age) : "—");
-  const sleeperHeightInches =
-    typeof sleeperPlayer?.height === "string" && /^\d+$/.test(sleeperPlayer.height)
-      ? Number(sleeperPlayer.height)
-      : null;
-  const heightDisplay =
-    formatHeightInches(sleeperHeightInches) ||
-    formatHeightInches(rookieProspect?.height_inches) ||
-    "—";
-  const weightDisplay =
-    (sleeperPlayer?.weight && `${sleeperPlayer.weight} lbs`) ||
-    (rookieProspect?.weight ? `${rookieProspect.weight} lbs` : "—");
-
   return (
     <>
       <div
@@ -272,143 +594,28 @@ export function ScoutingCardModal({
         aria-modal="true"
         aria-label={`Scouting card for ${player.name}`}
       >
-        <div className="cfc-scout-flipper">
-          {/* Front face — visible only during the flip transition */}
-          <div className="cfc-scout-face" style={{ background: "#FEFCF9" }}>
-            <div
-              style={{
-                padding: 16,
-                display: "flex",
-                flexDirection: "column",
-                gap: 8,
-                height: "100%",
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-                  fontWeight: 700,
-                  fontSize: 18,
-                  color: "#1A1A1A",
-                }}
-              >
-                {player.name}
-              </div>
-              <div
-                style={{
-                  fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                  fontSize: 11,
-                  color: "#777",
-                }}
-              >
-                {subtitleParts.join(" · ")}
-              </div>
-            </div>
-          </div>
-
-          {/* Back face — the scouting card */}
-          <div className="cfc-scout-face cfc-scout-face-back">
-            {/* 80s left-edge stripe */}
-            <div style={stripeStyle}>
-              <div style={{ flex: 1, background: "#E8503A" }} />
-              <div style={{ flex: 1, background: "#F5C230" }} />
-              <div style={{ flex: 1, background: "#3366CC" }} />
-            </div>
-
-            {/* Close X */}
-            <button
-              type="button"
-              onClick={requestClose}
-              aria-label="Close scouting card"
-              className="cfc-scout-close"
-            >
-              ✕
-            </button>
-
-            <div style={{ paddingLeft: 6, height: "100%", display: "flex", flexDirection: "column" }}>
-              {/* Header */}
-              <div style={headerStyle}>
-                <div style={avatarStyle}>
-                  {activeAvatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      key={activeAvatarUrl}
-                      src={activeAvatarUrl}
-                      alt=""
-                      onError={() =>
-                        setAvatarStage((stage) => (stage < 2 ? ((stage + 1) as 0 | 1 | 2) : stage))
-                      }
-                      style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    />
-                  ) : (
-                    <SilhouetteAvatar />
-                  )}
-                </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-headline, "Syne", sans-serif)',
-                      fontWeight: 700,
-                      fontSize: 20,
-                      lineHeight: 1.15,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {player.name}
-                  </div>
-                  <div
-                    style={{
-                      fontFamily: 'var(--font-body, "DM Sans", sans-serif)',
-                      fontSize: 13,
-                      color: "#999",
-                      marginTop: 2,
-                    }}
-                  >
-                    {subtitleParts.join(" · ")}
-                  </div>
-                </div>
-              </div>
-
-              {/* Stat boxes */}
-              <div style={{ display: "flex", gap: 8, padding: 10 }}>
-                <div style={statBoxStyle}>
-                  <div style={statValueStyle}>{ageDisplay}</div>
-                  <div style={statLabelStyle}>Age</div>
-                </div>
-                <div style={statBoxStyle}>
-                  <div style={statValueStyle}>{heightDisplay}</div>
-                  <div style={statLabelStyle}>Height</div>
-                </div>
-                <div style={statBoxStyle}>
-                  <div style={statValueStyle}>{weightDisplay}</div>
-                  <div style={statLabelStyle}>Weight</div>
-                </div>
-              </div>
-
-              {/* Grades */}
-              <div style={{ flex: 1, overflow: "hidden" }}>
-                <GradeRow {...grades.capital} />
-                <GradeRow {...grades.situation} />
-                <GradeRow {...grades.opportunity} />
-              </div>
-
-              {/* Draft button (only when on the clock) */}
-              {canDraft && (
-                <button
-                  type="button"
-                  onClick={() => onDraft(player)}
-                  className="cfc-scout-draft-btn"
-                >
-                  Draft This Player
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* Close X — anchored to the top-right of the card pair */}
+        <button
+          type="button"
+          onClick={requestClose}
+          aria-label="Close scouting card"
+          className="cfc-scout-close"
+        >
+          ✕
+        </button>
+        <FrontCard
+          player={player}
+          rookieProspect={rookieProspect}
+          sleeperPlayer={sleeperPlayer}
+        />
+        <BackCard
+          player={player}
+          sleeperPlayer={sleeperPlayer}
+          rookieProspect={rookieProspect}
+          grades={grades}
+          canDraft={canDraft}
+          onDraft={onDraft}
+        />
       </div>
     </>
   );
