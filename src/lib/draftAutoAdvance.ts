@@ -63,7 +63,15 @@ const processStep = async (
     // why we judged the announcement not ready. Helps catch cases where
     // upstream type coercion (e.g. boolean vs. string) silently disables the
     // comparison. Cheap one-liner; safe to leave on.
-    if (pickSubmitted || (state.status === "running" && state.clock_started_at)) {
+    // Only emit the diagnostic when something *should* be evaluated as
+    // possibly-due — i.e. there's a pending announcement or the clock is
+    // running on an unsubmitted pick. Avoids per-tick noise during normal
+    // mid-window polls while still surfacing the values that drove the
+    // decision when something looks stuck.
+    if (
+      (pickSubmitted && Number.isFinite(announceMs)) ||
+      (!pickSubmitted && state.status === "running" && state.clock_started_at)
+    ) {
       console.log(
         `[draft-tick] not_ready league=${leagueId} pick_index=${state.current_pick_index} ` +
           `submitted_raw=${state.pick_submitted} submitted_norm=${pickSubmitted} ` +

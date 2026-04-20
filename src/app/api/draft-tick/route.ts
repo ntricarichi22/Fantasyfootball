@@ -72,17 +72,17 @@ const handle = async (request: NextRequest) => {
   // intentionally lightweight (one line, no PII) so it is safe to leave on in
   // production. See debug step #2 in the bug report that introduced this.
   try {
-    const nowIso = new Date().toISOString();
-    const announcedAtIso = state.pick_announced_at
-      ? new Date(state.pick_announced_at).toISOString()
-      : null;
-    const announceMs = announcedAtIso ? new Date(announcedAtIso).getTime() : NaN;
+    // `state.pick_announced_at` is already a canonical ISO string (or null)
+    // because `normalizeDraftStateRow` ran inside `fetchDraftState`.
+    const announceMs = state.pick_announced_at
+      ? new Date(state.pick_announced_at).getTime()
+      : NaN;
     const announcementDue =
       state.pick_submitted === true && Number.isFinite(announceMs) && Date.now() >= announceMs;
     console.log(
-      `[draft-tick] now=${nowIso} league=${leagueId} pick_index=${state.current_pick_index} ` +
-        `submitted=${state.pick_submitted} announced_at_raw=${state.pick_announced_at} ` +
-        `announced_at_iso=${announcedAtIso} announcement_due=${announcementDue} ` +
+      `[draft-tick] now=${new Date().toISOString()} league=${leagueId} ` +
+        `pick_index=${state.current_pick_index} submitted=${state.pick_submitted} ` +
+        `announced_at=${state.pick_announced_at} announcement_due=${announcementDue} ` +
         `status=${state.status} seconds_remaining=${state.seconds_remaining} ` +
         `clock_started_at=${state.clock_started_at}`
     );
