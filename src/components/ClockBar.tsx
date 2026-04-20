@@ -144,12 +144,15 @@ export default function ClockBar() {
     const key = `announce:${state?.pick_announced_at ?? ""}`;
     if (tickFiredRef.current === key) return;
     tickFiredRef.current = key;
-    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
-      // Best-effort: another client (or the next poll) will retry.
-      tickFiredRef.current = null;
-    });
+    fetch("/api/draft-tick", { method: "POST" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.status !== "advanced") tickFiredRef.current = null;
+      })
+      .catch(() => {
+        tickFiredRef.current = null;
+      });
   }, [isPickIn, announceSeconds, state?.pick_announced_at]);
-
   // Trigger 2: on-the-clock timer hit 0 with NO pick submitted (auto-skip).
   useEffect(() => {
     if (isPickIn) return;
@@ -158,9 +161,14 @@ export default function ClockBar() {
     const key = `skip:${state?.clock_started_at ?? ""}:${state?.current_pick_index ?? ""}`;
     if (tickFiredRef.current === key) return;
     tickFiredRef.current = key;
-    fetch("/api/draft-tick", { method: "POST" }).catch(() => {
-      tickFiredRef.current = null;
-    });
+    fetch("/api/draft-tick", { method: "POST" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.status !== "advanced") tickFiredRef.current = null;
+      })
+      .catch(() => {
+        tickFiredRef.current = null;
+      });
   }, [
     isPickIn,
     isActive,
