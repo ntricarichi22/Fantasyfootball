@@ -610,7 +610,8 @@ export default function Home() {
 
     // Cap at top 36 — see Fix 2: keeps Anthropic prompt token count
     // manageable while still giving the assistant enough breadth to
-    // compare against rostered players.
+    // compare against rostered players. Only raw trade values are
+    // exposed to the LLM (never the normalized 0-100 board scores).
     const fullAvailablePlayers = availablePlayers.slice(0, 36).map((p) => ({
       id: p.id,
       name: p.name,
@@ -619,8 +620,6 @@ export default function Home() {
       school: p.school,
       rookie: p.isRookie,
       age: p.ageLabel,
-      value: Math.round(p.valueScore),
-      fit: Math.round(p.fitScore),
       tradeValue: p.tradeValue,
     }));
 

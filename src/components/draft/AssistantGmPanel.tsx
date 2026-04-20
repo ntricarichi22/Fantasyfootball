@@ -44,8 +44,6 @@ export type LeagueDraftContext = {
     school: string;
     rookie: boolean;
     age: string;
-    value: number;
-    fit: number;
     tradeValue: number;
   }>;
   myTeamTradeValues: Array<{ name: string; pos: string; value: number }>;
@@ -73,38 +71,20 @@ const wrapperStyle: CSSProperties = {
   flexShrink: 0,
   height: "100%",
   background: "#FEFCF9",
-  borderLeft: "2.5px solid #1A1A1A",
+  border: "2.5px solid #1A1A1A",
   display: "flex",
   flexDirection: "column",
   overflow: "hidden",
 };
 
-const stripeStyle: CSSProperties = {
-  position: "absolute",
-  left: 0,
-  top: 0,
-  bottom: 0,
-  width: 5,
-  display: "flex",
-  flexDirection: "column",
-  pointerEvents: "none",
-  zIndex: 1,
-};
-
-const stripeSegmentStyle = (color: string): CSSProperties => ({
-  flex: 1,
-  background: color,
-});
-
 const headerStyle: CSSProperties = {
   background: "#F5F0E6",
   borderBottom: "1.5px solid #1A1A1A",
-  padding: "8px 12px 8px 14px",
+  padding: "8px 12px",
   display: "flex",
   alignItems: "center",
   justifyContent: "space-between",
   flexShrink: 0,
-  marginLeft: 5,
 };
 
 const titleStyle: CSSProperties = {
@@ -139,7 +119,7 @@ const scrollAreaStyle: CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: "auto",
-  padding: "10px 10px 10px 14px",
+  padding: "10px",
   display: "flex",
   flexDirection: "column",
   gap: 10,
@@ -195,8 +175,9 @@ function summarizeAvailable(player: AvailablePlayer) {
     school: player.school,
     rookie: player.isRookie,
     age: player.ageLabel,
-    value: Math.round(player.valueScore),
-    fit: Math.round(player.fitScore),
+    // Only expose the raw cfc_trade_values_current value to the LLM —
+    // never the normalized 0-100 board scores (those are UI-only).
+    tradeValue: player.tradeValue,
   };
 }
 
@@ -558,12 +539,6 @@ export function AssistantGmPanel({
 
   return (
     <div style={wrapperStyle} aria-label="Assistant GM panel">
-      <div style={stripeStyle} aria-hidden="true">
-        <div style={stripeSegmentStyle("#E8503A")} />
-        <div style={stripeSegmentStyle("#F5C230")} />
-        <div style={stripeSegmentStyle("#3366CC")} />
-      </div>
-
       <div style={headerStyle}>
         <span style={titleStyle}>Assistant GM</span>
         <span style={liveStyle}>

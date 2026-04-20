@@ -67,6 +67,23 @@ type AnthropicResponse = {
 
 const MODEL = "claude-sonnet-4-5";
 
+// Strip any normalized 0-100 board scores (`value`, `fit`) from a list of
+// available-player payloads so the LLM only ever sees the raw cfc trade
+// value. Defense in depth — the client should already be sending the
+// scrubbed shape, but enforce it server-side too.
+function sanitizeAvailableForLLM(input: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(input)) return [];
+  return input.map((raw) => {
+    const p = (raw ?? {}) as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(p)) {
+      if (key === "value" || key === "fit") continue;
+      out[key] = p[key];
+    }
+    return out;
+  });
+}
+
 function buildBriefingMessages(body: AssistantRequest): {
   system: string;
   messages: { role: "user"; content: string }[];
@@ -80,7 +97,7 @@ function buildBriefingMessages(body: AssistantRequest): {
 
   const userContent =
     `Recent draft picks: ${JSON.stringify(body.recentPicks ?? [])}.\n` +
-    `Available players (top of board): ${JSON.stringify(body.availablePlayers ?? [])}.\n` +
+    `Available players (top of board): ${JSON.stringify(sanitizeAvailableForLLM(body.availablePlayers))}.\n` +
     `My team needs: ${JSON.stringify(body.teamNeeds ?? {})}.\n` +
     `What are the key trends I should know about?`;
 
@@ -105,7 +122,7 @@ function buildRecommendationMessages(body: AssistantRequest): {
     `Team: ${body.teamName ?? "Unknown"}.\n` +
     `Roster: ${JSON.stringify(body.roster ?? [])}.\n` +
     `Team needs: ${JSON.stringify(body.teamNeeds ?? {})}.\n` +
-    `Available players: ${JSON.stringify(body.availablePlayers ?? [])}.\n` +
+    `Available players: ${JSON.stringify(sanitizeAvailableForLLM(body.availablePlayers))}.\n` +
     `Recent picks: ${JSON.stringify(body.recentPicks ?? [])}.\n` +
     `My team trade values: ${JSON.stringify(body.myTeamTradeValues ?? [])}.\n` +
     `League draft state: ${JSON.stringify({
@@ -150,15 +167,14 @@ function buildChatMessages(body: AssistantRequest): {
 
   // AVAILABLE PLAYERS — use real trade values from cfc_trade_values_current
   // so the model can compare prospects against rostered players on the same
-  // scale. Limit to top 36 to keep prompt size in check.
+  // scale. Limit to top 36 to keep prompt size in check. Never include the
+  // normalized 0-100 board scores.
   const availLines = Array.isArray(body.availablePlayers)
     ? (body.availablePlayers as Array<{
         name?: string;
         pos?: string;
         school?: string;
         team?: string;
-        value?: number;
-        fit?: number;
         tradeValue?: number;
       }>)
         .slice(0, 36)
