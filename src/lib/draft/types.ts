@@ -111,7 +111,7 @@ export type ActiveTeamApiRow = {
  */
 export interface RookieProspect {
   player_id: string;
-  name?: string | null;
+  player_name?: string | null;
   position?: string | null;
   college?: string | null;
   age?: number | null;

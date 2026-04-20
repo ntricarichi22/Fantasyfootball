@@ -17,8 +17,6 @@ import {
   DEMO_LEAGUE,
   DEMO_ROSTERS,
   DEMO_TEAMS,
-  PLAYER_CACHE_KEY,
-  PLAYER_CACHE_TIME_KEY,
 } from "../draft/constants";
 import { isCacheTimestampFresh, toId } from "../draft/helpers";
 import type { League, Roster, SleeperPlayer, SleeperUser, Team } from "../draft/types";
@@ -181,23 +179,12 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
         return;
       }
 
-      if (typeof window !== "undefined") {
-        const cachedDict = localStorage.getItem(PLAYER_CACHE_KEY);
-        const cachedTime = localStorage.getItem(PLAYER_CACHE_TIME_KEY);
-        const parsedTime = cachedTime ? parseInt(cachedTime, 10) : NaN;
-        const isFresh = isCacheTimestampFresh(Number.isNaN(parsedTime) ? null : parsedTime);
-        if (cachedDict && isFresh) {
-          try {
-            const parsed = JSON.parse(cachedDict);
-            playerDictCache = parsed;
-            playerDictCacheTime = parsedTime;
-            setPlayerDictionary(parsed);
-            return;
-          } catch {
-            // ignore corrupted cache
-          }
-        }
-      }
+      // Note: we intentionally do NOT persist the Sleeper player dictionary
+      // to localStorage. The full NFL dictionary (~3000 players) routinely
+      // exceeds the 5 MB localStorage quota and triggers QuotaExceededError.
+      // The module-level `playerDictCache` above keeps it in memory across
+      // mounts within a session, which is sufficient now that the draft
+      // board is bounded.
 
       try {
         const res = await fetch("https://api.sleeper.app/v1/players/nfl");
@@ -208,14 +195,6 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
         playerDictCache = dict;
         playerDictCacheTime = fetchedAt;
         setPlayerDictionary(dict);
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(PLAYER_CACHE_KEY, JSON.stringify(dict));
-            localStorage.setItem(PLAYER_CACHE_TIME_KEY, String(fetchedAt));
-          } catch (storageError) {
-            console.warn("Unable to cache player dictionary", storageError);
-          }
-        }
       } catch (err) {
         console.error("Unable to load player dictionary", err);
       }

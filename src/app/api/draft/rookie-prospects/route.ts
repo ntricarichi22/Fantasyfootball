@@ -25,7 +25,7 @@ export async function GET() {
   const { data, error: queryError } = await client
     .from("rookie_prospects")
     .select(
-      "player_id,name,position,college,age,height_inches,weight,nfl_team,nfl_draft_round,nfl_draft_pick,avatar_url"
+      "player_id,player_name,position,college,age,height_inches,weight,nfl_team,nfl_draft_round,nfl_draft_pick,avatar_url"
     );
 
   if (queryError) {
@@ -34,7 +34,7 @@ export async function GET() {
 
   const result: Record<string, unknown> = {};
   (data ?? []).forEach((row) => {
-    const key = normalizeProspectName(row?.name);
+    const key = normalizeProspectName(row?.player_name);
     if (key) result[key] = row;
   });
 
