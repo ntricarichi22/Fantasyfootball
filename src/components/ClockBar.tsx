@@ -143,84 +143,37 @@ export default function ClockBar() {
     return () => window.clearInterval(id);
   }, [isPickIn, state]);
 
-  // When any local timer hits 0, fire a single best-effort tick to
-  // /api/draft-tick so the server runs the auto-announce / auto-skip logic
-  // immediately. Multiple clients calling this is safe — the endpoint is
-  // idempotent (it no-ops once the relevant state has already advanced).
-  // Each effect debounces per pick_announced_at / clock_started_at key so
-  // we don't hammer the endpoint, and a global 2s floor prevents both
-  // triggers (or rapid state changes) from issuing back-to-back posts.
-  const tickFiredRef = useRef<string | null>(null);
-  const lastTickFiredAtRef = useRef<number>(0);
-  // Per-client floor between consecutive POSTs to /api/draft-tick. The
-  // endpoint is idempotent so this is purely a noise / readability guard,
-  // not a correctness boundary — kept short enough that a real auto-skip
-  // following an auto-announce on the same tick still fires within 2s.
-  const TICK_RATE_LIMIT_MS = 2_000;
+  // The countdown value currently displayed on screen: when a pick is "in"
+  // (submitted, awaiting announcement) we show the announcement countdown;
+  // otherwise we show the on-the-clock countdown. This is the single value
+  // the auto-tick effect watches.
+  const timeLeft = isPickIn ? announceSeconds : tickedSeconds;
 
-  const fireTick = useCallback((source: "announce" | "skip", key: string) => {
-    if (tickFiredRef.current === key) return;
-    const now = Date.now();
-    if (now - lastTickFiredAtRef.current < TICK_RATE_LIMIT_MS) {
-      // Even across the two triggers we won't issue more than one POST
-      // per TICK_RATE_LIMIT_MS. Additional calls would be harmless but
-      // rate-limiting keeps the network tab readable.
+  // When the displayed countdown hits 0 while the draft is running, POST to
+  // /api/draft-tick. The server handles everything — announcing the pick,
+  // auto-skipping, advancing current_pick_index. The endpoint is idempotent
+  // so multiple clients calling it concurrently is safe. A ref-based 2s
+  // debounce guards against firing more than once per zero-crossing.
+  const tickFiredRef = useRef(false);
+  useEffect(() => {
+    if (timeLeft > 0) {
+      tickFiredRef.current = false;
       return;
     }
-    tickFiredRef.current = key;
-    lastTickFiredAtRef.current = now;
-    console.log(`[draft-tick] firing tick from client (source=${source}, key=${key})`);
+    if (state?.status !== "running") return;
+    if (tickFiredRef.current) return;
+    tickFiredRef.current = true;
     fetch("/api/draft-tick", { method: "POST" })
-      .then((r) => r.json().catch(() => ({})))
+      .then((r) => r.json())
       .then((data) => {
-        console.log(`[draft-tick] response`, data);
+        if (data?.status !== "advanced") {
+          tickFiredRef.current = false;
+        }
       })
-      .catch((err) => {
-        // Best-effort: another client (or the next poll) will retry. Clear
-        // the dedupe key so a follow-up render can retry too.
-        console.warn("[draft-tick] request failed", err);
-        tickFiredRef.current = null;
+      .catch(() => {
+        tickFiredRef.current = false;
       });
-  }, []);
-
-  // Trigger 1: announcement countdown hit 0 with a submitted pick.
-  useEffect(() => {
-    // Diagnostic: every render that reaches this effect logs the values
-    // that drive the firing decision. This is the line to look for in
-    // DevTools when the board appears stuck after a pick is submitted.
-    console.log(
-      `[draft-tick] announce-effect isPickIn=${isPickIn} announceSeconds=${announceSeconds} ` +
-        `pick_submitted=${state?.pick_submitted} pick_announced_at=${state?.pick_announced_at} ` +
-        `status=${state?.status}`
-    );
-    if (!isPickIn) return;
-    if (announceSeconds > 0) return;
-    fireTick("announce", `announce:${state?.pick_announced_at ?? ""}`);
-  }, [isPickIn, announceSeconds, state?.pick_announced_at, state?.pick_submitted, state?.status, fireTick]);
-
-  // Trigger 2: on-the-clock timer hit 0 with NO pick submitted (auto-skip).
-  useEffect(() => {
-    console.log(
-      `[draft-tick] skip-effect isPickIn=${isPickIn} isActive=${isActive} ` +
-        `status=${state?.status} tickedSeconds=${tickedSeconds} ` +
-        `pick_index=${state?.current_pick_index}`
-    );
-    if (isPickIn) return;
-    if (!isActive || state?.status !== "running") return;
-    if (tickedSeconds > 0) return;
-    fireTick(
-      "skip",
-      `skip:${state?.clock_started_at ?? ""}:${state?.current_pick_index ?? ""}`
-    );
-  }, [
-    isPickIn,
-    isActive,
-    state?.status,
-    tickedSeconds,
-    state?.clock_started_at,
-    state?.current_pick_index,
-    fireTick,
-  ]);
+  }, [timeLeft, state?.status]);
 
   // ----- Reveal animation + chime + mute ----------------------------------
   // When the server flips a draft_log row from is_announced=false → true
