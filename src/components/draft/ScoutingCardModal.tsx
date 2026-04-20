@@ -209,13 +209,15 @@ function BioCell({
   return (
     <div
       style={{
-        flex: 1,
-        padding: "8px 10px",
+        flex: "0 0 auto",
+        padding: "8px 14px",
         borderRight: last ? undefined : "2px solid #1A1A1A",
+        background: "#F5F0E6",
         display: "flex",
         flexDirection: "column",
-        alignItems: "flex-start",
+        alignItems: "center",
         justifyContent: "center",
+        textAlign: "center",
         minWidth: 0,
       }}
     >
@@ -223,9 +225,9 @@ function BioCell({
         style={{
           fontFamily: MONO,
           fontWeight: 700,
-          fontSize: 13,
+          fontSize: 14,
           color: "#1A1A1A",
-          lineHeight: 1.1,
+          lineHeight: 1.05,
         }}
       >
         {value}
@@ -251,17 +253,16 @@ function GradeLetterCell({ letter }: { letter: LetterGrade | "TBD" | "—" }) {
   return (
     <div
       style={{
-        width: 42,
+        width: 44,
         flexShrink: 0,
         background: "#F5F0E6",
         borderRight: "2px solid #1A1A1A",
-        padding: 6,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontFamily: SYNE,
         fontWeight: 800,
-        fontSize: 22,
+        fontSize: 24,
         color: "#1A1A1A",
         lineHeight: 1,
       }}
@@ -276,7 +277,7 @@ function GradeDetailsCell({ grade }: { grade: ScoutingGrade }) {
     <div
       style={{
         flex: 1,
-        padding: "6px 8px",
+        padding: "8px 10px",
         borderRight: "2.5px solid #1A1A1A",
         display: "flex",
         flexDirection: "column",
@@ -288,9 +289,9 @@ function GradeDetailsCell({ grade }: { grade: ScoutingGrade }) {
         style={{
           fontFamily: SYNE,
           fontWeight: 700,
-          fontSize: 8,
+          fontSize: 9,
           textTransform: "uppercase",
-          letterSpacing: "1px",
+          letterSpacing: "1.5px",
           color: "#1A1A1A",
         }}
       >
@@ -299,9 +300,9 @@ function GradeDetailsCell({ grade }: { grade: ScoutingGrade }) {
       <div
         style={{
           fontFamily: DM_SANS,
-          fontSize: 9,
+          fontSize: 10,
           color: "#1A1A1A",
-          lineHeight: 1.3,
+          lineHeight: 1.35,
           marginTop: 2,
         }}
       >
@@ -327,11 +328,11 @@ function MeterPanel({
         flex: 1,
         border: "2px solid #1A1A1A",
         background: "#FEFCF9",
-        padding: "4px 6px",
+        padding: "6px 8px",
         display: "flex",
         flexDirection: "column",
         justifyContent: "center",
-        gap: 4,
+        gap: 5,
       }}
     >
       <div
@@ -357,7 +358,7 @@ function MeterPanel({
           style={{
             fontFamily: MONO,
             fontWeight: 700,
-            fontSize: 9,
+            fontSize: 10,
             color: "#1A1A1A",
           }}
         >
@@ -367,7 +368,7 @@ function MeterPanel({
       <div
         style={{
           position: "relative",
-          height: 5,
+          height: 6,
           width: "100%",
           background: "#eee",
           border: "1px solid #ccc",
@@ -400,21 +401,25 @@ function GradeRow({
   return (
     <div
       style={{
+        flex: 1,
         display: "flex",
         alignItems: "stretch",
         borderBottom: isLast ? undefined : "2.5px solid #1A1A1A",
+        minHeight: 0,
       }}
     >
       <GradeLetterCell letter={grade.letter} />
       <GradeDetailsCell grade={grade} />
-      {/* Sidebar is flush with the grade content (no wrapper padding) and
-          fills the full row height via stretch alignment. */}
+      {/* Right-side sidebar — fixed 130px width with 8px padding wrapper so
+          the inner element (Value/Fit meter or Draft button) fills the row. */}
       <div
         style={{
-          width: 120,
+          width: 130,
           flexShrink: 0,
+          padding: 8,
           display: "flex",
-          alignItems: "stretch",
+          flexDirection: "column",
+          justifyContent: "center",
         }}
       >
         {sidebar}
@@ -508,11 +513,13 @@ function BackCard({
 
   return (
     <div className="cfc-scout-back">
-      {/* Top bio bar */}
+      {/* Top bio bar — fixed ~44px tall, 4 cells. Last cell flex:1 holds
+          "{College} · {Position}". */}
       <div
         style={{
           display: "flex",
-          background: "#F5F0E6",
+          height: 44,
+          flexShrink: 0,
           borderBottom: "2.5px solid #1A1A1A",
         }}
       >
@@ -521,13 +528,15 @@ function BackCard({
         <BioCell value={weightDisplay} label="Weight" />
         <div
           style={{
-            flex: 2,
-            padding: "8px 10px",
+            flex: 1,
+            background: "#F5F0E6",
+            padding: "0 14px",
             display: "flex",
             alignItems: "center",
             fontFamily: DM_SANS,
             fontSize: 11,
             color: "#1A1A1A",
+            textTransform: "uppercase",
             letterSpacing: "1px",
             minWidth: 0,
             overflow: "hidden",
@@ -539,14 +548,15 @@ function BackCard({
         </div>
       </div>
 
-      {/* Scouting report divider */}
+      {/* Scouting Report divider */}
       <div
         style={{
-          padding: "6px 8px 4px",
-          borderBottom: "2px solid #1A1A1A",
+          flexShrink: 0,
+          padding: "8px 10px 6px",
+          borderBottom: "2.5px solid #1A1A1A",
           fontFamily: SYNE,
           fontWeight: 800,
-          fontSize: 8,
+          fontSize: 9,
           color: "#1A1A1A",
           textTransform: "uppercase",
           letterSpacing: "3px",
@@ -555,8 +565,16 @@ function BackCard({
         Scouting Report
       </div>
 
-      {/* Three aligned rows */}
-      <div style={{ display: "flex", flexDirection: "column" }}>
+      {/* Three equal-height grade rows — together they fill all remaining
+          vertical space below the divider (each row is `flex: 1`). */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+        }}
+      >
         <GradeRow
           grade={grades.capital}
           sidebar={<MeterPanel label="Value" value={player.valueScore} fillColor="#3366CC" />}
