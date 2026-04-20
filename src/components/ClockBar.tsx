@@ -141,6 +141,7 @@ export default function ClockBar() {
   useEffect(() => {
     if (!isPickIn) return;
     if (announceSeconds > 0) return;
+    console.log('[tick-trigger-1]', { announceSeconds, isPickIn, pick_announced_at: state?.pick_announced_at });
     const key = `announce:${state?.pick_announced_at ?? ""}`;
     if (tickFiredRef.current === key) return;
     tickFiredRef.current = key;
