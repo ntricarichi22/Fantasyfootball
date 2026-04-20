@@ -51,8 +51,15 @@ const processStep = async (
   // trigger the auto-announce. The canonical /api/draft-tick path already
   // normalizes via normalizeDraftStateRow; this is defense in depth.
   const pickSubmitted = normalizeBoolean(state.pick_submitted);
+  // Both auto-announce and auto-skip require the clock to be running. When
+  // the draft is paused the server must not advance picks in the background
+  // (a Vercel cron tick or a client racing the pause action would otherwise
+  // wake the draft up and clobber the saved seconds_remaining).
   const announcementReady =
-    pickSubmitted && Number.isFinite(announceMs) && Date.now() >= announceMs;
+    pickSubmitted &&
+    Number.isFinite(announceMs) &&
+    Date.now() >= announceMs &&
+    state.status === "running";
   const skipReady =
     !pickSubmitted &&
     state.status === "running" &&

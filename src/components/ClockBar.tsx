@@ -482,9 +482,9 @@ export default function ClockBar() {
                   willChange: "transform",
                   fontFamily: "var(--font-headline)",
                   fontWeight: 800,
-                  fontSize: 14,
+                  fontSize: 26,
                   textTransform: "uppercase",
-                  letterSpacing: "0.5px",
+                  letterSpacing: "4px",
                   lineHeight: 1,
                 }}
                 ref={(el) => {
@@ -495,10 +495,9 @@ export default function ClockBar() {
                   });
                 }}
               >
-                <span style={{ color: "rgba(255,255,255,0.75)" }}>Select</span>
                 <span style={{ color: YELLOW }}>{revealedPick.playerName}</span>
                 <span style={{ color: "rgba(255,255,255,0.5)" }}>·</span>
-                <span style={{ color: PAPER }}>{revealedPick.position}</span>
+                <span style={{ color: "rgba(255,255,255,0.75)" }}>{revealedPick.position}</span>
                 <span style={{ color: "rgba(255,255,255,0.5)" }}>·</span>
                 <span style={{ color: "rgba(255,255,255,0.75)" }}>{revealedPick.school}</span>
               </div>
