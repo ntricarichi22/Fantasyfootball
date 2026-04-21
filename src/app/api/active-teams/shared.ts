@@ -26,3 +26,6 @@ export const getSupabaseAdminClient = (): SupabaseClientResult => {
 };
 
 export const activeCutoffIso = () => new Date(Date.now() - SESSION_TIMEOUT_MS).toISOString();
+
+export const normalizeRosterId = (value: string | number | null | undefined) =>
+  value !== undefined && value !== null ? String(value) : "";

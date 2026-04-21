@@ -10,7 +10,7 @@ import type {
   RookieProspectMap,
   SleeperPlayer,
 } from "../draft/types";
-import { normalizeProspectName } from "../draft/types";
+import { normalizeName } from "@/lib/normalize";
 import type { TeamProfile } from "../trade/profile";
 
 type Params = {
@@ -67,7 +67,7 @@ export function useDraftBoard({
         [player.first_name, player.last_name].filter(Boolean).join(" ").trim();
       // Prospect rows are keyed by normalized name so the fallback works
       // even when Supabase rows carry placeholder ids (e.g. `tmp_*`).
-      const prospect = prospectMap[normalizeProspectName(candidateName)];
+      const prospect = prospectMap[normalizeName(candidateName)];
       const isRookie =
         (player.years_exp !== undefined &&
           player.years_exp !== null &&

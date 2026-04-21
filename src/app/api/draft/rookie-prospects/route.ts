@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { normalizeProspectName } from "@/lib/draft/types";
+import { normalizeName } from "@/lib/normalize";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
@@ -34,7 +34,7 @@ export async function GET() {
 
   const result: Record<string, unknown> = {};
   (data ?? []).forEach((row) => {
-    const key = normalizeProspectName(row?.player_name);
+    const key = normalizeName(row?.player_name);
     if (key) result[key] = row;
   });
 

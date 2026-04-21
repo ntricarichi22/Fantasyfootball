@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { activeCutoffIso, getSupabaseAdminClient } from "../shared";
+import { activeCutoffIso, getSupabaseAdminClient, normalizeRosterId } from "../shared";
 
 export const dynamic = "force-dynamic";
 
@@ -8,9 +8,6 @@ type ClaimPayload = {
   rosterId?: string | number;
   sessionId?: string;
 };
-
-const normalizeRosterId = (value: string | number | null | undefined) =>
-  value !== undefined && value !== null ? String(value) : "";
 
 export async function POST(request: Request) {
   let payload: ClaimPayload;

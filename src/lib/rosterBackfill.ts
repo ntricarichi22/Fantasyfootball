@@ -10,6 +10,8 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { normalizeName } from "@/lib/normalize";
+
 const FANTASYCALC_URL =
   "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=0.5";
 const DYNASTY_PROCESS_VALUES_URL =
@@ -47,14 +49,6 @@ type SleeperPlayer = {
 };
 
 /* ── Helpers ───────────────────────────────────────────────────────────── */
-
-function normalizeName(name: string): string {
-  return name
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z]/g, "");
-}
 
 function parseCSVLine(line: string): string[] {
   const result: string[] = [];

@@ -7,10 +7,10 @@ import { useDraftStatusContext } from "./DraftStatusProvider";
 import { useDraftClockContext } from "../lib/hooks/useDraftClockContext";
 import { computeSecondsUntilAnnouncement } from "../lib/draftState";
 import { getSupabaseClient } from "../lib/supabaseClient";
-import { normalizeProspectName } from "../lib/draft/types";
+import { normalizeName } from "@/lib/normalize";
 import { playChime, toggleChimeMuted, useChimeMuted } from "../lib/chime";
+import { readStoredTeam, type StoredTeam } from "../lib/storedTeam";
 
-const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 const DRAFT_ROUTE = "/draft";
 const TRADE_ROUTE = "/trades";
 
@@ -27,25 +27,7 @@ const LABEL_ON_BAR = "rgba(255,255,255,0.5)";
 const INK_LABEL = "rgba(26,26,26,0.5)";
 const INK_COLON = "rgba(26,26,26,0.35)";
 
-type StoredSelection = {
-  rosterId?: string;
-  teamName?: string;
-};
-
-const readStoredSelection = (): StoredSelection => {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return {
-      rosterId: typeof parsed?.rosterId === "string" ? parsed.rosterId : undefined,
-      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : undefined,
-    };
-  } catch {
-    return {};
-  }
-};
+type StoredSelection = StoredTeam;
 
 const formatTimer = (totalSeconds: number) => {
   const safe = Math.max(0, Math.floor(totalSeconds));
@@ -108,8 +90,8 @@ export default function ClockBar() {
   // roster the user is currently piloting.
   const [selection, setSelection] = useState<StoredSelection>({});
   useEffect(() => {
-    setSelection(readStoredSelection());
-    const handle = () => setSelection(readStoredSelection());
+    setSelection(readStoredTeam());
+    const handle = () => setSelection(readStoredTeam());
     window.addEventListener("storage", handle);
     return () => window.removeEventListener("storage", handle);
   }, []);
@@ -286,7 +268,7 @@ export default function ClockBar() {
         "—";
 
       const map = await loadCollegeMap();
-      const school = map[normalizeProspectName(playerName)] || "—";
+      const school = map[normalizeName(playerName)] || "—";
 
       // Clear any pending phase timers from a prior reveal.
       revealTimeoutsRef.current.forEach((id) => window.clearTimeout(id));

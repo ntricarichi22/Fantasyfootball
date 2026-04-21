@@ -26,7 +26,7 @@ import type {
   DraftLogEntry,
   DraftedPlayer,
 } from "../lib/draft/types";
-import { normalizeProspectName } from "../lib/draft/types";
+import { normalizeName } from "@/lib/normalize";
 import { playChime } from "../lib/chime";
 import {
   calculatePickNumber,
@@ -667,7 +667,7 @@ export default function Home() {
           playerDictionary[p.id],
           p.position,
           nflTeamContext,
-          rookieProspects[normalizeProspectName(p.name)] ?? null
+          rookieProspects[normalizeName(p.name)] ?? null
         )
       );
     });
@@ -1012,7 +1012,7 @@ export default function Home() {
         </div>
       )}
       {scoutingPlayer && !isMobile && (() => {
-        const lookupKey = normalizeProspectName(scoutingPlayer.name);
+        const lookupKey = normalizeName(scoutingPlayer.name);
         const prospect = rookieProspects[lookupKey] ?? null;
         // Debug: confirm whether the rookie_prospects map was fetched and
         // whether the case-insensitive name lookup hit a row. Includes the
