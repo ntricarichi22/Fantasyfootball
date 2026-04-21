@@ -807,3 +807,739 @@ body {
     height: auto;
   }
 }
+
+/* =====================================================================
+   MOBILE DRAFT ROOM (≤768px)
+   From-scratch mobile layout per docs/draft-room-designs/draft-war-room-spec.md
+   and the mobile build spec. Above 768px these rules do nothing — the
+   desktop layout is unchanged.
+   ===================================================================== */
+
+/* Hide AppShell desktop chrome (top bar, ClockBar wrapper, ticker) on mobile
+   when the Draft Room owns the full viewport. The page sets
+   data-mobile-draft="true" on <body> while it is rendering the mobile shell. */
+@media (max-width: 768px) {
+  body[data-mobile-draft="true"] .cfc-shell-chrome { display: none !important; }
+  body[data-mobile-draft="true"] main {
+    padding: 0 !important;
+    height: 100vh;
+    overflow: hidden;
+  }
+  body[data-mobile-draft="true"] .cfc-bottom-bar { display: none !important; }
+}
+
+/* Root mobile container — full-viewport vertical flex stack. */
+.cfc-mobile-root {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--cfc-canvas);
+  color: var(--cfc-ink);
+  font-family: var(--font-body);
+  /* Use `100dvh` when supported so iOS Safari's collapsing chrome doesn't
+     leave a gap below the ticker. Fall back to plain 100vh elsewhere. */
+  height: 100vh;
+  height: 100dvh;
+  z-index: 50;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ------------------------------ TOP BAR (40px) -------------------------- */
+.cfc-mobile-topbar {
+  flex-shrink: 0;
+  height: 40px;
+  background: #1A1A1A;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  color: #FEFCF9;
+}
+.cfc-mobile-topbar-hamburger {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+.cfc-mobile-topbar-hamburger > span {
+  width: 20px;
+  height: 2px;
+  background: #FEFCF9;
+  display: block;
+}
+.cfc-mobile-topbar-logo {
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 12px;
+  color: #F5C230;
+  letter-spacing: 2px;
+}
+.cfc-mobile-topbar-trade {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid #FEFCF9;
+  background: transparent;
+  color: #FEFCF9;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 9px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ------------------------------ CLOCK BAR (50px) ------------------------ */
+.cfc-mobile-clockbar {
+  flex-shrink: 0;
+  height: 50px;
+  background: #3366CC;
+  border-bottom: 2.5px solid #1A1A1A;
+  display: flex;
+  align-items: stretch;
+  color: #FEFCF9;
+  position: relative;
+  overflow: hidden;
+}
+.cfc-mobile-clockbar-left {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+}
+.cfc-mobile-clockbar-team {
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.1;
+}
+.cfc-mobile-clockbar-context {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfc-mobile-clockbar-right {
+  min-width: 80px;
+  padding: 0 12px;
+  border-left: 2px solid rgba(255,255,255,0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+}
+.cfc-mobile-clockbar-time-label {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.1;
+}
+.cfc-mobile-clockbar-time {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+/* Reveal animation states fill the whole bar. */
+.cfc-mobile-clockbar-reveal {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+.cfc-mobile-clockbar-reveal-label {
+  position: absolute;
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #F5C230;
+  white-space: nowrap;
+  line-height: 1;
+  transform: translateY(60px);
+  transition: transform 0.85s cubic-bezier(0.5, 0, 0.75, 0.1);
+  will-change: transform;
+}
+.cfc-mobile-clockbar-reveal-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  white-space: nowrap;
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  line-height: 1;
+  transition: transform 0.9s cubic-bezier(0.2, 1.05, 0.35, 1);
+  will-change: transform;
+  padding: 0 12px;
+  overflow: hidden;
+  max-width: 100%;
+}
+.cfc-mobile-clockbar-reveal-name {
+  color: #F5C230;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfc-mobile-clockbar-reveal-meta {
+  color: rgba(255,255,255,0.75);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+
+/* ------------------------------ DRAFT BOARD (flex 1) -------------------- */
+.cfc-mobile-board {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #FEFCF9;
+  overflow: hidden;
+}
+.cfc-mobile-board-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  background: #F5F0E6;
+  border-bottom: 2px solid #1A1A1A;
+  font-family: var(--font-headline);
+  font-weight: 700;
+  font-size: 8px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #1A1A1A;
+}
+.cfc-mobile-board-h-rank { width: 18px; flex-shrink: 0; }
+.cfc-mobile-board-h-player { flex: 1; min-width: 0; }
+.cfc-mobile-board-h-pos { width: 28px; flex-shrink: 0; text-align: center; }
+.cfc-mobile-board-h-school { width: 90px; flex-shrink: 0; }
+.cfc-mobile-board-h-action { width: 24px; flex-shrink: 0; }
+
+.cfc-mobile-board-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.cfc-mobile-board-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(0,0,0,0.08);
+  cursor: pointer;
+  background: #FEFCF9;
+  transition: background 80ms ease-out;
+}
+.cfc-mobile-board-row:active { background: #F5F0E6; }
+.cfc-mobile-board-rank {
+  width: 18px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+  color: #777;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.cfc-mobile-board-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-headline);
+  font-weight: 700;
+  font-size: 12px;
+  color: #1A1A1A;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfc-mobile-board-school {
+  width: 90px;
+  flex-shrink: 0;
+  font-family: var(--font-body);
+  font-size: 10px;
+  color: #777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cfc-mobile-board-plus {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid #D0C8B8;
+  flex-shrink: 0;
+  background: transparent;
+  position: relative;
+  cursor: not-allowed;
+  padding: 0;
+}
+.cfc-mobile-board-plus[data-active] {
+  border-color: #1A1A1A;
+  background: #1A1A1A;
+  cursor: pointer;
+}
+.cfc-mobile-board-plus-bar {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  background: #C0B8A8;
+  display: block;
+}
+.cfc-mobile-board-plus[data-active] .cfc-mobile-board-plus-bar {
+  background: #FEFCF9;
+}
+.cfc-mobile-board-plus-h {
+  width: 10px;
+  height: 1.5px;
+  transform: translate(-50%, -50%);
+}
+.cfc-mobile-board-plus-v {
+  width: 1.5px;
+  height: 10px;
+  transform: translate(-50%, -50%);
+}
+.cfc-mobile-board-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: #8C7E6A;
+  font-family: var(--font-body);
+  font-size: 12px;
+}
+
+/* ------------------------------ TAB BAR (44px) -------------------------- */
+.cfc-mobile-tabbar {
+  flex-shrink: 0;
+  height: 44px;
+  background: #FEFCF9;
+  border-top: 2.5px solid #1A1A1A;
+  display: flex;
+  position: relative;
+  z-index: 60;
+}
+.cfc-mobile-tabbar-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  border: none;
+  border-right: 2px solid #1A1A1A;
+  background: #FEFCF9;
+  padding: 0;
+  cursor: pointer;
+  transition: background 80ms ease-out;
+}
+.cfc-mobile-tabbar-btn[data-last] { border-right: none; }
+.cfc-mobile-tabbar-btn[data-active] { background: #F5F0E6; }
+.cfc-mobile-tabbar-btn:active { background: #F5F0E6; }
+.cfc-mobile-tabbar-icon {
+  display: flex;
+  width: 14px;
+  height: 14px;
+  align-items: center;
+  justify-content: center;
+}
+.cfc-mobile-tabbar-label {
+  font-family: var(--font-headline);
+  font-weight: 700;
+  font-size: 8px;
+  color: #1A1A1A;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+/* ------------------------------ TICKER (32px, bottom) ------------------- */
+.cfc-mobile-ticker {
+  flex-shrink: 0;
+  height: 32px;
+  background: #1A1A1A;
+  border-top: 2px solid #1A1A1A;
+  overflow: hidden;
+  position: relative;
+  z-index: 55;
+  display: flex;
+  align-items: center;
+}
+.cfc-mobile-ticker-track {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  white-space: nowrap;
+  animation: cfc-mobile-ticker-scroll 30s linear infinite;
+  will-change: transform;
+}
+.cfc-mobile-ticker-empty {
+  padding: 0 16px;
+  color: rgba(255,255,255,0.4);
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+.cfc-mobile-ticker-entry {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font-family: var(--font-body);
+  font-size: 10px;
+  color: rgba(255,255,255,0.85);
+  white-space: nowrap;
+  border-right: 1px solid rgba(255,255,255,0.15);
+  height: 100%;
+}
+.cfc-mobile-ticker-pick {
+  color: #F5C230;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.cfc-mobile-ticker-name {
+  color: #FEFCF9;
+  font-weight: 600;
+}
+.cfc-mobile-ticker-meta {
+  color: rgba(255,255,255,0.55);
+}
+@keyframes cfc-mobile-ticker-scroll {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cfc-mobile-ticker-track { animation: none; }
+}
+
+/* ------------------------------ SHARED OVERLAY -------------------------- */
+.cfc-mobile-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26,26,26,0.6);
+  z-index: 90;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease-out;
+}
+.cfc-mobile-overlay[data-open] {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* When the overlay is for a bottom sheet, leave room for the tab bar so it
+   stays visible above the dim. */
+.cfc-mobile-overlay[data-sheet="true"] {
+  bottom: 44px;
+}
+
+/* ------------------------------ HAMBURGER MENU -------------------------- */
+.cfc-mobile-hamburger {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 80%;
+  max-width: 320px;
+  background: #FEFCF9;
+  border-right: 3px solid #1A1A1A;
+  z-index: 100;
+  transform: translateX(-105%);
+  transition: transform 300ms ease-out;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cfc-mobile-hamburger[data-open] {
+  transform: translateX(0);
+}
+.cfc-mobile-hamburger-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 2px solid #1A1A1A;
+  background: #1A1A1A;
+}
+.cfc-mobile-hamburger-logo {
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 18px;
+  color: #F5C230;
+  letter-spacing: 3px;
+}
+.cfc-mobile-hamburger-close {
+  background: transparent;
+  border: none;
+  color: #FEFCF9;
+  font-family: var(--font-mono);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  line-height: 1;
+}
+.cfc-mobile-hamburger-nav {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.cfc-mobile-hamburger-link {
+  text-align: left;
+  padding: 14px 16px;
+  border: none;
+  border-bottom: 1px solid rgba(0,0,0,0.1);
+  background: transparent;
+  font-family: var(--font-headline);
+  font-weight: 700;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #1A1A1A;
+  cursor: pointer;
+}
+.cfc-mobile-hamburger-link[data-active] {
+  background: #F5F0E6;
+  color: #1A1A1A;
+}
+.cfc-mobile-hamburger-link:active {
+  background: #F5F0E6;
+}
+.cfc-mobile-hamburger-footer {
+  flex-shrink: 0;
+  padding: 14px 16px;
+  border-top: 2px solid #1A1A1A;
+  background: #F5F0E6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cfc-mobile-hamburger-mute-label {
+  font-family: var(--font-headline);
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #1A1A1A;
+}
+.cfc-mobile-mute-toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1.5px solid #1A1A1A;
+  background: #C0B8A8;
+  position: relative;
+  cursor: pointer;
+  padding: 0;
+  transition: background 150ms ease-out;
+}
+.cfc-mobile-mute-toggle[data-on] {
+  background: #F5C230;
+}
+.cfc-mobile-mute-toggle-knob {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #1A1A1A;
+  transition: transform 150ms ease-out;
+}
+.cfc-mobile-mute-toggle[data-on] .cfc-mobile-mute-toggle-knob {
+  transform: translateX(15px);
+}
+
+/* ------------------------------ BOTTOM SHEET ---------------------------- */
+.cfc-mobile-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  /* Sit on top of the tab bar (44px tall). The sheet's top edge ends at
+     35vh from the top so the sheet itself is ~65% of the screen. */
+  bottom: 44px;
+  height: 65vh;
+  height: 65dvh;
+  background: #FEFCF9;
+  border-top: 3px solid #1A1A1A;
+  box-shadow: 0 -4px 0 #1A1A1A;
+  z-index: 95;
+  transform: translateY(110%);
+  transition: transform 300ms ease-out;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cfc-mobile-sheet[data-open] {
+  transform: translateY(0);
+}
+.cfc-mobile-sheet-handle {
+  flex-shrink: 0;
+  width: 40px;
+  height: 4px;
+  background: #1A1A1A;
+  border-radius: 2px;
+  margin: 8px auto;
+}
+.cfc-mobile-sheet-header {
+  flex-shrink: 0;
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  padding: 8px 16px;
+  border-bottom: 2px solid #1A1A1A;
+  color: #1A1A1A;
+}
+.cfc-mobile-sheet-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px;
+}
+
+/* ------------------------------ FLIP CARD MODAL ------------------------- */
+.cfc-mobile-flip-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26,26,26,0.75);
+  z-index: 200;
+  animation: cfc-overlay-in 200ms ease-out both;
+}
+.cfc-mobile-flip-positioner {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 201;
+  animation: cfc-card-scale-in 450ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.cfc-mobile-flip-close {
+  position: absolute;
+  top: -36px;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  background: #FEFCF9;
+  border: 2.5px solid #1A1A1A;
+  border-radius: 0;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  color: #1A1A1A;
+  cursor: pointer;
+  z-index: 202;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 2px 2px 0 #1A1A1A;
+  padding: 0;
+  line-height: 1;
+}
+.flip-container {
+  perspective: 1000px;
+  width: 280px;
+  height: 420px;
+}
+.flip-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-style: preserve-3d;
+  transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+}
+.flip-inner.flipped {
+  transform: rotateY(180deg);
+}
+.flip-front,
+.flip-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+.flip-back {
+  transform: rotateY(180deg);
+}
+.cfc-mobile-flip-front {
+  width: 100%;
+  height: 100%;
+  border: 3.5px solid #1A1A1A;
+  box-shadow: 7px 7px 0 #1A1A1A;
+  background-image: url('/zubaz-card-bg-40fuzz.png');
+  background-size: cover;
+  background-position: center;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cfc-mobile-flip-back {
+  width: 100%;
+  height: 100%;
+  border: 3.5px solid #1A1A1A;
+  box-shadow: 7px 7px 0 #1A1A1A;
+  background: #FEFCF9;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.cfc-mobile-flip-draft-btn {
+  display: block;
+  width: 100%;
+  padding: 10px;
+  background-image: url('/zubaz-card-bg-40fuzz.png');
+  background-size: cover;
+  background-position: center;
+  color: #FFFFFF;
+  border: none;
+  border-top: 2.5px solid #1A1A1A;
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-shadow: 1px 1px 0 #1A1A1A;
+  cursor: pointer;
+  box-shadow: 3px 3px 0 #1A1A1A;
+}
+.cfc-mobile-flip-draft-btn:active {
+  transform: translate(2px, 2px);
+}

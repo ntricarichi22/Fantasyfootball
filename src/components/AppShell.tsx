@@ -139,7 +139,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <DraftStatusProvider>
       <div className="flex min-h-screen flex-col bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
       {/* TOP BAR — ink/black, yellow CFC logo, underlined active nav */}
-      <header className="cfc-topbar sticky top-0 z-40">
+      <header className="cfc-topbar cfc-shell-chrome sticky top-0 z-40">
         <div className="mx-auto flex w-full max-w-7xl items-center gap-6 px-4 py-3 sm:px-6">
           <Link href="/" className="cfc-topbar-logo shrink-0" aria-label="CFC home">
             CFC
@@ -214,14 +214,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
       </header>
 
       {/* CLOCK BAR — gated on isActive via DraftStatusProvider */}
-      <ClockBar />
+      <div className="cfc-shell-chrome">
+        <ClockBar />
+      </div>
 
       {/* CONTENT — bottom padding reserves room for the fixed ticker. */}
       <main className="flex-1 bg-[var(--cfc-canvas)]" style={{ paddingBottom: 38 }}>{children}</main>
 
       {/* TICKER BAR — blue activity ticker normally; swapped for the draft
           pick ticker while a draft is active. */}
-      <BottomTicker />
+      <div className="cfc-shell-chrome">
+        <BottomTicker />
+      </div>
       </div>
     </DraftStatusProvider>
   );
