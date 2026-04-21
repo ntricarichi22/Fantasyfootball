@@ -358,8 +358,6 @@ export function AssistantGmPanel({
     setRecommendationLoading(true);
     setRecommendationError("");
 
-    console.log("[AssistantGM] recommendation request", requestPayload);
-
     fetch("/api/llm/draft-assistant", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -373,10 +371,6 @@ export function AssistantGmPanel({
           error?: string;
           raw?: string;
         } | null;
-        console.log("[AssistantGM] recommendation response", {
-          status: response.status,
-          json,
-        });
         if (!response.ok || !json?.ok || !json.recommendation) {
           throw new Error(
             json?.error || `Recommendation unavailable (${response.status})`
@@ -463,8 +457,6 @@ export function AssistantGmPanel({
         messages: nextMessages,
       };
 
-      console.log("[AssistantGM] chat request", requestPayload);
-
       fetch("/api/llm/draft-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -476,10 +468,6 @@ export function AssistantGmPanel({
             text?: string;
             error?: string;
           } | null;
-          console.log("[AssistantGM] chat response", {
-            status: response.status,
-            json,
-          });
           if (!response.ok || !json?.ok) {
             throw new Error(json?.error || "Assistant GM is unavailable.");
           }

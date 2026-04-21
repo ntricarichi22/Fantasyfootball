@@ -448,24 +448,6 @@ function BackCard({
     (player.ageLabel && player.ageLabel !== "–" && player.ageLabel) ||
     (typeof rookieProspect?.age === "number" ? String(rookieProspect.age) : "—");
 
-  // Debug: log right at the age read site so we can see exactly what the
-  // back card sees when computing Age. Helps diagnose missing rookie_prospects
-  // matches (the upstream lookup in page.tsx normalizes both sides to lower-
-  // case alphanumerics, so a row keyed under "jeremiyahlove" should match a
-  // player named "Jeremiyah Love" — if this logs `rookieProspect: null` then
-  // the row is genuinely absent or its `name` column differs).
-  if (typeof window !== "undefined") {
-    console.debug("[ScoutingCard.BackCard] age lookup", {
-      playerName: player.name,
-      playerNameTrimmedLower: player.name?.trim().toLowerCase(),
-      sleeperAge: player.ageLabel,
-      rookieProspect,
-      rookieProspectAge: rookieProspect?.age,
-      rookieProspectAgeType: typeof rookieProspect?.age,
-      ageDisplay,
-    });
-  }
-
   const sleeperHeightInches =
     typeof sleeperPlayer?.height === "string" && /^\d+$/.test(sleeperPlayer.height)
       ? Number(sleeperPlayer.height)
@@ -633,20 +615,6 @@ export function ScoutingCardModal({
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Debug: when the card opens, log the data sources used to populate the bio
-  // bar and grade rows. Helps diagnose missing-age / missing-prospect issues
-  // (e.g. when the rookie_prospects API returns no row for a name).
-  useEffect(() => {
-    console.debug("[ScoutingCard] open", {
-      playerName: player.name,
-      playerAgeLabel: player.ageLabel,
-      sleeperPlayer,
-      rookieProspect,
-      rookieProspectAge: rookieProspect?.age ?? null,
-      rookieProspectCollege: rookieProspect?.college ?? null,
-    });
-  }, [player.name, player.ageLabel, sleeperPlayer, rookieProspect]);
 
   const grades: ScoutingGradeSet =
     precomputedGrades ??

@@ -33,10 +33,6 @@ export const getStoredSessionSelection = () => {
   // sign in as different teams (the documented multi-tab workflow). This
   // means a hard refresh in some browsers / private windows can lose the
   // selection and bounce the user back to the team picker.
-  // TODO(persistence): support `?team=<rosterId>` URL param (or a
-  // hybrid sessionStorage-first / localStorage-last-team-fallback) so a
-  // hard refresh keeps the user on the draft without breaking the
-  // multi-tab-as-different-teams test workflow.
   if (typeof window === "undefined") return { rosterId: "", sessionId: "", teamName: "" };
   try {
     const saved = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
