@@ -168,6 +168,15 @@ export default function ClockBar() {
       .then((data) => {
         if (data?.status !== "advanced") {
           tickFiredRef.current = false;
+          return;
+        }
+        // Tick advanced state server-side (announce / auto-skip just fired).
+        // Fan out the same refetch signal DraftStatusProvider's 3s poll
+        // uses so the board removes the drafted player at the exact moment
+        // the reveal animation starts on this client, instead of waiting up
+        // to 3s for the next poll.
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("draft-log-refetch-requested"));
         }
       })
       .catch(() => {
@@ -258,6 +267,17 @@ export default function ClockBar() {
       if (!playerName) return;
 
       lastRevealedIndexRef.current = pickIndex;
+
+      // Fan out the board-refresh signal at the exact moment the reveal
+      // begins. The Realtime UPDATE that triggered this reveal SHOULD also
+      // wake useDraftRoomLog's draft_log subscription, but the two channels
+      // are independent and either can drop silently. Dispatching here
+      // guarantees the drafted player leaves the board and shows up in the
+      // ticker simultaneously with the player name appearing in the clock
+      // bar — never seconds later.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("draft-log-refetch-requested"));
+      }
 
       const teamName = typeof row.team_name === "string" && row.team_name ? row.team_name : "—";
       const positionsRaw = Array.isArray(row.positions) ? row.positions : [];

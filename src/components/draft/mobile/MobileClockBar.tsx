@@ -207,6 +207,15 @@ export function MobileClockBar() {
 
       lastRevealedIndexRef.current = pickIndex;
 
+      // Mirror desktop ClockBar: dispatch the board-refresh signal at the
+      // exact moment the reveal begins so useDraftRoomLog re-pulls
+      // /api/draft-log immediately. The drafted player leaves the board
+      // simultaneously with the reveal animation instead of waiting up to
+      // 3s for DraftStatusProvider's next tick poll.
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("draft-log-refetch-requested"));
+      }
+
       const teamName = typeof row.team_name === "string" && row.team_name ? row.team_name : "—";
       const positionsRaw = Array.isArray(row.positions) ? row.positions : [];
       const position =
@@ -284,6 +293,10 @@ export function MobileClockBar() {
       .then((data) => {
         if (data?.status !== "advanced") {
           tickFiredRef.current = false;
+          return;
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("draft-log-refetch-requested"));
         }
       })
       .catch(() => {
