@@ -1,3 +1,5 @@
+import { toId } from "@/lib/draft/helpers";
+
 export type MetricKey =
   | "startingQBs"
   | "startingRBs"
@@ -47,9 +49,6 @@ const defaultMetrics = (): TeamMetrics => ({
   qbDepth: 0,
   skillDepth: 0,
 });
-
-const toId = (value: string | number | null | undefined) =>
-  value !== undefined && value !== null ? String(value) : "";
 
 const rankMetric = (
   entries: Array<{ rosterId: string; metrics: TeamMetrics }>,

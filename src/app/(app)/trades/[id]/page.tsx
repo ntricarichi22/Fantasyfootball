@@ -14,6 +14,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import TradeCenterTabs from "../../../../components/TradeCenterTabs";
+import { readStoredTeam } from "../../../../lib/storedTeam";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -84,23 +85,6 @@ type Preference =
 /* ------------------------------------------------------------------ */
 /*  Session helpers                                                     */
 /* ------------------------------------------------------------------ */
-
-const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
-
-const getStoredTeam = () => {
-  if (typeof window === "undefined") return { rosterId: "", teamName: "" };
-  try {
-    const raw = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!raw) return { rosterId: "", teamName: "" };
-    const parsed = JSON.parse(raw);
-    return {
-      rosterId: typeof parsed?.rosterId === "string" ? parsed.rosterId : "",
-      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : "",
-    };
-  } catch {
-    return { rosterId: "", teamName: "" };
-  }
-};
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
@@ -353,7 +337,7 @@ export default function TradeThreadPage() {
   const params = useParams();
   const threadId = typeof params.id === "string" ? params.id : "";
 
-  const { rosterId } = getStoredTeam();
+  const { rosterId = "" } = readStoredTeam();
 
   const [thread, setThread] = useState<TradeThread | null>(null);
   const [offers, setOffers] = useState<TradeOffer[]>([]);

@@ -125,16 +125,3 @@ export interface RookieProspect {
 
 export type RookieProspectMap = Record<string, RookieProspect>;
 
-/**
- * Lowercase + strip everything except a-z/0-9. Used to key rookie_prospects
- * rows by player name so the fallback works regardless of whether the
- * Supabase row's `player_id` matches Sleeper's (e.g. when bootstrap rows
- * use `tmp_*` placeholders pre-NFL-draft).
- */
-export function normalizeProspectName(name: string | null | undefined): string {
-  return (name ?? "")
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]/g, "");
-}

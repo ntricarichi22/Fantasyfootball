@@ -1,33 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 export const dynamic = "force-dynamic";
-
-let supabaseAdminClient: SupabaseClient | null = null;
-
-type SupabaseClientResult =
-  | { client: SupabaseClient; error: null }
-  | { client: null; error: string };
-
-const getSupabaseAdminClient = (): SupabaseClientResult => {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    return { client: null, error: "Missing Supabase configuration" };
-  }
-
-  if (!supabaseAdminClient) {
-    supabaseAdminClient = createClient(supabaseUrl, serviceRoleKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-  }
-
-  return { client: supabaseAdminClient, error: null };
-};
 
 const buildPlayerValueMapBySleeperId = (
   rows: Array<{ sleeper_id: string | null; value: number | null }>,

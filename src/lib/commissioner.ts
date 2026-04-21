@@ -2,6 +2,14 @@ const COMMISSIONER_TEAM_NAME_NORMALIZED = "virginia founders";
 
 export const COMMISSIONER_TEAM_NAME = "Virginia Founders";
 
+// NOTE: deliberately uses a weaker normalization (trim + lowercase only) than
+// `@/lib/normalize`'s `normalizeName`. The canonical helper strips spaces and
+// other non-alphanumeric characters, but here the result is compared against
+// the literal constant "virginia founders" which contains a space, and the
+// input may be a `null`/`undefined` value (display name or team_name from
+// Sleeper). Switching to the stronger normalization would also require
+// changing the constant and would alter matching semantics, so this local
+// helper is intentionally preserved.
 const normalizeName = (value?: string | null) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
 

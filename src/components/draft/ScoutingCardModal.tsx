@@ -485,7 +485,7 @@ function BackCard({
 
   // Spec example: "Notre Dame · Running back" — always prefer the
   // rookie_prospects college field (case-insensitive name lookup happens
-  // upstream in page.tsx via `normalizeProspectName`); fall through to
+  // upstream in page.tsx via `normalizeName`); fall through to
   // Sleeper, the bootstrap row's `school`, and finally the NFL team.
   const schoolOrTeam =
     rookieProspect?.college ||

@@ -6,7 +6,7 @@ import { useDraftStatusContext } from "../../DraftStatusProvider";
 import { useDraftClockContext } from "../../../lib/hooks/useDraftClockContext";
 import { computeSecondsUntilAnnouncement } from "../../../lib/draftState";
 import { getSupabaseClient } from "../../../lib/supabaseClient";
-import { normalizeProspectName } from "../../../lib/draft/types";
+import { normalizeName } from "@/lib/normalize";
 import { playChime } from "../../../lib/chime";
 
 const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
@@ -223,7 +223,7 @@ export function MobileClockBar() {
         "—";
 
       const map = await loadCollegeMap();
-      const school = map[normalizeProspectName(playerName)] || "—";
+      const school = map[normalizeName(playerName)] || "—";
 
       revealTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
       revealTimeoutsRef.current = [];

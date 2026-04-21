@@ -8,30 +8,9 @@ import { getLeagueId } from "../lib/config";
 import ClockBar from "./ClockBar";
 import DraftTicker from "./DraftTicker";
 import { DraftStatusProvider, useDraftStatusContext } from "./DraftStatusProvider";
+import { readStoredTeam, SELECTED_TEAM_CACHE_KEY, type StoredTeam } from "../lib/storedTeam";
 
-const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
-
-type StoredSelection = {
-  rosterId?: string;
-  sessionId?: string;
-  teamName?: string;
-};
-
-const readStoredSelection = (): StoredSelection => {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return {
-      rosterId: typeof parsed?.rosterId === "string" ? parsed.rosterId : undefined,
-      sessionId: typeof parsed?.sessionId === "string" ? parsed.sessionId : undefined,
-      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : undefined,
-    };
-  } catch {
-    return {};
-  }
-};
+type StoredSelection = StoredTeam;
 
 const safeLeagueId = () => {
   try {
@@ -52,15 +31,15 @@ const TICKER_ITEMS: Array<{ name: string; text: string }> = [
 export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [selection, setSelection] = useState<StoredSelection>(() => readStoredSelection());
+  const [selection, setSelection] = useState<StoredSelection>(() => readStoredTeam());
 
   useEffect(() => {
-    const stored = readStoredSelection();
+    const stored = readStoredTeam();
     if (!stored.rosterId) {
       router.replace("/");
     }
     const handleStorage = () => {
-      setSelection(readStoredSelection());
+      setSelection(readStoredTeam());
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
@@ -73,7 +52,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
     let cancelled = false;
 
     const poll = async () => {
-      const stored = readStoredSelection();
+      const stored = readStoredTeam();
       if (!stored.rosterId) return;
       try {
         const res = await fetch(`/api/trades/unread-count?teamId=${encodeURIComponent(stored.rosterId)}`);
@@ -105,7 +84,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
   );
 
   const handleSwitchTeam = async () => {
-    const stored = readStoredSelection();
+    const stored = readStoredTeam();
     const leagueId = safeLeagueId();
 
     if (stored.rosterId && stored.sessionId && leagueId) {

@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MessageCircle } from "lucide-react";
 import TradeCenterTabs from "../../../components/TradeCenterTabs";
+import { readStoredTeam } from "../../../lib/storedTeam";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -28,23 +29,6 @@ interface TradeThread {
 /* ------------------------------------------------------------------ */
 /*  Session helpers                                                     */
 /* ------------------------------------------------------------------ */
-
-const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
-
-const getStoredTeam = () => {
-  if (typeof window === "undefined") return { rosterId: "", teamName: "" };
-  try {
-    const raw = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!raw) return { rosterId: "", teamName: "" };
-    const parsed = JSON.parse(raw);
-    return {
-      rosterId: typeof parsed?.rosterId === "string" ? parsed.rosterId : "",
-      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : "",
-    };
-  } catch {
-    return { rosterId: "", teamName: "" };
-  }
-};
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
@@ -116,7 +100,7 @@ function TradesInboxPageInner() {
   const [threads, setThreads] = useState<TradeThread[]>([]);
   const [loading, setLoading] = useState(true);
   const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
-  const { rosterId, teamName } = getStoredTeam();
+  const { rosterId = "", teamName = "" } = readStoredTeam();
 
   useEffect(() => {
     fetchRosterNames().then(setRosterNames);

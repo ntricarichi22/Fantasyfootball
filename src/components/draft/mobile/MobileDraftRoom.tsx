@@ -10,7 +10,7 @@ import type {
   RookieProspectMap,
   SleeperPlayer,
 } from "../../../lib/draft/types";
-import { normalizeProspectName } from "../../../lib/draft/types";
+import { normalizeName } from "@/lib/normalize";
 import type { NflTeamContextMap, ScoutingGradeSet } from "../../../lib/draft/scouting";
 import type { TeamProfile, PositionKey } from "../../../lib/trade/profile";
 import type { StarterAsset } from "../../../lib/trade/starterLevel";
@@ -144,7 +144,7 @@ export function MobileDraftRoom(props: Props) {
 
   // Resolve the rookie-prospect row + sleeper player for the open card.
   const cardProspect: RookieProspect | null = scoutingPlayer
-    ? rookieProspects[normalizeProspectName(scoutingPlayer.name)] ?? null
+    ? rookieProspects[normalizeName(scoutingPlayer.name)] ?? null
     : null;
   const cardSleeperPlayer = scoutingPlayer
     ? playerDictionary[scoutingPlayer.id]

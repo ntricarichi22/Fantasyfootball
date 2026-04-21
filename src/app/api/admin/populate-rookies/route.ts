@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { normalizeProspectName } from "@/lib/draft/types";
+import { normalizeName } from "@/lib/normalize";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 export const runtime = "nodejs";
@@ -292,7 +292,7 @@ export async function POST(req: Request) {
   }
   const existingByName = new Map<string, string>();
   for (const row of existingRows ?? []) {
-    const key = normalizeProspectName(row?.player_name);
+    const key = normalizeName(row?.player_name);
     if (key && row?.player_id) existingByName.set(key, String(row.player_id));
   }
 
@@ -323,7 +323,7 @@ export async function POST(req: Request) {
     if (!pid) unmatched.push(displayName);
     // Re-use any existing player_id (e.g. a bootstrap `tmp_*` placeholder)
     // so the upsert updates in place rather than creating a duplicate row.
-    const nameKey = normalizeProspectName(displayName);
+    const nameKey = normalizeName(displayName);
     const playerId =
       pid ?? existingByName.get(nameKey) ?? `tmp_${nameKey}`;
     matched.push({

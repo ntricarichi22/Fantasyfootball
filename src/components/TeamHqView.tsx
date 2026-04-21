@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import TeamHqTabs from "./TeamHqTabs";
+import { readStoredTeam } from "../lib/storedTeam";
 
 type AssetBucket = "QB" | "RB" | "WR" | "TE" | "Picks";
 type BuyState = "buy" | "hold" | "sell";
@@ -48,8 +49,6 @@ type PickAnchorValues = {
   second: number;
   third: number;
 };
-
-const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
 
 const buyBuckets: AssetBucket[] = ["QB", "RB", "WR", "TE", "Picks"];
 const wantsChips: WantsChip[] = ["picks", "studs", "youth", "depth"];
@@ -129,25 +128,10 @@ const labelFromAttachment = (value: Attachment) => {
   return "Neutral";
 };
 
-const getStoredTeam = () => {
-  if (typeof window === "undefined") return { rosterId: "", teamName: "" };
-  try {
-    const raw = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!raw) return { rosterId: "", teamName: "" };
-    const parsed = JSON.parse(raw);
-    return {
-      rosterId: typeof parsed?.rosterId === "string" ? parsed.rosterId : "",
-      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : "",
-    };
-  } catch {
-    return { rosterId: "", teamName: "" };
-  }
-};
-
 const teamDisplayName = (teamName: string, rosterId: string) => teamName || `Team ${rosterId}`;
 
 function StrategyTab() {
-  const { teamName, rosterId } = getStoredTeam();
+  const { teamName = "", rosterId = "" } = readStoredTeam();
   const [profile, setProfile] = useState<TeamStrategyProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -482,7 +466,7 @@ function DepthChartTab() {
 }
 
 function TradeChartTab() {
-  const { rosterId } = getStoredTeam();
+  const { rosterId = "" } = readStoredTeam();
   const [rows, setRows] = useState<TeamTradeValueRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingPlayerId, setSavingPlayerId] = useState<string | null>(null);
