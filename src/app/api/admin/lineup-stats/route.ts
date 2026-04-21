@@ -19,6 +19,7 @@ type PlayersMap = Record<
 >;
 
 export async function GET(req: Request) {
+  try {
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
   const mode = (url.searchParams.get("mode") || "starters").toLowerCase();
@@ -470,4 +471,11 @@ export async function GET(req: Request) {
     mode: "starters",
     upserted,
   });
+  } catch (err) {
+    console.error('[API GET /api/admin/lineup-stats]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

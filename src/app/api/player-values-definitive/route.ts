@@ -32,6 +32,7 @@ const findLatestUpdatedAt = (rows: Array<{ updated_at?: string | null }>) => {
 };
 
 export async function GET() {
+  try {
   const clientResult = getSupabaseAdminClient();
 
   if (!clientResult.client) {
@@ -57,4 +58,11 @@ export async function GET() {
     data: buildPlayerValueMapBySleeperId(rows),
     meta: { lastUpdated: findLatestUpdatedAt(rows) },
   });
+  } catch (err) {
+    console.error('[API GET /api/player-values-definitive]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

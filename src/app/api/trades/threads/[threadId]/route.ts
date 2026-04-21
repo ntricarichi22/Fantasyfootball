@@ -13,6 +13,7 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> },
 ) {
+  try {
   const { threadId } = await params;
 
   if (!threadId) {
@@ -56,4 +57,11 @@ export async function GET(
     thread: threadRes.data,
     offers: offersRes.data ?? [],
   });
+  } catch (err) {
+    console.error('[API GET /api/trades/threads/:threadId]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

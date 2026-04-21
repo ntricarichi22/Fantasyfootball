@@ -4,6 +4,7 @@ import { activeCutoffIso, getSupabaseAdminClient } from "./shared";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  try {
   const leagueId = request.nextUrl.searchParams.get("leagueId")?.trim();
 
   if (!leagueId) {
@@ -37,4 +38,11 @@ export async function GET(request: NextRequest) {
     .filter((row) => row.rosterId);
 
   return NextResponse.json({ data: rows });
+  } catch (err) {
+    console.error('[API GET /api/active-teams]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

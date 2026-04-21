@@ -64,6 +64,7 @@ const formatPickNumberLabel = (round: number, slot: number) =>
  * draft ticker so all teamCount slots are visible before any pick is announced.
  */
 export async function GET() {
+  try {
   const leagueId = safeLeagueId();
   if (!leagueId) {
     return NextResponse.json(
@@ -132,4 +133,11 @@ export async function GET() {
   }
 
   return NextResponse.json({ data: slots });
+  } catch (err) {
+    console.error('[API GET /api/draft-order]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }
