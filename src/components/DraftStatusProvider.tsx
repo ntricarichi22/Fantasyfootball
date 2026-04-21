@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 
 import { useDraftStatus, type DraftStatus } from "../lib/hooks/useDraftStatus";
 
@@ -49,6 +49,43 @@ export function DraftStatusProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [clockStatus, isActive, secondsRemaining, isLoading, pickSubmitted, pickAnnouncedAt, currentPickIndex, startsAt]
   );
+
+  // ----- /api/draft-tick safety net ---------------------------------------
+  // The ClockBar's zero-crossing useEffect is the primary trigger, but it
+  // can miss if the page is backgrounded, Realtime drops, or the timer
+  // never reaches zero in this client. Poll the (idempotent) tick endpoint
+  // every 3s while the draft is running so the maximum delay between a
+  // timer expiring and the announcement firing is ~3s, regardless of
+  // whether the primary trigger ran.
+  useEffect(() => {
+    if (clockStatus !== "running") return;
+    const id = window.setInterval(() => {
+      fetch("/api/draft-tick", { method: "POST" })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data?.status === "advanced") {
+            console.log("[poll] tick advanced state");
+          }
+        })
+        .catch(() => {
+          // ignore network errors — next interval will retry
+        });
+    }, 3000);
+    return () => window.clearInterval(id);
+  }, [clockStatus]);
+
+  // Fire one tick on window focus so a user returning from a backgrounded
+  // tab / sleeping phone catches up immediately instead of waiting up to
+  // 3s for the next poll.
+  useEffect(() => {
+    if (clockStatus !== "running") return;
+    const onFocus = () => {
+      fetch("/api/draft-tick", { method: "POST" }).catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [clockStatus]);
+
   return (
     <DraftStatusContext.Provider value={value}>
       {children}

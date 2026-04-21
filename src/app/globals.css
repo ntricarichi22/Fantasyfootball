@@ -968,6 +968,29 @@ body {
   line-height: 1;
 }
 
+/* "THE PICK IS IN" centered emphasis state — fills the bar between the
+   left team-name segment and the right "ANNOUNCING" countdown. Yellow
+   Syne 800 to match the desktop ClockBar treatment. */
+.cfc-mobile-clockbar-pickin {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+  overflow: hidden;
+}
+.cfc-mobile-clockbar-pickin-label {
+  font-family: var(--font-headline);
+  font-weight: 800;
+  font-size: 18px;
+  color: #F5C230;
+  text-transform: uppercase;
+  letter-spacing: 4px;
+  white-space: nowrap;
+  line-height: 1;
+}
+
 /* Reveal animation states fill the whole bar. */
 .cfc-mobile-clockbar-reveal {
   flex: 1;

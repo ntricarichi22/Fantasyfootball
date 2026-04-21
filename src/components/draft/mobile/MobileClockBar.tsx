@@ -377,22 +377,50 @@ export function MobileClockBar() {
   }
 
   // Pick is in.
+  // Match the desktop ClockBar treatment: full blue bar, big yellow
+  // "THE PICK IS IN" filling the center, team name on the left, "ANNOUNCING"
+  // countdown on the right. This is a moment of emphasis — no small/muted
+  // text in this state.
   if (isPickIn) {
     const submittedTeamName =
       context?.onClockTeamName ||
       (context?.onClockRosterId ? `Roster ${context.onClockRosterId}` : "Loading…");
     return (
-      <div className="cfc-mobile-clockbar" data-state="pick-in" role="status" aria-live="polite">
-        <div className="cfc-mobile-clockbar-left">
-          <span className="cfc-mobile-clockbar-team" title={submittedTeamName}>
+      <div
+        className="cfc-mobile-clockbar"
+        data-state="pick-in"
+        role="status"
+        aria-live="polite"
+      >
+        {/* LEFT — submitting team. Capped width so the center label always
+            owns the visual weight. */}
+        <div
+          className="cfc-mobile-clockbar-left"
+          style={{ flex: "0 1 auto", maxWidth: "30%" }}
+        >
+          <span
+            className="cfc-mobile-clockbar-team"
+            title={submittedTeamName}
+            style={{ color: PAPER }}
+          >
             {submittedTeamName}
           </span>
-          <span className="cfc-mobile-clockbar-context" style={{ color: PICK_CTX_ON_BLUE }}>
-            The Pick Is In
-          </span>
         </div>
-        <div className="cfc-mobile-clockbar-right" style={{ borderLeftColor: DIVIDER_ON_BLUE }}>
-          <span className="cfc-mobile-clockbar-time-label" style={{ color: LABEL_ON_BLUE_SMALL }}>
+
+        {/* CENTER — "THE PICK IS IN" — prominent, yellow, fills space. */}
+        <div className="cfc-mobile-clockbar-pickin">
+          <span className="cfc-mobile-clockbar-pickin-label">The Pick Is In</span>
+        </div>
+
+        {/* RIGHT — announcing-in countdown. */}
+        <div
+          className="cfc-mobile-clockbar-right"
+          style={{ borderLeftColor: DIVIDER_ON_BLUE }}
+        >
+          <span
+            className="cfc-mobile-clockbar-time-label"
+            style={{ color: LABEL_ON_BLUE_SMALL }}
+          >
             Announcing
           </span>
           <span className="cfc-mobile-clockbar-time" style={{ color: PAPER }}>
