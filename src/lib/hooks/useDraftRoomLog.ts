@@ -118,15 +118,20 @@ export function useDraftRoomLog({
   // the most reliable signal that a pick was just announced server-side.
   // Listening here guarantees the board removes the drafted player on every
   // connected client within ≤3s, even when the Supabase Realtime UPDATE on
-  // draft_log fails to fan out to a particular client.
+  // draft_log fails to fan out to a particular client. We also refetch on
+  // window focus so a client returning from a backgrounded tab catches up
+  // immediately instead of waiting for the next poll.
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
     const onRefetch = () => {
       fetchDraftLogFromApi();
     };
     window.addEventListener("draft-log-refetch-requested", onRefetch);
-    return () =>
+    window.addEventListener("focus", onRefetch);
+    return () => {
       window.removeEventListener("draft-log-refetch-requested", onRefetch);
+      window.removeEventListener("focus", onRefetch);
+    };
   }, [fetchDraftLogFromApi]);
 
   const persistDraftLogEntry = useCallback(
@@ -139,7 +144,23 @@ export function useDraftRoomLog({
         });
         if (!res.ok) {
           if (res.status === 409) {
-            setStatusMessage("Draft is paused. No picks recorded.");
+            // 409 has two known shapes: the duplicate-pick guard
+            // ({error:"player_already_drafted"}) and the legacy "draft is
+            // paused" branch (no error code). Disambiguate by error code so
+            // the user sees a helpful, accurate message — and so the caller
+            // does NOT optimistically mutate local state for a rejected
+            // duplicate pick.
+            const body = (await res
+              .json()
+              .catch(() => ({}))) as { error?: string; message?: string };
+            if (body.error === "player_already_drafted") {
+              setErrorMessage(
+                body.message ||
+                  "This player was just drafted by another team."
+              );
+            } else {
+              setStatusMessage("Draft is paused. No picks recorded.");
+            }
           }
           fetchDraftLogFromApi();
           return { ok: false, isAnnounced: false };
@@ -156,7 +177,7 @@ export function useDraftRoomLog({
         return { ok: false, isAnnounced: false };
       }
     },
-    [fetchDraftLogFromApi, setStatusMessage]
+    [fetchDraftLogFromApi, setErrorMessage, setStatusMessage]
   );
 
   const deleteDraftLogEntry = useCallback(

@@ -1034,10 +1034,17 @@ body {
   transition: transform 0.9s cubic-bezier(0.2, 1.05, 0.35, 1);
   will-change: transform;
   padding: 0 12px;
-  max-width: 100%;
+  /* Reserve ~100px on the right for any future countdown column and never
+     allow the name to bleed off the viewport edge. The dynamic font sizer
+     keeps real names well within this box; ellipsis is only a last resort. */
+  max-width: calc(100vw - 100px);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cfc-mobile-clockbar-reveal-name {
   color: #F5C230;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ------------------------------ DRAFT BOARD (flex 1) -------------------- */

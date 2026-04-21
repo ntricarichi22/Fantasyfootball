@@ -51,13 +51,13 @@ const formatTimer = (totalSeconds: number) => {
 
 // Reveal-line is name-only on mobile (no position / school / dots) — see
 // MobileClockBar reveal branch. Scale font size with name length so the
-// full name always fits without truncation. Bounded 12px..18px.
+// full name always fits without truncation. Bounded 10px..15px.
 const revealNameFontSize = (name: string): number => {
   const len = (name ?? "").length;
-  if (len <= 16) return 18;
-  if (len <= 20) return 16;
-  if (len <= 24) return 14;
-  return 12;
+  if (len <= 12) return 15;
+  if (len <= 16) return 13;
+  if (len <= 20) return 11;
+  return 10;
 };
 
 const computeCountdownParts = (startsAtMs: number, nowMs: number) => {
