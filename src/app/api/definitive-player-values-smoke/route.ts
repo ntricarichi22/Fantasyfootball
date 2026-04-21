@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  try {
   const clientResult = getSupabaseAdminClient();
 
   if (!clientResult.client) {
@@ -34,4 +35,11 @@ export async function GET() {
     count: rows.length,
     sample: rows,
   });
+  } catch (err) {
+    console.error('[API GET /api/definitive-player-values-smoke]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

@@ -5,6 +5,7 @@ import { LEAGUE_ID } from "../../../../lib/config";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  try {
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
 
   if (!teamId) {
@@ -36,4 +37,11 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ count: count ?? 0 });
+  } catch (err) {
+    console.error('[API GET /api/trades/unread-count]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

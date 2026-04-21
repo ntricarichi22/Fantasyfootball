@@ -5,6 +5,7 @@ import { LEAGUE_ID } from "../../../../lib/config";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  try {
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
   const tab = request.nextUrl.searchParams.get("tab")?.trim() || "inbox";
   const offerId = request.nextUrl.searchParams.get("offerId")?.trim();
@@ -59,4 +60,11 @@ export async function GET(request: NextRequest) {
   }
 
   return NextResponse.json({ data: data ?? [] });
+  } catch (err) {
+    console.error('[API GET /api/trades/list]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

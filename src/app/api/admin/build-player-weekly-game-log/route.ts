@@ -19,6 +19,7 @@ type PlayersMap = Record<
 >;
 
 export async function GET(req: Request) {
+  try {
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
 
@@ -250,4 +251,11 @@ export async function GET(req: Request) {
     mode: "build_player_weekly_game_log",
     upserted,
   });
+  } catch (err) {
+    console.error('[API GET /api/admin/build-player-weekly-game-log]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

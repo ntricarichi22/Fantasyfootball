@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
  * Situation and Opportunity letter grades without per-card API calls.
  */
 export async function GET(request: NextRequest) {
+  try {
   const leagueId =
     request.nextUrl.searchParams.get("leagueId")?.trim() || LEAGUE_ID;
   if (!leagueId) {
@@ -50,4 +51,11 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({ data: result });
+  } catch (err) {
+    console.error('[API GET /api/draft/nfl-team-context]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
  * nfl_draft_pick) that drive the Draft Capital grade.
  */
 export async function GET() {
+  try {
   const { client, error } = getSupabaseAdminClient();
   if (!client) {
     // Without Supabase, return an empty map so the UI degrades gracefully.
@@ -39,4 +40,11 @@ export async function GET() {
   });
 
   return NextResponse.json({ data: result });
+  } catch (err) {
+    console.error('[API GET /api/draft/rookie-prospects]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

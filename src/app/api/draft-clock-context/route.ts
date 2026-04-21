@@ -80,6 +80,7 @@ const countPicksMade = async (
 };
 
 export async function GET() {
+  try {
   const leagueId = safeLeagueId();
   if (!leagueId) {
     return NextResponse.json(
@@ -146,4 +147,11 @@ export async function GET() {
       onClockTeamName,
     },
   });
+  } catch (err) {
+    console.error('[API GET /api/draft-clock-context]', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }
