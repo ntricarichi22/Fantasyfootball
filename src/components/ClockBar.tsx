@@ -76,12 +76,26 @@ export default function ClockBar() {
       ? new Date(state.starts_at).getTime()
       : NaN;
 
-  // Pre-draft countdown ticking (per-second local). Initialized lazily so
-  // render is pure on the server snapshot.
-  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  // Pre-draft countdown ticking (per-second local). MUST be initialized to a
+  // stable value on first render so the SSR snapshot and the client hydration
+  // pass produce identical HTML — `useState(() => Date.now())` was causing
+  // React error #418 (hydration mismatch) because the server captured one
+  // wall-clock and the client captured another. The mismatch was throwing
+  // before useEffects had a chance to register, which silently disabled the
+  // /api/draft-tick auto-fire effects below. Initialize to 0 (which makes
+  // `hasFutureStart` false during SSR) and set the real `Date.now()` in the
+  // mount effect, then keep ticking it every second while a future start is
+  // scheduled (handled by the existing effect further down).
+  const [countdownNow, setCountdownNow] = useState(0);
+  useEffect(() => {
+    setCountdownNow(Date.now());
+  }, []);
 
   const hasFutureStart =
-    Number.isFinite(startsAtMs) && state?.status === "not_started" && startsAtMs > countdownNow;
+    Number.isFinite(startsAtMs) &&
+    state?.status === "not_started" &&
+    countdownNow > 0 &&
+    startsAtMs > countdownNow;
 
   // Poll clock context whenever the bar is rendered (active draft anywhere,
   // any visit to /draft, or a scheduled pre-draft countdown so we can show
@@ -129,55 +143,37 @@ export default function ClockBar() {
     return () => window.clearInterval(id);
   }, [isPickIn, state]);
 
-  // When any local timer hits 0, fire a single best-effort tick to
-  // /api/draft-tick so the server runs the auto-announce / auto-skip logic
-  // immediately. Multiple clients calling this is safe — the endpoint is
-  // idempotent (it no-ops once the relevant state has already advanced).
-  // Each effect debounces per pick_announced_at / clock_started_at key so
-  // we don't hammer the endpoint.
-  const tickFiredRef = useRef<string | null>(null);
+  // The countdown value currently displayed on screen: when a pick is "in"
+  // (submitted, awaiting announcement) we show the announcement countdown;
+  // otherwise we show the on-the-clock countdown. This is the single value
+  // the auto-tick effect watches.
+  const timeLeft = isPickIn ? announceSeconds : tickedSeconds;
 
-  // Trigger 1: announcement countdown hit 0 with a submitted pick.
+  // When the displayed countdown hits 0 while the draft is running, POST to
+  // /api/draft-tick. The server handles everything — announcing the pick,
+  // auto-skipping, advancing current_pick_index. The endpoint is idempotent
+  // so multiple clients calling it concurrently is safe. A ref-based 2s
+  // debounce guards against firing more than once per zero-crossing.
+  const tickFiredRef = useRef(false);
   useEffect(() => {
-    console.log('[tick-trigger-1-top]', { isPickIn, announceSeconds });
-    if (!isPickIn) return;
-    if (announceSeconds > 0) return;
-    const key = `announce:${state?.pick_announced_at ?? ""}`;
-    if (tickFiredRef.current === key) return;
-    tickFiredRef.current = key;
+    if (timeLeft > 0) {
+      tickFiredRef.current = false;
+      return;
+    }
+    if (state?.status !== "running") return;
+    if (tickFiredRef.current) return;
+    tickFiredRef.current = true;
     fetch("/api/draft-tick", { method: "POST" })
       .then((r) => r.json())
       .then((data) => {
-        if (data.status !== "advanced") tickFiredRef.current = null;
+        if (data?.status !== "advanced") {
+          tickFiredRef.current = false;
+        }
       })
       .catch(() => {
-        tickFiredRef.current = null;
+        tickFiredRef.current = false;
       });
-  }, [isPickIn, announceSeconds, state?.pick_announced_at]);
-  // Trigger 2: on-the-clock timer hit 0 with NO pick submitted (auto-skip).
-  useEffect(() => {
-    if (isPickIn) return;
-    if (!isActive || state?.status !== "running") return;
-    if (tickedSeconds > 0) return;
-    const key = `skip:${state?.clock_started_at ?? ""}:${state?.current_pick_index ?? ""}`;
-    if (tickFiredRef.current === key) return;
-    tickFiredRef.current = key;
-    fetch("/api/draft-tick", { method: "POST" })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.status !== "advanced") tickFiredRef.current = null;
-      })
-      .catch(() => {
-        tickFiredRef.current = null;
-      });
-  }, [
-    isPickIn,
-    isActive,
-    state?.status,
-    tickedSeconds,
-    state?.clock_started_at,
-    state?.current_pick_index,
-  ]);
+  }, [timeLeft, state?.status]);
 
   // ----- Reveal animation + chime + mute ----------------------------------
   // When the server flips a draft_log row from is_announced=false → true
@@ -486,9 +482,9 @@ export default function ClockBar() {
                   willChange: "transform",
                   fontFamily: "var(--font-headline)",
                   fontWeight: 800,
-                  fontSize: 14,
+                  fontSize: 26,
                   textTransform: "uppercase",
-                  letterSpacing: "0.5px",
+                  letterSpacing: "4px",
                   lineHeight: 1,
                 }}
                 ref={(el) => {
@@ -499,10 +495,9 @@ export default function ClockBar() {
                   });
                 }}
               >
-                <span style={{ color: "rgba(255,255,255,0.75)" }}>Select</span>
                 <span style={{ color: YELLOW }}>{revealedPick.playerName}</span>
                 <span style={{ color: "rgba(255,255,255,0.5)" }}>·</span>
-                <span style={{ color: PAPER }}>{revealedPick.position}</span>
+                <span style={{ color: "rgba(255,255,255,0.75)" }}>{revealedPick.position}</span>
                 <span style={{ color: "rgba(255,255,255,0.5)" }}>·</span>
                 <span style={{ color: "rgba(255,255,255,0.75)" }}>{revealedPick.school}</span>
               </div>

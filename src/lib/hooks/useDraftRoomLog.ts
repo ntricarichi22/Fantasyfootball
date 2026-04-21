@@ -56,22 +56,59 @@ export function useDraftRoomLog({
     const supabaseClient = supabase ?? getSupabaseClient();
     if (!supabaseClient) return undefined;
 
+    // Explicit per-event listeners (rather than a single `event: "*"`) so
+    // that any one of INSERT / UPDATE / DELETE failing to fan out — observed
+    // on draft_log when the auto-tick endpoint flips is_announced from false
+    // to true — is independent of the others. All three converge on the same
+    // refetch since the API is the source of truth.
     let channel = supabaseClient.channel("draft-log-updates");
-    channel = channel.on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "draft_log" },
-      () => {
-        fetchDraftLogFromApi();
-      }
-    );
+    const onChange = (label: string) => () => {
+      console.log(`[draft-log] realtime ${label} -> refetching draft log`);
+      fetchDraftLogFromApi();
+    };
+    channel = channel
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "draft_log" },
+        onChange("INSERT")
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "draft_log" },
+        onChange("UPDATE")
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "draft_log" },
+        onChange("DELETE")
+      );
 
     try {
-      channel.subscribe();
+      channel.subscribe((status) => {
+        // Surface the subscription lifecycle so a silently-dropped channel
+        // (CHANNEL_ERROR / TIMED_OUT / CLOSED) is visible in the console
+        // instead of looking like a stale board with no signal. On a fresh
+        // SUBSCRIBED, force one refetch so we don't miss events that landed
+        // between the initial fetch and the channel becoming live.
+        console.log(`[draft-log] realtime channel status=${status}`);
+        if (status === "SUBSCRIBED") {
+          fetchDraftLogFromApi();
+        }
+      });
     } catch (error) {
       console.warn("Unable to subscribe to draft log updates", error);
     }
 
+    // Polling fallback: every 30s, refetch from /api/draft-log even when the
+    // Realtime channel looks healthy. Cheap (~1 small request) and guarantees
+    // the board catches up within a single window if Realtime ever drops
+    // silently — replaces the old "hard refresh" workaround.
+    const pollInterval = window.setInterval(() => {
+      fetchDraftLogFromApi();
+    }, 30_000);
+
     return () => {
+      window.clearInterval(pollInterval);
       supabaseClient.removeChannel(channel);
     };
   }, [fetchDraftLogFromApi, supabase]);

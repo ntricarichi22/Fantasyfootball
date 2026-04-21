@@ -67,6 +67,29 @@ const handle = async (request: NextRequest) => {
     return NextResponse.json({ data: null, status: "no_state" });
   }
 
+  // Diagnostic: surface the exact values used by the auto-advance comparison
+  // so a failed announce / skip is debuggable from server logs alone. Kept
+  // intentionally lightweight (one line, no PII) so it is safe to leave on in
+  // production. See debug step #2 in the bug report that introduced this.
+  try {
+    // `state.pick_announced_at` is already a canonical ISO string (or null)
+    // because `normalizeDraftStateRow` ran inside `fetchDraftState`.
+    const announceMs = state.pick_announced_at
+      ? new Date(state.pick_announced_at).getTime()
+      : NaN;
+    const announcementDue =
+      state.pick_submitted === true && Number.isFinite(announceMs) && Date.now() >= announceMs;
+    console.log(
+      `[draft-tick] now=${new Date().toISOString()} league=${leagueId} ` +
+        `pick_index=${state.current_pick_index} submitted=${state.pick_submitted} ` +
+        `announced_at=${state.pick_announced_at} announcement_due=${announcementDue} ` +
+        `status=${state.status} seconds_remaining=${state.seconds_remaining} ` +
+        `clock_started_at=${state.clock_started_at}`
+    );
+  } catch (logError) {
+    console.warn("[draft-tick] diagnostic log failed", logError);
+  }
+
   const result = await processAutoAdvance(
     client,
     leagueId,
