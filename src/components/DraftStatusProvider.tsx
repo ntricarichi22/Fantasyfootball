@@ -65,6 +65,13 @@ export function DraftStatusProvider({
         .then((data) => {
           if (data?.status === "advanced") {
             console.log("[poll] tick advanced state");
+            // Fan out a refetch signal so the draft-log subscription owner
+            // re-pulls /api/draft-log immediately. This is the cross-client
+            // safety net: any client whose Realtime channel didn't fan out
+            // the draft_log UPDATE still discovers the freshly-announced
+            // pick within the next ≤3s poll, instead of waiting for the
+            // 30s polling fallback in useDraftRoomLog.
+            window.dispatchEvent(new Event("draft-log-refetch-requested"));
           }
         })
         .catch(() => {

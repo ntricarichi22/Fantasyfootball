@@ -983,12 +983,18 @@ body {
 .cfc-mobile-clockbar-pickin-label {
   font-family: var(--font-headline);
   font-weight: 800;
-  font-size: 18px;
+  font-size: 16px;
   color: #F5C230;
   text-transform: uppercase;
-  letter-spacing: 4px;
+  letter-spacing: 2px;
   white-space: nowrap;
   line-height: 1;
+}
+@media (max-width: 360px) {
+  .cfc-mobile-clockbar-pickin-label {
+    font-size: 14px;
+    letter-spacing: 1.5px;
+  }
 }
 
 /* Reveal animation states fill the whole bar. */
@@ -1016,31 +1022,22 @@ body {
 }
 .cfc-mobile-clockbar-reveal-line {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  justify-content: center;
   white-space: nowrap;
   font-family: var(--font-headline);
   font-weight: 800;
-  font-size: 12px;
+  /* font-size set inline based on name length (revealNameFontSize) */
   text-transform: uppercase;
   letter-spacing: 1.5px;
   line-height: 1;
   transition: transform 0.9s cubic-bezier(0.2, 1.05, 0.35, 1);
   will-change: transform;
   padding: 0 12px;
-  overflow: hidden;
   max-width: 100%;
 }
 .cfc-mobile-clockbar-reveal-name {
   color: #F5C230;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.cfc-mobile-clockbar-reveal-meta {
-  color: rgba(255,255,255,0.75);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
 }
 
 /* ------------------------------ DRAFT BOARD (flex 1) -------------------- */

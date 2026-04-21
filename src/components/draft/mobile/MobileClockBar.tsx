@@ -49,6 +49,17 @@ const formatTimer = (totalSeconds: number) => {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 };
 
+// Reveal-line is name-only on mobile (no position / school / dots) — see
+// MobileClockBar reveal branch. Scale font size with name length so the
+// full name always fits without truncation. Bounded 12px..18px.
+const revealNameFontSize = (name: string): number => {
+  const len = (name ?? "").length;
+  if (len <= 16) return 18;
+  if (len <= 20) return 16;
+  if (len <= 24) return 14;
+  return 12;
+};
+
 const computeCountdownParts = (startsAtMs: number, nowMs: number) => {
   const total = Math.max(0, Math.floor((startsAtMs - nowMs) / 1000));
   const days = Math.floor(total / 86400);
@@ -322,6 +333,7 @@ export function MobileClockBar() {
           ) : (
             <span
               className="cfc-mobile-clockbar-reveal-line"
+              style={{ fontSize: revealNameFontSize(revealedPick.playerName) }}
               ref={(el) => {
                 if (!el) return;
                 el.style.transform = "translateY(-60px)";
@@ -332,9 +344,6 @@ export function MobileClockBar() {
             >
               <span className="cfc-mobile-clockbar-reveal-name">
                 {revealedPick.playerName}
-              </span>
-              <span className="cfc-mobile-clockbar-reveal-meta">
-                · {revealedPick.position} · {revealedPick.school}
               </span>
             </span>
           )}
@@ -378,13 +387,11 @@ export function MobileClockBar() {
 
   // Pick is in.
   // Match the desktop ClockBar treatment: full blue bar, big yellow
-  // "THE PICK IS IN" filling the center, team name on the left, "ANNOUNCING"
-  // countdown on the right. This is a moment of emphasis — no small/muted
-  // text in this state.
+  // "THE PICK IS IN" filling the center, "ANNOUNCING" countdown on the
+  // right. The team name is intentionally omitted on mobile so the
+  // emphasis text gets the full width minus the countdown column and
+  // never truncates.
   if (isPickIn) {
-    const submittedTeamName =
-      context?.onClockTeamName ||
-      (context?.onClockRosterId ? `Roster ${context.onClockRosterId}` : "Loading…");
     return (
       <div
         className="cfc-mobile-clockbar"
@@ -392,21 +399,6 @@ export function MobileClockBar() {
         role="status"
         aria-live="polite"
       >
-        {/* LEFT — submitting team. Capped width so the center label always
-            owns the visual weight. */}
-        <div
-          className="cfc-mobile-clockbar-left"
-          style={{ flex: "0 1 auto", maxWidth: "30%" }}
-        >
-          <span
-            className="cfc-mobile-clockbar-team"
-            title={submittedTeamName}
-            style={{ color: PAPER }}
-          >
-            {submittedTeamName}
-          </span>
-        </div>
-
         {/* CENTER — "THE PICK IS IN" — prominent, yellow, fills space. */}
         <div className="cfc-mobile-clockbar-pickin">
           <span className="cfc-mobile-clockbar-pickin-label">The Pick Is In</span>

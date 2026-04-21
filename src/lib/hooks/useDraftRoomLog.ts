@@ -113,6 +113,22 @@ export function useDraftRoomLog({
     };
   }, [fetchDraftLogFromApi, supabase]);
 
+  // Cross-client refetch trigger: DraftStatusProvider's 3s poll dispatches
+  // this event whenever /api/draft-tick reports status="advanced", which is
+  // the most reliable signal that a pick was just announced server-side.
+  // Listening here guarantees the board removes the drafted player on every
+  // connected client within ≤3s, even when the Supabase Realtime UPDATE on
+  // draft_log fails to fan out to a particular client.
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const onRefetch = () => {
+      fetchDraftLogFromApi();
+    };
+    window.addEventListener("draft-log-refetch-requested", onRefetch);
+    return () =>
+      window.removeEventListener("draft-log-refetch-requested", onRefetch);
+  }, [fetchDraftLogFromApi]);
+
   const persistDraftLogEntry = useCallback(
     async (entry: DraftLogEntry): Promise<{ ok: boolean; isAnnounced: boolean }> => {
       try {
