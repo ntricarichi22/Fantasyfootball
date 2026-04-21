@@ -43,10 +43,12 @@ import { DraftControls } from "../components/draft/DraftControls";
 import { AssistantGmPanel } from "../components/draft/AssistantGmPanel";
 import { RosterPanel } from "../components/draft/RosterPanel";
 import { ScoutingCardModal } from "../components/draft/ScoutingCardModal";
+import { MobileDraftRoom } from "../components/draft/mobile/MobileDraftRoom";
 import { WelcomeScreen } from "../components/draft/WelcomeScreen";
 import { useDraftBoard } from "../lib/hooks/useDraftBoard";
 import { useDraftClock } from "../lib/hooks/useDraftClock";
 import { useDraftRoomLog } from "../lib/hooks/useDraftRoomLog";
+import { useIsMobile } from "../lib/hooks/useIsMobile";
 import { useNflTeamContext } from "../lib/hooks/useNflTeamContext";
 import { useRookieProspects } from "../lib/hooks/useRookieProspects";
 import { useSleeperData } from "../lib/hooks/useSleeperData";
@@ -59,6 +61,7 @@ export default function Home() {
   const pathname = usePathname();
   const isDraftRoute = pathname?.startsWith("/draft");
   const draftRoute = "/draft";
+  const isMobile = useIsMobile();
   const [selectedTeam, setSelectedTeam] = useState(() => getStoredSessionSelection().rosterId);
   const [sessionId, setSessionId] = useState(() => getStoredSessionSelection().sessionId);
   const [teamSelectionInput, setTeamSelectionInput] = useState(
@@ -905,6 +908,39 @@ export default function Home() {
           onTeamSelectionChange={setTeamSelectionInput}
           onEnterDraftRoom={handleEnterDraftRoom}
         />
+      ) : isMobile && isDraftRoute && hasActiveSession ? (
+        <MobileDraftRoom
+          onNavigate={(href) => router.push(href)}
+          currentPath={pathname ?? undefined}
+          availablePlayers={availablePlayers}
+          isUserOnClock={
+            !!onClockRosterId &&
+            (isCommissionerSelected || selectedTeam === onClockRosterId)
+          }
+          isDraftPaused={isDraftPaused}
+          onPlayerDraft={(player) => {
+            void handleAvailablePlayerSelect(player);
+          }}
+          playerDictionary={playerDictionary}
+          rookieProspects={rookieProspects}
+          nflTeamContext={nflTeamContext}
+          precomputedScoutingGrades={precomputedScoutingGrades}
+          visibleLineupSlots={visibleLineupSlots}
+          resolvedLineup={resolvedLineup}
+          benchPlayers={benchPlayers}
+          ownerProfile={ownerProfile}
+          starterAssets={ownerStarterAssets}
+          hasEmptyStarterSlot={hasEmptyStarterSlot}
+          teamCount={teamCount}
+          assistantTeamName={
+            teams.find((t) => toId(t.id) === selectedTeam)?.name || ""
+          }
+          draftLog={draftLog}
+          onClockTeamName={onClockTeamName}
+          currentRound={Math.floor(nextPickIndex / teamCountForDraft) + 1}
+          currentPickNumber={nextPickIndex + 1}
+          leagueContext={leagueContext}
+        />
       ) : (
         <div className="flex h-[calc(100vh_-_50px_-_69px_-_38px)] min-h-[480px] flex-col gap-4 px-4 pt-4 pb-4 overflow-hidden">
           {/* Header */}
@@ -975,7 +1011,7 @@ export default function Home() {
           </div>
         </div>
       )}
-      {scoutingPlayer && (() => {
+      {scoutingPlayer && !isMobile && (() => {
         const lookupKey = normalizeProspectName(scoutingPlayer.name);
         const prospect = rookieProspects[lookupKey] ?? null;
         // Debug: confirm whether the rookie_prospects map was fetched and

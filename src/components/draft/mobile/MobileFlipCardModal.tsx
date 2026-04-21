@@ -8,34 +8,34 @@ import {
   type NflTeamContextMap,
   type ScoutingGrade,
   type ScoutingGradeSet,
-} from "../../lib/draft/scouting";
+} from "../../../lib/draft/scouting";
 import type {
   AvailablePlayer,
   RookieProspect,
   SleeperPlayer,
-} from "../../lib/draft/types";
+} from "../../../lib/draft/types";
 
-/** Must match the `cfc-card-scale-out` keyframes duration in globals.css. */
-const CLOSE_ANIMATION_MS = 380;
-
-type Props = {
-  player: AvailablePlayer;
-  sleeperPlayer: SleeperPlayer | undefined;
-  /** Curated rookie bio used as fallback for college / age / height / weight
-   *  and as the source of post-NFL-draft team / round / pick. */
-  rookieProspect?: RookieProspect | null;
-  /** Pre-computed grades when available (top-N rookies); otherwise computed lazily. */
-  precomputedGrades: ScoutingGradeSet | null;
-  contextMap: NflTeamContextMap;
-  /** True when it is the logged-in user's pick (controls "DRAFT THIS PLAYER"). */
-  canDraft: boolean;
-  onDraft: (player: AvailablePlayer) => void;
-  onClose: () => void;
-};
+/**
+ * Mobile-only flip card modal. Replaces the desktop two-card layout with a
+ * single 280×420 card that flips between front (Zubaz) and back
+ * ("Scout's Take") via a 3D rotateY transform. Tapping anywhere on the card
+ * flips it. Tapping the dark overlay (or the X) closes the modal.
+ */
 
 const SYNE = 'var(--font-headline, "Syne", sans-serif)';
 const DM_SANS = 'var(--font-body, "DM Sans", sans-serif)';
 const MONO = 'var(--font-mono, "JetBrains Mono", monospace)';
+
+type Props = {
+  player: AvailablePlayer;
+  sleeperPlayer: SleeperPlayer | undefined;
+  rookieProspect?: RookieProspect | null;
+  precomputedGrades: ScoutingGradeSet | null;
+  contextMap: NflTeamContextMap;
+  canDraft: boolean;
+  onDraft: (player: AvailablePlayer) => void;
+  onClose: () => void;
+};
 
 const formatHeight = (inches: number | null | undefined): string => {
   if (typeof inches !== "number" || !Number.isFinite(inches) || inches <= 0) {
@@ -46,13 +46,7 @@ const formatHeight = (inches: number | null | undefined): string => {
 
 function SilhouetteAvatar() {
   return (
-    <svg
-      viewBox="0 0 120 120"
-      width="62%"
-      height="62%"
-      aria-hidden="true"
-      style={{ display: "block" }}
-    >
+    <svg viewBox="0 0 120 120" width="62%" height="62%" aria-hidden="true" style={{ display: "block" }}>
       <circle cx="60" cy="44" r="22" fill="rgba(160,168,176,0.9)" />
       <ellipse cx="60" cy="108" rx="42" ry="26" fill="rgba(160,168,176,0.9)" />
     </svg>
@@ -85,17 +79,96 @@ const positionChipStyle = (position: string): CSSProperties => {
   return { ...chipBaseStyle, background: bg, color };
 };
 
+export function MobileFlipCardModal({
+  player,
+  sleeperPlayer,
+  rookieProspect,
+  precomputedGrades,
+  contextMap,
+  canDraft,
+  onDraft,
+  onClose,
+}: Props) {
+  const [flipped, setFlipped] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const grades: ScoutingGradeSet =
+    precomputedGrades ??
+    buildScoutingGrades(sleeperPlayer, player.position, contextMap, rookieProspect);
+
+  return (
+    <>
+      <div
+        className="cfc-mobile-flip-overlay"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        className="cfc-mobile-flip-positioner"
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Scouting card for ${player.name}`}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close scouting card"
+          className="cfc-mobile-flip-close"
+        >
+          ✕
+        </button>
+
+        <div className="flip-container">
+          <div
+            className={`flip-inner${flipped ? " flipped" : ""}`}
+            onClick={() => setFlipped((v) => !v)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setFlipped((v) => !v);
+              }
+            }}
+          >
+            <div className="flip-front">
+              <FrontCard player={player} sleeperPlayer={sleeperPlayer} rookieProspect={rookieProspect} />
+            </div>
+            <div className="flip-back">
+              <BackCard
+                player={player}
+                sleeperPlayer={sleeperPlayer}
+                rookieProspect={rookieProspect}
+                grades={grades}
+                canDraft={canDraft}
+                onDraft={onDraft}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+// ---------------- Front (mirrors desktop FrontCard, sized for 280×420) ----
+
 function FrontCard({
   player,
-  rookieProspect,
   sleeperPlayer,
+  rookieProspect,
 }: {
   player: AvailablePlayer;
-  rookieProspect: RookieProspect | null | undefined;
   sleeperPlayer: SleeperPlayer | undefined;
+  rookieProspect: RookieProspect | null | undefined;
 }) {
-  // Two-stage avatar fallback: primary (rookie_prospects.avatar_url, e.g. an
-  // ESPN headshot) → secondary (Sleeper CDN thumbnail) → silhouette.
   const [avatarStage, setAvatarStage] = useState<0 | 1 | 2>(0);
   const sleeperAvatarUrl = sleeperPlayer?.player_id
     ? `https://sleepercdn.com/content/nfl/players/thumb/${sleeperPlayer.player_id}.jpg`
@@ -107,8 +180,7 @@ function FrontCard({
   const activeAvatarUrl = avatarCandidates[avatarStage] ?? null;
 
   return (
-    <div className="cfc-scout-front">
-      {/* Photo area */}
+    <div className="cfc-mobile-flip-front">
       <div
         style={{
           flex: 1,
@@ -154,14 +226,11 @@ function FrontCard({
         </div>
       </div>
 
-      {/* Player name over Zubaz — wraps to two lines for long names like
-          "Jeremiyah Love"; both lines stay visible because the photo well
-          uses flex:1 above and the chips row sits below. */}
       <div
         style={{
           fontFamily: SYNE,
           fontWeight: 800,
-          fontSize: 18,
+          fontSize: 19,
           lineHeight: 1.1,
           color: "#FEFCF9",
           textTransform: "uppercase",
@@ -174,7 +243,6 @@ function FrontCard({
         {player.name}
       </div>
 
-      {/* Chips row */}
       <div
         style={{
           display: "flex",
@@ -184,9 +252,7 @@ function FrontCard({
         }}
       >
         <span style={positionChipStyle(player.position)}>{player.position || "—"}</span>
-        <span style={{ ...chipBaseStyle, background: "#1A1A1A", color: "#FEFCF9" }}>
-          2026
-        </span>
+        <span style={{ ...chipBaseStyle, background: "#1A1A1A", color: "#FEFCF9" }}>2026</span>
         {player.isRookie && (
           <span style={{ ...chipBaseStyle, background: "#F5C230", color: "#1A1A1A" }}>
             Rookie Card
@@ -196,6 +262,8 @@ function FrontCard({
     </div>
   );
 }
+
+// ---------------- Back (portrait scout's take redesigned for 280×420) ----
 
 function BioCell({
   value,
@@ -209,8 +277,8 @@ function BioCell({
   return (
     <div
       style={{
-        flex: "0 0 auto",
-        padding: "8px 14px",
+        flex: 1,
+        padding: "4px 0",
         borderRight: last ? undefined : "2px solid #1A1A1A",
         background: "#F5F0E6",
         display: "flex",
@@ -225,7 +293,7 @@ function BioCell({
         style={{
           fontFamily: MONO,
           fontWeight: 700,
-          fontSize: 14,
+          fontSize: 13,
           color: "#1A1A1A",
           lineHeight: 1.05,
         }}
@@ -248,6 +316,62 @@ function BioCell({
   );
 }
 
+function GradeRow({
+  grade,
+  isLast,
+}: {
+  grade: ScoutingGrade;
+  isLast?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        alignItems: "stretch",
+        borderBottom: isLast ? undefined : "2px solid #1A1A1A",
+        minHeight: 0,
+      }}
+    >
+      <GradeLetterCell letter={grade.letter} />
+      <div
+        style={{
+          flex: 1,
+          padding: "6px 10px",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          minWidth: 0,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: SYNE,
+            fontWeight: 700,
+            fontSize: 8,
+            textTransform: "uppercase",
+            letterSpacing: "1.5px",
+            color: "#1A1A1A",
+          }}
+        >
+          {grade.title}
+        </div>
+        <div
+          style={{
+            fontFamily: DM_SANS,
+            fontSize: 9,
+            color: "#1A1A1A",
+            lineHeight: 1.3,
+            marginTop: 2,
+          }}
+        >
+          {grade.detail}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GradeLetterCell({ letter }: { letter: LetterGrade | "TBD" | "—" }) {
   const display = letter === "TBD" ? "—" : letter;
   return (
@@ -262,7 +386,7 @@ function GradeLetterCell({ letter }: { letter: LetterGrade | "TBD" | "—" }) {
         justifyContent: "center",
         fontFamily: SYNE,
         fontWeight: 800,
-        fontSize: 24,
+        fontSize: 22,
         color: "#1A1A1A",
         lineHeight: 1,
       }}
@@ -272,47 +396,7 @@ function GradeLetterCell({ letter }: { letter: LetterGrade | "TBD" | "—" }) {
   );
 }
 
-function GradeDetailsCell({ grade }: { grade: ScoutingGrade }) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        padding: "8px 10px",
-        borderRight: "2.5px solid #1A1A1A",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        minWidth: 0,
-      }}
-    >
-      <div
-        style={{
-          fontFamily: SYNE,
-          fontWeight: 700,
-          fontSize: 9,
-          textTransform: "uppercase",
-          letterSpacing: "1.5px",
-          color: "#1A1A1A",
-        }}
-      >
-        {grade.title}
-      </div>
-      <div
-        style={{
-          fontFamily: DM_SANS,
-          fontSize: 10,
-          color: "#1A1A1A",
-          lineHeight: 1.35,
-          marginTop: 2,
-        }}
-      >
-        {grade.detail}
-      </div>
-    </div>
-  );
-}
-
-function MeterPanel({
+function MeterBar({
   label,
   value,
   fillColor,
@@ -325,14 +409,14 @@ function MeterPanel({
   return (
     <div
       style={{
-        flex: 1,
+        width: "100%",
         border: "2px solid #1A1A1A",
+        borderTop: "none",
         background: "#FEFCF9",
-        padding: "6px 8px",
+        padding: "4px 8px",
         display: "flex",
         flexDirection: "column",
-        justifyContent: "center",
-        gap: 5,
+        gap: 3,
       }}
     >
       <div
@@ -368,7 +452,7 @@ function MeterPanel({
       <div
         style={{
           position: "relative",
-          height: 6,
+          height: 4,
           width: "100%",
           background: "#eee",
           border: "1px solid #ccc",
@@ -389,45 +473,6 @@ function MeterPanel({
   );
 }
 
-function GradeRow({
-  grade,
-  sidebar,
-  isLast,
-}: {
-  grade: ScoutingGrade;
-  sidebar: React.ReactNode;
-  isLast?: boolean;
-}) {
-  return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        alignItems: "stretch",
-        borderBottom: isLast ? undefined : "2.5px solid #1A1A1A",
-        minHeight: 0,
-      }}
-    >
-      <GradeLetterCell letter={grade.letter} />
-      <GradeDetailsCell grade={grade} />
-      {/* Right-side sidebar — fixed 130px width with 8px padding wrapper so
-          the inner element (Value/Fit meter or Draft button) fills the row. */}
-      <div
-        style={{
-          width: 130,
-          flexShrink: 0,
-          padding: 8,
-          display: "flex",
-          flexDirection: "column",
-          justifyContent: "center",
-        }}
-      >
-        {sidebar}
-      </div>
-    </div>
-  );
-}
-
 function BackCard({
   player,
   sleeperPlayer,
@@ -443,28 +488,9 @@ function BackCard({
   canDraft: boolean;
   onDraft: (player: AvailablePlayer) => void;
 }) {
-  // Bio data: prefer Sleeper, fall back to rookie_prospects.
   const ageDisplay =
     (player.ageLabel && player.ageLabel !== "–" && player.ageLabel) ||
     (typeof rookieProspect?.age === "number" ? String(rookieProspect.age) : "—");
-
-  // Debug: log right at the age read site so we can see exactly what the
-  // back card sees when computing Age. Helps diagnose missing rookie_prospects
-  // matches (the upstream lookup in page.tsx normalizes both sides to lower-
-  // case alphanumerics, so a row keyed under "jeremiyahlove" should match a
-  // player named "Jeremiyah Love" — if this logs `rookieProspect: null` then
-  // the row is genuinely absent or its `name` column differs).
-  if (typeof window !== "undefined") {
-    console.debug("[ScoutingCard.BackCard] age lookup", {
-      playerName: player.name,
-      playerNameTrimmedLower: player.name?.trim().toLowerCase(),
-      sleeperAge: player.ageLabel,
-      rookieProspect,
-      rookieProspectAge: rookieProspect?.age,
-      rookieProspectAgeType: typeof rookieProspect?.age,
-      ageDisplay,
-    });
-  }
 
   const sleeperHeightInches =
     typeof sleeperPlayer?.height === "string" && /^\d+$/.test(sleeperPlayer.height)
@@ -483,10 +509,6 @@ function BackCard({
       ? String(rookieProspect.weight)
       : "—";
 
-  // Spec example: "Notre Dame · Running back" — always prefer the
-  // rookie_prospects college field (case-insensitive name lookup happens
-  // upstream in page.tsx via `normalizeProspectName`); fall through to
-  // Sleeper, the bootstrap row's `school`, and finally the NFL team.
   const schoolOrTeam =
     rookieProspect?.college ||
     sleeperPlayer?.college ||
@@ -512,9 +534,8 @@ function BackCard({
     "—";
 
   return (
-    <div className="cfc-scout-back">
-      {/* Top bio bar — fixed ~44px tall, 4 cells. Last cell flex:1 holds
-          "{College} · {Position}". */}
+    <div className="cfc-mobile-flip-back">
+      {/* Bio bar — 4 cells: Age, Height, Weight, Position */}
       <div
         style={{
           display: "flex",
@@ -526,38 +547,39 @@ function BackCard({
         <BioCell value={ageDisplay} label="Age" />
         <BioCell value={heightDisplay} label="Height" />
         <BioCell value={weightDisplay} label="Weight" />
-        <div
-          style={{
-            flex: 1,
-            background: "#F5F0E6",
-            padding: "0 14px",
-            display: "flex",
-            alignItems: "center",
-            fontFamily: DM_SANS,
-            fontSize: 11,
-            color: "#1A1A1A",
-            textTransform: "uppercase",
-            letterSpacing: "1px",
-            minWidth: 0,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {schoolPosLabel}
-        </div>
+        <BioCell value={player.position || "—"} label="Pos" last />
       </div>
 
-      {/* Scout's Take divider — renamed from "Scouting Report" per mobile spec.
-          Same styling on desktop and mobile; only the label text changed. */}
+      {/* School / position line */}
+      <div
+        style={{
+          background: "#F5F0E6",
+          padding: "6px 12px",
+          borderBottom: "2.5px solid #1A1A1A",
+          fontFamily: DM_SANS,
+          fontSize: 11,
+          color: "#1A1A1A",
+          textTransform: "uppercase",
+          letterSpacing: "1px",
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          flexShrink: 0,
+        }}
+      >
+        {schoolPosLabel}
+      </div>
+
+      {/* Scout's Take divider — renamed per spec. */}
       <div
         style={{
           flexShrink: 0,
-          padding: "8px 10px 6px",
-          borderBottom: "2.5px solid #1A1A1A",
+          padding: "6px 12px",
+          borderBottom: "2px solid #1A1A1A",
           fontFamily: SYNE,
           fontWeight: 800,
-          fontSize: 9,
+          fontSize: 8,
           color: "#1A1A1A",
           textTransform: "uppercase",
           letterSpacing: "3px",
@@ -566,130 +588,31 @@ function BackCard({
         Scout&apos;s Take
       </div>
 
-      {/* Three equal-height grade rows — together they fill all remaining
-          vertical space below the divider (each row is `flex: 1`). */}
-      <div
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          minHeight: 0,
-        }}
-      >
-        <GradeRow
-          grade={grades.capital}
-          sidebar={<MeterPanel label="Value" value={player.valueScore} fillColor="#3366CC" />}
-        />
-        <GradeRow
-          grade={grades.situation}
-          sidebar={<MeterPanel label="Fit" value={player.fitScore} fillColor="#F5C230" />}
-        />
-        <GradeRow
-          grade={grades.opportunity}
-          isLast
-          sidebar={
-            canDraft ? (
-              <button
-                type="button"
-                onClick={() => onDraft(player)}
-                className="cfc-scout-draft-btn"
-              >
-                Draft Player
-              </button>
-            ) : (
-              <div style={{ flex: 1 }} aria-hidden="true" />
-            )
-          }
-        />
+      {/* Three grade rows fill remaining space. */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <GradeRow grade={grades.capital} />
+        <GradeRow grade={grades.situation} />
+        <GradeRow grade={grades.opportunity} isLast />
+      </div>
+
+      {/* Stacked Value / Fit / Draft button at bottom. */}
+      <div style={{ flexShrink: 0, borderTop: "2px solid #1A1A1A" }}>
+        <MeterBar label="Value" value={player.valueScore} fillColor="#3366CC" />
+        <MeterBar label="Fit" value={player.fitScore} fillColor="#F5C230" />
+        {canDraft ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              // Prevent the flip click handler from firing as well.
+              e.stopPropagation();
+              onDraft(player);
+            }}
+            className="cfc-mobile-flip-draft-btn"
+          >
+            Draft Player
+          </button>
+        ) : null}
       </div>
     </div>
-  );
-}
-
-export function ScoutingCardModal({
-  player,
-  sleeperPlayer,
-  rookieProspect,
-  precomputedGrades,
-  contextMap,
-  canDraft,
-  onDraft,
-  onClose,
-}: Props) {
-  const [closing, setClosing] = useState(false);
-
-  const requestClose = () => {
-    if (closing) return;
-    setClosing(true);
-    window.setTimeout(onClose, CLOSE_ANIMATION_MS);
-  };
-
-  // Close on Escape
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") requestClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Debug: when the card opens, log the data sources used to populate the bio
-  // bar and grade rows. Helps diagnose missing-age / missing-prospect issues
-  // (e.g. when the rookie_prospects API returns no row for a name).
-  useEffect(() => {
-    console.debug("[ScoutingCard] open", {
-      playerName: player.name,
-      playerAgeLabel: player.ageLabel,
-      sleeperPlayer,
-      rookieProspect,
-      rookieProspectAge: rookieProspect?.age ?? null,
-      rookieProspectCollege: rookieProspect?.college ?? null,
-    });
-  }, [player.name, player.ageLabel, sleeperPlayer, rookieProspect]);
-
-  const grades: ScoutingGradeSet =
-    precomputedGrades ??
-    buildScoutingGrades(sleeperPlayer, player.position, contextMap, rookieProspect);
-
-  return (
-    <>
-      <div
-        className="cfc-scout-overlay"
-        data-closing={closing || undefined}
-        onClick={requestClose}
-        aria-hidden="true"
-      />
-      <div
-        className="cfc-scout-card"
-        data-closing={closing || undefined}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Scouting card for ${player.name}`}
-      >
-        {/* Close X — anchored to the top-right of the card pair */}
-        <button
-          type="button"
-          onClick={requestClose}
-          aria-label="Close scouting card"
-          className="cfc-scout-close"
-        >
-          ✕
-        </button>
-        <FrontCard
-          player={player}
-          rookieProspect={rookieProspect}
-          sleeperPlayer={sleeperPlayer}
-        />
-        <BackCard
-          player={player}
-          sleeperPlayer={sleeperPlayer}
-          rookieProspect={rookieProspect}
-          grades={grades}
-          canDraft={canDraft}
-          onDraft={onDraft}
-        />
-      </div>
-    </>
   );
 }

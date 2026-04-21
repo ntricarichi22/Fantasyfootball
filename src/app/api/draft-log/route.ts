@@ -162,6 +162,28 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Draft is paused" }, { status: 409 });
   }
 
+  // Server-side duplicate-pick guard. The DB-level partial unique index
+  // (migration 008) is the race-safe backstop, but pre-checking lets us
+  // return a clean 409 with a stable error code the client can map to a
+  // user-visible message instead of leaking a Postgres unique-violation
+  // error string. Both paths return the same 409 shape.
+  const { data: existingPlayerRow, error: existingPlayerError } = await client
+    .from("draft_log")
+    .select("pick_index, player_id")
+    .eq("player_id", normalized.player_id)
+    .maybeSingle();
+  if (existingPlayerError) {
+    console.warn("Unable to check draft_log for duplicate player", existingPlayerError);
+  } else if (existingPlayerRow) {
+    return NextResponse.json(
+      {
+        error: "player_already_drafted",
+        message: "This player has already been selected",
+      },
+      { status: 409 }
+    );
+  }
+
   // Cadence: pick is hidden ("the pick is in") until the 30-minute window
   // expires. The clock is NOT reset here — the team's window keeps ticking
   // toward the announcement time.
@@ -196,6 +218,23 @@ export async function POST(request: NextRequest) {
   ]);
 
   if (insertError) {
+    // Race-safe duplicate detection: a concurrent insert from another client
+    // can slip past the pre-check above and land here as a unique-violation
+    // (Postgres SQLSTATE 23505) on the partial unique index from migration
+    // 008 (draft_log_player_unique). Map it to the same 409 shape the
+    // pre-check returns so the client only needs one error path.
+    if (
+      (insertError as { code?: string }).code === "23505" ||
+      /draft_log_player_unique/i.test(insertError.message ?? "")
+    ) {
+      return NextResponse.json(
+        {
+          error: "player_already_drafted",
+          message: "This player has already been selected",
+        },
+        { status: 409 }
+      );
+    }
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
