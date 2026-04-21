@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { isChimeMuted, toggleChimeMuted, useChimeMuted } from "../../../lib/chime";
+import { toggleChimeMuted, useChimeMuted } from "../../../lib/chime";
 import type {
   AvailablePlayer,
   DraftLogEntry,
@@ -257,13 +257,7 @@ export function MobileDraftRoom(props: Props) {
         onNavigate={onNavigate}
         muted={muted}
         onToggleMute={() => {
-          // Use the imported helpers directly so the mute switch toggles the
-          // shared module-scoped flag.
           toggleChimeMuted();
-          // No-op read to silence unused-import warnings if tree-shaking
-          // catches this; importing `isChimeMuted` keeps a stable API surface
-          // for future callers.
-          void isChimeMuted;
         }}
       />
 
