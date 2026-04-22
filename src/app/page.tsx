@@ -899,7 +899,7 @@ export default function Home() {
   const hasActiveSession = !!selectedTeam && !!sessionId;
   const redirectingToDraft = !isDraftRoute && hasActiveSession;
   const redirectingToWelcome = isDraftRoute && !hasActiveSession;
-  const showWelcome = !isDraftRoute && !selectedTeam;
+  const showWelcome = !isDraftRoute && !hasActiveSession;
 
   return (
     <main className="relative min-h-screen text-[var(--cfc-ink)]">
