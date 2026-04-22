@@ -10,6 +10,27 @@ const ERROR_MESSAGES: Record<string, string> = {
   missing_code: "Invalid or expired link. Please request a new one.",
 };
 
+function LoginErrorMessage() {
+  const searchParams = useSearchParams();
+  const errorKey = searchParams.get("error");
+  if (!errorKey) return null;
+  const message = ERROR_MESSAGES[errorKey];
+  if (!message) return null;
+  return (
+    <div
+      style={{
+        fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+        fontSize: 13,
+        color: "#E8503A",
+        textAlign: "center",
+        marginBottom: 14,
+      }}
+    >
+      {message}
+    </div>
+  );
+}
+
 function LoginForm() {
   const [email, setEmail] = useState("");
   const [logoFailed, setLogoFailed] = useState(false);
@@ -238,6 +259,7 @@ function LoginForm() {
     </div>
   );
 }
+
 export default function LoginPage() {
   return (
     <Suspense fallback={null}>
