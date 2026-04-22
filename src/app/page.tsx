@@ -63,7 +63,20 @@ export default function Home() {
   const isDraftRoute = pathname?.startsWith("/draft");
   const draftRoute = "/draft";
   const isMobile = useIsMobile();
-  const [selectedTeam, setSelectedTeam] = useState(() => getStoredSessionSelection().rosterId);
+  const [selectedTeam, setSelectedTeam] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const match = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("cfc_identity="));
+      if (!match) return "";
+      const raw = decodeURIComponent(match.split("=")[1]);
+      const identity = JSON.parse(raw);
+      return identity?.rosterId ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [sessionId, setSessionId] = useState(() => getStoredSessionSelection().sessionId);
   const [teamSelectionInput, setTeamSelectionInput] = useState(
     () => getStoredSessionSelection().rosterId
