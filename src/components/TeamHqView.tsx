@@ -4,26 +4,24 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import TeamHqTabs from "./TeamHqTabs";
 import { readStoredTeam } from "../lib/storedTeam";
+import { useMyRoster, type RosterPlayer } from "../lib/hooks/useMyRoster";
 
-type AssetBucket = "QB" | "RB" | "WR" | "TE" | "Picks";
-type BuyState = "buy" | "hold" | "sell";
-type WantsChip = "picks" | "studs" | "youth" | "depth";
-type Attachment =
-  | "love_my_guys"
-  | "prefer_to_keep_them"
-  | "neutral"
-  | "ready_to_shake_it_up";
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type NeedLevel = "low" | "medium" | "high";
+type PriorityTarget = "picks" | "studs" | "youth" | "depth";
+type AttachmentValue = "untouchable" | "core_piece" | "listening" | "moveable";
 
 type TeamStrategyProfile = {
   league_id: string;
   team_id: string;
-  wants_more: WantsChip[];
-  qb_market: BuyState;
-  rb_market: BuyState;
-  wr_market: BuyState;
-  te_market: BuyState;
-  picks_market: BuyState;
-  own_guys_preference: Attachment;
+  wants_more: PriorityTarget[];
+  qb_market: NeedLevel;
+  rb_market: NeedLevel;
+  wr_market: NeedLevel;
+  te_market: NeedLevel;
+  picks_market: NeedLevel;
+  own_guys_preference: string;
 };
 
 type TeamTradeValueRow = {
@@ -50,63 +48,53 @@ type PickAnchorValues = {
   third: number;
 };
 
-const buyBuckets: AssetBucket[] = ["QB", "RB", "WR", "TE", "Picks"];
-const wantsChips: WantsChip[] = ["picks", "studs", "youth", "depth"];
-const attachmentOptions: Attachment[] = [
-  "love_my_guys",
-  "prefer_to_keep_them",
-  "neutral",
-  "ready_to_shake_it_up",
-];
-const buyStates: BuyState[] = ["buy", "hold", "sell"];
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-const labelFromWantsChip = (value: WantsChip) => {
-  if (value === "picks") return "Picks";
-  if (value === "studs") return "Studs";
-  if (value === "youth") return "Youth";
-  return "Depth";
-};
+const POSITION_BUCKETS = ["QB", "RB", "WR", "TE", "Picks"] as const;
+type PositionBucket = (typeof POSITION_BUCKETS)[number];
 
-const depthChartRows: Array<{ slot: string; candidates: string[] }> = [
-  { slot: "Quarterback (QB)", candidates: ["Lamar Jackson", "Bo Nix", "Will Levis", "Aidan O’Connell"] },
-  { slot: "Running Back (RB)", candidates: ["Kyren Williams", "Rachaad White", "Trey Benson", "Tank Bigsby"] },
-  { slot: "Wide Receiver 1 (WR)", candidates: ["Brandon Aiyuk", "Jordan Addison", "Jayden Reed", "Josh Downs"] },
-  { slot: "Wide Receiver 2 (WR)", candidates: ["Jordan Addison", "Brandon Aiyuk", "Jayden Reed", "Josh Downs"] },
-  { slot: "Skill Player 1 (SK)", candidates: ["Rachaad White", "Jayden Reed", "Trey Benson", "Chigoziem Okonkwo"] },
-  { slot: "Skill Player 2 (SK)", candidates: ["Jayden Reed", "Rachaad White", "Jordan Addison", "Tank Bigsby"] },
-  { slot: "Pass Catcher 1 (PC)", candidates: ["Sam LaPorta", "Brandon Aiyuk", "Chigoziem Okonkwo", "Josh Downs"] },
-  { slot: "Pass Catcher 2 (PC)", candidates: ["Brandon Aiyuk", "Sam LaPorta", "Jordan Addison", "Josh Downs"] },
-  { slot: "Superflex (SF)", candidates: ["Bo Nix", "Rachaad White", "Jordan Addison", "Trey Benson"] },
+const NEED_LEVELS: NeedLevel[] = ["low", "medium", "high"];
+const PRIORITY_TARGETS: PriorityTarget[] = ["picks", "studs", "youth", "depth"];
+const ATTACHMENT_VALUES: AttachmentValue[] = [
+  "untouchable",
+  "core_piece",
+  "listening",
+  "moveable",
 ];
 
-const depthPlayerMeta: Record<string, { position: string; nflTeam: string }> = {
-  "Lamar Jackson": { position: "QB", nflTeam: "BAL" },
-  "Bo Nix": { position: "QB", nflTeam: "DEN" },
-  "Will Levis": { position: "QB", nflTeam: "TEN" },
-  "Aidan O’Connell": { position: "QB", nflTeam: "LV" },
-  "Kyren Williams": { position: "RB", nflTeam: "LAR" },
-  "Rachaad White": { position: "RB", nflTeam: "TB" },
-  "Trey Benson": { position: "RB", nflTeam: "ARI" },
-  "Tank Bigsby": { position: "RB", nflTeam: "JAX" },
-  "Brandon Aiyuk": { position: "WR", nflTeam: "SF" },
-  "Jordan Addison": { position: "WR", nflTeam: "MIN" },
-  "Jayden Reed": { position: "WR", nflTeam: "GB" },
-  "Josh Downs": { position: "WR", nflTeam: "IND" },
-  "Sam LaPorta": { position: "TE", nflTeam: "DET" },
-  "Chigoziem Okonkwo": { position: "TE", nflTeam: "TEN" },
+const ATTACHMENT_LABELS: Record<AttachmentValue, string> = {
+  untouchable: "Untouchable",
+  core_piece: "Core Piece",
+  listening: "Listening",
+  moveable: "Moveable",
 };
 
-const defaultPickAnchorValues: PickAnchorValues = {
+const NEED_LABELS: Record<NeedLevel, string> = {
+  low: "Low",
+  medium: "Med",
+  high: "High",
+};
+
+const TARGET_LABELS: Record<PriorityTarget, { label: string; sub: string }> = {
+  picks: { label: "Picks", sub: "Draft capital" },
+  studs: { label: "Studs", sub: "Elite producers" },
+  youth: { label: "Youth", sub: "Young upside" },
+  depth: { label: "Depth", sub: "Roster depth" },
+};
+
+const defaultPickAnchors: PickAnchorValues = {
   first: 3000,
   second: 1000,
   third: 350,
 };
 
-const roundToTwoDecimals = (value: number) => Math.round(value * 100) / 100;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const decomposeToPicks = (teamValue: number, anchors: PickAnchorValues) => {
-  const firsts = Math.floor(teamValue / anchors.first);
-  const afterFirst = teamValue - firsts * anchors.first;
+const roundToTwo = (v: number) => Math.round(v * 100) / 100;
+
+const decomposeToPicks = (value: number, anchors: PickAnchorValues) => {
+  const firsts = Math.floor(value / anchors.first);
+  const afterFirst = value - firsts * anchors.first;
   const seconds = Math.floor(afterFirst / anchors.second);
   const afterSecond = afterFirst - seconds * anchors.second;
   const thirds = Math.floor(afterSecond / anchors.third);
@@ -114,77 +102,174 @@ const decomposeToPicks = (teamValue: number, anchors: PickAnchorValues) => {
 };
 
 const composeFromPicks = (
-  value: { firsts: number; seconds: number; thirds: number },
-  anchors: PickAnchorValues,
+  picks: { firsts: number; seconds: number; thirds: number },
+  anchors: PickAnchorValues
 ) =>
-  roundToTwoDecimals(
-    value.firsts * anchors.first + value.seconds * anchors.second + value.thirds * anchors.third,
+  roundToTwo(
+    picks.firsts * anchors.first +
+      picks.seconds * anchors.second +
+      picks.thirds * anchors.third
   );
 
-const labelFromAttachment = (value: Attachment) => {
-  if (value === "love_my_guys") return "Love my guys";
-  if (value === "prefer_to_keep_them") return "Prefer to keep them";
-  if (value === "ready_to_shake_it_up") return "Ready to shake it up";
-  return "Neutral";
+const posClass = (pos: string | null) => {
+  if (pos === "QB") return "cfc-pos cfc-pos-qb";
+  if (pos === "RB") return "cfc-pos cfc-pos-rb";
+  if (pos === "WR") return "cfc-pos cfc-pos-wr";
+  if (pos === "TE") return "cfc-pos cfc-pos-te";
+  return "cfc-pos cfc-pos-flex";
 };
 
-const teamDisplayName = (teamName: string, rosterId: string) => teamName || `Team ${rosterId}`;
+const teamDisplayName = (name: string, id: string) => name || `Team ${id}`;
+
+// ─── Shared card shell ────────────────────────────────────────────────────────
+
+function Card({
+  label,
+  title,
+  children,
+  right,
+  style,
+}: {
+  label: string;
+  title: string;
+  children: React.ReactNode;
+  right?: React.ReactNode;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <div
+      className="cfc-card"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        border: "2.5px solid #1A1A1A",
+        boxShadow: "4px 4px 0 #1A1A1A",
+        background: "#FEFCF9",
+        ...style,
+      }}
+    >
+      <div
+        style={{
+          padding: "12px 16px 10px",
+          borderBottom: "2px solid #1A1A1A",
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 8,
+              color: "#8C7E6A",
+              textTransform: "uppercase",
+              letterSpacing: 2,
+              marginBottom: 3,
+            }}
+          >
+            {label}
+          </div>
+          <div
+            style={{
+              fontFamily: "'Syne', sans-serif",
+              fontWeight: 900,
+              fontSize: 14,
+              color: "#1A1A1A",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            {title}
+          </div>
+        </div>
+        {right}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// ─── Strategy Tab ─────────────────────────────────────────────────────────────
 
 function StrategyTab() {
   const { teamName = "", rosterId = "" } = readStoredTeam();
+  const { players, loading: rosterLoading } = useMyRoster();
+
   const [profile, setProfile] = useState<TeamStrategyProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  // Attachment: map of sleeper_player_id → AttachmentValue
+  const [attachments, setAttachments] = useState<Record<string, AttachmentValue>>({});
+  const [savingAttachId, setSavingAttachId] = useState<string | null>(null);
+
+  // Load strategy profile
   useEffect(() => {
     if (!rosterId) return;
     setLoading(true);
     setError("");
-
     fetch(`/api/team-hq/strategy?teamId=${encodeURIComponent(rosterId)}`)
-      .then((res) => res.json().then((json) => ({ ok: res.ok, json })))
-      .then(({ ok, json }) => {
-        if (!ok) throw new Error(json?.error ?? "Failed to load strategy");
-        setProfile(json.data as TeamStrategyProfile);
+      .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok, j }) => {
+        if (!ok) throw new Error(j?.error ?? "Failed to load strategy");
+        setProfile(j.data as TeamStrategyProfile);
       })
-      .catch((err) => {
-        setError(err instanceof Error ? err.message : "Failed to load strategy");
-      })
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load strategy"))
       .finally(() => setLoading(false));
   }, [rosterId]);
 
-  const toggleWanted = (chip: WantsChip) => {
+  // Load attachments
+  useEffect(() => {
+    if (!rosterId) return;
+    fetch(`/api/team-hq/attachment?teamId=${encodeURIComponent(rosterId)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        const map: Record<string, AttachmentValue> = {};
+        for (const row of j.data ?? []) {
+          map[row.sleeper_player_id] = row.attachment as AttachmentValue;
+        }
+        setAttachments(map);
+      })
+      .catch(() => {});
+  }, [rosterId]);
+
+  const getNeedForBucket = (bucket: PositionBucket): NeedLevel => {
+    if (!profile) return "medium";
+    if (bucket === "QB") return profile.qb_market as NeedLevel;
+    if (bucket === "RB") return profile.rb_market as NeedLevel;
+    if (bucket === "WR") return profile.wr_market as NeedLevel;
+    if (bucket === "TE") return profile.te_market as NeedLevel;
+    return profile.picks_market as NeedLevel;
+  };
+
+  const setNeed = (bucket: PositionBucket, level: NeedLevel) => {
     setProfile((prev) => {
       if (!prev) return prev;
-      const hasChip = prev.wants_more.includes(chip);
+      if (bucket === "QB") return { ...prev, qb_market: level };
+      if (bucket === "RB") return { ...prev, rb_market: level };
+      if (bucket === "WR") return { ...prev, wr_market: level };
+      if (bucket === "TE") return { ...prev, te_market: level };
+      return { ...prev, picks_market: level };
+    });
+  };
+
+  const toggleTarget = (t: PriorityTarget) => {
+    setProfile((prev) => {
+      if (!prev) return prev;
+      const has = prev.wants_more.includes(t);
       return {
         ...prev,
-        wants_more: hasChip ? prev.wants_more.filter((x) => x !== chip) : [...prev.wants_more, chip],
+        wants_more: has
+          ? prev.wants_more.filter((x) => x !== t)
+          : [...prev.wants_more, t],
       };
     });
   };
 
-  const setMarket = (bucket: AssetBucket, state: BuyState) => {
-    setProfile((prev) => {
-      if (!prev) return prev;
-      if (bucket === "QB") return { ...prev, qb_market: state };
-      if (bucket === "RB") return { ...prev, rb_market: state };
-      if (bucket === "WR") return { ...prev, wr_market: state };
-      if (bucket === "TE") return { ...prev, te_market: state };
-      return { ...prev, picks_market: state };
-    });
-  };
-
-  const marketValue = (bucket: AssetBucket, current: TeamStrategyProfile) => {
-    if (bucket === "QB") return current.qb_market;
-    if (bucket === "RB") return current.rb_market;
-    if (bucket === "WR") return current.wr_market;
-    if (bucket === "TE") return current.te_market;
-    return current.picks_market;
-  };
-
-  const onSave = async () => {
+  const saveProfile = async () => {
     if (!profile || !rosterId) return;
     setSaving(true);
     setError("");
@@ -205,154 +290,494 @@ function StrategyTab() {
           },
         }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to save strategy");
-      setProfile(json.data as TeamStrategyProfile);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save strategy");
+      const j = await res.json();
+      if (!res.ok) throw new Error(j?.error ?? "Failed to save");
+      setProfile(j.data as TeamStrategyProfile);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   };
 
+  const saveAttachment = async (player: RosterPlayer, value: AttachmentValue) => {
+    if (!rosterId) return;
+    // Optimistic update
+    setAttachments((prev) => ({ ...prev, [player.id]: value }));
+    setSavingAttachId(player.id);
+    try {
+      await fetch("/api/team-hq/attachment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          teamId: rosterId,
+          sleeperPlayerId: player.id,
+          attachment: value,
+        }),
+      });
+    } catch {
+      // revert on failure
+      setAttachments((prev) => {
+        const next = { ...prev };
+        delete next[player.id];
+        return next;
+      });
+    } finally {
+      setSavingAttachId(null);
+    }
+  };
+
+  // Summary counts for Taking Calls header
+  const attachSummary = useMemo(() => {
+    const counts: Record<AttachmentValue, number> = {
+      untouchable: 0,
+      core_piece: 0,
+      listening: 0,
+      moveable: 0,
+    };
+    players.forEach((p) => {
+      const val = attachments[p.id] ?? "core_piece";
+      counts[val]++;
+    });
+    return counts;
+  }, [attachments, players]);
+
+  const btnBase: React.CSSProperties = {
+    fontFamily: "'Syne', sans-serif",
+    fontWeight: 800,
+    fontSize: 9,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    padding: "5px 4px",
+    border: "1.5px solid #C8C3B8",
+    background: "#F5F0E6",
+    cursor: "pointer",
+    textAlign: "center",
+    color: "#8C7E6A",
+    flex: 1,
+  };
+
+  const btnActive: React.CSSProperties = {
+    background: "#1A1A1A",
+    color: "#FEFCF9",
+    borderColor: "#1A1A1A",
+  };
+
+  const btnActiveYellow: React.CSSProperties = {
+    background: "#1A1A1A",
+    color: "#F5C230",
+    borderColor: "#1A1A1A",
+  };
+
+  const btnActiveRed: React.CSSProperties = {
+    background: "#1A1A1A",
+    color: "#E8503A",
+    borderColor: "#1A1A1A",
+  };
+
+  const needStyle = (bucket: PositionBucket, level: NeedLevel): React.CSSProperties => {
+    const active = getNeedForBucket(bucket) === level;
+    if (!active) return btnBase;
+    if (level === "high") return { ...btnBase, ...btnActiveRed };
+    if (level === "medium") return { ...btnBase, ...btnActiveYellow };
+    return { ...btnBase, ...btnActive };
+  };
+
   return (
-    <div className="space-y-5">
-      <section className="cfc-card p-5">
-        <div className="cfc-section">
-          <span className="cfc-section-tag">Team Direction</span>
-          <span className="cfc-section-line" />
-        </div>
-        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="font-headline text-2xl text-[var(--cfc-ink)]">Strategy</h2>
-            <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
-              Set your front-office posture for {teamDisplayName(teamName, rosterId)}
-            </p>
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 1.5fr",
+        gap: 12,
+        flex: 1,
+        minHeight: 0,
+      }}
+    >
+      {/* LEFT: Team Needs + Priority Targets */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+
+        {/* Team Needs */}
+        <Card label="Position Stance" title="Team Needs">
+          <div style={{ padding: "12px 16px" }}>
+            {loading || !profile ? (
+              <p style={{ fontSize: 12, color: "#8C7E6A" }}>Loading…</p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
+                {POSITION_BUCKETS.map((bucket) => (
+                  <div
+                    key={bucket}
+                    style={{ border: "2px solid #1A1A1A", overflow: "hidden" }}
+                  >
+                    <div
+                      style={{
+                        padding: "6px 4px",
+                        borderBottom: "1.5px solid #1A1A1A",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "#1A1A1A",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontWeight: 700,
+                          fontSize: 9,
+                          color: "#FEFCF9",
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                        }}
+                      >
+                        {bucket}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", padding: 4, gap: 3 }}>
+                      {NEED_LEVELS.map((level) => (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setNeed(bucket, level)}
+                          style={needStyle(bucket, level)}
+                        >
+                          {NEED_LABELS[level]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={!profile || saving || loading}
-            className="cfc-btn cfc-btn-danger"
-          >
-            {saving ? "Saving…" : "Save Strategy"}
-          </button>
-        </div>
+        </Card>
 
-        {error ? (
-          <p className="cfc-toast cfc-toast-error mb-3" style={{ display: "block" }}>
-            {error}
-          </p>
-        ) : null}
-
-        {loading || !profile ? (
-          <p className="text-sm" style={{ color: "var(--cfc-muted)" }}>
-            Loading strategy…
-          </p>
-        ) : (
-          <div className="grid gap-5 lg:grid-cols-2">
-            <div className="space-y-2">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--cfc-ink)]">
-                What do you want more of?
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {wantsChips.map((chip) => {
-                  const active = profile.wants_more.includes(chip);
+        {/* Priority Targets */}
+        <Card label="Asset Priority" title="Priority Targets">
+          <div style={{ padding: "12px 16px" }}>
+            {loading || !profile ? (
+              <p style={{ fontSize: 12, color: "#8C7E6A" }}>Loading…</p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                {PRIORITY_TARGETS.map((t) => {
+                  const active = profile.wants_more.includes(t);
                   return (
                     <button
-                      key={chip}
+                      key={t}
                       type="button"
-                      onClick={() => toggleWanted(chip)}
-                      className={[
-                        "cfc-chip cfc-chip-interactive",
-                        active ? "cfc-chip-red" : "",
-                      ].join(" ")}
+                      onClick={() => toggleTarget(t)}
+                      style={{
+                        border: "2px solid #1A1A1A",
+                        padding: "10px 12px",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        background: active ? "#1A1A1A" : "#F5F0E6",
+                        textAlign: "left",
+                      }}
                     >
-                      {labelFromWantsChip(chip)}
+                      <div
+                        style={{
+                          width: 13,
+                          height: 13,
+                          border: `2px solid ${active ? "#FEFCF9" : "#1A1A1A"}`,
+                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        {active && (
+                          <div
+                            style={{
+                              width: 6,
+                              height: 6,
+                              background: "#FEFCF9",
+                            }}
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <div
+                          style={{
+                            fontFamily: "'Syne', sans-serif",
+                            fontWeight: 800,
+                            fontSize: 12,
+                            color: active ? "#FEFCF9" : "#1A1A1A",
+                            textTransform: "uppercase",
+                            letterSpacing: 0.5,
+                          }}
+                        >
+                          {TARGET_LABELS[t].label}
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontSize: 8,
+                            color: active ? "rgba(255,255,255,0.4)" : "#8C7E6A",
+                            textTransform: "uppercase",
+                            letterSpacing: 1,
+                            marginTop: 2,
+                          }}
+                        >
+                          {TARGET_LABELS[t].sub}
+                        </div>
+                      </div>
                     </button>
                   );
                 })}
               </div>
-            </div>
+            )}
+          </div>
+        </Card>
 
-            <div className="space-y-2">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--cfc-ink)]">
-                How attached are you to your own guys?
+        {/* Save button */}
+        <div style={{ flexShrink: 0 }}>
+          {error && (
+            <p style={{ fontSize: 12, color: "#E8503A", marginBottom: 8 }}>{error}</p>
+          )}
+          <button
+            type="button"
+            onClick={saveProfile}
+            disabled={!profile || saving || loading}
+            style={{
+              width: "100%",
+              background: "#1A1A1A",
+              color: "#FEFCF9",
+              border: "2.5px solid #1A1A1A",
+              boxShadow: "3px 3px 0 #8C7E6A",
+              fontFamily: "'Syne', sans-serif",
+              fontWeight: 800,
+              fontSize: 12,
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              padding: "12px 20px",
+              cursor: saving ? "not-allowed" : "pointer",
+              opacity: saving ? 0.7 : 1,
+            }}
+          >
+            {saving ? "Saving…" : "Save Profile"}
+          </button>
+        </div>
+      </div>
+
+      {/* RIGHT: Taking Calls */}
+      <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <Card
+          label="Player Availability"
+          title="Taking Calls"
+          style={{ flex: 1, minHeight: 0 }}
+          right={
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+              {ATTACHMENT_VALUES.map((v) => (
+                <div
+                  key={v}
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 8,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: 1,
+                    padding: "3px 8px",
+                    border: "1.5px solid #1A1A1A",
+                    background: v === "untouchable" ? "#1A1A1A" : "#F5F0E6",
+                    color: v === "untouchable" ? "#FEFCF9" : "#1A1A1A",
+                  }}
+                >
+                  {attachSummary[v]} {ATTACHMENT_LABELS[v].toLowerCase()}
+                </div>
+              ))}
+            </div>
+          }
+        >
+          {/* Column headers */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "22px 1fr repeat(4, 80px)",
+              gap: 6,
+              padding: "6px 16px",
+              background: "#F5F0E6",
+              borderBottom: "2px solid #1A1A1A",
+              flexShrink: 0,
+            }}
+          >
+            <span />
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 7,
+                color: "#8C7E6A",
+                textTransform: "uppercase",
+                letterSpacing: 1,
+                fontWeight: 700,
+              }}
+            >
+              Player
+            </span>
+            {ATTACHMENT_VALUES.map((v) => (
+              <span
+                key={v}
+                style={{
+                  fontFamily: "'JetBrains Mono', monospace",
+                  fontSize: 7,
+                  color: "#8C7E6A",
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  fontWeight: 700,
+                  textAlign: "center",
+                }}
+              >
+                {ATTACHMENT_LABELS[v]}
+              </span>
+            ))}
+          </div>
+
+          {/* Scrollable player list */}
+          <div
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              minHeight: 0,
+            }}
+          >
+            {rosterLoading ? (
+              <p
+                style={{
+                  padding: "24px 16px",
+                  fontSize: 12,
+                  color: "#8C7E6A",
+                  textAlign: "center",
+                }}
+              >
+                Loading roster…
               </p>
-              <div className="flex flex-wrap gap-2">
-                {attachmentOptions.map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setProfile((prev) => (prev ? { ...prev, own_guys_preference: option } : prev))}
-                    className={[
-                      "cfc-chip cfc-chip-interactive",
-                      profile.own_guys_preference === option ? "cfc-chip-blue" : "",
-                    ].join(" ")}
+            ) : players.length === 0 ? (
+              <p
+                style={{
+                  padding: "24px 16px",
+                  fontSize: 12,
+                  color: "#8C7E6A",
+                  textAlign: "center",
+                }}
+              >
+                No players found.
+              </p>
+            ) : (
+              players.map((player) => {
+                const current = attachments[player.id] ?? "core_piece";
+                const isSaving = savingAttachId === player.id;
+                return (
+                  <div
+                    key={player.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "22px 1fr repeat(4, 80px)",
+                      gap: 6,
+                      padding: "7px 16px",
+                      borderBottom: "1px solid rgba(0,0,0,0.06)",
+                      alignItems: "center",
+                      opacity: isSaving ? 0.6 : 1,
+                    }}
                   >
-                    {labelFromAttachment(option)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="space-y-2 lg:col-span-2">
-              <p className="text-[11px] font-bold uppercase tracking-[0.08em] text-[var(--cfc-ink)]">
-                What are you buying or selling?
-              </p>
-              <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                {buyBuckets.map((bucket) => {
-                  const posClass =
-                    bucket === "QB"
-                      ? "cfc-pos cfc-pos-qb"
-                      : bucket === "RB"
-                        ? "cfc-pos cfc-pos-rb"
-                        : bucket === "WR"
-                          ? "cfc-pos cfc-pos-wr"
-                          : bucket === "TE"
-                            ? "cfc-pos cfc-pos-te"
-                            : "cfc-pos cfc-pos-flex";
-                  return (
-                    <div
-                      key={bucket}
-                      className="cfc-card-flat flex items-center justify-between gap-3 px-3 py-2"
+                    <span
+                      className={posClass(player.position)}
+                      style={{ fontSize: 7, padding: "2px 3px" }}
                     >
-                      <span className={posClass}>{bucket}</span>
-                      <div className="flex gap-1">
-                        {buyStates.map((state) => {
-                          const isActive = marketValue(bucket, profile) === state;
-                          const stateClass =
-                            state === "buy"
-                              ? "cfc-chip-blue"
-                              : state === "sell"
-                                ? "cfc-chip-red"
-                                : "cfc-chip-yellow";
-                          return (
-                            <button
-                              key={state}
-                              type="button"
-                              onClick={() => setMarket(bucket, state)}
-                              className={[
-                                "cfc-chip cfc-chip-interactive",
-                                isActive ? stateClass : "",
-                              ].join(" ")}
-                            >
-                              {state.toUpperCase()}
-                            </button>
-                          );
-                        })}
+                      {player.position}
+                    </span>
+                    <div>
+                      <div
+                        style={{
+                          fontFamily: "'DM Sans', sans-serif",
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#1A1A1A",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {player.name}
+                      </div>
+                      <div
+                        style={{
+                          fontFamily: "'JetBrains Mono', monospace",
+                          fontSize: 8,
+                          color: "#8C7E6A",
+                        }}
+                      >
+                        {player.nflTeam}
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
+                    {ATTACHMENT_VALUES.map((v) => {
+                      const isActive = current === v;
+                      return (
+                        <button
+                          key={v}
+                          type="button"
+                          disabled={isSaving}
+                          onClick={() => void saveAttachment(player, v)}
+                          style={{
+                            fontFamily: "'Syne', sans-serif",
+                            fontWeight: 700,
+                            fontSize: 8,
+                            textTransform: "uppercase",
+                            padding: "5px 2px",
+                            border: isActive
+                              ? "1.5px solid #1A1A1A"
+                              : "1.5px solid #C8C3B8",
+                            background: isActive ? "#1A1A1A" : "#F5F0E6",
+                            cursor: isSaving ? "not-allowed" : "pointer",
+                            textAlign: "center",
+                            color: isActive ? "#FEFCF9" : "#8C7E6A",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {ATTACHMENT_LABELS[v]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
+            )}
           </div>
-        )}
-      </section>
+        </Card>
+      </div>
     </div>
   );
 }
+
+// ─── Depth Chart Tab (unchanged) ─────────────────────────────────────────────
+
+const depthChartRows: Array<{ slot: string; candidates: string[] }> = [
+  { slot: "Quarterback (QB)", candidates: ["Lamar Jackson", "Bo Nix", "Will Levis", "Aidan O'Connell"] },
+  { slot: "Running Back (RB)", candidates: ["Kyren Williams", "Rachaad White", "Trey Benson", "Tank Bigsby"] },
+  { slot: "Wide Receiver 1 (WR)", candidates: ["Brandon Aiyuk", "Jordan Addison", "Jayden Reed", "Josh Downs"] },
+  { slot: "Wide Receiver 2 (WR)", candidates: ["Jordan Addison", "Brandon Aiyuk", "Jayden Reed", "Josh Downs"] },
+  { slot: "Skill Player 1 (SK)", candidates: ["Rachaad White", "Jayden Reed", "Trey Benson", "Chigoziem Okonkwo"] },
+  { slot: "Skill Player 2 (SK)", candidates: ["Jayden Reed", "Rachaad White", "Jordan Addison", "Tank Bigsby"] },
+  { slot: "Pass Catcher 1 (PC)", candidates: ["Sam LaPorta", "Brandon Aiyuk", "Chigoziem Okonkwo", "Josh Downs"] },
+  { slot: "Pass Catcher 2 (PC)", candidates: ["Brandon Aiyuk", "Sam LaPorta", "Jordan Addison", "Josh Downs"] },
+  { slot: "Superflex (SF)", candidates: ["Bo Nix", "Rachaad White", "Jordan Addison", "Trey Benson"] },
+];
+
+const depthPlayerMeta: Record<string, { position: string; nflTeam: string }> = {
+  "Lamar Jackson": { position: "QB", nflTeam: "BAL" },
+  "Bo Nix": { position: "QB", nflTeam: "DEN" },
+  "Will Levis": { position: "QB", nflTeam: "TEN" },
+  "Aidan O'Connell": { position: "QB", nflTeam: "LV" },
+  "Kyren Williams": { position: "RB", nflTeam: "LAR" },
+  "Rachaad White": { position: "RB", nflTeam: "TB" },
+  "Trey Benson": { position: "RB", nflTeam: "ARI" },
+  "Tank Bigsby": { position: "RB", nflTeam: "JAX" },
+  "Brandon Aiyuk": { position: "WR", nflTeam: "SF" },
+  "Jordan Addison": { position: "WR", nflTeam: "MIN" },
+  "Jayden Reed": { position: "WR", nflTeam: "GB" },
+  "Josh Downs": { position: "WR", nflTeam: "IND" },
+  "Sam LaPorta": { position: "TE", nflTeam: "DET" },
+  "Chigoziem Okonkwo": { position: "TE", nflTeam: "TEN" },
+};
 
 function DepthChartTab() {
   const [gridState, setGridState] = useState(depthChartRows);
@@ -361,7 +786,6 @@ function DepthChartTab() {
   const handleDrop = (targetRow: number, targetCol: number) => {
     if (!dragSource) return;
     if (dragSource.row === targetRow && dragSource.col === targetCol) return;
-
     setGridState((prev) => {
       const copy = prev.map((row) => ({ ...row, candidates: [...row.candidates] }));
       const sourceVal = copy[dragSource.row]?.candidates[dragSource.col];
@@ -381,7 +805,6 @@ function DepthChartTab() {
           <span className="cfc-mono font-bold text-[var(--cfc-ink)]">QB · RB · WR · WR · SK · SK · PC · PC · SF</span>
         </div>
       </section>
-
       <section className="cfc-card overflow-hidden">
         <div
           className="grid grid-cols-[220px_repeat(4,minmax(0,1fr))] px-4 py-3"
@@ -418,16 +841,6 @@ function DepthChartTab() {
                 const meta = depthPlayerMeta[name];
                 const role = colIdx === 0 ? "Starter" : colIdx === 1 ? "Backup" : "Depth";
                 const isStarter = colIdx === 0;
-                const posClass =
-                  meta?.position === "QB"
-                    ? "cfc-pos cfc-pos-qb"
-                    : meta?.position === "RB"
-                      ? "cfc-pos cfc-pos-rb"
-                      : meta?.position === "WR"
-                        ? "cfc-pos cfc-pos-wr"
-                        : meta?.position === "TE"
-                          ? "cfc-pos cfc-pos-te"
-                          : "cfc-pos cfc-pos-flex";
                 return (
                   <div key={`${row.slot}-${name}-${colIdx}`} className="px-1.5">
                     <button
@@ -440,7 +853,7 @@ function DepthChartTab() {
                       style={{ cursor: "grab" }}
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <span className={posClass} style={{ fontSize: 9 }}>
+                        <span className={posClass(meta?.position ?? null)} style={{ fontSize: 9 }}>
                           {meta?.position ?? "—"}
                         </span>
                         <span className="cfc-chip" style={{ fontSize: 8, padding: "2px 6px" }}>
@@ -465,39 +878,30 @@ function DepthChartTab() {
   );
 }
 
+// ─── Trade Chart Tab (unchanged) ─────────────────────────────────────────────
+
 function TradeChartTab() {
   const { rosterId = "" } = readStoredTeam();
   const [rows, setRows] = useState<TeamTradeValueRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingPlayerId, setSavingPlayerId] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [pickAnchors, setPickAnchors] = useState<PickAnchorValues>(defaultPickAnchorValues);
+  const [pickAnchors, setPickAnchors] = useState<PickAnchorValues>(defaultPickAnchors);
   const [pickState, setPickState] = useState<Record<string, { firsts: number; seconds: number; thirds: number }>>({});
 
   const load = useCallback(async (rebuildIfEmpty = true) => {
     if (!rosterId) return;
     setLoading(true);
     setError("");
-
     try {
       const res = await fetch(`/api/team-hq/trade-chart?teamId=${encodeURIComponent(rosterId)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to load trade chart");
-
       const data = (json.data ?? []) as TeamTradeValueRow[];
       const anchors = json.anchors as PickAnchorValues | undefined;
-      if (
-        anchors &&
-        typeof anchors.first === "number" &&
-        typeof anchors.second === "number" &&
-        typeof anchors.third === "number" &&
-        anchors.first > 0 &&
-        anchors.second > 0 &&
-        anchors.third > 0
-      ) {
+      if (anchors?.first && anchors?.second && anchors?.third) {
         setPickAnchors(anchors);
       }
-
       if (data.length === 0 && rebuildIfEmpty) {
         const rebuildRes = await fetch("/api/team-hq/trade-chart", {
           method: "POST",
@@ -505,19 +909,8 @@ function TradeChartTab() {
           body: JSON.stringify({ teamId: rosterId }),
         });
         const rebuildJson = await rebuildRes.json();
-        if (!rebuildRes.ok) throw new Error(rebuildJson?.error ?? "Failed to rebuild trade chart");
-        const rebuildAnchors = rebuildJson.anchors as PickAnchorValues | undefined;
-        if (
-          rebuildAnchors &&
-          typeof rebuildAnchors.first === "number" &&
-          typeof rebuildAnchors.second === "number" &&
-          typeof rebuildAnchors.third === "number" &&
-          rebuildAnchors.first > 0 &&
-          rebuildAnchors.second > 0 &&
-          rebuildAnchors.third > 0
-        ) {
-          setPickAnchors(rebuildAnchors);
-        }
+        if (!rebuildRes.ok) throw new Error(rebuildJson?.error ?? "Failed to rebuild");
+        if (rebuildJson.anchors?.first) setPickAnchors(rebuildJson.anchors);
         setRows((rebuildJson.data ?? []) as TeamTradeValueRow[]);
       } else {
         setRows(data);
@@ -529,16 +922,11 @@ function TradeChartTab() {
     }
   }, [rosterId]);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     const next = Object.fromEntries(
-      rows.map((row) => {
-        const sourceValue = row.final_value;
-        return [row.sleeper_player_id, decomposeToPicks(sourceValue, pickAnchors)];
-      }),
+      rows.map((row) => [row.sleeper_player_id, decomposeToPicks(row.final_value, pickAnchors)])
     );
     setPickState(next);
   }, [rows, pickAnchors]);
@@ -546,10 +934,7 @@ function TradeChartTab() {
   const setPickValue = (playerId: string, key: "firsts" | "seconds" | "thirds", value: number) => {
     setPickState((prev) => ({
       ...prev,
-      [playerId]: {
-        ...prev[playerId],
-        [key]: Math.max(0, Math.floor(value)),
-      },
+      [playerId]: { ...prev[playerId], [key]: Math.max(0, Math.floor(value)) },
     }));
   };
 
@@ -558,19 +943,13 @@ function TradeChartTab() {
     setSavingPlayerId(row.sleeper_player_id);
     setError("");
     try {
-      const pickValue = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
-      const manualOverrideValue = clear ? null : composeFromPicks(pickValue, pickAnchors);
-
+      const picks = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
+      const manualOverrideValue = clear ? null : composeFromPicks(picks, pickAnchors);
       const res = await fetch("/api/team-hq/trade-chart/override", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          teamId: rosterId,
-          sleeperPlayerId: row.sleeper_player_id,
-          manualOverrideValue,
-        }),
+        body: JSON.stringify({ teamId: rosterId, sleeperPlayerId: row.sleeper_player_id, manualOverrideValue }),
       });
-
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to save override");
       setRows((json.data ?? []) as TeamTradeValueRow[]);
@@ -582,12 +961,8 @@ function TradeChartTab() {
   };
 
   const displayRows = useMemo(
-    () =>
-      rows.map((row) => ({
-        ...row,
-        delta_vs_base: roundToTwoDecimals(row.final_value - row.base_value),
-      })),
-    [rows],
+    () => rows.map((r) => ({ ...r, delta_vs_base: roundToTwo(r.final_value - r.base_value) })),
+    [rows]
   );
 
   return (
@@ -604,20 +979,11 @@ function TradeChartTab() {
               Team-adjusted values with manual override support.
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => load(false)}
-            disabled={loading}
-            className="cfc-btn cfc-btn-ink"
-          >
+          <button type="button" onClick={() => load(false)} disabled={loading} className="cfc-btn cfc-btn-ink">
             Refresh
           </button>
         </div>
-        {error ? (
-          <p className="mt-3 cfc-toast cfc-toast-error" style={{ display: "block" }}>
-            {error}
-          </p>
-        ) : null}
+        {error && <p className="mt-3 cfc-toast cfc-toast-error" style={{ display: "block" }}>{error}</p>}
       </section>
 
       <section className="cfc-card overflow-hidden">
@@ -638,126 +1004,46 @@ function TradeChartTab() {
               </tr>
             </thead>
             <tbody>
-              {loading && displayRows.length === 0 ? (
-                <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>
-                    Loading trade chart…
-                  </td>
-                </tr>
-              ) : null}
-
-              {!loading && displayRows.length === 0 ? (
-                <tr>
-                  <td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>
-                    No owned players found for this team.
-                  </td>
-                </tr>
-              ) : null}
-
+              {loading && displayRows.length === 0 && (
+                <tr><td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>Loading trade chart…</td></tr>
+              )}
+              {!loading && displayRows.length === 0 && (
+                <tr><td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>No owned players found for this team.</td></tr>
+              )}
               {displayRows.map((row) => {
                 const picks = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
                 const isSaving = savingPlayerId === row.sleeper_player_id;
-                const posClass =
-                  row.position === "QB"
-                    ? "cfc-pos cfc-pos-qb"
-                    : row.position === "RB"
-                      ? "cfc-pos cfc-pos-rb"
-                      : row.position === "WR"
-                        ? "cfc-pos cfc-pos-wr"
-                        : row.position === "TE"
-                          ? "cfc-pos cfc-pos-te"
-                          : "cfc-pos cfc-pos-flex";
                 return (
                   <tr key={row.sleeper_player_id}>
                     <td>
                       <div className="flex items-center gap-2">
-                        <span className={posClass} style={{ fontSize: 9 }}>
-                          {row.position ?? "—"}
-                        </span>
+                        <span className={posClass(row.position)} style={{ fontSize: 9 }}>{row.position ?? "—"}</span>
                         <div className="min-w-0">
-                          <p className="font-bold text-[var(--cfc-ink)] truncate">
-                            {row.player_name ?? row.sleeper_player_id}
-                          </p>
-                          <p className="cfc-mono text-[10px]" style={{ color: "var(--cfc-muted)" }}>
-                            {row.nfl_team ?? "—"}
-                            {row.is_overridden ? " · overridden" : ""}
-                          </p>
+                          <p className="font-bold text-[var(--cfc-ink)] truncate">{row.player_name ?? row.sleeper_player_id}</p>
+                          <p className="cfc-mono text-[10px]" style={{ color: "var(--cfc-muted)" }}>{row.nfl_team ?? "—"}{row.is_overridden ? " · overridden" : ""}</p>
                         </div>
                       </div>
                     </td>
                     <td className="cfc-mono" style={{ textAlign: "right" }}>{Math.round(row.base_value).toLocaleString()}</td>
                     <td className="cfc-mono" style={{ textAlign: "right" }}>{Math.round(row.auto_value).toLocaleString()}</td>
                     <td className="cfc-mono" style={{ textAlign: "right", fontWeight: 700 }}>{Math.round(row.final_value).toLocaleString()}</td>
-                    <td
-                      className="cfc-mono"
-                      style={{
-                        textAlign: "right",
-                        fontWeight: 700,
-                        color:
-                          row.delta_vs_base > 0
-                            ? "var(--cfc-blue)"
-                            : row.delta_vs_base < 0
-                              ? "var(--cfc-red)"
-                              : "var(--cfc-muted)",
-                      }}
-                    >
-                      {row.delta_vs_base > 0 ? "+" : ""}
-                      {Math.round(row.delta_vs_base).toLocaleString()}
+                    <td className="cfc-mono" style={{ textAlign: "right", fontWeight: 700, color: row.delta_vs_base > 0 ? "var(--cfc-blue)" : row.delta_vs_base < 0 ? "var(--cfc-red)" : "var(--cfc-muted)" }}>
+                      {row.delta_vs_base > 0 ? "+" : ""}{Math.round(row.delta_vs_base).toLocaleString()}
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <input
-                        type="number"
-                        step="1"
-                        min={0}
-                        value={picks.firsts}
-                        onChange={(e) => setPickValue(row.sleeper_player_id, "firsts", Number(e.target.value))}
-                        className="cfc-input cfc-mono"
-                        style={{ width: 64, padding: "4px 8px", textAlign: "right" }}
-                      />
+                      <input type="number" step="1" min={0} value={picks.firsts} onChange={(e) => setPickValue(row.sleeper_player_id, "firsts", Number(e.target.value))} className="cfc-input cfc-mono" style={{ width: 64, padding: "4px 8px", textAlign: "right" }} />
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <input
-                        type="number"
-                        step="1"
-                        min={0}
-                        value={picks.seconds}
-                        onChange={(e) => setPickValue(row.sleeper_player_id, "seconds", Number(e.target.value))}
-                        className="cfc-input cfc-mono"
-                        style={{ width: 64, padding: "4px 8px", textAlign: "right" }}
-                      />
+                      <input type="number" step="1" min={0} value={picks.seconds} onChange={(e) => setPickValue(row.sleeper_player_id, "seconds", Number(e.target.value))} className="cfc-input cfc-mono" style={{ width: 64, padding: "4px 8px", textAlign: "right" }} />
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <input
-                        type="number"
-                        step="1"
-                        min={0}
-                        value={picks.thirds}
-                        onChange={(e) => setPickValue(row.sleeper_player_id, "thirds", Number(e.target.value))}
-                        className="cfc-input cfc-mono"
-                        style={{ width: 64, padding: "4px 8px", textAlign: "right" }}
-                      />
+                      <input type="number" step="1" min={0} value={picks.thirds} onChange={(e) => setPickValue(row.sleeper_player_id, "thirds", Number(e.target.value))} className="cfc-input cfc-mono" style={{ width: 64, padding: "4px 8px", textAlign: "right" }} />
                     </td>
-                    <td className="cfc-mono" style={{ textAlign: "right", fontSize: 11, color: "var(--cfc-muted)" }}>
-                      {(row.total_modifier_pct * 100).toFixed(1)}%
-                    </td>
+                    <td className="cfc-mono" style={{ textAlign: "right", fontSize: 11, color: "var(--cfc-muted)" }}>{(row.total_modifier_pct * 100).toFixed(1)}%</td>
                     <td style={{ textAlign: "right" }}>
                       <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          disabled={isSaving}
-                          onClick={() => saveOverride(row, false)}
-                          className="cfc-btn cfc-btn-primary cfc-btn-sm"
-                        >
-                          {isSaving ? "Saving…" : "Save"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isSaving || !row.is_overridden}
-                          onClick={() => saveOverride(row, true)}
-                          className="cfc-btn cfc-btn-sm"
-                        >
-                          Clear
-                        </button>
+                        <button type="button" disabled={isSaving} onClick={() => saveOverride(row, false)} className="cfc-btn cfc-btn-primary cfc-btn-sm">{isSaving ? "Saving…" : "Save"}</button>
+                        <button type="button" disabled={isSaving || !row.is_overridden} onClick={() => saveOverride(row, true)} className="cfc-btn cfc-btn-sm">Clear</button>
                       </div>
                     </td>
                   </tr>
@@ -771,26 +1057,116 @@ function TradeChartTab() {
   );
 }
 
+// ─── Root ─────────────────────────────────────────────────────────────────────
+
 export default function TeamHqView() {
+  const { teamName = "", rosterId = "" } = readStoredTeam();
   const searchParams = useSearchParams();
   const tab = searchParams.get("tab") || "strategy";
 
   return (
-    <main className="min-h-[calc(100vh-44px)] bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
-      <div className="mx-auto flex w-full max-w-7xl flex-col px-4 py-6 sm:px-6">
-        <header className="mb-5 flex flex-wrap items-center gap-4">
-          <div className="cfc-section" style={{ marginBottom: 0 }}>
-            <span className="cfc-section-tag">Team HQ</span>
-            <h1 className="font-headline text-3xl text-[var(--cfc-ink)]">Front Office</h1>
+    <main
+      style={{
+        height: "calc(100vh - 44px)",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+        background: "var(--cfc-canvas)",
+        color: "var(--cfc-ink)",
+      }}
+    >
+      <div
+        style={{
+          maxWidth: 1200,
+          width: "100%",
+          margin: "0 auto",
+          padding: "0 40px",
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "20px 0 14px",
+            flexShrink: 0,
+            display: "flex",
+            alignItems: "flex-end",
+            justifyContent: "space-between",
+          }}
+        >
+          <div>
+            <div
+              style={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 9,
+                color: "#8C7E6A",
+                textTransform: "uppercase",
+                letterSpacing: 3,
+                marginBottom: 6,
+              }}
+            >
+              Owner&apos;s Box · {teamDisplayName(teamName, rosterId)}
+            </div>
+            <div
+              style={{
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 900,
+                fontSize: 32,
+                color: "#1A1A1A",
+                lineHeight: 1,
+                letterSpacing: -1,
+                textTransform: "uppercase",
+              }}
+            >
+              Front Office Profile
+            </div>
           </div>
-          <span className="text-sm" style={{ color: "var(--cfc-muted)" }}>
-            Strategy · Depth Chart · Trade Chart
-          </span>
-        </header>
+        </div>
 
-        <TeamHqTabs />
+        {/* Tabs */}
+        <div
+          style={{
+            display: "flex",
+            borderBottom: "2.5px solid #1A1A1A",
+            marginBottom: 14,
+            flexShrink: 0,
+          }}
+        >
+          {(["strategy", "depth-chart", "trade-chart"] as const).map((t) => {
+            const labels: Record<string, string> = {
+              strategy: "Strategy",
+              "depth-chart": "Depth Chart",
+              "trade-chart": "Trade Chart",
+            };
+            const isActive = tab === t;
+            return (
+              <a
+                key={t}
+                href={`?tab=${t}`}
+                style={{
+                  fontFamily: "'Syne', sans-serif",
+                  fontWeight: 700,
+                  fontSize: 11,
+                  textTransform: "uppercase",
+                  letterSpacing: 1,
+                  padding: "10px 20px",
+                  borderBottom: isActive ? "3px solid #1A1A1A" : "3px solid transparent",
+                  marginBottom: -2.5,
+                  color: isActive ? "#1A1A1A" : "#8C7E6A",
+                  textDecoration: "none",
+                }}
+              >
+                {labels[t]}
+              </a>
+            );
+          })}
+        </div>
 
-        <div className="pb-6">
+        {/* Tab content */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", paddingBottom: 24 }}>
           {tab === "depth-chart" ? (
             <DepthChartTab />
           ) : tab === "trade-chart" ? (
