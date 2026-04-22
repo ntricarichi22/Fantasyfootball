@@ -823,6 +823,14 @@ export default function Home() {
       setSelectedTeam(teamSelectionInput);
       setErrorMessage("");
       setStatusMessage("");
+      sessionStorage.setItem(
+        SELECTED_TEAM_CACHE_KEY,
+        JSON.stringify({
+          rosterId: teamSelectionInput,
+          sessionId: activeSessionId,
+          teamName: teams.find((t) => toId(t.id) === teamSelectionInput)?.name || "",
+        })
+      );
       router.replace(draftRoute);
     } catch (error) {
       console.warn("Unable to claim team", error);
