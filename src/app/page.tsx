@@ -103,15 +103,6 @@ export default function Home() {
       // ignore
     }
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (isDraftRoute && !sessionId) {
-      // User navigated directly to /draft without an active draft session.
-      // Send them to the home screen to enter through the front door.
-      window.location.href = "/";
-    }
-  }, [isDraftRoute, sessionId]);
   const {
     draftLog,
     setDraftLog,
