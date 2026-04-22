@@ -23,6 +23,26 @@ export type StoredTeam = {
 export const readStoredTeam = (): StoredTeam => {
   if (typeof window === "undefined") return {};
   try {
+    // Try cookie first (new auth system)
+    const match = document.cookie
+      .split("; ")
+      .find((row) => row.startsWith("cfc_identity="));
+    if (match) {
+      const raw = decodeURIComponent(match.split("=")[1]);
+      const identity = JSON.parse(raw);
+      if (identity?.rosterId) {
+        return {
+          rosterId: String(identity.rosterId),
+          teamName: identity.teamName ?? undefined,
+          sessionId: undefined,
+        };
+      }
+    }
+  } catch {
+    // fall through to sessionStorage
+  }
+  try {
+    // Fall back to sessionStorage (legacy)
     const raw = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw);
