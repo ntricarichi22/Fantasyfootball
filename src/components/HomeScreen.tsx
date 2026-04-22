@@ -190,15 +190,10 @@ export function HomeScreen({
 }: Props) {
   const router = useRouter();
 
-  const draftStatLabel = draftPickSlots.length === 1
-    ? "Your pick"
-    : draftPickSlots.length > 1
-      ? "Your picks"
-      : "No picks";
-
-  const draftStatValue = draftPickSlots.length > 0
-    ? draftPickSlots.join(", ")
-    : "—";
+  const draftStatLabel = "Draft picks";
+const draftStatValue = draftPickSlots.length > 0
+  ? String(draftPickSlots.length)
+  : "—";
 
   return (
     <div style={{
