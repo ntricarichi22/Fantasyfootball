@@ -445,9 +445,9 @@ export function HomeScreen({
                 onEnterDraftRoom();
                 return;
               }
-              if (door.key === "team-hq") router.push("/team-hq");
-              else if (door.key === "trade-center") router.push("/trade-center");
-              else if (door.key === "historian") router.push("/historian");
+              if (door.key === "team-hq") window.location.href = "/team-hq";
+              else if (door.key === "trade-center") window.location.href = "/trade-center";
+              else if (door.key === "historian") window.location.href = "/historian";
             };
             return (
               <DoorButton

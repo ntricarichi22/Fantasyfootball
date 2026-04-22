@@ -63,7 +63,20 @@ export default function Home() {
   const isDraftRoute = pathname?.startsWith("/draft");
   const draftRoute = "/draft";
   const isMobile = useIsMobile();
-  const [selectedTeam, setSelectedTeam] = useState(() => getStoredSessionSelection().rosterId);
+  const [selectedTeam, setSelectedTeam] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      const match = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("cfc_identity="));
+      if (!match) return "";
+      const raw = decodeURIComponent(match.split("=")[1]);
+      const identity = JSON.parse(raw);
+      return identity?.rosterId ?? "";
+    } catch {
+      return "";
+    }
+  });
   const [sessionId, setSessionId] = useState(() => getStoredSessionSelection().sessionId);
   const [teamSelectionInput, setTeamSelectionInput] = useState(
     () => getStoredSessionSelection().rosterId
@@ -194,16 +207,6 @@ export default function Home() {
     const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
-  
-  useEffect(() => {
-    if (selectedTeam || typeof window === "undefined") return;
-    const stored = getStoredSessionSelection();
-    if (stored.rosterId) {
-      setSelectedTeam(stored.rosterId);
-      setSessionId(stored.sessionId);
-      setTeamSelectionInput(stored.rosterId);
-    }
-  }, [selectedTeam]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -898,9 +901,7 @@ export default function Home() {
   void handleUndoPick;
 
   const hasActiveSession = !!selectedTeam && !!sessionId;
-  const redirectingToDraft = !isDraftRoute && hasActiveSession;
-  const redirectingToWelcome = isDraftRoute && !hasActiveSession;
-  const showWelcome = !isDraftRoute && !hasActiveSession;
+  const showWelcome = !isDraftRoute;
 
   return (
     <main className="relative min-h-screen text-[var(--cfc-ink)]">
@@ -920,15 +921,7 @@ export default function Home() {
           {leagueIdError} Live Sleeper data is unavailable until it is set.
         </div>
       )}
-      {redirectingToDraft ? (
-        <div className="flex min-h-screen items-center justify-center bg-[var(--cfc-canvas)]">
-          <p className="font-headline text-2xl text-[var(--cfc-ink)]">Entering Draft Room…</p>
-        </div>
-      ) : redirectingToWelcome ? (
-        <div className="flex min-h-screen items-center justify-center bg-[var(--cfc-canvas)]">
-          <p className="font-headline text-2xl text-[var(--cfc-ink)]">Returning to team select…</p>
-        </div>
-      ) : showWelcome ? (
+      {showWelcome ? (
         <HomeScreen
           teamName={teams.find((t) => toId(t.id) === selectedTeam)?.name || ""}
           rosterId={selectedTeam}
