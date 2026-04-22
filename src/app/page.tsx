@@ -84,11 +84,11 @@ export default function Home() {
       const raw = decodeURIComponent(match.split("=")[1]);
       const identity = JSON.parse(raw);
       if (identity?.rosterId && identity?.teamName) {
-        const stored = sessionStorage.getItem("cfc_selected_team");
+        const stored = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
         const parsed = stored ? JSON.parse(stored) : {};
         if (parsed.rosterId !== identity.rosterId) {
           sessionStorage.setItem(
-            "cfc_selected_team",
+            SELECTED_TEAM_CACHE_KEY,
             JSON.stringify({
               rosterId: identity.rosterId,
               teamName: identity.teamName,
@@ -934,6 +934,11 @@ export default function Home() {
         <HomeScreen
           teamName={teams.find((t) => toId(t.id) === selectedTeam)?.name || ""}
           rosterId={selectedTeam}
+          claimingTeam={claimingTeam}
+          onEnterDraftRoom={() => {
+            setTeamSelectionInput(selectedTeam);
+            void handleEnterDraftRoom();
+          }}
         />
       ) : isMobile && isDraftRoute && hasActiveSession ? (
         <MobileDraftRoom

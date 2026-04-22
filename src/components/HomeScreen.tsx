@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 type Props = {
   teamName: string;
   rosterId: string;
+  onEnterDraftRoom: () => void;
+  claimingTeam: boolean;
 };
 
 type Door = {
@@ -17,7 +19,6 @@ type Door = {
   headline: string;
   stat: string;
   statLabel: string;
-  href: string;
   inkBorder?: boolean;
   badgeBg?: string;
   statColor?: string;
@@ -33,12 +34,12 @@ const DOORS: Door[] = [
     accent: "#F5C230",
     // TODO: hardcoded placeholder pending real data
     badgeLabel: "DRAFT DAY",
+    // TODO: hardcoded placeholder pending real data
     badgeValue: "Apr 25",
     headline: "Draft\nWar Room",
     // TODO: hardcoded placeholder pending real data
     stat: "Pick 8",
     statLabel: "Your slot",
-    href: "/draft",
   },
   {
     key: "team-hq",
@@ -47,12 +48,12 @@ const DOORS: Door[] = [
     accent: "#F5C230",
     // TODO: hardcoded placeholder pending real data
     badgeLabel: "TO REVIEW",
+    // TODO: hardcoded placeholder pending real data
     badgeValue: "3 moves",
     headline: "Team\nHQ",
     // TODO: hardcoded placeholder pending real data
     stat: "8th",
     statLabel: "2025 finish",
-    href: "/team-hq",
   },
   {
     key: "trade-center",
@@ -61,12 +62,12 @@ const DOORS: Door[] = [
     accent: "#E8503A",
     // TODO: hardcoded placeholder pending real data
     badgeLabel: "PENDING",
+    // TODO: hardcoded placeholder pending real data
     badgeValue: "2 offers",
     headline: "Trade\nCenter",
     // TODO: hardcoded placeholder pending real data
     stat: "↑ +2",
     statLabel: "Value rank",
-    href: "/trade-center",
   },
   {
     key: "historian",
@@ -75,12 +76,12 @@ const DOORS: Door[] = [
     accent: "#3366CC",
     // TODO: hardcoded placeholder pending real data
     badgeLabel: "ON RECORD",
+    // TODO: hardcoded placeholder pending real data
     badgeValue: "7 seasons",
     headline: "League\nHistorian",
     // TODO: hardcoded placeholder pending real data
     stat: "128",
     statLabel: "Games played",
-    href: "/historian",
     inkBorder: true,
     badgeBg: "rgba(0,0,0,0.08)",
     statColor: "#3366CC",
@@ -89,12 +90,23 @@ const DOORS: Door[] = [
   },
 ];
 
-const DoorButton = ({ door, onClick }: { door: Door; onClick: () => void }) => {
+const DoorButton = ({
+  door,
+  onClick,
+  disabled,
+  overlayText,
+}: {
+  door: Door;
+  onClick: () => void;
+  disabled?: boolean;
+  overlayText?: string;
+}) => {
   const onLight = door.bg === "#F5F0E6";
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       style={{
         background: door.bg,
         color: door.color,
@@ -106,17 +118,20 @@ const DoorButton = ({ door, onClick }: { door: Door; onClick: () => void }) => {
         display: "flex",
         flexDirection: "column",
         justifyContent: "space-between",
-        cursor: "pointer",
+        cursor: disabled ? "wait" : "pointer",
         position: "relative",
         overflow: "hidden",
         textAlign: "left",
         transition: "transform 100ms, box-shadow 100ms",
+        opacity: disabled ? 0.85 : 1,
       }}
       onMouseEnter={(e) => {
+        if (disabled) return;
         e.currentTarget.style.transform = "translate(2px, 2px)";
         e.currentTarget.style.boxShadow = "4px 4px 0 #1A1A1A";
       }}
       onMouseLeave={(e) => {
+        if (disabled) return;
         e.currentTarget.style.transform = "none";
         e.currentTarget.style.boxShadow = "6px 6px 0 #1A1A1A";
       }}
@@ -255,11 +270,39 @@ const DoorButton = ({ door, onClick }: { door: Door; onClick: () => void }) => {
           →
         </span>
       </div>
+      {overlayText && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            background: "rgba(0,0,0,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+            fontSize: 11,
+            fontWeight: 700,
+            color: "#fff",
+            textTransform: "uppercase",
+            letterSpacing: "0.12em",
+            textAlign: "center",
+            padding: 8,
+            zIndex: 2,
+          }}
+        >
+          {overlayText}
+        </div>
+      )}
     </button>
   );
 };
 
-export function HomeScreen({ teamName, rosterId: _rosterId }: Props) {
+export function HomeScreen({
+  teamName,
+  rosterId: _rosterId,
+  onEnterDraftRoom,
+  claimingTeam,
+}: Props) {
   const router = useRouter();
 
   return (
@@ -394,13 +437,28 @@ export function HomeScreen({ teamName, rosterId: _rosterId }: Props) {
             gap: 10,
           }}
         >
-          {DOORS.map((door) => (
-            <DoorButton
-              key={door.key}
-              door={door}
-              onClick={() => router.push(door.href)}
-            />
-          ))}
+          {DOORS.map((door) => {
+            const isDraft = door.key === "draft";
+            const handleClick = () => {
+              if (isDraft) {
+                if (claimingTeam) return;
+                onEnterDraftRoom();
+                return;
+              }
+              if (door.key === "team-hq") router.push("/team-hq");
+              else if (door.key === "trade-center") router.push("/trade-center");
+              else if (door.key === "historian") router.push("/historian");
+            };
+            return (
+              <DoorButton
+                key={door.key}
+                door={door}
+                onClick={handleClick}
+                disabled={isDraft && claimingTeam}
+                overlayText={isDraft && claimingTeam ? "Entering draft room…" : undefined}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
