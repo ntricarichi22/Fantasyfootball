@@ -446,7 +446,7 @@ export function HomeScreen({
                 return;
               }
               if (door.key === "team-hq") window.location.href = "/team-hq";
-              else if (door.key === "trade-center") window.location.href = "/trade-center";
+              else if (door.key === "trade-center") window.location.href = "/trades";
               else if (door.key === "historian") window.location.href = "/historian";
             };
             return (
