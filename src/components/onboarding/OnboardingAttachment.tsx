@@ -372,11 +372,7 @@ export default function OnboardingAttachment({
                             style={{
                               width: 8,
                               height: 8,
-                              background: active
-                                ? opt.textOnInk
-                                  ? "#1A1A1A"
-                                  : "#1A1A1A"
-                                : "#C8C3B8",
+                              background: active ? "#1A1A1A" : "#C8C3B8",
                               borderRadius: 2,
                               display: "inline-block",
                             }}
