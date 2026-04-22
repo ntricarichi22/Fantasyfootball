@@ -31,50 +31,183 @@ function LoginErrorMessage() {
   );
 }
 
-function LoginForm() {
-  const [email, setEmail] = useState("");
-  const [logoFailed, setLogoFailed] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
+type Step = "email" | "new-password" | "existing-password";
 
-  const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
+function LoginForm() {
+  const [step, setStep] = useState<Step>("email");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [logoFailed, setLogoFailed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  const handleEmailSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmed = email.trim().toLowerCase();
     if (!trimmed || submitting) return;
     setSubmitting(true);
+    setFormError("");
     try {
-      if (supabase && typeof window !== "undefined") {
-        await supabase.auth.signInWithOtp({
-          email: trimmed,
-          options: {
-            emailRedirectTo: `${window.location.origin}/auth/callback`,
-            shouldCreateUser: false,
-          },
-        });
+      const res = await fetch("/api/auth/prepare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        if (json?.error === "not_a_member") {
+          setFormError("This email isn't registered with the CFC league.");
+        } else {
+          setFormError("Something went wrong. Please try again.");
+        }
+        setSubmitting(false);
+        return;
       }
+      setStep(json.exists ? "existing-password" : "new-password");
+      setSubmitting(false);
     } catch {
-      // Swallow errors to prevent email enumeration
-    } finally {
-      setSent(true);
+      setFormError("Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  };
+
+  const finalizeAndRedirect = async () => {
+    if (!supabase) throw new Error("client_unavailable");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const token = sessionData?.session?.access_token;
+    if (!token) throw new Error("no_session");
+
+    const res = await fetch("/api/auth/finalize", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      throw new Error(json?.error ?? "finalize_failed");
+    }
+    window.location.href = json.redirect ?? "/";
+  };
+
+  const handleNewPasswordSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (submitting) return;
+    const trimmed = email.trim().toLowerCase();
+    if (password.length < 8) {
+      setFormError("Password must be at least 8 characters.");
+      return;
+    }
+    setSubmitting(true);
+    setFormError("");
+    try {
+      // Create the auth user server-side with email_confirm: true
+      const signupRes = await fetch("/api/auth/signup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: trimmed, password }),
+      });
+      const signupJson = await signupRes.json();
+      if (!signupRes.ok) {
+        setFormError(
+          signupJson?.error === "password_too_short"
+            ? "Password must be at least 8 characters."
+            : "Unable to create your account. Please try again."
+        );
+        setSubmitting(false);
+        return;
+      }
+
+      // Sign in with the newly-created credentials
+      if (!supabase) throw new Error("client_unavailable");
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: trimmed,
+        password,
+      });
+      if (signInError) {
+        setFormError("Account created but sign-in failed. Please try signing in.");
+        setSubmitting(false);
+        return;
+      }
+
+      await finalizeAndRedirect();
+    } catch {
+      setFormError("Something went wrong. Please try again.");
+      setSubmitting(false);
+    }
+  };
+
+  const handleExistingPasswordSubmit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (submitting) return;
+    const trimmed = email.trim().toLowerCase();
+    if (!password) {
+      setFormError("Enter your password.");
+      return;
+    }
+    setSubmitting(true);
+    setFormError("");
+    try {
+      if (!supabase) throw new Error("client_unavailable");
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: trimmed,
+        password,
+      });
+      if (signInError) {
+        setFormError("Incorrect password. Please try again.");
+        setSubmitting(false);
+        return;
+      }
+      await finalizeAndRedirect();
+    } catch {
+      setFormError("Something went wrong. Please try again.");
       setSubmitting(false);
     }
   };
 
   const hasEmail = email.trim().length > 0;
+  const hasPassword = password.length > 0;
+  const passwordLongEnough = password.length >= 8;
 
-  const buttonStyle = hasEmail
-    ? {
-        background: "#E8503A",
-        color: "#fff",
-        border: "2px solid #FEFCF9",
-        cursor: "pointer" as const,
-      }
-    : {
-        background: "#1e1e1e",
-        color: "#444",
-        border: "2px solid #2a2a2a",
-        cursor: "not-allowed" as const,
-      };
+  const activeButtonStyle = {
+    background: "#E8503A",
+    color: "#fff",
+    border: "2px solid #FEFCF9",
+    cursor: "pointer" as const,
+  };
+  const disabledButtonStyle = {
+    background: "#1e1e1e",
+    color: "#444",
+    border: "2px solid #2a2a2a",
+    cursor: "not-allowed" as const,
+  };
+
+  const inputStyle = {
+    background: "#111",
+    color: "#FEFCF9",
+    border: "2px solid #2a2a2a",
+    borderRadius: 8,
+    padding: "12px 14px",
+    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+    fontSize: 14,
+    width: "100%",
+    outline: "none",
+    marginBottom: 8,
+    boxSizing: "border-box" as const,
+  };
+
+  const buttonBaseStyle = {
+    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+    fontWeight: 800,
+    fontSize: 13,
+    textTransform: "uppercase" as const,
+    letterSpacing: "0.1em",
+    borderRadius: 8,
+    padding: 13,
+    width: "100%",
+    marginTop: 6,
+  };
 
   return (
     <div
@@ -88,7 +221,15 @@ function LoginForm() {
         padding: "32px 20px",
       }}
     >
-      <div style={{ width: "100%", maxWidth: 400, display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 400,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+        }}
+      >
         {!logoFailed && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -113,14 +254,7 @@ function LoginForm() {
           >
             Cleveland Football Club
           </div>
-          <div
-            style={{
-              width: "100%",
-              height: 3,
-              background: "#E8503A",
-              margin: "14px 0",
-            }}
-          />
+          <div style={{ width: "100%", height: 3, background: "#E8503A", margin: "14px 0" }} />
           <div
             style={{
               fontFamily: "var(--font-headline, 'Syne', sans-serif)",
@@ -141,52 +275,22 @@ function LoginForm() {
             <LoginErrorMessage />
           </Suspense>
 
-          {sent ? (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-              <div
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: "50%",
-                  background: "#3366CC",
-                  border: "2.5px solid #FEFCF9",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-                  <path
-                    d="M5 12.5l4.5 4.5L19 7.5"
-                    stroke="#fff"
-                    strokeWidth="2.5"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              </div>
-              <div
-                style={{
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  fontWeight: 700,
-                  fontSize: 15,
-                  color: "#FEFCF9",
-                }}
-              >
-                Check your inbox.
-              </div>
-              <div
-                style={{
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  fontSize: 12,
-                  color: "#666",
-                }}
-              >
-                Link sent to {email.trim().toLowerCase()}
-              </div>
+          {formError && (
+            <div
+              style={{
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                fontSize: 13,
+                color: "#E8503A",
+                textAlign: "center",
+                marginBottom: 12,
+              }}
+            >
+              {formError}
             </div>
-          ) : (
-            <form onSubmit={handleSubmit}>
+          )}
+
+          {step === "email" && (
+            <form onSubmit={handleEmailSubmit}>
               <div
                 style={{
                   fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
@@ -196,7 +300,7 @@ function LoginForm() {
                   marginBottom: 14,
                 }}
               >
-                Enter your email and we&apos;ll send you a link to get in.
+                Enter your email to continue.
               </div>
 
               <input
@@ -206,37 +310,167 @@ function LoginForm() {
                 placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                style={{
-                  background: "#111",
-                  color: "#FEFCF9",
-                  border: "2px solid #2a2a2a",
-                  borderRadius: 8,
-                  padding: "12px 14px",
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  fontSize: 14,
-                  width: "100%",
-                  outline: "none",
-                  marginBottom: 12,
-                  boxSizing: "border-box",
-                }}
+                style={inputStyle}
               />
 
               <button
                 type="submit"
                 disabled={!hasEmail || submitting}
                 style={{
-                  ...buttonStyle,
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  fontWeight: 800,
-                  fontSize: 13,
-                  textTransform: "uppercase" as const,
-                  letterSpacing: "0.1em",
-                  borderRadius: 8,
-                  padding: 13,
-                  width: "100%",
+                  ...buttonBaseStyle,
+                  ...(hasEmail ? activeButtonStyle : disabledButtonStyle),
                 }}
               >
-                {submitting ? "Sending…" : "Send My Link"}
+                {submitting ? "Checking…" : "Continue"}
+              </button>
+            </form>
+          )}
+
+          {step === "new-password" && (
+            <form onSubmit={handleNewPasswordSubmit}>
+              <div
+                style={{
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  fontSize: 12,
+                  color: "#FEFCF9",
+                  textAlign: "center",
+                  marginBottom: 6,
+                }}
+              >
+                First time here. Create a password.
+              </div>
+              <div
+                style={{
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  fontSize: 11,
+                  color: "#666",
+                  textAlign: "center",
+                  marginBottom: 14,
+                }}
+              >
+                {email.trim().toLowerCase()}
+              </div>
+
+              <input
+                type="password"
+                autoComplete="new-password"
+                placeholder="New password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={inputStyle}
+              />
+              <div
+                style={{
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  fontSize: 11,
+                  color: passwordLongEnough ? "#4a8fd3" : "#666",
+                  marginBottom: 12,
+                  marginLeft: 4,
+                }}
+              >
+                {passwordLongEnough ? "✓ " : ""}Minimum 8 characters.
+              </div>
+
+              <button
+                type="submit"
+                disabled={!passwordLongEnough || submitting}
+                style={{
+                  ...buttonBaseStyle,
+                  ...(passwordLongEnough ? activeButtonStyle : disabledButtonStyle),
+                }}
+              >
+                {submitting ? "Creating…" : "Create & Sign In"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("email");
+                  setPassword("");
+                  setFormError("");
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#555",
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  marginTop: 12,
+                  width: "100%",
+                  textAlign: "center",
+                }}
+              >
+                ← Use a different email
+              </button>
+            </form>
+          )}
+
+          {step === "existing-password" && (
+            <form onSubmit={handleExistingPasswordSubmit}>
+              <div
+                style={{
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  fontSize: 12,
+                  color: "#FEFCF9",
+                  textAlign: "center",
+                  marginBottom: 6,
+                }}
+              >
+                Welcome back. Enter your password.
+              </div>
+              <div
+                style={{
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  fontSize: 11,
+                  color: "#666",
+                  textAlign: "center",
+                  marginBottom: 14,
+                }}
+              >
+                {email.trim().toLowerCase()}
+              </div>
+
+              <input
+                type="password"
+                autoComplete="current-password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={inputStyle}
+              />
+
+              <button
+                type="submit"
+                disabled={!hasPassword || submitting}
+                style={{
+                  ...buttonBaseStyle,
+                  ...(hasPassword ? activeButtonStyle : disabledButtonStyle),
+                }}
+              >
+                {submitting ? "Signing in…" : "Sign In"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setStep("email");
+                  setPassword("");
+                  setFormError("");
+                }}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "#555",
+                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                  fontSize: 12,
+                  cursor: "pointer",
+                  marginTop: 12,
+                  width: "100%",
+                  textAlign: "center",
+                }}
+              >
+                ← Use a different email
               </button>
             </form>
           )}
