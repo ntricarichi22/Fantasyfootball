@@ -296,7 +296,7 @@ export default function HistorianChat() {
   );
 
   return (
-    <div className="flex flex-1" style={{ height: "calc(100vh - 44px - 44px)", overflow: "hidden" }}>
+    <div className="flex flex-1" style={{ height: "calc(100vh - 44px - 50px)", overflow: "hidden" }}>
       <ConversationSidebar
         conversations={state.conversations}
         activeId={state.activeId}
