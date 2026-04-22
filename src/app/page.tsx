@@ -194,10 +194,7 @@ export default function Home() {
     const timer = setTimeout(() => setStatusMessage(""), STATUS_MESSAGE_TIMEOUT_MS);
     return () => clearTimeout(timer);
   }, [statusMessage]);
-  useEffect(() => {
-    if (!selectedTeam || !sessionId || isDraftRoute) return;
-    router.replace(draftRoute);
-  }, [draftRoute, isDraftRoute, router, selectedTeam, sessionId]);
+  
   useEffect(() => {
     if (!isDraftRoute || selectedTeam) return;
     const stored = getStoredSessionSelection();
