@@ -196,13 +196,6 @@ export default function Home() {
   }, [statusMessage]);
   
   useEffect(() => {
-    if (!isDraftRoute || selectedTeam) return;
-    const stored = getStoredSessionSelection();
-    if (!stored.rosterId) {
-      router.replace("/");
-    }
-  }, [isDraftRoute, router, selectedTeam]);
-  useEffect(() => {
     if (selectedTeam || typeof window === "undefined") return;
     const stored = getStoredSessionSelection();
     if (stored.rosterId) {
@@ -831,7 +824,7 @@ export default function Home() {
           teamName: teams.find((t) => toId(t.id) === teamSelectionInput)?.name || "",
         })
       );
-      router.replace(draftRoute);
+      window.location.href = draftRoute;
     } catch (error) {
       console.warn("Unable to claim team", error);
       setErrorMessage("Unable to enter the draft room. Please try again.");
