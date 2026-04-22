@@ -55,6 +55,7 @@ import { useSleeperData } from "../lib/hooks/useSleeperData";
 import { buildLeagueProfiles, type PositionKey } from "../lib/trade/profile";
 import type { StarterAsset } from "../lib/trade/starterLevel";
 import { buildScoutingGrades, type ScoutingGradeSet } from "../lib/draft/scouting";
+import { HomeScreen } from "../components/HomeScreen";
 
 export default function Home() {
   const router = useRouter();
@@ -72,6 +73,36 @@ export default function Home() {
   const [draftedPlayersState, setDraftedPlayersState] = useState<Record<string, DraftedPlayer[]>>(
     {}
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const match = document.cookie
+        .split("; ")
+        .find((row) => row.startsWith("cfc_identity="));
+      if (!match) return;
+      const raw = decodeURIComponent(match.split("=")[1]);
+      const identity = JSON.parse(raw);
+      if (identity?.rosterId && identity?.teamName) {
+        const stored = sessionStorage.getItem("cfc_selected_team");
+        const parsed = stored ? JSON.parse(stored) : {};
+        if (parsed.rosterId !== identity.rosterId) {
+          sessionStorage.setItem(
+            "cfc_selected_team",
+            JSON.stringify({
+              rosterId: identity.rosterId,
+              teamName: identity.teamName,
+              sessionId: parsed.sessionId || "",
+            })
+          );
+          setSelectedTeam(identity.rosterId);
+          setTeamSelectionInput(identity.rosterId);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
   const {
     draftLog,
     setDraftLog,
@@ -900,13 +931,9 @@ export default function Home() {
           <p className="font-headline text-2xl text-[var(--cfc-ink)]">Returning to team select…</p>
         </div>
       ) : showWelcome ? (
-        <WelcomeScreen
-          errorMessage={errorMessage}
-          teamSelectionInput={teamSelectionInput}
-          availableTeams={availableTeams}
-          claimingTeam={claimingTeam}
-          onTeamSelectionChange={setTeamSelectionInput}
-          onEnterDraftRoom={handleEnterDraftRoom}
+        <HomeScreen
+          teamName={teams.find((t) => toId(t.id) === selectedTeam)?.name || ""}
+          rosterId={selectedTeam}
         />
       ) : isMobile && isDraftRoute && hasActiveSession ? (
         <MobileDraftRoom
