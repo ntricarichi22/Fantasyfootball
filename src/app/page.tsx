@@ -131,6 +131,17 @@ export default function Home() {
   const [rosterPanelOpen, setRosterPanelOpen] = useState(true);
   const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
+  const [openTradeCount, setOpenTradeCount] = useState(0);
+
+useEffect(() => {
+  if (!selectedTeam) return;
+  fetch("/api/home/trade-count")
+    .then((r) => r.json())
+    .then((data) => {
+      if (typeof data.count === "number") setOpenTradeCount(data.count);
+    })
+    .catch(() => {});
+}, [selectedTeam]);
   const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
   const { leagueId, leagueIdError } = useMemo(() => {
     try {
@@ -193,6 +204,14 @@ export default function Home() {
     const owner = draftState.pickOwnerByPickKey[currentPickKey];
     return owner != null ? toId(owner) : "";
   }, [currentPickKey, draftState]);
+
+  const myDraftPickSlots = useMemo(() => {
+  if (!draftState?.pickOwnerByPickKey || !selectedTeam) return [];
+  return Object.entries(draftState.pickOwnerByPickKey)
+    .filter(([, owner]) => toId(owner) === selectedTeam)
+    .map(([pickKey]) => pickKey)
+    .sort();
+}, [draftState?.pickOwnerByPickKey, selectedTeam]);
 
   const onClockTeamName = useMemo(() => {
     if (!onClockRosterId) return "";
@@ -923,14 +942,16 @@ export default function Home() {
       )}
       {showWelcome ? (
         <HomeScreen
-          teamName={teams.find((t) => toId(t.id) === selectedTeam)?.name || ""}
-          rosterId={selectedTeam}
-          claimingTeam={claimingTeam}
-          onEnterDraftRoom={() => {
-            setTeamSelectionInput(selectedTeam);
-            void handleEnterDraftRoom();
-          }}
-        />
+  teamName={teams.find((t) => toId(t.id) === selectedTeam)?.name || ""}
+  rosterId={selectedTeam}
+  claimingTeam={claimingTeam}
+  draftPickSlots={myDraftPickSlots}
+  openTradeCount={openTradeCount}
+  onEnterDraftRoom={() => {
+    setTeamSelectionInput(selectedTeam);
+    void handleEnterDraftRoom();
+  }}
+/>
       ) : isMobile && isDraftRoute && hasActiveSession ? (
         <MobileDraftRoom
           onNavigate={(href) => router.push(href)}
