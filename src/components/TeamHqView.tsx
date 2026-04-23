@@ -884,10 +884,11 @@ function TradeChartTab() {
   const { rosterId = "" } = readStoredTeam();
   const [rows, setRows] = useState<TeamTradeValueRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [savingPlayerId, setSavingPlayerId] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [pickAnchors, setPickAnchors] = useState<PickAnchorValues>(defaultPickAnchors);
   const [pickState, setPickState] = useState<Record<string, { firsts: number; seconds: number; thirds: number }>>({});
+  const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
+  const [savingPlayerId, setSavingPlayerId] = useState<string | null>(null);
 
   const load = useCallback(async (rebuildIfEmpty = true) => {
     if (!rosterId) return;
@@ -924,40 +925,68 @@ function TradeChartTab() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Auto-populate pick state from final_value when rows load
   useEffect(() => {
     const next = Object.fromEntries(
-      rows.map((row) => [row.sleeper_player_id, decomposeToPicks(row.final_value, pickAnchors)])
+      rows.map((row) => [
+        row.sleeper_player_id,
+        row.manual_override_value != null
+          ? decomposeToPicks(row.manual_override_value, pickAnchors)
+          : decomposeToPicks(row.final_value, pickAnchors),
+      ])
     );
     setPickState(next);
   }, [rows, pickAnchors]);
 
-  const setPickValue = (playerId: string, key: "firsts" | "seconds" | "thirds", value: number) => {
-    setPickState((prev) => ({
-      ...prev,
-      [playerId]: { ...prev[playerId], [key]: Math.max(0, Math.floor(value)) },
-    }));
-  };
+  const adjustPick = async (playerId: string, key: "firsts" | "seconds" | "thirds", delta: number) => {
+    const current = pickState[playerId] ?? { firsts: 0, seconds: 0, thirds: 0 };
+    const updated = {
+      ...current,
+      [key]: Math.max(0, current[key] + delta),
+    };
+    setPickState((prev) => ({ ...prev, [playerId]: updated }));
 
-  const saveOverride = async (row: TeamTradeValueRow, clear = false) => {
+    // Auto-save
     if (!rosterId) return;
-    setSavingPlayerId(row.sleeper_player_id);
-    setError("");
+    setSavingPlayerId(playerId);
     try {
-      const picks = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
-      const manualOverrideValue = clear ? null : composeFromPicks(picks, pickAnchors);
+      const manualOverrideValue = composeFromPicks(updated, pickAnchors);
       const res = await fetch("/api/team-hq/trade-chart/override", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamId: rosterId, sleeperPlayerId: row.sleeper_player_id, manualOverrideValue }),
+        body: JSON.stringify({
+          teamId: rosterId,
+          sleeperPlayerId: playerId,
+          manualOverrideValue,
+        }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "Failed to save override");
+      if (!res.ok) throw new Error(json?.error ?? "Failed to save");
       setRows((json.data ?? []) as TeamTradeValueRow[]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save override");
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSavingPlayerId(null);
     }
+  };
+
+  const ROW_H = 58;
+
+  const colGrid: React.CSSProperties = {
+    display: "grid",
+    gridTemplateColumns: "1fr 56px 60px 115px 115px 48px 100px 28px",
+    alignItems: "center",
+    height: ROW_H,
+    padding: "0 20px",
+  };
+
+  const thStyle: React.CSSProperties = {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: 9,
+    color: "rgba(255,255,255,0.4)",
+    textTransform: "uppercase",
+    letterSpacing: "1.5px",
+    fontWeight: 700,
   };
 
   const displayRows = useMemo(
@@ -966,99 +995,211 @@ function TradeChartTab() {
   );
 
   return (
-    <div className="space-y-5">
-      <section className="cfc-card p-5">
-        <div className="cfc-section">
-          <span className="cfc-section-tag">Trade Chart</span>
-          <span className="cfc-section-line" />
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="font-headline text-2xl text-[var(--cfc-ink)]">Owned-Player Values</h2>
-            <p className="mt-1 text-sm" style={{ color: "var(--cfc-muted)" }}>
-              Team-adjusted values with manual override support.
-            </p>
-          </div>
-          <button type="button" onClick={() => load(false)} disabled={loading} className="cfc-btn cfc-btn-ink">
-            Refresh
-          </button>
-        </div>
-        {error && <p className="mt-3 cfc-toast cfc-toast-error" style={{ display: "block" }}>{error}</p>}
-      </section>
+    <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      {error && (
+        <p style={{ fontSize: 12, color: "#E8503A", marginBottom: 8, flexShrink: 0 }}>{error}</p>
+      )}
 
-      <section className="cfc-card overflow-hidden">
-        <div className="max-h-[65vh] overflow-auto">
-          <table className="cfc-table">
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th style={{ textAlign: "right" }}>Base</th>
-                <th style={{ textAlign: "right" }}>Auto</th>
-                <th style={{ textAlign: "right" }}>Final</th>
-                <th style={{ textAlign: "right" }}>Delta</th>
-                <th style={{ textAlign: "right" }}>1sts</th>
-                <th style={{ textAlign: "right" }}>2nds</th>
-                <th style={{ textAlign: "right" }}>3rds</th>
-                <th style={{ textAlign: "right" }}>Total %</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && displayRows.length === 0 && (
-                <tr><td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>Loading trade chart…</td></tr>
-              )}
-              {!loading && displayRows.length === 0 && (
-                <tr><td colSpan={10} style={{ textAlign: "center", padding: "24px 12px", color: "var(--cfc-muted)" }}>No owned players found for this team.</td></tr>
-              )}
-              {displayRows.map((row) => {
-                const picks = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
-                const isSaving = savingPlayerId === row.sleeper_player_id;
-                return (
-                  <tr key={row.sleeper_player_id}>
-                    <td>
-                      <div className="flex items-center gap-2">
-                        <span className={posClass(row.position)} style={{ fontSize: 9 }}>{row.position ?? "—"}</span>
-                        <div className="min-w-0">
-                          <p className="font-bold text-[var(--cfc-ink)] truncate">{row.player_name ?? row.sleeper_player_id}</p>
-                          <p className="cfc-mono text-[10px]" style={{ color: "var(--cfc-muted)" }}>{row.nfl_team ?? "—"}{row.is_overridden ? " · overridden" : ""}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="cfc-mono" style={{ textAlign: "right" }}>{Math.round(row.base_value).toLocaleString()}</td>
-                    <td className="cfc-mono" style={{ textAlign: "right" }}>{Math.round(row.auto_value).toLocaleString()}</td>
-                    <td className="cfc-mono" style={{ textAlign: "right", fontWeight: 700 }}>{Math.round(row.final_value).toLocaleString()}</td>
-                    <td className="cfc-mono" style={{ textAlign: "right", fontWeight: 700, color: row.delta_vs_base > 0 ? "var(--cfc-blue)" : row.delta_vs_base < 0 ? "var(--cfc-red)" : "var(--cfc-muted)" }}>
-                      {row.delta_vs_base > 0 ? "+" : ""}{Math.round(row.delta_vs_base).toLocaleString()}
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <input type="number" step="1" min={0} value={picks.firsts} onChange={(e) => setPickValue(row.sleeper_player_id, "firsts", Number(e.target.value))} className="cfc-input cfc-mono" style={{ width: 64, padding: "4px 8px", textAlign: "right" }} />
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <input type="number" step="1" min={0} value={picks.seconds} onChange={(e) => setPickValue(row.sleeper_player_id, "seconds", Number(e.target.value))} className="cfc-input cfc-mono" style={{ width: 64, padding: "4px 8px", textAlign: "right" }} />
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <input type="number" step="1" min={0} value={picks.thirds} onChange={(e) => setPickValue(row.sleeper_player_id, "thirds", Number(e.target.value))} className="cfc-input cfc-mono" style={{ width: 64, padding: "4px 8px", textAlign: "right" }} />
-                    </td>
-                    <td className="cfc-mono" style={{ textAlign: "right", fontSize: 11, color: "var(--cfc-muted)" }}>{(row.total_modifier_pct * 100).toFixed(1)}%</td>
-                    <td style={{ textAlign: "right" }}>
-                      <div className="flex justify-end gap-2">
-                        <button type="button" disabled={isSaving} onClick={() => saveOverride(row, false)} className="cfc-btn cfc-btn-primary cfc-btn-sm">{isSaving ? "Saving…" : "Save"}</button>
-                        <button type="button" disabled={isSaving || !row.is_overridden} onClick={() => saveOverride(row, true)} className="cfc-btn cfc-btn-sm">Clear</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Table */}
+      <div style={{
+        flex: 1,
+        minHeight: 0,
+        border: "2.5px solid #1A1A1A",
+        boxShadow: "4px 4px 0 #1A1A1A",
+        background: "#FEFCF9",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}>
+
+        {/* Head */}
+        <div style={{ background: "#1A1A1A", flexShrink: 0 }}>
+          <div style={colGrid}>
+            <span style={thStyle}>Player</span>
+            <span style={{ ...thStyle, textAlign: "center" }}>Pos</span>
+            <span style={{ ...thStyle, textAlign: "center" }}>Team</span>
+            <span style={{ ...thStyle, textAlign: "right" }}>CFC Value</span>
+            <span style={{ ...thStyle, textAlign: "right" }}>Your Value</span>
+            <span />
+            <span style={{ ...thStyle, textAlign: "right" }}>+  /  −</span>
+            <span />
+          </div>
         </div>
-      </section>
+
+        {/* Body */}
+        <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+          {loading && rows.length === 0 && (
+            <div style={{ padding: "24px 20px", fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
+              Loading trade chart…
+            </div>
+          )}
+          {!loading && rows.length === 0 && (
+            <div style={{ padding: "24px 20px", fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
+              No players found.
+            </div>
+          )}
+
+          {displayRows.map((row) => {
+            const picks = pickState[row.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 };
+            const yourVal = composeFromPicks(picks, pickAnchors);
+            const delta = yourVal - row.base_value;
+            const isOpen = openPlayerId === row.sleeper_player_id;
+            const isSaving = savingPlayerId === row.sleeper_player_id;
+
+            return (
+              <div key={row.sleeper_player_id}>
+                {/* Data row */}
+                <div
+                  onClick={() => setOpenPlayerId(isOpen ? null : row.sleeper_player_id)}
+                  style={{
+                    ...colGrid,
+                    cursor: "pointer",
+                    background: isOpen ? "#F5F0E6" : "#FEFCF9",
+                    borderBottom: isOpen ? "none" : "1.5px solid rgba(0,0,0,0.07)",
+                    opacity: isSaving ? 0.7 : 1,
+                    transition: "background 60ms",
+                  }}
+                >
+                  <div style={{ fontFamily: "'DM Sans', sans-serif", fontWeight: 700, fontSize: 17, color: "#1A1A1A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {row.player_name ?? row.sleeper_player_id}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 700, fontSize: 13, color: "#1A1A1A", textAlign: "center" }}>
+                    {row.position ?? "—"}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: "#8C7E6A", textAlign: "center" }}>
+                    {row.nfl_team ?? "—"}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, color: "#8C7E6A", textAlign: "right" }}>
+                    {Math.round(row.base_value).toLocaleString()}
+                  </div>
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 700, color: "#1A1A1A", textAlign: "right" }}>
+                    {Math.round(yourVal).toLocaleString()}
+                  </div>
+                  <div />
+                  <div style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 14,
+                    fontWeight: 700,
+                    textAlign: "right",
+                    color: Math.abs(delta) < 50 ? "#C8C3B8" : delta > 0 ? "#1A1A1A" : "#E8503A",
+                  }}>
+                    {Math.abs(delta) < 50 ? "—" : delta > 0 ? `+${Math.round(delta).toLocaleString()}` : `−${Math.round(Math.abs(delta)).toLocaleString()}`}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <svg
+                      width="12" height="12" viewBox="0 0 12 12"
+                      fill="none" stroke="#1A1A1A" strokeWidth="2.2"
+                      strokeLinecap="round" strokeLinejoin="round"
+                      style={{ transform: isOpen ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 180ms", color: "#1A1A1A" }}
+                    >
+                      <polyline points="1,3 6,9 11,3" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Expand row */}
+                {isOpen && (
+                  <div
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      height: ROW_H,
+                      background: "#1A1A1A",
+                      borderBottom: "2px solid #1A1A1A",
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "0 20px",
+                    }}
+                  >
+                    <div style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-evenly" }}>
+                      {(["firsts", "seconds", "thirds"] as const).map((key, i) => {
+                        const labels = ["1sts", "2nds", "3rds"];
+                        return (
+                          <div key={key} style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                            <span style={{
+                              fontFamily: "'Syne', sans-serif",
+                              fontWeight: 800,
+                              fontSize: 13,
+                              color: "rgba(255,255,255,0.45)",
+                              textTransform: "uppercase",
+                              letterSpacing: 1,
+                              minWidth: 44,
+                            }}>
+                              {labels[i]}
+                            </span>
+                            <button
+                              onClick={() => void adjustPick(row.sleeper_player_id, key, -1)}
+                              style={{
+                                width: 30, height: 30,
+                                border: "1.5px solid rgba(255,255,255,0.2)",
+                                background: "transparent",
+                                cursor: "pointer",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontSize: 16, fontWeight: 700,
+                                color: "#FEFCF9",
+                              }}
+                            >
+                              −
+                            </button>
+                            <span style={{
+                              fontFamily: "'JetBrains Mono', monospace",
+                              fontSize: 20, fontWeight: 700,
+                              color: "#F5C230",
+                              minWidth: 24, textAlign: "center",
+                            }}>
+                              {picks[key]}
+                            </span>
+                            <button
+                              onClick={() => void adjustPick(row.sleeper_player_id, key, 1)}
+                              style={{
+                                width: 30, height: 30,
+                                border: "1.5px solid rgba(255,255,255,0.2)",
+                                background: "transparent",
+                                cursor: "pointer",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                fontFamily: "'JetBrains Mono', monospace",
+                                fontSize: 16, fontWeight: 700,
+                                color: "#FEFCF9",
+                              }}
+                            >
+                              +
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          flexShrink: 0,
+          borderTop: "2px solid #1A1A1A",
+          padding: "9px 20px",
+          background: "#F5F0E6",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}>
+          <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#8C7E6A", textTransform: "uppercase", letterSpacing: 1 }}>
+            Tap any row to adjust · Saves automatically
+          </span>
+          <div style={{ display: "flex", gap: 20 }}>
+            {[["1st", pickAnchors.first], ["2nd", pickAnchors.second], ["3rd", pickAnchors.third]].map(([label, val]) => (
+              <span key={label as string} style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 9, color: "#8C7E6A", textTransform: "uppercase", letterSpacing: 1 }}>
+                {label as string} = <strong style={{ color: "#1A1A1A" }}>{Number(val).toLocaleString()}</strong>
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
-
-// ─── Root ─────────────────────────────────────────────────────────────────────
-
 export default function TeamHqView() {
   const { teamName = "", rosterId = "" } = readStoredTeam();
   const searchParams = useSearchParams();
