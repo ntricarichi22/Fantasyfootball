@@ -666,4 +666,3 @@ export default function OnboardingWelcome({ onComplete, teamName }: Props) {
     </div>
   );
 }
-```
