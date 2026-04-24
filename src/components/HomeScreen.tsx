@@ -1,13 +1,13 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 
 type Props = {
   teamName: string;
   rosterId: string;
   onEnterDraftRoom: () => void;
   claimingTeam: boolean;
-  draftPickSlots: string[];   // e.g. ["1.03", "1.05"]
+  draftPickSlots: string[];
   openTradeCount: number;
 };
 
@@ -180,6 +180,16 @@ const DoorCard = ({
   </button>
 );
 
+function getDraftSubtext(): string {
+  const now = new Date();
+  const draftStart = new Date("2025-04-25T16:00:00Z");
+  const draftEnd = new Date("2025-04-26T04:00:00Z");
+
+  if (now < draftStart) return "Draft · Apr 25 · Noon ET";
+  if (now >= draftStart && now < draftEnd) return "Draft is live";
+  return "Draft Complete · 2026";
+}
+
 export function HomeScreen({
   teamName,
   rosterId: _rosterId,
@@ -188,12 +198,12 @@ export function HomeScreen({
   draftPickSlots,
   openTradeCount,
 }: Props) {
-  const router = useRouter();
-
   const draftStatLabel = "Draft picks";
-const draftStatValue = draftPickSlots.length > 0
-  ? String(draftPickSlots.length)
-  : "—";
+  const draftStatValue = draftPickSlots.length > 0
+    ? String(draftPickSlots.length)
+    : "—";
+
+  const draftSub = useMemo(() => getDraftSubtext(), []);
 
   return (
     <div style={{
@@ -203,6 +213,25 @@ const draftStatValue = draftPickSlots.length > 0
       background: "#F5F0E6",
       overflow: "hidden",
     }}>
+      {/* Responsive grid style */}
+      <style>{`
+        .cfc-door-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 12px;
+          flex: 1;
+          min-height: 0;
+          padding-bottom: 16px;
+        }
+        @media (min-width: 768px) {
+          .cfc-door-grid {
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            padding-bottom: 44px;
+          }
+        }
+      `}</style>
+
       {/* Top bar */}
       <div className="cfc-topbar" style={{ flexShrink: 0 }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -234,7 +263,7 @@ const draftStatValue = draftPickSlots.length > 0
         maxWidth: 1200,
         width: "100%",
         margin: "0 auto",
-        padding: "0 40px",
+        padding: "0 16px",
         minHeight: 0,
       }}>
         {/* Hero */}
@@ -281,21 +310,15 @@ const draftStatValue = draftPickSlots.length > 0
           <div style={{ flex: 1, height: 3, background: "#1A1A1A" }} />
         </div>
 
-        {/* Cards grid */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 14,
-          flex: 1,
-          minHeight: 0,
-          paddingBottom: 44,
-        }}>
+        {/* Cards grid — 2×2 mobile, 4×1 desktop */}
+        <div className="cfc-door-grid">
+          {/* Row 1 left — War Room */}
           <DoorCard
             num="#01 · CFC-26"
             bg="#E8503A"
             topStrip="#F5C230"
-            name={"Draft\nWar Room"}
-            sub="Rookie Draft · Apr 25"
+            name={"War\nRoom"}
+            sub={draftSub}
             stat={draftStatValue}
             statLabel={draftStatLabel}
             onClick={() => {
@@ -306,28 +329,31 @@ const draftStatValue = draftPickSlots.length > 0
             overlayText={claimingTeam ? "Entering draft room…" : undefined}
           />
 
+          {/* Row 1 right — GM Office */}
           <DoorCard
             num="#02 · CFC-26"
-            bg="#3366CC"
-            topStrip="#F5C230"
-            name={"Team\nHQ"}
-            sub="Strategy · Roster"
-            stat="—"
-            statLabel="Season record"
-            onClick={() => { window.location.href = "/team-hq"; }}
-          />
-
-          <DoorCard
-            num="#03 · CFC-26"
             bg="#1A1A1A"
             topStrip="#E8503A"
-            name={"Trade\nCenter"}
-            sub="Offers · Valuations"
+            name={"GM\nOffice"}
+            sub="Make deals, view offers"
             stat={openTradeCount > 0 ? String(openTradeCount) : "—"}
             statLabel="Open threads"
             onClick={() => { window.location.href = "/trades"; }}
           />
 
+          {/* Row 2 left — Owner's Box */}
+          <DoorCard
+            num="#03 · CFC-26"
+            bg="#3366CC"
+            topStrip="#F5C230"
+            name={"Owner's\nBox"}
+            sub="Adjust strategy & preferences"
+            stat="—"
+            statLabel="Season record"
+            onClick={() => { window.location.href = "/team-hq"; }}
+          />
+
+          {/* Row 2 right — League Historian */}
           <DoorCard
             num="#04 · CFC-26"
             bg="#F5F0E6"
