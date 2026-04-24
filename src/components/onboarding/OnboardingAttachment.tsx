@@ -9,21 +9,42 @@ type Props = {
   leagueId: string;
 };
 
-type Attachment = "love_my_guys" | "prefer_to_keep_them" | "neutral" | "ready_to_shake_it_up";
+type Attachment = "untouchable" | "core_piece" | "listening" | "moveable";
 
-const ATTACHMENT_OPTIONS: Array<{
-  value: Attachment;
+const STATUSES: Array<{
+  key: Attachment;
   label: string;
+  bg: string;
   color: string;
-  textOnInk?: boolean;
+  countBg: string;
+  countColor: string;
 }> = [
-  { value: "love_my_guys", label: "Not for sale", color: "#E8503A" },
-  { value: "prefer_to_keep_them", label: "Prefer to keep", color: "#3366CC" },
-  { value: "neutral", label: "Open to offers", color: "#C8C3B8" },
-  { value: "ready_to_shake_it_up", label: "Actively shopping", color: "#F5F0E6", textOnInk: true },
+  { key: "listening", label: "Listening", bg: "#F5F0E6", color: "#1A1A1A", countBg: "#8C7E6A", countColor: "#fff" },
+  { key: "moveable", label: "Moveable", bg: "#F5C230", color: "#1A1A1A", countBg: "#F5C230", countColor: "#1A1A1A" },
+  { key: "core_piece", label: "Core Piece", bg: "#3366CC", color: "#fff", countBg: "#3366CC", countColor: "#fff" },
+  { key: "untouchable", label: "Untouchable", bg: "#E8503A", color: "#fff", countBg: "#E8503A", countColor: "#fff" },
 ];
 
+const STATUS_INDEX: Record<Attachment, number> = {
+  listening: 0,
+  moveable: 1,
+  core_piece: 2,
+  untouchable: 3,
+};
+
 const POS_ORDER: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3 };
+const POS_LABELS: Record<string, string> = {
+  QB: "Quarterbacks",
+  RB: "Running Backs",
+  WR: "Wide Receivers",
+  TE: "Tight Ends",
+};
+const POS_UNDERLINE: Record<string, string> = {
+  QB: "#E8503A",
+  RB: "#3366CC",
+  WR: "#F5C230",
+  TE: "#1A1A1A",
+};
 
 type Player = {
   player_id: string;
@@ -42,52 +63,6 @@ type SleeperPlayerEntry = {
   team?: string | null;
 };
 
-type ProgressDotsProps = { active: 0 | 1 | 2 };
-const ProgressDots = ({ active }: ProgressDotsProps) => (
-  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-    {[0, 1, 2].map((i) => (
-      <div
-        key={i}
-        style={
-          i === active
-            ? {
-                width: 20,
-                height: 8,
-                background: "#E8503A",
-                borderRadius: 4,
-              }
-            : {
-                width: 8,
-                height: 8,
-                background: "#444",
-                borderRadius: 4,
-              }
-        }
-      />
-    ))}
-  </div>
-);
-
-const TopBar = ({ active }: { active: 0 | 1 | 2 }) => (
-  <div
-    style={{
-      background: "#1A1A1A",
-      borderBottom: "2.5px solid #1A1A1A",
-      padding: "14px 18px",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      position: "sticky",
-      top: 0,
-      zIndex: 5,
-    }}
-  >
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img src="/cfc-logo.png" alt="" style={{ height: 28 }} />
-    <ProgressDots active={active} />
-  </div>
-);
-
 export default function OnboardingAttachment({
   onBack,
   onComplete,
@@ -97,7 +72,7 @@ export default function OnboardingAttachment({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [attachments, setAttachments] = useState<Record<string, Attachment>>({});
+  const [attachments, setAttachments] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -134,7 +109,11 @@ export default function OnboardingAttachment({
         for (const id of ownedIds) {
           const e = dict[id];
           if (!e) continue;
-          const pos = (e.position || (e.fantasy_positions && e.fantasy_positions[0]) || "").toUpperCase();
+          const pos = (
+            e.position ||
+            (e.fantasy_positions && e.fantasy_positions[0]) ||
+            ""
+          ).toUpperCase();
           if (!["QB", "RB", "WR", "TE"].includes(pos)) continue;
           const name =
             e.full_name ||
@@ -158,8 +137,8 @@ export default function OnboardingAttachment({
         const trimmed = owned.slice(0, 25);
         if (cancelled) return;
         setPlayers(trimmed);
-        const initial: Record<string, Attachment> = {};
-        for (const p of trimmed) initial[p.player_id] = "neutral";
+        const initial: Record<string, number> = {};
+        for (const p of trimmed) initial[p.player_id] = 0; // default: listening
         setAttachments(initial);
       } catch (e) {
         if (!cancelled) {
@@ -175,6 +154,22 @@ export default function OnboardingAttachment({
     };
   }, [leagueId, rosterId]);
 
+  const cycleStatus = (playerId: string) => {
+    setAttachments((prev) => ({
+      ...prev,
+      [playerId]: ((prev[playerId] ?? 0) + 1) % STATUSES.length,
+    }));
+  };
+
+  const getCounts = () => {
+    const counts: Record<string, number> = {};
+    STATUSES.forEach((s) => (counts[s.key] = 0));
+    Object.values(attachments).forEach((si) => {
+      counts[STATUSES[si].key]++;
+    });
+    return counts;
+  };
+
   const handleSubmit = async () => {
     setSubmitError(null);
     setSubmitting(true);
@@ -184,7 +179,7 @@ export default function OnboardingAttachment({
         leagueId,
         attachments: players.map((p) => ({
           sleeperPlayerId: p.player_id,
-          attachment: attachments[p.player_id] ?? "neutral",
+          attachment: STATUSES[attachments[p.player_id] ?? 0].key,
         })),
       };
       const res = await fetch("/api/onboarding/player-attachment", {
@@ -204,240 +199,409 @@ export default function OnboardingAttachment({
     }
   };
 
-  return (
-    <div style={{ minHeight: "100vh", background: "#F5F0E6", display: "flex", flexDirection: "column" }}>
-      <TopBar active={0} />
+  // Group players by position
+  const groups: Record<string, Array<Player & { idx: number }>> = {};
+  players.forEach((p, idx) => {
+    if (!groups[p.position]) groups[p.position] = [];
+    groups[p.position].push({ ...p, idx });
+  });
+  const posOrder = ["QB", "RB", "WR", "TE"];
+  const counts = getCounts();
 
-      <div style={{ flex: 1, padding: "20px 16px 100px" }}>
-        <span className="cfc-section-tag" style={{ marginBottom: 10, display: "inline-block" }}>
+  return (
+    <div
+      style={{
+        height: "100vh",
+        background: "#F5F0E6",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Top bar */}
+      <div
+        style={{
+          background: "#1A1A1A",
+          borderBottom: "2.5px solid #1A1A1A",
+          padding: "14px 18px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/cfc-logo.png" alt="" style={{ height: 28 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              style={
+                i === 0
+                  ? { width: 20, height: 8, background: "#E8503A", borderRadius: 4 }
+                  : { width: 8, height: 8, background: "#444", borderRadius: 4 }
+              }
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Header */}
+      <div style={{ padding: "24px 20px 0", flexShrink: 0 }}>
+        <div
+          style={{
+            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#E8503A",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            marginBottom: 10,
+          }}
+        >
           1 of 3
-        </span>
+        </div>
         <h1
           style={{
             fontFamily: "var(--font-headline, 'Syne', sans-serif)",
             fontWeight: 900,
             fontSize: 26,
             color: "#1A1A1A",
-            margin: "10px 0 8px",
             lineHeight: 1.1,
+            margin: "0 0 8px",
           }}
         >
-          Your roster, your call.
+          If someone called — who&apos;s available?
         </h1>
         <p
           style={{
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
             fontSize: 13,
-            color: "#8C7E6A",
             margin: 0,
           }}
         >
-          Tell us how you feel about each player. Everyone starts as Open to offers — only change the guys who matter.
+          <strong style={{ color: "#1A1A1A" }}>
+            Tap each player&apos;s status to change it.
+          </strong>{" "}
+          <span style={{ color: "#8C7E6A" }}>Everyone starts as Listening.</span>
         </p>
+      </div>
 
-        {/* Legend */}
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 6,
-            margin: "12px 0",
-          }}
-        >
-          {ATTACHMENT_OPTIONS.map((opt) => (
-            <div
-              key={opt.value}
+      {/* Summary chips */}
+      <div
+        style={{
+          display: "flex",
+          gap: 6,
+          padding: "16px 20px 14px",
+          flexShrink: 0,
+          flexWrap: "wrap",
+        }}
+      >
+        {STATUSES.filter((s) => counts[s.key] > 0).map((s) => (
+          <div
+            key={s.key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              padding: "4px 10px",
+              border: "2px solid #1A1A1A",
+              background: "#FEFCF9",
+              boxShadow: "2px 2px 0 #1A1A1A",
+              fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+              fontSize: 9,
+              fontWeight: 700,
+              color: "#1A1A1A",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+            }}
+          >
+            <span
               style={{
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 6,
-                background: "#FEFCF9",
-                border: "1.5px solid #C8C3B8",
-                borderRadius: 4,
-                padding: "4px 8px",
-                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                fontSize: 10,
-                fontWeight: 700,
-                color: "#1A1A1A",
+                justifyContent: "center",
+                minWidth: 16,
+                height: 16,
+                fontSize: 9,
+                fontWeight: 800,
+                color: s.countColor,
+                background: s.countBg,
+                padding: "0 3px",
               }}
             >
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  background: opt.color,
-                  border: opt.textOnInk ? "1.5px solid #1A1A1A" : "none",
-                  display: "inline-block",
-                }}
-              />
-              {opt.label}
+              {counts[s.key]}
+            </span>
+            {s.label}
+          </div>
+        ))}
+      </div>
+
+      {/* Player list card */}
+      <div
+        style={{
+          flex: 1,
+          margin: "0 20px",
+          border: "2.5px solid #1A1A1A",
+          boxShadow: "4px 4px 0 #1A1A1A",
+          background: "#FEFCF9",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 0,
+        }}
+      >
+        <div
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            minHeight: 0,
+          }}
+        >
+          {loading && (
+            <div
+              style={{
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                fontSize: 13,
+                color: "#8C7E6A",
+                textAlign: "center",
+                padding: "32px 0",
+              }}
+            >
+              Loading your roster…
             </div>
-          ))}
-        </div>
+          )}
 
-        {loading && (
-          <div
-            style={{
-              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-              fontSize: 13,
-              color: "#8C7E6A",
-              textAlign: "center",
-              padding: "24px 0",
-            }}
-          >
-            Loading your roster…
-          </div>
-        )}
+          {error && (
+            <div
+              style={{
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                fontSize: 13,
+                color: "#E8503A",
+                textAlign: "center",
+                padding: "32px 16px",
+              }}
+            >
+              {error}
+            </div>
+          )}
 
-        {error && (
-          <div className="cfc-toast cfc-toast-error" style={{ margin: "12px 0" }}>
-            {error}
-          </div>
-        )}
-
-        {!loading && !error && (
-          <div className="cfc-card" style={{ overflow: "hidden", padding: 0 }}>
-            {players.map((p, idx) => {
-              const current = attachments[p.player_id] ?? "neutral";
-              const posClass = `cfc-pos-${p.position.toLowerCase()}`;
+          {!loading &&
+            !error &&
+            posOrder.map((pos) => {
+              const group = groups[pos];
+              if (!group || group.length === 0) return null;
               return (
-                <div
-                  key={p.player_id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    padding: "9px 12px",
-                    background: idx % 2 === 0 ? "#FEFCF9" : "#F5F0E6",
-                    borderTop: idx === 0 ? "none" : "1px solid #C8C3B8",
-                  }}
-                >
-                  <span className={`cfc-pos ${posClass}`}>{p.position}</span>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div
-                      style={{
-                        fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                        fontWeight: 700,
-                        fontSize: 12,
-                        color: "#1A1A1A",
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {p.full_name}
-                    </div>
-                    <div
-                      style={{
-                        fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-                        fontSize: 10,
-                        color: "#8C7E6A",
-                      }}
-                    >
-                      {p.team}
-                    </div>
+                <div key={pos}>
+                  <div
+                    style={{
+                      background: "#1A1A1A",
+                      padding: "8px 14px",
+                      fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: "rgba(255,255,255,0.5)",
+                      textTransform: "uppercase",
+                      letterSpacing: 2,
+                      position: "sticky",
+                      top: 0,
+                      zIndex: 2,
+                    }}
+                  >
+                    {POS_LABELS[pos] ?? pos}
                   </div>
-                  <div style={{ display: "flex", gap: 5 }}>
-                    {ATTACHMENT_OPTIONS.map((opt) => {
-                      const active = current === opt.value;
-                      return (
+                  {group.map((p, i) => {
+                    const si = attachments[p.player_id] ?? 0;
+                    const st = STATUSES[si];
+                    const isFirstPlayer = pos === "QB" && i === 0;
+                    return (
+                      <div
+                        key={p.player_id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "11px 14px",
+                          borderBottom: "1px solid rgba(200,195,184,0.4)",
+                        }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div
+                            style={{
+                              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                              fontWeight: 700,
+                              fontSize: 14,
+                              color: "#1A1A1A",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {p.full_name}
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              marginTop: 2,
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontFamily:
+                                  "var(--font-mono, 'JetBrains Mono', monospace)",
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: "#8C7E6A",
+                                position: "relative",
+                                paddingBottom: 2,
+                                borderBottom: `2px solid ${POS_UNDERLINE[p.position] ?? "#1A1A1A"}`,
+                              }}
+                            >
+                              {p.position}
+                            </span>
+                            <span
+                              style={{
+                                fontFamily:
+                                  "var(--font-mono, 'JetBrains Mono', monospace)",
+                                fontSize: 10,
+                                color: "#C8C3B8",
+                              }}
+                            >
+                              {p.team}
+                            </span>
+                          </div>
+                        </div>
                         <button
-                          key={opt.value}
                           type="button"
-                          aria-label={opt.label}
-                          aria-pressed={active}
-                          title={opt.label}
-                          onClick={() =>
-                            setAttachments((prev) => ({
-                              ...prev,
-                              [p.player_id]: opt.value,
-                            }))
-                          }
+                          onClick={() => cycleStatus(p.player_id)}
                           style={{
-                            width: 26,
-                            height: 26,
-                            padding: 0,
+                            padding: "6px 12px",
+                            border: "2px solid #1A1A1A",
+                            fontFamily:
+                              "var(--font-mono, 'JetBrains Mono', monospace)",
+                            fontSize: 10,
+                            fontWeight: 700,
+                            textTransform: "uppercase",
+                            letterSpacing: 0.5,
                             cursor: "pointer",
-                            background: active ? opt.color : "transparent",
-                            border: active
-                              ? "2px solid #1A1A1A"
-                              : "1.5px solid #C8C3B8",
-                            borderRadius: 4,
-                            display: "inline-flex",
-                            alignItems: "center",
-                            justifyContent: "center",
+                            flexShrink: 0,
+                            background: st.bg,
+                            color: st.color,
+                            boxShadow: "2px 2px 0 #1A1A1A",
+                            transition:
+                              "background 120ms, color 120ms, box-shadow 120ms, transform 120ms",
+                            WebkitTapHighlightColor: "transparent",
+                            animation: isFirstPlayer
+                              ? "chip-pulse 1.5s ease-in-out 3"
+                              : "none",
                           }}
                         >
-                          <span
-                            style={{
-                              width: 8,
-                              height: 8,
-                              background: active ? "#1A1A1A" : "#C8C3B8",
-                              borderRadius: 2,
-                              display: "inline-block",
-                            }}
-                          />
+                          {st.label}
                         </button>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
-            {!players.length && (
-              <div
-                style={{
-                  padding: 16,
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  fontSize: 13,
-                  color: "#8C7E6A",
-                  textAlign: "center",
-                }}
-              >
-                No eligible players found on your roster.
-              </div>
-            )}
-          </div>
-        )}
 
-        {submitError && (
-          <div className="cfc-toast cfc-toast-error" style={{ marginTop: 12 }}>
-            {submitError}
-          </div>
-        )}
+          {!loading && !error && players.length === 0 && (
+            <div
+              style={{
+                padding: 16,
+                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                fontSize: 13,
+                color: "#8C7E6A",
+                textAlign: "center",
+              }}
+            >
+              No eligible players found on your roster.
+            </div>
+          )}
+        </div>
       </div>
 
+      {submitError && (
+        <div
+          style={{
+            margin: "8px 20px 0",
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            fontSize: 12,
+            color: "#E8503A",
+            textAlign: "center",
+          }}
+        >
+          {submitError}
+        </div>
+      )}
+
+      {/* Bottom bar */}
       <div
         style={{
-          position: "sticky",
-          bottom: 0,
+          flexShrink: 0,
           background: "#FEFCF9",
           borderTop: "2.5px solid #1A1A1A",
-          padding: "12px 16px",
+          padding: "12px 20px",
           display: "flex",
           gap: 10,
-          zIndex: 5,
+          marginTop: 14,
         }}
       >
         <button
           type="button"
-          className="cfc-btn"
-          style={{ flex: 1 }}
           onClick={onBack}
           disabled={submitting}
+          style={{
+            flex: 1,
+            padding: "14px 12px",
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            fontWeight: 800,
+            fontSize: 14,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            border: "2.5px solid #1A1A1A",
+            cursor: "pointer",
+            textAlign: "center",
+            boxShadow: "3px 3px 0 #1A1A1A",
+            background: "#FEFCF9",
+            color: "#1A1A1A",
+          }}
         >
           ← Back
         </button>
         <button
           type="button"
-          className="cfc-btn cfc-btn-danger"
-          style={{ flex: 3 }}
           onClick={handleSubmit}
           disabled={submitting || loading}
+          style={{
+            flex: 3,
+            padding: "14px 12px",
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            fontWeight: 800,
+            fontSize: 14,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            border: "2.5px solid #1A1A1A",
+            cursor: submitting || loading ? "wait" : "pointer",
+            textAlign: "center",
+            boxShadow: "3px 3px 0 #1A1A1A",
+            background: "#E8503A",
+            color: "#fff",
+            opacity: submitting || loading ? 0.7 : 1,
+          }}
         >
           {submitting ? "Saving…" : "Next →"}
         </button>
       </div>
+
+      <style>{`
+        @keyframes chip-pulse {
+          0%, 100% { box-shadow: 2px 2px 0 #1A1A1A; }
+          50% { box-shadow: 2px 2px 0 #1A1A1A, 0 0 0 4px rgba(232,80,58,0.25); }
+        }
+      `}</style>
     </div>
   );
 }
