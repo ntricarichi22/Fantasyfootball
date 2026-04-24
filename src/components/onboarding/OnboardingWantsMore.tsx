@@ -36,7 +36,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
   return (
     <div
       style={{
-        height: "100vh",
+        height: "100dvh",
         background: "#F5F0E6",
         display: "flex",
         flexDirection: "column",
@@ -74,7 +74,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
       </div>
 
       {/* Header */}
-      <div style={{ padding: "24px 20px 0", flexShrink: 0 }}>
+      <div style={{ padding: "20px 20px 0", flexShrink: 0 }}>
         <div
           style={{
             fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
@@ -83,7 +83,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
             color: "#3366CC",
             textTransform: "uppercase",
             letterSpacing: 2,
-            marginBottom: 10,
+            marginBottom: 8,
           }}
         >
           2 of 3
@@ -95,7 +95,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
             fontSize: 26,
             color: "#1A1A1A",
             lineHeight: 1.1,
-            margin: "0 0 8px",
+            margin: "0 0 6px",
           }}
         >
           If a trade landed on your desk — what do you want back?
@@ -111,15 +111,16 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
         </p>
       </div>
 
-      {/* Cards grid */}
+      {/* Cards grid — fills remaining space */}
       <div
         style={{
+          flex: 1,
+          minHeight: 0,
           display: "grid",
           gridTemplateColumns: "1fr 1fr",
+          gridTemplateRows: "1fr 1fr",
           gap: 12,
-          padding: "24px 20px",
-          flex: 1,
-          alignContent: "start",
+          padding: "16px 20px",
         }}
       >
         {CARDS.map((c) => {
@@ -146,12 +147,13 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
                 overflow: "hidden",
                 WebkitTapHighlightColor: "transparent",
                 position: "relative",
+                minHeight: 0,
               }}
             >
               {/* Color strip */}
               <div
                 style={{
-                  height: 6,
+                  height: 5,
                   background: c.accent,
                   width: "100%",
                   flexShrink: 0,
@@ -159,15 +161,25 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
               />
 
               {/* Card body */}
-              <div style={{ padding: "14px 12px 16px", flex: 1, display: "flex", flexDirection: "column", gap: 4 }}>
+              <div
+                style={{
+                  padding: "12px 10px 14px",
+                  flex: 1,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4,
+                  minHeight: 0,
+                }}
+              >
                 <div
                   style={{
                     fontFamily: "var(--font-headline, 'Syne', sans-serif)",
                     fontWeight: 900,
-                    fontSize: 13,
+                    fontSize: 12,
                     color: active ? "#fff" : "#1A1A1A",
                     textTransform: "uppercase",
-                    letterSpacing: 0.5,
+                    letterSpacing: 0.3,
+                    lineHeight: 1.2,
                   }}
                 >
                   {c.label}
@@ -188,7 +200,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
                       width: 24,
                       height: 3,
                       background: c.accent,
-                      marginTop: 10,
+                      marginTop: "auto",
                     }}
                   />
                 )}
@@ -198,7 +210,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
               <div
                 style={{
                   position: "absolute",
-                  bottom: 8,
+                  bottom: 6,
                   right: 8,
                   fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
                   fontSize: 9,
