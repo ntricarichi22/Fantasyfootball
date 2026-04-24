@@ -16,7 +16,7 @@ const NEED_INDEX: Record<Need, number> = { low: 0, med: 1, high: 2 };
 const FILL_WIDTHS = ["33.3%", "66.6%", "100%"];
 
 type PosRow = {
-  key: "QB" | "RB" | "WR" | "TE" | "PICKS";
+  key: "QB" | "RB" | "WR" | "TE";
   underline: string;
 };
 
@@ -25,7 +25,6 @@ const ROWS: PosRow[] = [
   { key: "RB", underline: "#3366CC" },
   { key: "WR", underline: "#F5C230" },
   { key: "TE", underline: "#1A1A1A" },
-  { key: "PICKS", underline: "#8C7E6A" },
 ];
 
 const NEEDS: Need[] = ["low", "med", "high"];
@@ -37,7 +36,6 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
     RB: "med",
     WR: "med",
     TE: "med",
-    PICKS: "med",
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +54,6 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
         rb_market: posture.RB,
         wr_market: posture.WR,
         te_market: posture.TE,
-        picks_market: posture.PICKS,
       };
       const res = await fetch("/api/team-hq/strategy", {
         method: "POST",
@@ -179,7 +176,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
           display: "flex",
           flexDirection: "column",
           justifyContent: "center",
-          gap: 18,
+          gap: 22,
           padding: "0 20px",
         }}
       >
@@ -194,7 +191,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
                 gap: 14,
               }}
             >
-              <div style={{ width: 48, flexShrink: 0, textAlign: "center" }}>
+              <div style={{ width: 40, flexShrink: 0, textAlign: "center" }}>
                 <span
                   style={{
                     fontFamily: "var(--font-headline, 'Syne', sans-serif)",
@@ -215,7 +212,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
               <div
                 style={{
                   flex: 1,
-                  height: 40,
+                  height: 44,
                   background: "#E8E3D8",
                   border: "2.5px solid #1A1A1A",
                   position: "relative",
