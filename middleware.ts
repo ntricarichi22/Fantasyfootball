@@ -19,6 +19,11 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  const profileComplete = request.cookies.get("cfc_profile_complete")?.value;
+  if (profileComplete === "false" && !pathname.startsWith("/onboarding")) {
+    return NextResponse.redirect(new URL("/onboarding", request.url));
+  }
+
   return NextResponse.next();
 }
 
