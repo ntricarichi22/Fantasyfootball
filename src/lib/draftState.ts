@@ -16,7 +16,7 @@ export type DraftStateRow = {
   updated_at?: string | null;
 };
 
-export const INITIAL_PICK_SECONDS = 30;
+export const INITIAL_PICK_SECONDS = 1800;
 
 /** 1-round rookie draft, 12 teams */
 export const DRAFT_ROUNDS = 1;
