@@ -10,63 +10,41 @@ type Props = {
   identity: Identity;
 };
 
-type Market = "buy" | "hold" | "sell";
+type Need = "low" | "med" | "high";
+
+const NEED_INDEX: Record<Need, number> = { low: 0, med: 1, high: 2 };
+const FILL_WIDTHS = ["33.3%", "66.6%", "100%"];
 
 type PosRow = {
   key: "QB" | "RB" | "WR" | "TE" | "PICKS";
-  bg: string;
-  color: string;
+  underline: string;
 };
 
 const ROWS: PosRow[] = [
-  { key: "QB", bg: "#E8503A", color: "#fff" },
-  { key: "RB", bg: "#3366CC", color: "#fff" },
-  { key: "WR", bg: "#F5C230", color: "#1A1A1A" },
-  { key: "TE", bg: "#1A1A1A", color: "#fff" },
-  { key: "PICKS", bg: "#F5F0E6", color: "#1A1A1A" },
+  { key: "QB", underline: "#E8503A" },
+  { key: "RB", underline: "#3366CC" },
+  { key: "WR", underline: "#F5C230" },
+  { key: "TE", underline: "#1A1A1A" },
+  { key: "PICKS", underline: "#8C7E6A" },
 ];
 
-const MARKETS: Array<{ value: Market; label: string; activeBg: string; activeColor: string }> = [
-  { value: "buy", label: "BUY", activeBg: "#3366CC", activeColor: "#fff" },
-  { value: "hold", label: "HOLD", activeBg: "#F5C230", activeColor: "#1A1A1A" },
-  { value: "sell", label: "SELL", activeBg: "#E8503A", activeColor: "#fff" },
-];
-
-const TopBar = () => (
-  <div
-    style={{
-      background: "#1A1A1A",
-      borderBottom: "2.5px solid #1A1A1A",
-      padding: "14px 18px",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      position: "sticky",
-      top: 0,
-      zIndex: 5,
-    }}
-  >
-    {/* eslint-disable-next-line @next/next/no-img-element */}
-    <img src="/cfc-logo.png" alt="" style={{ height: 28 }} />
-    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <div style={{ width: 8, height: 8, background: "#444", borderRadius: 4 }} />
-      <div style={{ width: 8, height: 8, background: "#444", borderRadius: 4 }} />
-      <div style={{ width: 20, height: 8, background: "#E8503A", borderRadius: 4 }} />
-    </div>
-  </div>
-);
+const NEEDS: Need[] = ["low", "med", "high"];
 
 export default function OnboardingPosture({ onBack, wantsMore, identity }: Props) {
   const router = useRouter();
-  const [posture, setPosture] = useState<Record<PosRow["key"], Market>>({
-    QB: "hold",
-    RB: "hold",
-    WR: "hold",
-    TE: "hold",
-    PICKS: "hold",
+  const [posture, setPosture] = useState<Record<PosRow["key"], Need>>({
+    QB: "med",
+    RB: "med",
+    WR: "med",
+    TE: "med",
+    PICKS: "med",
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const setNeed = (pos: PosRow["key"], need: Need) => {
+    setPosture((prev) => ({ ...prev, [pos]: need }));
+  };
 
   const handleSubmit = async () => {
     setError(null);
@@ -117,142 +95,265 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F5F0E6", display: "flex", flexDirection: "column" }}>
-      <TopBar />
-      <div style={{ flex: 1, padding: "28px 20px 100px" }}>
-        <span className="cfc-section-tag cfc-section-tag-ink" style={{ marginBottom: 10, display: "inline-block" }}>
+    <div
+      style={{
+        height: "100dvh",
+        background: "#F5F0E6",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Top bar */}
+      <div
+        style={{
+          background: "#1A1A1A",
+          borderBottom: "2.5px solid #1A1A1A",
+          padding: "14px 18px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src="/cfc-logo.png" alt="" style={{ height: 28 }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              style={
+                i < 2
+                  ? { width: 8, height: 8, background: "rgba(232,80,58,0.4)" }
+                  : { width: 20, height: 8, background: "#E8503A" }
+              }
+            />
+          ))}
+        </div>
+      </div>
+
+      {/* Header */}
+      <div style={{ padding: "20px 20px 0", flexShrink: 0 }}>
+        <div
+          style={{
+            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#1A1A1A",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            marginBottom: 8,
+          }}
+        >
           3 of 3
-        </span>
+        </div>
         <h1
           style={{
             fontFamily: "var(--font-headline, 'Syne', sans-serif)",
             fontWeight: 900,
-            fontSize: 30,
-            lineHeight: 1.05,
+            fontSize: 26,
             color: "#1A1A1A",
-            margin: "10px 0 8px",
+            lineHeight: 1.1,
+            margin: "0 0 6px",
           }}
         >
-          Position by position — what&apos;s your move?
+          Where are the holes on your roster?
         </h1>
         <p
           style={{
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
             fontSize: 13,
-            color: "#8C7E6A",
             margin: 0,
+            color: "#8C7E6A",
           }}
         >
-          Set your market posture for each position and picks.
+          Slide to set your need level at each position.
         </p>
+      </div>
 
-        <div className="cfc-card" style={{ overflow: "hidden", padding: 0, marginTop: 24 }}>
-          {ROWS.map((row, idx) => (
+      {/* Rows — fills remaining space, vertically centered */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 18,
+          padding: "0 20px",
+        }}
+      >
+        {ROWS.map((row) => {
+          const level = NEED_INDEX[posture[row.key]];
+          return (
             <div
               key={row.key}
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 12,
-                padding: "14px 16px",
-                background: idx % 2 === 0 ? "#FEFCF9" : "#F5F0E6",
-                borderTop: idx === 0 ? "none" : "1px solid #C8C3B8",
+                gap: 14,
               }}
             >
+              {/* Position label with underline */}
+              <div style={{ width: 40, flexShrink: 0, textAlign: "center" }}>
+                <span
+                  style={{
+                    fontFamily: "var(--font-headline, 'Syne', sans-serif)",
+                    fontWeight: 900,
+                    fontSize: 13,
+                    color: "#1A1A1A",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                    paddingBottom: 3,
+                    borderBottom: `3px solid ${row.underline}`,
+                    display: "inline-block",
+                  }}
+                >
+                  {row.key}
+                </span>
+              </div>
+
+              {/* Bar */}
               <div
                 style={{
-                  width: 52,
-                  height: 52,
-                  background: row.bg,
-                  color: row.color,
+                  flex: 1,
+                  height: 40,
+                  background: "#E8E3D8",
                   border: "2.5px solid #1A1A1A",
-                  borderRadius: 8,
-                  boxShadow: "3px 3px 0 #1A1A1A",
+                  position: "relative",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
-                  fontFamily: "var(--font-headline, 'Syne', sans-serif)",
-                  fontWeight: 900,
-                  fontSize: 14,
-                  flexShrink: 0,
+                  overflow: "hidden",
+                  boxShadow: "2px 2px 0 #1A1A1A",
                 }}
               >
-                {row.key}
-              </div>
-              <div style={{ display: "flex", flex: 1, gap: 6 }}>
-                {MARKETS.map((m) => {
-                  const active = posture[row.key] === m.value;
-                  return (
-                    <button
-                      key={m.value}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() =>
-                        setPosture((prev) => ({ ...prev, [row.key]: m.value }))
-                      }
-                      style={{
-                        flex: 1,
-                        padding: "11px 4px",
-                        textAlign: "center",
-                        cursor: "pointer",
-                        fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                        fontWeight: 800,
-                        fontSize: 11,
-                        letterSpacing: 1,
-                        borderRadius: 6,
-                        background: active ? m.activeBg : "transparent",
-                        color: active ? m.activeColor : "#8C7E6A",
-                        border: active ? "2px solid #1A1A1A" : "1.5px solid #C8C3B8",
-                        boxShadow: active ? "2px 2px 0 #1A1A1A" : "none",
-                        transform: active ? "translate(1px, 1px)" : "none",
-                        transition: "transform 100ms, box-shadow 100ms",
-                      }}
-                    >
-                      {m.label}
-                    </button>
-                  );
-                })}
+                {/* Fill */}
+                <div
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    top: 0,
+                    height: "100%",
+                    background: "#1A1A1A",
+                    width: FILL_WIDTHS[level],
+                    transition: "width 180ms ease",
+                  }}
+                />
+
+                {/* Labels */}
+                <div
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    width: "100%",
+                    zIndex: 1,
+                  }}
+                >
+                  {NEEDS.map((need, ni) => {
+                    const isActive = ni <= level;
+                    return (
+                      <button
+                        key={need}
+                        type="button"
+                        onClick={() => setNeed(row.key, need)}
+                        style={{
+                          flex: 1,
+                          textAlign: "center",
+                          fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          color: isActive ? "#fff" : "#8C7E6A",
+                          cursor: "pointer",
+                          padding: "10px 0",
+                          background: "transparent",
+                          border: "none",
+                          WebkitTapHighlightColor: "transparent",
+                          transition: "color 180ms",
+                        }}
+                      >
+                        {need === "med" ? "Med" : need === "low" ? "Low" : "High"}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
-          ))}
-        </div>
-
-        {error && (
-          <div className="cfc-toast cfc-toast-error" style={{ marginTop: 12 }}>
-            {error}
-          </div>
-        )}
+          );
+        })}
       </div>
 
+      {error && (
+        <div
+          style={{
+            padding: "0 20px 8px",
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            fontSize: 12,
+            color: "#E8503A",
+            textAlign: "center",
+            flexShrink: 0,
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {/* Bottom bar */}
       <div
         style={{
-          position: "sticky",
-          bottom: 0,
+          flexShrink: 0,
           background: "#FEFCF9",
           borderTop: "2.5px solid #1A1A1A",
-          padding: "12px 16px",
+          padding: "12px 20px",
           display: "flex",
           gap: 10,
-          zIndex: 5,
         }}
       >
         <button
           type="button"
-          className="cfc-btn"
-          style={{ flex: 1 }}
           onClick={onBack}
           disabled={submitting}
+          style={{
+            flex: 1,
+            padding: "14px 12px",
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            fontWeight: 800,
+            fontSize: 14,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            border: "2.5px solid #1A1A1A",
+            cursor: "pointer",
+            textAlign: "center",
+            boxShadow: "3px 3px 0 #1A1A1A",
+            background: "#FEFCF9",
+            color: "#1A1A1A",
+          }}
         >
           ← Back
         </button>
         <button
           type="button"
-          className="cfc-btn cfc-btn-danger"
-          style={{ flex: 3 }}
           onClick={handleSubmit}
           disabled={submitting}
+          style={{
+            flex: 3,
+            padding: "14px 12px",
+            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+            fontWeight: 800,
+            fontSize: 14,
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            border: "2.5px solid #1A1A1A",
+            cursor: submitting ? "wait" : "pointer",
+            textAlign: "center",
+            boxShadow: "3px 3px 0 #1A1A1A",
+            background: "#E8503A",
+            color: "#fff",
+            opacity: submitting ? 0.7 : 1,
+          }}
         >
-          {submitting ? "Saving…" : "Enter the War Room →"}
+          {submitting ? "Saving…" : "Enter the Front Office →"}
         </button>
       </div>
     </div>
