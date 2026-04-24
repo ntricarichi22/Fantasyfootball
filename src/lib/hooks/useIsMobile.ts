@@ -10,14 +10,13 @@ import { useEffect, useState } from "react";
 export const MOBILE_BREAKPOINT_PX = 768;
 
 /**
- * SSR-safe viewport-width hook. Returns `false` on the server and during the
- * first client render so the SSR markup matches the client hydration pass
- * (avoiding hydration mismatches), then flips to the real value after mount.
- *
- * Only one breakpoint is supported per spec — keep this simple.
+ * SSR-safe viewport-width hook. Returns `null` on the server and during the
+ * first client render (before the viewport width is known), then resolves to
+ * `true` or `false` after mount. Consumers should treat `null` as "not yet
+ * determined" and show a loading state or nothing — never the wrong layout.
  */
-export function useIsMobile(breakpointPx: number = MOBILE_BREAKPOINT_PX): boolean {
-  const [isMobile, setIsMobile] = useState(false);
+export function useIsMobile(breakpointPx: number = MOBILE_BREAKPOINT_PX): boolean | null {
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -26,8 +25,6 @@ export function useIsMobile(breakpointPx: number = MOBILE_BREAKPOINT_PX): boolea
     const query = window.matchMedia(`(max-width: ${breakpointPx}px)`);
     const update = () => setIsMobile(query.matches);
     update();
-    // Modern browsers expose `addEventListener` on MediaQueryList; older
-    // Safari only has `addListener`. Use whichever is available.
     if (typeof query.addEventListener === "function") {
       query.addEventListener("change", update);
       return () => query.removeEventListener("change", update);
