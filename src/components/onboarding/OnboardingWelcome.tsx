@@ -1,9 +1,3 @@
-# OnboardingWelcome.tsx
-
-**File:** `src/components/onboarding/OnboardingWelcome.tsx`
-**Action:** Complete replacement
-
-```tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
