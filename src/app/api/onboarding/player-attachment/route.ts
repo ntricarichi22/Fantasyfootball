@@ -3,34 +3,63 @@ import { LEAGUE_ID } from "@/lib/config";
 import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import { saveTeamStrategyProfile } from "@/lib/team-hq/service";
 import type { TeamHqOwnGuysPreference } from "@/lib/team-hq/types";
-import { TEAM_HQ_OWN_GUYS_VALUES } from "@/lib/team-hq/types";
 
-const OWN_GUYS_SET = new Set<string>(TEAM_HQ_OWN_GUYS_VALUES);
+const VALID_ATTACHMENTS = new Set([
+  "untouchable",
+  "core_piece",
+  "listening",
+  "moveable",
+  // Also accept old values in case they come through
+  "love_my_guys",
+  "prefer_to_keep_them",
+  "neutral",
+  "ready_to_shake_it_up",
+]);
+
+// Map new values → old values for strategy profile compatibility
+const NEW_TO_OLD: Record<string, TeamHqOwnGuysPreference> = {
+  untouchable: "love_my_guys",
+  core_piece: "prefer_to_keep_them",
+  listening: "neutral",
+  moveable: "ready_to_shake_it_up",
+  // Old values map to themselves
+  love_my_guys: "love_my_guys",
+  prefer_to_keep_them: "prefer_to_keep_them",
+  neutral: "neutral",
+  ready_to_shake_it_up: "ready_to_shake_it_up",
+};
+
 const MODAL_PRIORITY: TeamHqOwnGuysPreference[] = [
-  "neutral", "prefer_to_keep_them", "love_my_guys", "ready_to_shake_it_up"
+  "neutral",
+  "prefer_to_keep_them",
+  "love_my_guys",
+  "ready_to_shake_it_up",
 ];
 
 export async function POST(request: NextRequest) {
   try {
     const leagueId = LEAGUE_ID;
-    if (!leagueId) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+    if (!leagueId)
+      return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
 
-    const body = await request.json() as {
+    const body = (await request.json()) as {
       teamId?: string;
       attachments?: Array<{ sleeperPlayerId: string; attachment: string }>;
     };
 
     const teamId = body.teamId?.trim() ?? "";
     if (!teamId || !Array.isArray(body.attachments) || !body.attachments.length) {
-      return NextResponse.json({ error: "teamId and attachments are required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "teamId and attachments are required" },
+        { status: 400 }
+      );
     }
 
     const { client, error: clientError } = getSupabaseAdminClient();
     if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
 
-    // Validate and normalize attachment values
     const rows = body.attachments
-      .filter((a) => a.sleeperPlayerId && OWN_GUYS_SET.has(a.attachment))
+      .filter((a) => a.sleeperPlayerId && VALID_ATTACHMENTS.has(a.attachment))
       .map((a) => ({
         league_id: leagueId,
         team_id: teamId,
@@ -49,9 +78,12 @@ export async function POST(request: NextRequest) {
 
     if (upsertError) throw new Error(upsertError.message);
 
-    // Compute modal own_guys_preference from submitted attachments
+    // Compute modal own_guys_preference mapped to old values for strategy profile
     const counts = new Map<string, number>();
-    rows.forEach((r) => counts.set(r.attachment, (counts.get(r.attachment) ?? 0) + 1));
+    rows.forEach((r) => {
+      const oldVal = NEW_TO_OLD[r.attachment] ?? "neutral";
+      counts.set(oldVal, (counts.get(oldVal) ?? 0) + 1);
+    });
     const maxCount = Math.max(...counts.values());
     const tied = MODAL_PRIORITY.filter((v) => (counts.get(v) ?? 0) === maxCount);
     const modalValue = tied[0] as TeamHqOwnGuysPreference;
