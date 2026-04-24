@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { getLeagueId } from "../../../lib/config";
+import { INITIAL_PICK_SECONDS } from "../../../lib/draftState";
 import { processAutoAdvance } from "../../../lib/draftAutoAdvance";
 import { getSupabaseAdminClient } from "../active-teams/shared";
 import { fetchDraftState, upsertDraftState } from "../draft-state/shared";
@@ -15,25 +16,6 @@ const safeLeagueId = () => {
   }
 };
 
-/**
- * Idempotent draft-clock tick.
- *
- * Called from any client whose local timer hits 00:00 (either the
- * announcement countdown for a submitted pick, or the on-the-clock timer
- * for an unsubmitted pick) so the auto-announce / auto-skip fires within
- * 1-2s of the timer expiring instead of waiting for the next 30s poll.
- *
- * The endpoint is fully idempotent — concurrent callers (multiple clients
- * racing each other) are safe. The auto-advance helper is gated on real
- * timestamps in the DB, so the loser of any race performs a no-op.
- *
- * Optionally protected by the `CRON_SECRET` env var. When set, callers must
- * present it via `Authorization: Bearer <secret>` or `x-cron-secret: <secret>`.
- * Unauthenticated requests are rejected with 401. When `CRON_SECRET` is not
- * configured (e.g. local dev), the endpoint is open — public clients drive
- * the tick and the operation is harmless even if abused (rate-limited by
- * the upstream draft clock and idempotent at the DB level).
- */
 const requireSecret = (request: NextRequest): { ok: boolean; status?: number } => {
   const expected = process.env.CRON_SECRET;
   if (!expected) return { ok: true };
@@ -67,13 +49,40 @@ const handle = async (request: NextRequest) => {
     return NextResponse.json({ data: null, status: "no_state" });
   }
 
-  // Diagnostic: surface the exact values used by the auto-advance comparison
-  // so a failed announce / skip is debuggable from server logs alone. Kept
-  // intentionally lightweight (one line, no PII) so it is safe to leave on in
-  // production. See debug step #2 in the bug report that introduced this.
+  // Auto-start: if draft hasn't started but starts_at has passed, kick it off
+  if (state.status === "not_started" && state.starts_at) {
+    const startsMs = new Date(state.starts_at).getTime();
+    if (Number.isFinite(startsMs) && Date.now() >= startsMs) {
+      console.log(
+        `[draft-tick] auto-start triggered — starts_at=${state.starts_at} has passed (league=${leagueId})`
+      );
+      const nowIso = new Date().toISOString();
+      const { data: started, error: startError } = await upsertDraftState(client, {
+        league_id: leagueId,
+        status: "running",
+        seconds_remaining: INITIAL_PICK_SECONDS,
+        clock_started_at: nowIso,
+        pick_submitted: false,
+        pick_announced_at: null,
+        current_pick_index: 0,
+      });
+      if (startError) {
+        return NextResponse.json({ error: startError }, { status: 500 });
+      }
+      return NextResponse.json({
+        data: started,
+        status: "auto_started",
+        steps: 0,
+      });
+    }
+  }
+
+  // If draft is completed, nothing to do
+  if (state.status === "completed") {
+    return NextResponse.json({ data: state, status: "completed", steps: 0 });
+  }
+
   try {
-    // `state.pick_announced_at` is already a canonical ISO string (or null)
-    // because `normalizeDraftStateRow` ran inside `fetchDraftState`.
     const announceMs = state.pick_announced_at
       ? new Date(state.pick_announced_at).getTime()
       : NaN;
@@ -112,8 +121,6 @@ export async function POST(request: NextRequest) {
   return handle(request);
 }
 
-// GET is also accepted so Vercel Cron (which sends GET) can hit the same
-// endpoint without any extra adapter.
 export async function GET(request: NextRequest) {
   return handle(request);
 }
