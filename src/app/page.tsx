@@ -954,7 +954,7 @@ useEffect(() => {
 />
       ) : isDraftRoute && isMobile === null ? (
         <div style={{ height: "100vh", background: "#1A1A1A" }} />
-      ) : isDraftRoute && isMobile && !!selectedTeam ? (
+      ) : isDraftRoute && isMobile ? (
         <MobileDraftRoom
           onNavigate={(href) => router.push(href)}
           currentPath={pathname ?? undefined}
@@ -987,7 +987,7 @@ useEffect(() => {
           currentPickNumber={nextPickIndex + 1}
           leagueContext={leagueContext}
         />
-      ) : isDraftRoute && (isMobile === null || isMobile) ? (
+      ) : isDraftRoute && isMobile === null ? (
     <div style={{ height: "100dvh", background: "#1A1A1A" }} />
   ) : (
     <div className="flex h-[calc(100vh_-_50px_-_69px_-_38px)] min-h-[480px] flex-col gap-4 px-4 pt-4 pb-4 overflow-hidden">
