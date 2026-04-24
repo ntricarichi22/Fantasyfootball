@@ -1,3 +1,9 @@
+# OnboardingWelcome.tsx
+
+**File:** `src/components/onboarding/OnboardingWelcome.tsx`
+**Action:** Complete replacement
+
+```tsx
 "use client";
 
 import { useEffect, useRef, useState } from "react";
@@ -7,18 +13,16 @@ type Props = {
   teamName: string;
 };
 
-const PACK_W = 220;
-const PACK_H = 300;
+const ENV_W = 280;
+const ENV_H = 176;
 
-const TEAR_POINTS_NORM: Array<[number, number]> = [
-  [0, 0.5], [0.05, 0.47], [0.1, 0.52], [0.15, 0.45], [0.2, 0.51], [0.27, 0.44],
-  [0.33, 0.53], [0.4, 0.46], [0.46, 0.5], [0.52, 0.43], [0.58, 0.52], [0.64, 0.47],
-  [0.7, 0.54], [0.76, 0.45], [0.82, 0.5], [0.88, 0.46], [0.94, 0.52], [1, 0.49],
-];
+const TEAR_PATH = "M 0 88 L 12 85 L 24 90 L 36 83 L 50 88 L 62 84 L 76 91 L 88 85 L 102 89 L 114 84 L 128 90 L 140 83 L 154 88 L 168 84 L 180 90 L 192 85 L 206 89 L 218 83 L 232 91 L 244 84 L 258 90 L 270 85 L 280 88";
 
-const TEAR_POINTS = TEAR_POINTS_NORM.map(([x, y]) => [x * PACK_W, y * PACK_H] as [number, number]);
+const TOP_CLIP = "M 0 0 L 280 0 L 280 88 L 270 85 L 258 90 L 244 84 L 232 91 L 218 83 L 206 89 L 192 85 L 180 90 L 168 84 L 154 88 L 140 83 L 128 90 L 114 84 L 102 89 L 88 85 L 76 91 L 62 84 L 50 88 L 36 83 L 24 90 L 12 85 L 0 88 Z";
 
-const SPARKLE_COLORS = ["#F5C230", "#fff", "#E8503A", "#3366CC"];
+const BOTTOM_CLIP = "M 0 176 L 280 176 L 280 88 L 270 85 L 258 90 L 244 84 L 232 91 L 218 83 L 206 89 L 192 85 L 180 90 L 168 84 L 154 88 L 140 83 L 128 90 L 114 84 L 102 89 L 88 85 L 76 91 L 62 84 L 50 88 L 36 83 L 24 90 L 12 85 L 0 88 Z";
+
+const SPARKLE_COLORS = ["#F5C230", "#fff", "#E8503A", "#F5C230"];
 
 type Sparkle = {
   x: number;
@@ -31,188 +35,124 @@ type Sparkle = {
   size: number;
 };
 
-const tearPathD = (() => {
-  if (!TEAR_POINTS.length) return "";
-  const [first, ...rest] = TEAR_POINTS;
-  return `M ${first[0]} ${first[1]} ` + rest.map(([x, y]) => `L ${x} ${y}`).join(" ");
-})();
-
-const tearTopHalfClipPath = (() => {
-  let d = `M 0 0 L ${PACK_W} 0 L ${PACK_W} ${TEAR_POINTS[TEAR_POINTS.length - 1][1]} `;
-  for (let i = TEAR_POINTS.length - 1; i >= 0; i--) {
-    d += `L ${TEAR_POINTS[i][0]} ${TEAR_POINTS[i][1]} `;
-  }
-  d += "Z";
-  return d;
-})();
-
-const tearBottomHalfClipPath = (() => {
-  let d = `M 0 ${PACK_H} L ${PACK_W} ${PACK_H} L ${PACK_W} ${TEAR_POINTS[TEAR_POINTS.length - 1][1]} `;
-  for (let i = TEAR_POINTS.length - 1; i >= 0; i--) {
-    d += `L ${TEAR_POINTS[i][0]} ${TEAR_POINTS[i][1]} `;
-  }
-  d += "Z";
-  return d;
-})();
-
-const easeInOutQuad = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
-
-const PackFace = ({ id }: { id: string }) => (
-  <g>
-    <defs>
-      <linearGradient id={`${id}-base`} x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stopColor="#E8503A" />
-        <stop offset="55%" stopColor="#c73a28" />
-        <stop offset="100%" stopColor="#3366CC" />
-      </linearGradient>
-      <linearGradient id={`${id}-sheen`} x1="0" y1="0" x2="1" y2="1">
-        <stop offset="0%" stopColor="rgba(255,255,255,0.18)" />
-        <stop offset="50%" stopColor="rgba(255,255,255,0)" />
-        <stop offset="100%" stopColor="rgba(255,255,255,0.08)" />
-      </linearGradient>
-    </defs>
-    <rect x={0} y={0} width={PACK_W} height={PACK_H} fill={`url(#${id}-base)`} />
-    <g transform="skewX(-18)">
-      {Array.from({ length: 9 }).map((_, i) => (
-        <rect
-          key={i}
-          x={-40 + i * 32}
-          y={-20}
-          width={12}
-          height={PACK_H + 80}
-          fill="rgba(0,0,0,0.1)"
-        />
-      ))}
-    </g>
-    <rect x={0} y={0} width={PACK_W} height={PACK_H} fill={`url(#${id}-sheen)`} />
-    <rect x={0} y={0} width={PACK_W} height={44} fill="#3366CC" />
-    <rect x={0} y={41} width={PACK_W} height={3} fill="#1A1A1A" />
-    <text x={10} y={28} fontFamily="JetBrains Mono, monospace" fontWeight={800} fontSize={11} fill="#F5C230">2026</text>
-    <text x={PACK_W / 2} y={28} fontFamily="Syne, sans-serif" fontWeight={900} fontSize={11} fill="#fff" textAnchor="middle">CFC FRONT OFFICE</text>
-    <text x={PACK_W - 10} y={28} fontFamily="JetBrains Mono, monospace" fontWeight={800} fontSize={11} fill="#F5C230" textAnchor="end">S.8</text>
-    <image
-      href="/cfc-logo.png"
-      x={(PACK_W - 64) / 2}
-      y={PACK_H / 2 - 40}
-      width={64}
-      height={64}
-      style={{ filter: "brightness(0) invert(1)" }}
-    />
-    <text x={PACK_W / 2} y={PACK_H / 2 + 40} fontFamily="DM Sans, sans-serif" fontWeight={900} fontSize={10} fill="rgba(255,255,255,0.45)" textAnchor="middle" letterSpacing={4}>DYNASTY</text>
-    <rect x={0} y={PACK_H - 44} width={PACK_W} height={44} fill="#F5C230" />
-    <rect x={0} y={PACK_H - 44} width={PACK_W} height={3} fill="#1A1A1A" />
-    <text x={10} y={PACK_H - 18} fontFamily="DM Sans, sans-serif" fontWeight={900} fontSize={9} fill="#1A1A1A">DYNASTY LEAGUE</text>
-    <text x={PACK_W / 2} y={PACK_H - 18} fontFamily="DM Sans, sans-serif" fontWeight={900} fontSize={9} fill="#1A1A1A" textAnchor="middle">12 TEAMS</text>
-    <text x={PACK_W - 10} y={PACK_H - 18} fontFamily="DM Sans, sans-serif" fontWeight={900} fontSize={10} fill="#1A1A1A" textAnchor="end">TEAR HERE →</text>
-  </g>
-);
+const easeInOutQuad = (t: number) =>
+  t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
 export default function OnboardingWelcome({ onComplete, teamName }: Props) {
   const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
-  const [statusText, setStatusText] = useState("Tap to open");
-
   const [topY, setTopY] = useState(0);
   const [bottomY, setBottomY] = useState(0);
-  const [tearProgress, setTearProgress] = useState(0);
-  const [cardOpacity, setCardOpacity] = useState(0);
+  const [topOpacity, setTopOpacity] = useState(1);
+  const [bottomOpacity, setBottomOpacity] = useState(1);
+  const [tearStroke, setTearStroke] = useState("rgba(255,255,255,0.08)");
+  const [tearDash, setTearDash] = useState("4 4");
+  const [tearOffset, setTearOffset] = useState("0");
+  const [tearOpacity, setTearOpacity] = useState(1);
+  const [headlineFaded, setHeadlineFaded] = useState(false);
+  const [cardRevealed, setCardRevealed] = useState(false);
+  const [accessShown, setAccessShown] = useState(false);
   const [sparkles, setSparkles] = useState<Sparkle[]>([]);
 
   const sparklesRef = useRef<Sparkle[]>([]);
   const rafRef = useRef<number | null>(null);
   const startedRef = useRef(false);
-  const completedRef = useRef(false);
 
   const spawnBurst = (count: number) => {
     const burst: Sparkle[] = [];
     for (let i = 0; i < count; i++) {
-      const t = Math.random();
-      const idx = Math.min(TEAR_POINTS.length - 2, Math.floor(t * (TEAR_POINTS.length - 1)));
-      const [x1, y1] = TEAR_POINTS[idx];
-      const [x2, y2] = TEAR_POINTS[idx + 1];
-      const f = t * (TEAR_POINTS.length - 1) - idx;
-      const x = x1 + (x2 - x1) * f;
-      const y = y1 + (y2 - y1) * f;
+      const x = Math.random() * ENV_W;
+      const y = 80 + (Math.random() - 0.5) * 20;
       burst.push({
         x,
         y,
-        vx: (Math.random() - 0.5) * 4,
-        vy: (Math.random() - 0.5) * 4 - 1,
+        vx: (Math.random() - 0.5) * 5,
+        vy: (Math.random() - 0.5) * 5 - 2,
         life: 1,
-        decay: 0.03 + Math.random() * 0.04,
+        decay: 0.02 + Math.random() * 0.03,
         color: SPARKLE_COLORS[Math.floor(Math.random() * SPARKLE_COLORS.length)],
-        size: 2 + Math.random() * 3,
+        size: 2 + Math.random() * 4,
       });
     }
     sparklesRef.current = sparklesRef.current.concat(burst);
   };
 
-  const startAnim = () => {
+  const startTear = () => {
     if (startedRef.current) return;
     startedRef.current = true;
     setPhase("running");
-    setStatusText("Opening your pack…");
 
     const t0 = performance.now();
-    let secondBurstFired = false;
-    let firstBurstFired = false;
+    let burst1 = false;
+    let burst2 = false;
 
     const tick = (now: number) => {
       const elapsed = now - t0;
 
-      if (elapsed < 200) {
-        const p = elapsed / 200;
-        setTopY(-6 * p);
-        setBottomY(6 * p);
-      } else if (elapsed < 680) {
-        setTopY(-6);
-        setBottomY(6);
-        const p = (elapsed - 200) / (680 - 200);
-        setTearProgress(p);
-        if (!firstBurstFired) {
-          firstBurstFired = true;
-          spawnBurst(18);
-        }
-      } else if (elapsed < 1230) {
-        setTearProgress(1);
-        const p = easeInOutQuad((elapsed - 680) / (1230 - 680));
-        setTopY(-6 + (-260 - -6) * p);
-        setBottomY(6 + (280 - 6) * p);
-        setCardOpacity(p);
-        if (!secondBurstFired) {
-          secondBurstFired = true;
-          spawnBurst(18);
-        }
-      } else {
-        setTopY(-260);
-        setBottomY(280);
-        setCardOpacity(1);
-        setTearProgress(1);
-        if (!completedRef.current) {
-          completedRef.current = true;
-          setPhase("done");
-          setStatusText("");
-          window.setTimeout(() => onComplete(), 80);
+      // Phase 1: 0-150ms — slight separation
+      if (elapsed < 150) {
+        const p = elapsed / 150;
+        setTopY(-4 * p);
+        setBottomY(4 * p);
+      }
+      // Phase 2: 150-500ms — tear across
+      else if (elapsed < 500) {
+        setTopY(-4);
+        setBottomY(4);
+        const p = (elapsed - 150) / 350;
+        setTearStroke(`rgba(245,194,48,${0.4 * (1 - p)})`);
+        setTearDash("600");
+        setTearOffset(`${(1 - p) * 600}`);
+        if (!burst1) {
+          burst1 = true;
+          spawnBurst(14);
         }
       }
+      // Phase 3: 500-1100ms — halves fly apart, card reveals
+      else if (elapsed < 1100) {
+        const p = easeInOutQuad((elapsed - 500) / 600);
+        setTopY(-4 + (-220 + 4) * p);
+        setBottomY(4 + (220 - 4) * p);
+        setTopOpacity(1 - p * 0.6);
+        setBottomOpacity(1 - p * 0.6);
+        setTearOpacity(1 - p);
+        setHeadlineFaded(true);
+        setCardRevealed(true);
+        if (!burst2 && elapsed > 650) {
+          burst2 = true;
+          spawnBurst(10);
+        }
+      }
+      // Phase 4: done
+      else {
+        setTopY(-220);
+        setBottomY(220);
+        setTopOpacity(0);
+        setBottomOpacity(0);
+        setTearOpacity(0);
+        setPhase("done");
+        setAccessShown(true);
+      }
 
+      // Update sparkles
       const next: Sparkle[] = [];
       for (const s of sparklesRef.current) {
-        const nv: Sparkle = {
+        const ns: Sparkle = {
           ...s,
           x: s.x + s.vx,
           y: s.y + s.vy,
           vy: s.vy + 0.15,
           life: s.life - s.decay,
         };
-        if (nv.life > 0) next.push(nv);
+        if (ns.life > 0) next.push(ns);
       }
       sparklesRef.current = next;
       setSparkles(next);
 
-      if (elapsed < 1230 || sparklesRef.current.length > 0) {
+      if (elapsed < 1100 || sparklesRef.current.length > 0) {
         rafRef.current = requestAnimationFrame(tick);
       }
     };
+
     rafRef.current = requestAnimationFrame(tick);
   };
 
@@ -222,25 +162,39 @@ export default function OnboardingWelcome({ onComplete, teamName }: Props) {
     };
   }, []);
 
-  const tearStrokeStyle: React.CSSProperties = {
-    strokeDasharray: 1000,
-    strokeDashoffset: 1000 - tearProgress * 1000,
-  };
+  // Split team name for two-line display
+  const nameParts = teamName.split(" ");
+  const line1 = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : teamName;
+  const line2 = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
 
   return (
-    <div style={{ minHeight: "100vh", background: "#F5F0E6", display: "flex", flexDirection: "column" }}>
+    <div
+      style={{
+        height: "100vh",
+        background: "#1A1A1A",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      {/* Top bar */}
       <div
         style={{
           background: "#1A1A1A",
-          borderBottom: "2.5px solid #1A1A1A",
+          borderBottom: "2.5px solid #2a2a2a",
           padding: "14px 18px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          flexShrink: 0,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/cfc-logo.png" alt="" style={{ height: 28 }} />
+        <img
+          src="/cfc-logo.png"
+          alt=""
+          style={{ height: 28, filter: "brightness(0) invert(1)" }}
+        />
         <span
           style={{
             fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
@@ -254,86 +208,258 @@ export default function OnboardingWelcome({ onComplete, teamName }: Props) {
         </span>
       </div>
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", padding: "32px 24px" }}>
-        <span className="cfc-section-tag" style={{ marginBottom: 14 }}>New Member</span>
+      {/* Content — vertically centered */}
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 24px 60px",
+          position: "relative",
+        }}
+      >
+        {/* Headline */}
         <h1
           style={{
             fontFamily: "var(--font-headline, 'Syne', sans-serif)",
             fontWeight: 900,
-            fontSize: 34,
-            color: "#1A1A1A",
+            fontSize: 38,
+            color: "#FFFFFF",
             textAlign: "center",
-            lineHeight: 1.05,
-            margin: 0,
-            marginBottom: 10,
+            lineHeight: 1.0,
+            letterSpacing: -1.5,
+            textTransform: "uppercase",
+            margin: "0 0 10px",
+            opacity: headlineFaded ? 0 : 1,
+            transform: headlineFaded ? "translateY(-20px)" : "none",
+            transition: "opacity 400ms, transform 400ms",
           }}
         >
-          Every GM gets a card. Time to pull yours.
+          You&apos;re
+          <br />
+          Approved.
         </h1>
-        <p
+
+        {/* Subtitle */}
+        <div
           style={{
-            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-            fontSize: 13,
-            color: "#8C7E6A",
-            textAlign: "center",
-            margin: 0,
-            marginBottom: 36,
+            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+            fontSize: 11,
+            color: "#555",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            marginBottom: 48,
+            opacity: headlineFaded ? 0 : 1,
+            transform: headlineFaded ? "translateY(-20px)" : "none",
+            transition: "opacity 400ms, transform 400ms",
           }}
         >
-          Tear open your pack to get started.
-        </p>
+          Tear to activate
+        </div>
 
-        <div style={{ position: "relative", width: PACK_W, height: PACK_H }}>
+        {/* Stage — envelope + card */}
+        <div style={{ position: "relative", width: ENV_W, height: ENV_H }}>
+          {/* Access Granted label */}
+          <div
+            style={{
+              position: "absolute",
+              top: -36,
+              left: "50%",
+              transform: "translateX(-50%)",
+              fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+              fontSize: 10,
+              color: "#F5C230",
+              textTransform: "uppercase",
+              letterSpacing: 3,
+              whiteSpace: "nowrap",
+              opacity: accessShown ? 1 : 0,
+              transition: "opacity 500ms ease 300ms",
+            }}
+          >
+            Access Granted
+          </div>
+
+          {/* Membership card (behind envelope) */}
           <div
             style={{
               position: "absolute",
               inset: 0,
-              background: "#FEFCF9",
-              border: "2.5px solid #1A1A1A",
-              borderRadius: 10,
-              boxShadow: "6px 6px 0 #1A1A1A",
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 20,
-              opacity: cardOpacity,
+              width: ENV_W,
+              height: ENV_H,
+              background: "#111",
+              border: "1.5px solid #333",
+              overflow: "hidden",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+              opacity: cardRevealed ? 1 : 0,
+              transform: cardRevealed ? "scale(1)" : "scale(0.92)",
+              transition: "opacity 500ms ease, transform 500ms ease",
               zIndex: 1,
-              textAlign: "center",
             }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/cfc-logo.png" alt="" style={{ height: 56, marginBottom: 14 }} />
-            <h2
+            {/* Sheen */}
+            <div
               style={{
+                position: "absolute",
+                inset: 0,
+                background:
+                  "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.02) 100%)",
+                pointerEvents: "none",
+              }}
+            />
+
+            {/* Watermark */}
+            <div
+              style={{
+                position: "absolute",
+                right: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
                 fontFamily: "var(--font-headline, 'Syne', sans-serif)",
                 fontWeight: 900,
-                fontSize: 20,
-                color: "#1A1A1A",
-                margin: 0,
-                marginBottom: 10,
+                fontSize: 80,
+                color: "rgba(255,255,255,0.03)",
+                lineHeight: 1,
+                pointerEvents: "none",
               }}
             >
-              Let&apos;s build your profile.
-            </h2>
-            <div style={{ width: 36, height: 3, background: "#E8503A", marginBottom: 10 }} />
-            <p
+              CFC
+            </div>
+
+            {/* Card top */}
+            <div
               style={{
-                fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                fontSize: 11,
-                color: "#8C7E6A",
-                margin: 0,
+                padding: "18px 20px 0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                position: "relative",
+                zIndex: 1,
               }}
             >
-              {teamName}
-            </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/cfc-logo.png"
+                alt=""
+                style={{
+                  height: 20,
+                  filter: "brightness(0) invert(1)",
+                  opacity: 0.2,
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                  fontSize: 8,
+                  color: "rgba(245,194,48,0.4)",
+                  textTransform: "uppercase",
+                  letterSpacing: 2,
+                }}
+              >
+                Front Office
+              </span>
+            </div>
+
+            {/* Card body */}
+            <div style={{ padding: "20px 20px 0", position: "relative", zIndex: 1 }}>
+              <div
+                style={{
+                  fontFamily: "var(--font-headline, 'Syne', sans-serif)",
+                  fontWeight: 900,
+                  fontSize: 18,
+                  color: "rgba(255,255,255,0.85)",
+                  textTransform: "uppercase",
+                  lineHeight: 1.1,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {line1}
+                {line2 && (
+                  <>
+                    <br />
+                    {line2}
+                  </>
+                )}
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  height: 2,
+                  background: "#E8503A",
+                  marginTop: 10,
+                }}
+              />
+              <div
+                style={{
+                  fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                  fontSize: 9,
+                  color: "rgba(245,194,48,0.35)",
+                  textTransform: "uppercase",
+                  letterSpacing: 1.5,
+                  marginTop: 8,
+                }}
+              >
+                Member since 2019
+              </div>
+            </div>
+
+            {/* Card bottom — tap to activate */}
+            {phase === "done" && (
+              <button
+                type="button"
+                onClick={onComplete}
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  padding: "0 20px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 1,
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                    fontSize: 11,
+                    color: "#F5C230",
+                    textTransform: "uppercase",
+                    letterSpacing: 2,
+                    animation: "activate-pulse 2s ease-in-out infinite",
+                  }}
+                >
+                  Tap to activate →
+                </span>
+              </button>
+            )}
+
+            {/* Gold edge */}
+            <div
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 2,
+                background:
+                  "linear-gradient(90deg, transparent 0%, #F5C230 30%, #F5C230 70%, transparent 100%)",
+                opacity: 0.4,
+              }}
+            />
           </div>
 
+          {/* Envelope (on top) */}
           <button
             type="button"
-            onClick={startAnim}
+            onClick={startTear}
             disabled={phase !== "idle"}
-            aria-label="Open pack"
+            aria-label="Open envelope"
             style={{
               position: "absolute",
               inset: 0,
@@ -342,52 +468,163 @@ export default function OnboardingWelcome({ onComplete, teamName }: Props) {
               background: "transparent",
               cursor: phase === "idle" ? "pointer" : "default",
               zIndex: 2,
+              pointerEvents: phase === "done" ? "none" : "auto",
             }}
           >
             <svg
-              width={PACK_W}
-              height={PACK_H}
-              viewBox={`0 0 ${PACK_W} ${PACK_H}`}
+              width={ENV_W}
+              height={ENV_H}
+              viewBox={`0 0 ${ENV_W} ${ENV_H}`}
               style={{ overflow: "visible", display: "block" }}
             >
               <defs>
-                <clipPath id="cfc-pack-top-clip">
-                  <path d={tearTopHalfClipPath} />
+                <clipPath id="env-top-clip">
+                  <path d={TOP_CLIP} />
                 </clipPath>
-                <clipPath id="cfc-pack-bottom-clip">
-                  <path d={tearBottomHalfClipPath} />
+                <clipPath id="env-bottom-clip">
+                  <path d={BOTTOM_CLIP} />
                 </clipPath>
+                <linearGradient id="env-sheen" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="rgba(255,255,255,0.04)" />
+                  <stop offset="50%" stopColor="rgba(255,255,255,0)" />
+                  <stop offset="100%" stopColor="rgba(255,255,255,0.02)" />
+                </linearGradient>
               </defs>
 
+              {/* Top half */}
               <g
-                clipPath="url(#cfc-pack-top-clip)"
+                clipPath="url(#env-top-clip)"
                 transform={`translate(0, ${topY})`}
-                style={{ filter: "drop-shadow(4px 4px 0 #1A1A1A)" }}
+                opacity={topOpacity}
               >
-                <PackFace id="cfc-pack-top" />
-                <rect x={0} y={0} width={PACK_W} height={PACK_H} fill="none" stroke="#1A1A1A" strokeWidth={2.5} />
-              </g>
-              <g
-                clipPath="url(#cfc-pack-bottom-clip)"
-                transform={`translate(0, ${bottomY})`}
-                style={{ filter: "drop-shadow(4px 4px 0 #1A1A1A)" }}
-              >
-                <PackFace id="cfc-pack-bottom" />
-                <rect x={0} y={0} width={PACK_W} height={PACK_H} fill="none" stroke="#1A1A1A" strokeWidth={2.5} />
-              </g>
-
-              {phase !== "idle" && (
-                <path
-                  d={tearPathD}
+                <rect width={ENV_W} height={ENV_H} fill="#111" />
+                {/* Texture lines */}
+                {[0, 40, 80, 120].map((x) => (
+                  <line
+                    key={x}
+                    x1={x}
+                    y1={0}
+                    x2={x + ENV_W}
+                    y2={ENV_W}
+                    stroke="rgba(255,255,255,0.015)"
+                    strokeWidth={1}
+                  />
+                ))}
+                <rect width={ENV_W} height={ENV_H} fill="url(#env-sheen)" />
+                {/* Seal */}
+                <rect
+                  x={122}
+                  y={26}
+                  width={36}
+                  height={36}
                   fill="none"
-                  stroke="#fff"
-                  strokeWidth={2}
-                  strokeDasharray="6 4"
-                  style={tearStrokeStyle}
-                  transform={`translate(0, ${(topY + bottomY) / 2})`}
+                  stroke="#F5C230"
+                  strokeWidth={1.5}
                 />
-              )}
+                <text
+                  x={140}
+                  y={50}
+                  fontFamily="Syne, sans-serif"
+                  fontWeight={900}
+                  fontSize={11}
+                  fill="#F5C230"
+                  textAnchor="middle"
+                >
+                  CFC
+                </text>
+                {/* Cleveland */}
+                <text
+                  x={140}
+                  y={82}
+                  fontFamily="Syne, sans-serif"
+                  fontWeight={900}
+                  fontSize={11}
+                  fill="rgba(255,255,255,0.3)"
+                  textAnchor="middle"
+                  letterSpacing={2}
+                >
+                  CLEVELAND
+                </text>
+                {/* Border */}
+                <rect
+                  width={ENV_W}
+                  height={ENV_H}
+                  fill="none"
+                  stroke="#333"
+                  strokeWidth={1.5}
+                />
+                {/* Gold edge */}
+                <rect
+                  x={60}
+                  y={ENV_H - 2}
+                  width={160}
+                  height={2}
+                  fill="#F5C230"
+                  opacity={0.3}
+                />
+              </g>
 
+              {/* Bottom half */}
+              <g
+                clipPath="url(#env-bottom-clip)"
+                transform={`translate(0, ${bottomY})`}
+                opacity={bottomOpacity}
+              >
+                <rect width={ENV_W} height={ENV_H} fill="#111" />
+                {[0, 40, 80, 120].map((x) => (
+                  <line
+                    key={x}
+                    x1={x}
+                    y1={0}
+                    x2={x + ENV_W}
+                    y2={ENV_W}
+                    stroke="rgba(255,255,255,0.015)"
+                    strokeWidth={1}
+                  />
+                ))}
+                <rect width={ENV_W} height={ENV_H} fill="url(#env-sheen)" />
+                {/* Football Club */}
+                <text
+                  x={140}
+                  y={102}
+                  fontFamily="Syne, sans-serif"
+                  fontWeight={900}
+                  fontSize={11}
+                  fill="rgba(255,255,255,0.3)"
+                  textAnchor="middle"
+                  letterSpacing={2}
+                >
+                  FOOTBALL CLUB
+                </text>
+                <rect
+                  width={ENV_W}
+                  height={ENV_H}
+                  fill="none"
+                  stroke="#333"
+                  strokeWidth={1.5}
+                />
+                <rect
+                  x={60}
+                  y={ENV_H - 2}
+                  width={160}
+                  height={2}
+                  fill="#F5C230"
+                  opacity={0.3}
+                />
+              </g>
+
+              {/* Tear line */}
+              <path
+                d={TEAR_PATH}
+                fill="none"
+                stroke={tearStroke}
+                strokeWidth={1}
+                strokeDasharray={tearDash}
+                strokeDashoffset={tearOffset}
+                opacity={tearOpacity}
+              />
+
+              {/* Sparkles */}
               {sparkles.map((s, i) => (
                 <rect
                   key={i}
@@ -401,22 +638,38 @@ export default function OnboardingWelcome({ onComplete, teamName }: Props) {
               ))}
             </svg>
           </button>
-        </div>
 
-        <div
-          style={{
-            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-            fontSize: 10,
-            color: "#8C7E6A",
-            textTransform: "uppercase",
-            letterSpacing: "0.12em",
-            marginTop: 20,
-            minHeight: 14,
-          }}
-        >
-          {statusText}
+          {/* Tap hint (before tear) */}
+          {phase === "idle" && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: -32,
+                left: "50%",
+                transform: "translateX(-50%)",
+                fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                fontSize: 10,
+                color: "#555",
+                textTransform: "uppercase",
+                letterSpacing: 2,
+                whiteSpace: "nowrap",
+                animation: "activate-pulse 2s ease-in-out infinite",
+              }}
+            >
+              Tap to open
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Keyframe for pulse */}
+      <style>{`
+        @keyframes activate-pulse {
+          0%, 100% { opacity: 0.5; }
+          50% { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }
+```
