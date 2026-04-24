@@ -1,4 +1,4 @@
-export type DraftClockStatus = "running" | "paused" | "not_started";
+export type DraftClockStatus = "running" | "paused" | "not_started" | "completed";
 
 export type DraftStateRow = {
   league_id: string;
@@ -17,6 +17,11 @@ export type DraftStateRow = {
 };
 
 export const INITIAL_PICK_SECONDS = 30;
+
+/** 1-round rookie draft, 12 teams */
+export const DRAFT_ROUNDS = 1;
+export const DRAFT_TEAM_COUNT = 12;
+export const TOTAL_DRAFT_PICKS = DRAFT_ROUNDS * DRAFT_TEAM_COUNT;
 
 const normalizeNumber = (value: unknown, fallback: number = INITIAL_PICK_SECONDS) => {
   if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.round(value));
@@ -72,7 +77,7 @@ export const normalizeDraftStateRow = (row?: Partial<DraftStateRow> | null): Dra
   if (!row) return null;
   const leagueId = typeof row.league_id === "string" ? row.league_id : "";
   const status: DraftClockStatus =
-    row.status === "running" || row.status === "paused" || row.status === "not_started"
+    row.status === "running" || row.status === "paused" || row.status === "not_started" || row.status === "completed"
       ? row.status
       : "not_started";
 
