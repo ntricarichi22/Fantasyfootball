@@ -480,26 +480,15 @@ export default function OnboardingWelcome({ onComplete, teamName }: Props) {
                   />
                 ))}
                 <rect width={ENV_W} height={ENV_H} fill="url(#env-sheen)" />
-                <rect
-                  x={122}
-                  y={26}
-                  width={36}
-                  height={36}
-                  fill="none"
-                  stroke="#F5C230"
-                  strokeWidth={1.5}
+                {/* CFC Logo */}
+                <image
+                  href="/cfc-logo.png"
+                  x={112}
+                  y={18}
+                  width={56}
+                  height={56}
+                  style={{ filter: "brightness(0) invert(1)", opacity: 0.45 }}
                 />
-                <text
-                  x={140}
-                  y={50}
-                  fontFamily="Syne, sans-serif"
-                  fontWeight={900}
-                  fontSize={11}
-                  fill="#F5C230"
-                  textAnchor="middle"
-                >
-                  CFC
-                </text>
                 <text
                   x={140}
                   y={82}
