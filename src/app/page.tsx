@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import DraftCountdownModal from "../components/draft/DraftCountdownModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   formatPickKey,
@@ -173,13 +174,14 @@ useEffect(() => {
   });
 
   const {
-    clockActionPending,
-    draftStatus,
-    isDraftPaused,
-    handlePauseDraft,
-    handleResumeDraft,
-    handleStartClockRequest,
-  } = useDraftClock({
+draftClockState,
+clockActionPending,
+draftStatus,
+isDraftPaused,
+handlePauseDraft,
+handleResumeDraft,
+handleStartClockRequest,
+} = useDraftClock({
     supabase,
     leagueId,
     setStatusMessage,
@@ -1082,6 +1084,13 @@ useEffect(() => {
           />
         );
       })()}
-    </main>
+    {isDraftRoute && (
+    <DraftCountdownModal
+      startsAt={draftClockState?.starts_at ?? null}
+      draftStatus={draftStatus}
+      onAutoStart={() => { void handleStartClockRequest(); }}
+    />
+  )}
+</main>
   );
 }
