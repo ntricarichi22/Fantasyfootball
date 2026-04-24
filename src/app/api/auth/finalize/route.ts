@@ -57,6 +57,10 @@ export async function POST(request: NextRequest) {
       ...cookieOptions,
       httpOnly: true,
     });
+    response.cookies.set("cfc_profile_complete", String(teamRow.profile_complete), {
+      ...cookieOptions,
+      httpOnly: false,
+    });
     response.cookies.set(
       "cfc_identity",
       JSON.stringify({
