@@ -952,6 +952,8 @@ useEffect(() => {
     void handleEnterDraftRoom();
   }}
 />
+      ) : isDraftRoute && isMobile === null ? (
+        <div style={{ height: "100vh", background: "#1A1A1A" }} />
       ) : isMobile && isDraftRoute && !!selectedTeam ? (
         <MobileDraftRoom
           onNavigate={(href) => router.push(href)}
