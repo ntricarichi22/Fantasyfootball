@@ -1,372 +1,633 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Props = {
+  onComplete: () => void;
   teamName: string;
-  rosterId: string;
-  onEnterDraftRoom: () => void;
-  claimingTeam: boolean;
-  draftPickSlots: string[];
-  openTradeCount: number;
 };
 
-const DoorCard = ({
-  num,
-  bg,
-  topStrip,
-  name,
-  sub,
-  stat,
-  statLabel,
-  onClick,
-  disabled,
-  overlayText,
-  light,
-}: {
-  num: string;
-  bg: string;
-  topStrip: string;
-  name: string;
-  sub: string;
-  stat: string;
-  statLabel: string;
-  onClick: () => void;
-  disabled?: boolean;
-  overlayText?: string;
-  light?: boolean;
-}) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    style={{
-      background: bg,
-      border: "3px solid #1A1A1A",
-      boxShadow: "5px 5px 0 #1A1A1A",
-      cursor: disabled ? "wait" : "pointer",
-      position: "relative",
-      overflow: "hidden",
-      display: "flex",
-      flexDirection: "column",
-      height: "100%",
-      width: "100%",
-      textAlign: "left",
-      padding: 0,
-      transition: "transform 80ms, box-shadow 80ms",
-      opacity: disabled ? 0.85 : 1,
-    }}
-    onMouseEnter={(e) => {
-      if (disabled) return;
-      e.currentTarget.style.transform = "translate(2px, 2px)";
-      e.currentTarget.style.boxShadow = "3px 3px 0 #1A1A1A";
-    }}
-    onMouseLeave={(e) => {
-      if (disabled) return;
-      e.currentTarget.style.transform = "none";
-      e.currentTarget.style.boxShadow = "5px 5px 0 #1A1A1A";
-    }}
-  >
-    {/* Top color strip */}
-    <div style={{ height: 8, background: topStrip, flexShrink: 0, width: "100%" }} />
+const ENV_W = 280;
+const ENV_H = 176;
 
-    {/* Card body */}
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", padding: 14, position: "relative", overflow: "hidden" }}>
-      {/* Diagonal stripes */}
-      <div style={{ position: "absolute", top: -20, left: 20, width: 16, height: "200%", background: light ? "rgba(0,0,0,0.04)" : "rgba(0,0,0,0.09)", transform: "skewX(-12deg)" }} />
-      <div style={{ position: "absolute", top: -20, left: 76, width: 16, height: "200%", background: light ? "rgba(0,0,0,0.04)" : "rgba(0,0,0,0.09)", transform: "skewX(-12deg)" }} />
+const TEAR_PATH = "M 0 88 L 12 85 L 24 90 L 36 83 L 50 88 L 62 84 L 76 91 L 88 85 L 102 89 L 114 84 L 128 90 L 140 83 L 154 88 L 168 84 L 180 90 L 192 85 L 206 89 L 218 83 L 232 91 L 244 84 L 258 90 L 270 85 L 280 88";
 
-      {/* Card number */}
-      <div style={{
-        fontFamily: "'JetBrains Mono', monospace",
-        fontWeight: 700,
-        fontSize: 9,
-        color: light ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.3)",
-        letterSpacing: 1,
-        position: "relative",
-        zIndex: 1,
-      }}>
-        {num}
-      </div>
+const TOP_CLIP = "M 0 0 L 280 0 L 280 88 L 270 85 L 258 90 L 244 84 L 232 91 L 218 83 L 206 89 L 192 85 L 180 90 L 168 84 L 154 88 L 140 83 L 128 90 L 114 84 L 102 89 L 88 85 L 76 91 L 62 84 L 50 88 L 36 83 L 24 90 L 12 85 L 0 88 Z";
 
-      {/* Name + subtext pushed to bottom */}
-      <div style={{ position: "relative", zIndex: 1, marginTop: "auto", paddingTop: 8 }}>
-        <div style={{
-          fontFamily: "'Syne', sans-serif",
-          fontWeight: 900,
-          fontSize: "clamp(18px, 1.8vw, 26px)",
-          color: light ? "#1A1A1A" : "#fff",
-          textTransform: "uppercase",
-          lineHeight: 1,
-          letterSpacing: -0.5,
-          marginBottom: 6,
-          whiteSpace: "pre-line",
-        }}>
-          {name}
-        </div>
-        <div style={{
-          fontFamily: "'JetBrains Mono', monospace",
-          fontWeight: 700,
-          fontSize: 9,
-          letterSpacing: 1.5,
-          textTransform: "uppercase",
-          color: light ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.5)",
-        }}>
-          {sub}
-        </div>
-      </div>
-    </div>
+const BOTTOM_CLIP = "M 0 176 L 280 176 L 280 88 L 270 85 L 258 90 L 244 84 L 232 91 L 218 83 L 206 89 L 192 85 L 180 90 L 168 84 L 154 88 L 140 83 L 128 90 L 114 84 L 102 89 L 88 85 L 76 91 L 62 84 L 50 88 L 36 83 L 24 90 L 12 85 L 0 88 Z";
 
-    {/* Bottom stat bar */}
-    <div style={{
-      height: 48,
-      flexShrink: 0,
-      borderTop: `2.5px solid ${light ? "#C8C3B8" : "#1A1A1A"}`,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: "0 14px",
-      background: light ? "rgba(0,0,0,0.06)" : "rgba(0,0,0,0.2)",
-    }}>
-      <div>
-        <div style={{
-          fontFamily: "'JetBrains Mono', monospace",
-          fontWeight: 700,
-          fontSize: 16,
-          color: light ? "#1A1A1A" : "#fff",
-        }}>
-          {stat}
-        </div>
-        <div style={{
-          fontFamily: "'DM Sans', sans-serif",
-          fontSize: 8,
-          color: light ? "rgba(0,0,0,0.28)" : "rgba(255,255,255,0.38)",
-          textTransform: "uppercase",
-          letterSpacing: 1,
-          marginTop: 1,
-        }}>
-          {statLabel}
-        </div>
-      </div>
-      <div style={{
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 13,
-        color: light ? "rgba(0,0,0,0.1)" : "rgba(255,255,255,0.18)",
-      }}>
-        →
-      </div>
-    </div>
+const SPARKLE_COLORS = ["#F5C230", "#fff", "#E8503A", "#F5C230"];
 
-    {/* Overlay for loading state */}
-    {overlayText && (
-      <div style={{
-        position: "absolute",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 11,
-        fontWeight: 700,
-        color: "#fff",
-        textTransform: "uppercase",
-        letterSpacing: "0.12em",
-        zIndex: 10,
-      }}>
-        {overlayText}
-      </div>
-    )}
-  </button>
-);
+type Sparkle = {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  decay: number;
+  color: string;
+  size: number;
+};
 
-function getDraftSubtext(): string {
-  const now = new Date();
-  const draftStart = new Date("2025-04-25T16:00:00Z");
-  const draftEnd = new Date("2025-04-26T04:00:00Z");
+const easeInOutQuad = (t: number) =>
+  t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
 
-  if (now < draftStart) return "Draft · Apr 25 · Noon ET";
-  if (now >= draftStart && now < draftEnd) return "Draft is live";
-  return "Draft Complete · 2026";
-}
+export default function OnboardingWelcome({ onComplete, teamName }: Props) {
+  const [phase, setPhase] = useState<"idle" | "running" | "done">("idle");
+  const [topY, setTopY] = useState(0);
+  const [bottomY, setBottomY] = useState(0);
+  const [topOpacity, setTopOpacity] = useState(1);
+  const [bottomOpacity, setBottomOpacity] = useState(1);
+  const [tearStroke, setTearStroke] = useState("rgba(255,255,255,0.08)");
+  const [tearDash, setTearDash] = useState("4 4");
+  const [tearOffset, setTearOffset] = useState("0");
+  const [tearOpacity, setTearOpacity] = useState(1);
+  const [headlineFaded, setHeadlineFaded] = useState(false);
+  const [cardRevealed, setCardRevealed] = useState(false);
+  const [accessShown, setAccessShown] = useState(false);
+  const [sparkles, setSparkles] = useState<Sparkle[]>([]);
 
-export function HomeScreen({
-  teamName,
-  rosterId: _rosterId,
-  onEnterDraftRoom,
-  claimingTeam,
-  draftPickSlots,
-  openTradeCount,
-}: Props) {
-  const draftStatLabel = "Draft picks";
-  const draftStatValue = draftPickSlots.length > 0
-    ? String(draftPickSlots.length)
-    : "—";
+  const sparklesRef = useRef<Sparkle[]>([]);
+  const rafRef = useRef<number | null>(null);
+  const startedRef = useRef(false);
 
-  const draftSub = useMemo(() => getDraftSubtext(), []);
+  const spawnBurst = (count: number) => {
+    const burst: Sparkle[] = [];
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * ENV_W;
+      const y = 80 + (Math.random() - 0.5) * 20;
+      burst.push({
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 5,
+        vy: (Math.random() - 0.5) * 5 - 2,
+        life: 1,
+        decay: 0.02 + Math.random() * 0.03,
+        color: SPARKLE_COLORS[Math.floor(Math.random() * SPARKLE_COLORS.length)],
+        size: 2 + Math.random() * 4,
+      });
+    }
+    sparklesRef.current = sparklesRef.current.concat(burst);
+  };
+
+  const startTear = () => {
+    if (startedRef.current) return;
+    startedRef.current = true;
+    setPhase("running");
+
+    const t0 = performance.now();
+    let burst1 = false;
+    let burst2 = false;
+
+    const tick = (now: number) => {
+      const elapsed = now - t0;
+
+      if (elapsed < 150) {
+        const p = elapsed / 150;
+        setTopY(-4 * p);
+        setBottomY(4 * p);
+      } else if (elapsed < 500) {
+        setTopY(-4);
+        setBottomY(4);
+        const p = (elapsed - 150) / 350;
+        setTearStroke(`rgba(245,194,48,${0.4 * (1 - p)})`);
+        setTearDash("600");
+        setTearOffset(`${(1 - p) * 600}`);
+        if (!burst1) {
+          burst1 = true;
+          spawnBurst(14);
+        }
+      } else if (elapsed < 1100) {
+        const p = easeInOutQuad((elapsed - 500) / 600);
+        setTopY(-4 + (-220 + 4) * p);
+        setBottomY(4 + (220 - 4) * p);
+        setTopOpacity(1 - p * 0.6);
+        setBottomOpacity(1 - p * 0.6);
+        setTearOpacity(1 - p);
+        setHeadlineFaded(true);
+        setCardRevealed(true);
+        if (!burst2 && elapsed > 650) {
+          burst2 = true;
+          spawnBurst(10);
+        }
+      } else {
+        setTopY(-220);
+        setBottomY(220);
+        setTopOpacity(0);
+        setBottomOpacity(0);
+        setTearOpacity(0);
+        setPhase("done");
+        setAccessShown(true);
+      }
+
+      const next: Sparkle[] = [];
+      for (const s of sparklesRef.current) {
+        const ns: Sparkle = {
+          ...s,
+          x: s.x + s.vx,
+          y: s.y + s.vy,
+          vy: s.vy + 0.15,
+          life: s.life - s.decay,
+        };
+        if (ns.life > 0) next.push(ns);
+      }
+      sparklesRef.current = next;
+      setSparkles(next);
+
+      if (elapsed < 1100 || sparklesRef.current.length > 0) {
+        rafRef.current = requestAnimationFrame(tick);
+      }
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+    };
+  }, []);
+
+  const nameParts = teamName.split(" ");
+  const line1 = nameParts.length > 1 ? nameParts.slice(0, -1).join(" ") : teamName;
+  const line2 = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
 
   return (
-    <div style={{
-      height: "100vh",
-      display: "flex",
-      flexDirection: "column",
-      background: "#F5F0E6",
-      overflow: "hidden",
-    }}>
-      {/* Responsive grid style */}
-      <style>{`
-        .cfc-door-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 12px;
-          flex: 1;
-          min-height: 0;
-          padding-bottom: 16px;
-        }
-        @media (min-width: 768px) {
-          .cfc-door-grid {
-            grid-template-columns: repeat(4, 1fr);
-            gap: 14px;
-            padding-bottom: 44px;
-          }
-        }
-      `}</style>
-
-      {/* Top bar */}
-      <div className="cfc-topbar" style={{ flexShrink: 0 }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/cfc-logo.png" alt="" style={{ height: 28 }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{
-            fontFamily: "'DM Sans', sans-serif",
-            fontSize: 11,
-            fontWeight: 700,
-            color: "#666",
-          }}>
-            {teamName}
-          </span>
-          <span style={{
-            width: 6,
-            height: 6,
-            background: "#E8503A",
-            borderRadius: "50%",
-            display: "inline-block",
-          }} />
-        </div>
-      </div>
-
-      {/* Main content */}
-      <div style={{
-        flex: 1,
+    <div
+      style={{
+        height: "100vh",
+        background: "#1A1A1A",
         display: "flex",
         flexDirection: "column",
-        maxWidth: 1200,
-        width: "100%",
-        margin: "0 auto",
-        padding: "0 16px",
-        minHeight: 0,
-      }}>
-        {/* Hero */}
-        <div style={{ padding: "28px 0 18px", flexShrink: 0 }}>
-          <div style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
-            color: "#8C7E6A",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          background: "#1A1A1A",
+          borderBottom: "2.5px solid #2a2a2a",
+          padding: "14px 18px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          flexShrink: 0,
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/cfc-logo.png"
+          alt=""
+          style={{ height: 28, filter: "brightness(0) invert(1)" }}
+        />
+        <span
+          style={{
+            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+            fontSize: 9,
+            color: "#555",
             textTransform: "uppercase",
-            letterSpacing: 3,
-            marginBottom: 8,
-          }}>
-            Cleveland Football Club · 7 Years Running
-          </div>
-          <div style={{
-            fontFamily: "'Syne', sans-serif",
+            letterSpacing: 2,
+          }}
+        >
+          Front Office
+        </span>
+      </div>
+
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          padding: "0 24px 60px",
+          position: "relative",
+        }}
+      >
+        <h1
+          style={{
+            fontFamily: "var(--font-headline, 'Syne', sans-serif)",
             fontWeight: 900,
-            fontSize: "clamp(44px, 4.5vw, 66px)",
-            color: "#1A1A1A",
-            lineHeight: 0.9,
-            letterSpacing: -3,
+            fontSize: 38,
+            color: "#FFFFFF",
+            textAlign: "center",
+            lineHeight: 1.0,
+            letterSpacing: -1.5,
             textTransform: "uppercase",
-          }}>
-            Front Office
-          </div>
+            margin: "0 0 10px",
+            opacity: headlineFaded ? 0 : 1,
+            transform: headlineFaded ? "translateY(-20px)" : "none",
+            transition: "opacity 400ms, transform 400ms",
+          }}
+        >
+          You&apos;re
+          <br />
+          Approved.
+        </h1>
+
+        <div
+          style={{
+            fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+            fontSize: 11,
+            color: "#555",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            marginBottom: 48,
+            opacity: headlineFaded ? 0 : 1,
+            transform: headlineFaded ? "translateY(-20px)" : "none",
+            transition: "opacity 400ms, transform 400ms",
+          }}
+        >
+          Tear to activate
         </div>
 
-        {/* Divider */}
-        <div style={{ height: 3, background: "#1A1A1A", marginBottom: 20, flexShrink: 0 }} />
-
-        {/* Make your move */}
-        <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 18, flexShrink: 0 }}>
-          <div style={{
-            fontFamily: "'Syne', sans-serif",
-            fontWeight: 900,
-            fontSize: 24,
-            color: "#1A1A1A",
-            textTransform: "uppercase",
-            letterSpacing: -0.5,
-            whiteSpace: "nowrap",
-          }}>
-            Make your move
-          </div>
-          <div style={{ flex: 1, height: 3, background: "#1A1A1A" }} />
-        </div>
-
-        {/* Cards grid — 2×2 mobile, 4×1 desktop */}
-        <div className="cfc-door-grid">
-          {/* Row 1 left — War Room */}
-          <DoorCard
-            num="#01 · CFC-26"
-            bg="#E8503A"
-            topStrip="#F5C230"
-            name={"War\nRoom"}
-            sub={draftSub}
-            stat={draftStatValue}
-            statLabel={draftStatLabel}
-            onClick={() => {
-              if (claimingTeam) return;
-              onEnterDraftRoom();
+        <div style={{ position: "relative", width: ENV_W, height: ENV_H }}>
+          <div
+            style={{
+              position: "absolute",
+              top: -36,
+              left: "50%",
+              transform: "translateX(-50%)",
+              fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+              fontSize: 10,
+              color: "#F5C230",
+              textTransform: "uppercase",
+              letterSpacing: 3,
+              whiteSpace: "nowrap",
+              opacity: accessShown ? 1 : 0,
+              transition: "opacity 500ms ease 300ms",
             }}
-            disabled={claimingTeam}
-            overlayText={claimingTeam ? "Entering draft room…" : undefined}
-          />
+          >
+            Access Granted
+          </div>
 
-          {/* Row 1 right — GM Office */}
-          <DoorCard
-            num="#02 · CFC-26"
-            bg="#1A1A1A"
-            topStrip="#E8503A"
-            name={"GM\nOffice"}
-            sub="Make deals, view offers"
-            stat={openTradeCount > 0 ? String(openTradeCount) : "—"}
-            statLabel="Open threads"
-            onClick={() => { window.location.href = "/trades"; }}
-          />
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: ENV_W,
+              height: ENV_H,
+              background: "#111",
+              border: "1.5px solid #333",
+              overflow: "hidden",
+              boxShadow: "0 20px 40px rgba(0,0,0,0.5)",
+              opacity: cardRevealed ? 1 : 0,
+              transform: cardRevealed ? "scale(1)" : "scale(0.92)",
+              transition: "opacity 500ms ease, transform 500ms ease",
+              zIndex: 1,
+            }}
+          >
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                background:
+                  "linear-gradient(135deg, rgba(255,255,255,0.05) 0%, transparent 40%, transparent 60%, rgba(255,255,255,0.02) 100%)",
+                pointerEvents: "none",
+              }}
+            />
 
-          {/* Row 2 left — Owner's Box */}
-          <DoorCard
-            num="#03 · CFC-26"
-            bg="#3366CC"
-            topStrip="#F5C230"
-            name={"Owner's\nBox"}
-            sub="Adjust strategy & preferences"
-            stat="—"
-            statLabel="Season record"
-            onClick={() => { window.location.href = "/team-hq"; }}
-          />
+            <div
+              style={{
+                position: "absolute",
+                right: 12,
+                top: "50%",
+                transform: "translateY(-50%)",
+                fontFamily: "var(--font-headline, 'Syne', sans-serif)",
+                fontWeight: 900,
+                fontSize: 80,
+                color: "rgba(255,255,255,0.03)",
+                lineHeight: 1,
+                pointerEvents: "none",
+              }}
+            >
+              CFC
+            </div>
 
-          {/* Row 2 right — League Historian */}
-          <DoorCard
-            num="#04 · CFC-26"
-            bg="#F5F0E6"
-            topStrip="#3366CC"
-            name={"League\nHistorian"}
-            sub="Records · History"
-            stat="Ask me"
-            statLabel="anything"
-            onClick={() => { window.location.href = "/historian"; }}
-            light
-          />
+            <div
+              style={{
+                padding: "18px 20px 0",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                position: "relative",
+                zIndex: 1,
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/cfc-logo.png"
+                alt=""
+                style={{
+                  height: 20,
+                  filter: "brightness(0) invert(1)",
+                  opacity: 0.2,
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                  fontSize: 8,
+                  color: "rgba(245,194,48,0.4)",
+                  textTransform: "uppercase",
+                  letterSpacing: 2,
+                }}
+              >
+                Front Office
+              </span>
+            </div>
+
+            <div style={{ padding: "20px 20px 0", position: "relative", zIndex: 1 }}>
+              <div
+                style={{
+                  fontFamily: "var(--font-headline, 'Syne', sans-serif)",
+                  fontWeight: 900,
+                  fontSize: 18,
+                  color: "rgba(255,255,255,0.85)",
+                  textTransform: "uppercase",
+                  lineHeight: 1.1,
+                  letterSpacing: 0.5,
+                }}
+              >
+                {line1}
+                {line2 && (
+                  <>
+                    <br />
+                    {line2}
+                  </>
+                )}
+              </div>
+              <div
+                style={{
+                  width: "100%",
+                  height: 2,
+                  background: "#E8503A",
+                  marginTop: 10,
+                }}
+              />
+              <div
+                style={{
+                  fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                  fontSize: 9,
+                  color: "rgba(245,194,48,0.35)",
+                  textTransform: "uppercase",
+                  letterSpacing: 1.5,
+                  marginTop: 8,
+                }}
+              >
+                Member since 2019
+              </div>
+            </div>
+
+            {phase === "done" && (
+              <button
+                type="button"
+                onClick={onComplete}
+                style={{
+                  position: "absolute",
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  padding: "0 20px 14px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 1,
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                    fontSize: 11,
+                    color: "#F5C230",
+                    textTransform: "uppercase",
+                    letterSpacing: 2,
+                    animation: "activate-pulse 2s ease-in-out infinite",
+                  }}
+                >
+                  Tap to activate →
+                </span>
+              </button>
+            )}
+
+            <div
+              style={{
+                position: "absolute",
+                bottom: 0,
+                left: 0,
+                right: 0,
+                height: 2,
+                background:
+                  "linear-gradient(90deg, transparent 0%, #F5C230 30%, #F5C230 70%, transparent 100%)",
+                opacity: 0.4,
+              }}
+            />
+          </div>
+
+          <button
+            type="button"
+            onClick={startTear}
+            disabled={phase !== "idle"}
+            aria-label="Open envelope"
+            style={{
+              position: "absolute",
+              inset: 0,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              cursor: phase === "idle" ? "pointer" : "default",
+              zIndex: 2,
+              pointerEvents: phase === "done" ? "none" : "auto",
+            }}
+          >
+            <svg
+              width={ENV_W}
+              height={ENV_H}
+              viewBox={`0 0 ${ENV_W} ${ENV_H}`}
+              style={{ overflow: "visible", display: "block" }}
+            >
+              <defs>
+                <clipPath id="env-top-clip">
+                  <path d={TOP_CLIP} />
+                </clipPath>
+                <clipPath id="env-bottom-clip">
+                  <path d={BOTTOM_CLIP} />
+                </clipPath>
+                <linearGradient id="env-sheen" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="rgba(255,255,255,0.04)" />
+                  <stop offset="50%" stopColor="rgba(255,255,255,0)" />
+                  <stop offset="100%" stopColor="rgba(255,255,255,0.02)" />
+                </linearGradient>
+              </defs>
+
+              <g
+                clipPath="url(#env-top-clip)"
+                transform={`translate(0, ${topY})`}
+                opacity={topOpacity}
+              >
+                <rect width={ENV_W} height={ENV_H} fill="#111" />
+                {[0, 40, 80, 120].map((x) => (
+                  <line
+                    key={x}
+                    x1={x}
+                    y1={0}
+                    x2={x + ENV_W}
+                    y2={ENV_W}
+                    stroke="rgba(255,255,255,0.015)"
+                    strokeWidth={1}
+                  />
+                ))}
+                <rect width={ENV_W} height={ENV_H} fill="url(#env-sheen)" />
+                <rect
+                  x={122}
+                  y={26}
+                  width={36}
+                  height={36}
+                  fill="none"
+                  stroke="#F5C230"
+                  strokeWidth={1.5}
+                />
+                <text
+                  x={140}
+                  y={50}
+                  fontFamily="Syne, sans-serif"
+                  fontWeight={900}
+                  fontSize={11}
+                  fill="#F5C230"
+                  textAnchor="middle"
+                >
+                  CFC
+                </text>
+                <text
+                  x={140}
+                  y={82}
+                  fontFamily="Syne, sans-serif"
+                  fontWeight={900}
+                  fontSize={11}
+                  fill="rgba(255,255,255,0.3)"
+                  textAnchor="middle"
+                  letterSpacing={2}
+                >
+                  CLEVELAND
+                </text>
+                <rect
+                  width={ENV_W}
+                  height={ENV_H}
+                  fill="none"
+                  stroke="#333"
+                  strokeWidth={1.5}
+                />
+                <rect
+                  x={60}
+                  y={ENV_H - 2}
+                  width={160}
+                  height={2}
+                  fill="#F5C230"
+                  opacity={0.3}
+                />
+              </g>
+
+              <g
+                clipPath="url(#env-bottom-clip)"
+                transform={`translate(0, ${bottomY})`}
+                opacity={bottomOpacity}
+              >
+                <rect width={ENV_W} height={ENV_H} fill="#111" />
+                {[0, 40, 80, 120].map((x) => (
+                  <line
+                    key={x}
+                    x1={x}
+                    y1={0}
+                    x2={x + ENV_W}
+                    y2={ENV_W}
+                    stroke="rgba(255,255,255,0.015)"
+                    strokeWidth={1}
+                  />
+                ))}
+                <rect width={ENV_W} height={ENV_H} fill="url(#env-sheen)" />
+                <text
+                  x={140}
+                  y={102}
+                  fontFamily="Syne, sans-serif"
+                  fontWeight={900}
+                  fontSize={11}
+                  fill="rgba(255,255,255,0.3)"
+                  textAnchor="middle"
+                  letterSpacing={2}
+                >
+                  FOOTBALL CLUB
+                </text>
+                <rect
+                  width={ENV_W}
+                  height={ENV_H}
+                  fill="none"
+                  stroke="#333"
+                  strokeWidth={1.5}
+                />
+                <rect
+                  x={60}
+                  y={ENV_H - 2}
+                  width={160}
+                  height={2}
+                  fill="#F5C230"
+                  opacity={0.3}
+                />
+              </g>
+
+              <path
+                d={TEAR_PATH}
+                fill="none"
+                stroke={tearStroke}
+                strokeWidth={1}
+                strokeDasharray={tearDash}
+                strokeDashoffset={tearOffset}
+                opacity={tearOpacity}
+              />
+
+              {sparkles.map((s, i) => (
+                <rect
+                  key={i}
+                  x={s.x - s.size / 2}
+                  y={s.y - s.size / 2}
+                  width={s.size}
+                  height={s.size}
+                  fill={s.color}
+                  opacity={Math.max(0, s.life)}
+                />
+              ))}
+            </svg>
+          </button>
+
+          {phase === "idle" && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: -32,
+                left: "50%",
+                transform: "translateX(-50%)",
+                fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                fontSize: 10,
+                color: "#555",
+                textTransform: "uppercase",
+                letterSpacing: 2,
+                whiteSpace: "nowrap",
+                animation: "activate-pulse 2s ease-in-out infinite",
+              }}
+            >
+              Tap to open
+            </div>
+          )}
         </div>
       </div>
+
+      <style>{`
+        @keyframes activate-pulse {
+          0%, 100% { opacity: 0.5; }
+          50% { opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }
