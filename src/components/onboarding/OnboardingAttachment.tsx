@@ -14,14 +14,17 @@ type Attachment = "untouchable" | "core_piece" | "listening" | "moveable";
 const STATUSES: Array<{
   key: Attachment;
   label: string;
-  bg: string;
-  color: string;
 }> = [
-  { key: "untouchable", label: "Untouchable", bg: "#E8503A", color: "#fff" },
-  { key: "core_piece", label: "Core Piece", bg: "#3366CC", color: "#fff" },
-  { key: "listening", label: "Listening", bg: "#FEFCF9", color: "#1A1A1A" },
-  { key: "moveable", label: "Moveable", bg: "#F5C230", color: "#1A1A1A" },
+  { key: "untouchable", label: "Untouchable" },
+  { key: "core_piece", label: "Core Piece" },
+  { key: "listening", label: "Listening" },
+  { key: "moveable", label: "Moveable" },
 ];
+
+const ACTIVE_BG = "#E8503A";
+const ACTIVE_COLOR = "#fff";
+const INACTIVE_BG = "#FEFCF9";
+const INACTIVE_COLOR = "#8C7E6A";
 
 const POS_ORDER: Record<string, number> = { QB: 0, RB: 1, WR: 2, TE: 3 };
 
@@ -445,8 +448,8 @@ export default function OnboardingAttachment({
                           fontWeight: 700,
                           WebkitTapHighlightColor: "transparent",
                           transition: "background 120ms, color 120ms",
-                          background: active ? st.bg : "#FEFCF9",
-                          color: active ? st.color : "#8C7E6A",
+                          background: active ? ACTIVE_BG : INACTIVE_BG,
+                          color: active ? ACTIVE_COLOR : INACTIVE_COLOR,
                           borderRight: isLeftCol
                             ? "1px solid rgba(200,195,184,0.4)"
                             : "none",
@@ -460,12 +463,12 @@ export default function OnboardingAttachment({
                             width: 10,
                             height: 10,
                             border: active
-                              ? `2px solid ${st.color}`
+                              ? "2px solid #fff"
                               : "2px solid #C8C3B8",
-                            background: active ? st.color : "transparent",
+                            background: active ? "#fff" : "transparent",
                             flexShrink: 0,
                             boxShadow: active
-                              ? `inset 0 0 0 2px ${st.bg}`
+                              ? `inset 0 0 0 2px ${ACTIVE_BG}`
                               : "none",
                           }}
                         />
