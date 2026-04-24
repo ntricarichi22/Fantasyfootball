@@ -13,7 +13,7 @@ export const MOBILE_BREAKPOINT_PX = 768;
  * SSR-safe viewport-width hook. Returns `null` on the server and during the
  * first client render (before the viewport width is known), then resolves to
  * `true` or `false` after mount. Consumers should treat `null` as "not yet
- * determined" and show a loading state or nothing — never the wrong layout.
+ * determined" and show a loading state — never the wrong layout.
  */
 export function useIsMobile(breakpointPx: number = MOBILE_BREAKPOINT_PX): boolean | null {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
