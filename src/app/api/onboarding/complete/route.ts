@@ -17,7 +17,15 @@ export async function POST(request: NextRequest) {
 
     if (error) throw new Error(error.message);
 
-    return NextResponse.json({ ok: true });
+   const response = NextResponse.json({ ok: true });
+    response.cookies.set("cfc_profile_complete", "true", {
+      path: "/",
+      maxAge: 60 * 60 * 24 * 90,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: false,
+    });
+    return response;
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to mark profile complete" },
