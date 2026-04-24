@@ -12,13 +12,14 @@ type Card = {
   label: string;
   desc: string;
   accent: string;
+  icon: string;
 };
 
 const CARDS: Card[] = [
-  { value: "picks", label: "Draft Capital", desc: "Picks to work the board and build long-term", accent: "#E8503A" },
-  { value: "studs", label: "Elite Producers", desc: "Proven, top-end talent that wins you weeks", accent: "#3366CC" },
-  { value: "youth", label: "Young Upside", desc: "Under-25 talent with years of value ahead", accent: "#F5C230" },
-  { value: "depth", label: "Roster Depth", desc: "Volume and coverage across all positions", accent: "#1A1A1A" },
+  { value: "picks", label: "Draft Capital", desc: "Picks to work the board and build long-term", accent: "#E8503A", icon: "1st" },
+  { value: "studs", label: "Elite Producers", desc: "Proven, top-end talent that wins you weeks", accent: "#3366CC", icon: "★" },
+  { value: "youth", label: "Young Upside", desc: "Under-25 talent with years of value ahead", accent: "#F5C230", icon: "↑" },
+  { value: "depth", label: "Roster Depth", desc: "Volume and coverage across all positions", accent: "#1A1A1A", icon: "≡" },
 ];
 
 export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
@@ -72,7 +73,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
         </div>
       </div>
 
-      {/* Header — matches Screen 2 exactly */}
+      {/* Header */}
       <div style={{ padding: "24px 20px 0", flexShrink: 0 }}>
         <div
           style={{
@@ -144,6 +145,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
                 flexDirection: "column",
                 overflow: "hidden",
                 WebkitTapHighlightColor: "transparent",
+                position: "relative",
               }}
             >
               {/* Color strip */}
@@ -162,7 +164,7 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
                   style={{
                     fontFamily: "var(--font-headline, 'Syne', sans-serif)",
                     fontWeight: 900,
-                    fontSize: 15,
+                    fontSize: 13,
                     color: active ? "#fff" : "#1A1A1A",
                     textTransform: "uppercase",
                     letterSpacing: 0.5,
@@ -190,6 +192,21 @@ export default function OnboardingWantsMore({ onBack, onComplete }: Props) {
                     }}
                   />
                 )}
+              </div>
+
+              {/* Corner icon */}
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: 8,
+                  right: 8,
+                  fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                  fontSize: 9,
+                  fontWeight: 800,
+                  color: active ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.08)",
+                }}
+              >
+                {c.icon}
               </div>
             </button>
           );
