@@ -1,6 +1,7 @@
 import {
   computeRemainingSeconds,
   INITIAL_PICK_SECONDS,
+  TOTAL_DRAFT_PICKS,
   normalizeBoolean,
   type DraftStateRow,
 } from "./draftState";
@@ -38,23 +39,20 @@ const processStep = async (
   options: { force?: boolean } = {}
 ): Promise<{
   data: DraftStateRow | null;
-  status: "announced" | "skipped" | "not_ready";
+  status: "announced" | "skipped" | "completed" | "not_ready";
   error?: string | null;
 }> => {
   if (!client) return { data: state, status: "not_ready", error: "Missing client" };
 
+  // If draft is already completed, do nothing
+  if (state.status === "completed") {
+    return { data: state, status: "not_ready" };
+  }
+
   const announceMs = state.pick_announced_at
     ? new Date(state.pick_announced_at).getTime()
     : NaN;
-  // Accept any truthy boolean shape so that a row read by an alternate path
-  // (e.g. raw SQL driver returning the column as the string "true") can still
-  // trigger the auto-announce. The canonical /api/draft-tick path already
-  // normalizes via normalizeDraftStateRow; this is defense in depth.
   const pickSubmitted = normalizeBoolean(state.pick_submitted);
-  // Both auto-announce and auto-skip require the clock to be running. When
-  // the draft is paused the server must not advance picks in the background
-  // (a Vercel cron tick or a client racing the pause action would otherwise
-  // wake the draft up and clobber the saved seconds_remaining).
   const announcementReady =
     pickSubmitted &&
     Number.isFinite(announceMs) &&
@@ -66,15 +64,6 @@ const processStep = async (
     computeRemainingSeconds(state) <= 0;
 
   if (!options.force && !announcementReady && !skipReady) {
-    // Diagnostic: when the caller fired a tick and a pick is submitted, log
-    // why we judged the announcement not ready. Helps catch cases where
-    // upstream type coercion (e.g. boolean vs. string) silently disables the
-    // comparison. Cheap one-liner; safe to leave on.
-    // Only emit the diagnostic when something *should* be evaluated as
-    // possibly-due — i.e. there's a pending announcement or the clock is
-    // running on an unsubmitted pick. Avoids per-tick noise during normal
-    // mid-window polls while still surfacing the values that drove the
-    // decision when something looks stuck.
     if (
       (pickSubmitted && Number.isFinite(announceMs)) ||
       (!pickSubmitted && state.status === "running" && state.clock_started_at)
@@ -93,8 +82,6 @@ const processStep = async (
   const currentIndex = state.current_pick_index ?? null;
 
   if (announcementReady && currentIndex !== null) {
-    // Idempotent: filter on is_announced=false so a concurrent announcer
-    // doesn't double-mark the row.
     const { error: updateLogError } = await client
       .from("draft_log")
       .update({ is_announced: true, announced_at: nowIso })
@@ -109,8 +96,6 @@ const processStep = async (
     }
   }
 
-  // On auto-skip, write a placeholder draft_log row so the slot is consumed
-  // and downstream views (board, ticker, log) can render a "SKIPPED" cell.
   if (!announcementReady && skipReady && currentIndex !== null) {
     const { error: insertSkipError } = await client.from("draft_log").upsert(
       [
@@ -145,6 +130,31 @@ const processStep = async (
   }
 
   const nextIndex = currentIndex !== null ? currentIndex + 1 : null;
+
+  // Check if the draft is now complete (all picks consumed)
+  if (nextIndex !== null && nextIndex >= TOTAL_DRAFT_PICKS) {
+    console.log(
+      `[draft-tick] draft complete — all ${TOTAL_DRAFT_PICKS} picks consumed (league=${leagueId})`
+    );
+    const completedState: Partial<DraftStateRow> & { league_id: string } = {
+      league_id: leagueId,
+      status: "completed",
+      seconds_remaining: 0,
+      clock_started_at: null,
+      pick_submitted: false,
+      pick_announced_at: null,
+      current_pick_index: nextIndex,
+    };
+    const { data: updated, error: updateError } = await upsert(completedState);
+    if (updateError) {
+      return { data: state, status: "not_ready", error: updateError };
+    }
+    return {
+      data: updated,
+      status: "completed",
+    };
+  }
+
   const nextState: Partial<DraftStateRow> & { league_id: string } = {
     league_id: leagueId,
     status: "running",
@@ -178,12 +188,12 @@ export const processAutoAdvance = async (
   options: { force?: boolean } = {}
 ): Promise<{
   data: DraftStateRow | null;
-  status: "announced" | "skipped" | "not_ready";
+  status: "announced" | "skipped" | "completed" | "not_ready";
   error?: string | null;
   steps: number;
 }> => {
   let current = state;
-  let lastStatus: "announced" | "skipped" | "not_ready" = "not_ready";
+  let lastStatus: "announced" | "skipped" | "completed" | "not_ready" = "not_ready";
   let steps = 0;
 
   for (let i = 0; i < MAX_AUTO_ADVANCE_STEPS; i += 1) {
@@ -192,8 +202,10 @@ export const processAutoAdvance = async (
     if (result.error) {
       return { data: result.data ?? current, status: lastStatus, error: result.error, steps };
     }
-    if (result.status === "not_ready") {
-      return { data: result.data ?? current, status: lastStatus, steps };
+    if (result.status === "not_ready" || result.status === "completed") {
+      // Stop cascading — either nothing to do, or draft is done
+      if (result.status === "completed") lastStatus = "completed";
+      return { data: result.data ?? current, status: lastStatus, steps: result.status === "completed" ? steps + 1 : steps };
     }
     if (result.data) {
       current = result.data;
