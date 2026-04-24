@@ -952,7 +952,7 @@ useEffect(() => {
     void handleEnterDraftRoom();
   }}
 />
-      ) : isMobile && isDraftRoute && hasActiveSession ? (
+      } : isMobile && isDraftRoute && !!selectedTeam ? (
         <MobileDraftRoom
           onNavigate={(href) => router.push(href)}
           currentPath={pathname ?? undefined}
