@@ -12,9 +12,9 @@ type Props = {
 };
 
 const DoorCard = ({
-  num,
   bg,
   topStrip,
+  accentDot,
   name,
   sub,
   stat,
@@ -24,9 +24,9 @@ const DoorCard = ({
   overlayText,
   light,
 }: {
-  num: string;
   bg: string;
   topStrip: string;
+  accentDot: string;
   name: string;
   sub: string;
   stat: string;
@@ -76,30 +76,27 @@ const DoorCard = ({
       <div style={{ position: "absolute", top: -20, left: 20, width: 16, height: "200%", background: light ? "rgba(0,0,0,0.04)" : "rgba(0,0,0,0.09)", transform: "skewX(-12deg)" }} />
       <div style={{ position: "absolute", top: -20, left: 76, width: 16, height: "200%", background: light ? "rgba(0,0,0,0.04)" : "rgba(0,0,0,0.09)", transform: "skewX(-12deg)" }} />
 
-      {/* Card number */}
+      {/* Accent dot */}
       <div style={{
-        fontFamily: "'JetBrains Mono', monospace",
-        fontWeight: 700,
-        fontSize: 9,
-        color: light ? "rgba(0,0,0,0.15)" : "rgba(255,255,255,0.3)",
-        letterSpacing: 1,
+        width: 8,
+        height: 8,
+        background: accentDot,
         position: "relative",
         zIndex: 1,
-      }}>
-        {num}
-      </div>
+        opacity: light ? 0.4 : 0.5,
+      }} />
 
       {/* Name + subtext pushed to bottom */}
       <div style={{ position: "relative", zIndex: 1, marginTop: "auto", paddingTop: 8 }}>
         <div style={{
           fontFamily: "'Syne', sans-serif",
           fontWeight: 900,
-          fontSize: "clamp(18px, 1.8vw, 26px)",
+          fontSize: "clamp(15px, 4vw, 26px)",
           color: light ? "#1A1A1A" : "#fff",
           textTransform: "uppercase",
           lineHeight: 1,
           letterSpacing: -0.5,
-          marginBottom: 6,
+          marginBottom: 5,
           whiteSpace: "pre-line",
         }}>
           {name}
@@ -107,10 +104,11 @@ const DoorCard = ({
         <div style={{
           fontFamily: "'JetBrains Mono', monospace",
           fontWeight: 700,
-          fontSize: 9,
-          letterSpacing: 1.5,
+          fontSize: 8,
+          letterSpacing: 1,
           textTransform: "uppercase",
           color: light ? "rgba(0,0,0,0.35)" : "rgba(255,255,255,0.5)",
+          lineHeight: 1.3,
         }}>
           {sub}
         </div>
@@ -119,7 +117,7 @@ const DoorCard = ({
 
     {/* Bottom stat bar */}
     <div style={{
-      height: 48,
+      height: 44,
       flexShrink: 0,
       borderTop: `2.5px solid ${light ? "#C8C3B8" : "#1A1A1A"}`,
       display: "flex",
@@ -132,14 +130,14 @@ const DoorCard = ({
         <div style={{
           fontFamily: "'JetBrains Mono', monospace",
           fontWeight: 700,
-          fontSize: 16,
+          fontSize: 14,
           color: light ? "#1A1A1A" : "#fff",
         }}>
           {stat}
         </div>
         <div style={{
           fontFamily: "'DM Sans', sans-serif",
-          fontSize: 8,
+          fontSize: 7,
           color: light ? "rgba(0,0,0,0.28)" : "rgba(255,255,255,0.38)",
           textTransform: "uppercase",
           letterSpacing: 1,
@@ -182,8 +180,8 @@ const DoorCard = ({
 
 function getDraftSubtext(): string {
   const now = new Date();
-  const draftStart = new Date("2025-04-25T16:00:00Z");
-  const draftEnd = new Date("2025-04-26T04:00:00Z");
+  const draftStart = new Date("2026-04-25T16:00:00Z");
+  const draftEnd = new Date("2026-04-26T04:00:00Z");
 
   if (now < draftStart) return "Draft · Apr 25 · Noon ET";
   if (now >= draftStart && now < draftEnd) return "Draft is live";
@@ -207,7 +205,7 @@ export function HomeScreen({
 
   return (
     <div style={{
-      height: "100vh",
+      height: "100dvh",
       display: "flex",
       flexDirection: "column",
       background: "#F5F0E6",
@@ -267,24 +265,24 @@ export function HomeScreen({
         minHeight: 0,
       }}>
         {/* Hero */}
-        <div style={{ padding: "28px 0 18px", flexShrink: 0 }}>
+        <div style={{ padding: "20px 0 12px", flexShrink: 0 }}>
           <div style={{
             fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
+            fontSize: 9,
             color: "#8C7E6A",
             textTransform: "uppercase",
             letterSpacing: 3,
-            marginBottom: 8,
+            marginBottom: 6,
           }}>
             Cleveland Football Club · 7 Years Running
           </div>
           <div style={{
             fontFamily: "'Syne', sans-serif",
             fontWeight: 900,
-            fontSize: "clamp(44px, 4.5vw, 66px)",
+            fontSize: "clamp(36px, 4.5vw, 66px)",
             color: "#1A1A1A",
             lineHeight: 0.9,
-            letterSpacing: -3,
+            letterSpacing: -2,
             textTransform: "uppercase",
           }}>
             Front Office
@@ -292,14 +290,14 @@ export function HomeScreen({
         </div>
 
         {/* Divider */}
-        <div style={{ height: 3, background: "#1A1A1A", marginBottom: 20, flexShrink: 0 }} />
+        <div style={{ height: 3, background: "#1A1A1A", marginBottom: 12, flexShrink: 0 }} />
 
         {/* Make your move */}
-        <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 18, flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, flexShrink: 0 }}>
           <div style={{
             fontFamily: "'Syne', sans-serif",
             fontWeight: 900,
-            fontSize: 24,
+            fontSize: 16,
             color: "#1A1A1A",
             textTransform: "uppercase",
             letterSpacing: -0.5,
@@ -310,13 +308,12 @@ export function HomeScreen({
           <div style={{ flex: 1, height: 3, background: "#1A1A1A" }} />
         </div>
 
-        {/* Cards grid — 2×2 mobile, 4×1 desktop */}
+        {/* Cards grid */}
         <div className="cfc-door-grid">
-          {/* Row 1 left — War Room */}
           <DoorCard
-            num="#01 · CFC-26"
             bg="#E8503A"
             topStrip="#F5C230"
+            accentDot="#F5C230"
             name={"War\nRoom"}
             sub={draftSub}
             stat={draftStatValue}
@@ -326,14 +323,13 @@ export function HomeScreen({
               onEnterDraftRoom();
             }}
             disabled={claimingTeam}
-            overlayText={claimingTeam ? "Entering draft room…" : undefined}
+            overlayText={claimingTeam ? "Entering…" : undefined}
           />
 
-          {/* Row 1 right — GM Office */}
           <DoorCard
-            num="#02 · CFC-26"
             bg="#1A1A1A"
             topStrip="#E8503A"
+            accentDot="#E8503A"
             name={"GM\nOffice"}
             sub="Make deals, view offers"
             stat={openTradeCount > 0 ? String(openTradeCount) : "—"}
@@ -341,23 +337,21 @@ export function HomeScreen({
             onClick={() => { window.location.href = "/trades"; }}
           />
 
-          {/* Row 2 left — Owner's Box */}
           <DoorCard
-            num="#03 · CFC-26"
             bg="#3366CC"
             topStrip="#F5C230"
+            accentDot="#F5C230"
             name={"Owner's\nBox"}
-            sub="Adjust strategy & preferences"
+            sub={"Adjust strategy\n& preferences"}
             stat="—"
             statLabel="Season record"
             onClick={() => { window.location.href = "/team-hq"; }}
           />
 
-          {/* Row 2 right — League Historian */}
           <DoorCard
-            num="#04 · CFC-26"
             bg="#F5F0E6"
             topStrip="#3366CC"
+            accentDot="#3366CC"
             name={"League\nHistorian"}
             sub="Records · History"
             stat="Ask me"
