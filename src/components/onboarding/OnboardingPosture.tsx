@@ -171,7 +171,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
         </p>
       </div>
 
-      {/* Rows — fills remaining space, vertically centered */}
+      {/* Rows */}
       <div
         style={{
           flex: 1,
@@ -194,8 +194,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
                 gap: 14,
               }}
             >
-              {/* Position label with underline */}
-              <div style={{ width: 40, flexShrink: 0, textAlign: "center" }}>
+              <div style={{ width: 48, flexShrink: 0, textAlign: "center" }}>
                 <span
                   style={{
                     fontFamily: "var(--font-headline, 'Syne', sans-serif)",
@@ -213,7 +212,6 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
                 </span>
               </div>
 
-              {/* Bar */}
               <div
                 style={{
                   flex: 1,
@@ -227,7 +225,6 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
                   boxShadow: "2px 2px 0 #1A1A1A",
                 }}
               >
-                {/* Fill */}
                 <div
                   style={{
                     position: "absolute",
@@ -240,7 +237,6 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
                   }}
                 />
 
-                {/* Labels */}
                 <div
                   style={{
                     position: "relative",
@@ -305,7 +301,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
           flexShrink: 0,
           background: "#FEFCF9",
           borderTop: "2.5px solid #1A1A1A",
-          padding: "12px 20px",
+          padding: "10px 20px",
           display: "flex",
           gap: 10,
         }}
@@ -316,10 +312,10 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
           disabled={submitting}
           style={{
             flex: 1,
-            padding: "14px 12px",
+            padding: "10px 12px",
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
             fontWeight: 800,
-            fontSize: 14,
+            fontSize: 13,
             textTransform: "uppercase",
             letterSpacing: 0.5,
             border: "2.5px solid #1A1A1A",
@@ -328,6 +324,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
             boxShadow: "3px 3px 0 #1A1A1A",
             background: "#FEFCF9",
             color: "#1A1A1A",
+            whiteSpace: "nowrap",
           }}
         >
           ← Back
@@ -338,10 +335,10 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
           disabled={submitting}
           style={{
             flex: 3,
-            padding: "14px 12px",
+            padding: "10px 12px",
             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
             fontWeight: 800,
-            fontSize: 14,
+            fontSize: 13,
             textTransform: "uppercase",
             letterSpacing: 0.5,
             border: "2.5px solid #1A1A1A",
@@ -351,9 +348,10 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
             background: "#E8503A",
             color: "#fff",
             opacity: submitting ? 0.7 : 1,
+            whiteSpace: "nowrap",
           }}
         >
-          {submitting ? "Saving…" : "Enter the Front Office →"}
+          {submitting ? "Saving…" : "Enter the Club →"}
         </button>
       </div>
     </div>
