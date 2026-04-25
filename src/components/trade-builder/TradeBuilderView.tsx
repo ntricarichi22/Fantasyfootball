@@ -163,7 +163,7 @@ export default function TradeBuilderView() {
   const [rosterPositions, setRosterPositions] = useState<string[]>([]);
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
-  const [selectedTeam, setSelectedTeam] = useState(() => getStoredSelectedTeam());
+  const [selectedTeam, setSelectedTeam] = useState("");
   const [team2Id, setTeam2Id] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [draftOrderAvailable, setDraftOrderAvailable] = useState<boolean | null>(null);
