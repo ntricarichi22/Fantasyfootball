@@ -891,9 +891,9 @@ export default function ClockBar() {
   const chipColor = PAPER;
 
   const actionLabel =
-    onClockState === "your-pick"
+    onClockState === "your-pick" && context?.onClockRosterId
       ? "Shop this pick"
-      : onClockState === "on-clock-draft"
+      : onClockState === "on-clock-draft" && context?.onClockRosterId
         ? "Trade up"
         : onClockState === "on-clock-other"
           ? "Back to draft"
