@@ -170,11 +170,15 @@ export async function POST(request: NextRequest) {
     if (!existing.clock_started_at) {
       return NextResponse.json({ error: "Draft clock has not been started." }, { status: 400 });
     }
-    const startedAtMs = new Date(existing.clock_started_at).getTime();
-    const announcedAtIso = Number.isFinite(startedAtMs)
-      ? new Date(startedAtMs + INITIAL_PICK_SECONDS * 1000).toISOString()
-      : new Date(Date.now() + INITIAL_PICK_SECONDS * 1000).toISOString();
-
+    // Snap announcement to the next :00 or :30 wall-clock boundary (ET).
+    // e.g. submit at 12:22 → announce at 12:30. Submit at 12:31 → announce at 1:00.
+    const nowMs = Date.now();
+    const THIRTY_MIN_MS = 30 * 60 * 1000;
+    const nextBoundaryMs = Math.ceil(nowMs / THIRTY_MIN_MS) * THIRTY_MIN_MS;
+    // Guard: if we're exactly on a boundary, push to the next one
+    const announcedAtIso = new Date(
+      nextBoundaryMs === nowMs ? nextBoundaryMs + THIRTY_MIN_MS : nextBoundaryMs
+    ).toISOString();
     const nextState: Partial<DraftStateRow> & { league_id: string } = {
       league_id: leagueId,
       status: existing.status === "paused" ? "paused" : "running",
