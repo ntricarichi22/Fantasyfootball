@@ -206,8 +206,10 @@ export default function TradeBuilderView() {
   useEffect(() => {
     if (selectedTeam || typeof window === "undefined") return;
     const stored = getStoredSelectedTeam();
-    if (stored) setSelectedTeam(stored);
-  }, [selectedTeam]);
+    if (stored) { setSelectedTeam(stored); return; }
+    const fromParams = searchParams.get("myTeam");
+    if (fromParams) setSelectedTeam(fromParams);
+  }, [selectedTeam, searchParams]);
 
   /* ---------- Fetch Sleeper data ---------- */
   useEffect(() => {
