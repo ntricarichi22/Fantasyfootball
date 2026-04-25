@@ -903,11 +903,17 @@ export default function ClockBar() {
     if (onClockState === "pending") return;
     if (onClockState === "on-clock-other") {
       router.push(DRAFT_ROUTE);
-    } else {
-      // "Shop this pick" and "Trade up" both go to the trade center.
-      // Trade-context preloading lands in PR 7.
-      router.push(TRADE_ROUTE);
+      return;
     }
+    const params = new URLSearchParams({
+      mode: "draft",
+      action: onClockState === "your-pick" ? "shop" : "tradeup",
+      pickOwner: context?.onClockRosterId || "",
+      pickRound: String(context?.round || 1),
+      pickSlot: String(context?.pick || 1),
+      pickSeason: context?.season || "",
+    });
+    router.push(`/trade-builder?${params.toString()}`);
   };
 
   const franchiseName = isPending
