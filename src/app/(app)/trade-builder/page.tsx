@@ -644,6 +644,7 @@ function TradeBuilderContent() {
 
   /* ---------- Counter prefill from query params ---------- */
   const [counterPrefilled, setCounterPrefilled] = useState(false);
+  const [draftPrefilled, setDraftPrefilled] = useState(false);
 
   useEffect(() => {
     if (!counterMode || counterPrefilled) return;
