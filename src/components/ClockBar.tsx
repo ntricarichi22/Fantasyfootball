@@ -912,6 +912,7 @@ export default function ClockBar() {
       pickRound: String(context?.round || 1),
       pickSlot: String(context?.pick || 1),
       pickSeason: context?.season || "",
+      myTeam: selection.rosterId || "",
     });
     router.push(`/trade-builder?${params.toString()}`);
   };
