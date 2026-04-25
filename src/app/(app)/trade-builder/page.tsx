@@ -796,6 +796,59 @@ function TradeBuilderContent() {
     [rosters.length, teams.length, playerValues]
   );
 
+  // Draft-context prefill from ClockBar "Trade up" / "Shop this pick"
+  useEffect(() => {
+    if (draftPrefilled) return;
+    const mode = searchParams.get("mode");
+    if (mode !== "draft") return;
+    if (!rosters.length || !selectedTeam) return;
+
+    const action = searchParams.get("action"); // "tradeup" or "shop"
+    const pickOwner = searchParams.get("pickOwner") || "";
+    const pickRound = parseInt(searchParams.get("pickRound") || "1", 10);
+    const pickSlot = parseInt(searchParams.get("pickSlot") || "1", 10);
+    const pickSeason = searchParams.get("pickSeason") || "";
+
+    if (!pickOwner) return;
+
+    // Find the pick in the owner's draft picks
+    const ownerRoster = rosters.find((r) => toId(r.roster_id) === pickOwner);
+    if (!ownerRoster?.draft_picks) return;
+
+    const matchingPick = ownerRoster.draft_picks.find((p) => {
+      const roundMatch = p.round === pickRound;
+      const seasonMatch = !pickSeason || p.season === pickSeason;
+      const slotMatch = !pickSlot || p.pick_no === pickSlot;
+      return roundMatch && seasonMatch && slotMatch;
+    });
+
+    if (!matchingPick) return;
+
+    const pickLabel = draftPickText(matchingPick);
+    const pickValue = computePickValue(matchingPick);
+    const pickAsset: OfferAsset = {
+      key: pickKey(matchingPick),
+      label: pickLabel,
+      type: "pick",
+      value: pickValue,
+      pick: matchingPick,
+    };
+
+    if (action === "tradeup") {
+      // Trade up: set team2 to pick owner, add pick to team2Sends (what you receive)
+      setTeam2Id(pickOwner);
+      setTeam2Sends([pickAsset]);
+      setTeam1Sends([]);
+    } else if (action === "shop") {
+      // Shop this pick: pick is yours, add to team1Sends (what you send)
+      // Leave team2 empty for user to choose a partner
+      setTeam1Sends([pickAsset]);
+      setTeam2Sends([]);
+    }
+
+    setDraftPrefilled(true);
+  }, [draftPrefilled, searchParams, rosters, selectedTeam, draftPickText, computePickValue]);
+
   /* ================================================================ */
   /*  Render helpers                                                    */
   /* ================================================================ */
