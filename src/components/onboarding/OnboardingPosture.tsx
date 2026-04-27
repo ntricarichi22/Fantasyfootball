@@ -15,6 +15,8 @@ type Need = "low" | "med" | "high";
 const NEED_INDEX: Record<Need, number> = { low: 0, med: 1, high: 2 };
 const FILL_WIDTHS = ["33.3%", "66.6%", "100%"];
 
+const NEED_TO_MARKET: Record<Need, string> = { low: "sell", med: "hold", high: "buy" };
+
 type PosRow = {
   key: "QB" | "RB" | "WR" | "TE";
   underline: string;
@@ -50,10 +52,10 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
     try {
       const profile = {
         wants_more: wantsMore,
-        qb_market: posture.QB,
-        rb_market: posture.RB,
-        wr_market: posture.WR,
-        te_market: posture.TE,
+        qb_market: NEED_TO_MARKET[posture.QB],
+        rb_market: NEED_TO_MARKET[posture.RB],
+        wr_market: NEED_TO_MARKET[posture.WR],
+        te_market: NEED_TO_MARKET[posture.TE],
       };
       const res = await fetch("/api/team-hq/strategy", {
         method: "POST",
@@ -354,3 +356,4 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
     </div>
   );
 }
+```
