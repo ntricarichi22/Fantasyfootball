@@ -356,4 +356,3 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
     </div>
   );
 }
-```
