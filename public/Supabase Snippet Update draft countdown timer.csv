@@ -1,0 +1,378 @@
+table_name,column_name,data_type,is_nullable,column_default
+audit_draft_pick_player_fix_backup_20260325,draft_pick_id,uuid,YES,null
+audit_draft_pick_player_fix_backup_20260325,draft_year,integer,YES,null
+audit_draft_pick_player_fix_backup_20260325,round,integer,YES,null
+audit_draft_pick_player_fix_backup_20260325,pick_number,integer,YES,null
+audit_draft_pick_player_fix_backup_20260325,original_franchise_id,uuid,YES,null
+audit_draft_pick_player_fix_backup_20260325,current_franchise_id,uuid,YES,null
+audit_draft_pick_player_fix_backup_20260325,selected_by_franchise_id,uuid,YES,null
+audit_draft_pick_player_fix_backup_20260325,selected_player_id,uuid,YES,null
+audit_draft_pick_player_fix_backup_20260325,source_platform,text,YES,null
+audit_draft_pick_player_fix_backup_20260325,metadata_json,jsonb,YES,null
+audit_draft_pick_player_fix_backup_20260325,created_at,timestamp with time zone,YES,null
+audit_draft_pick_player_fix_backup_20260325,backup_created_at,timestamp with time zone,YES,null
+audit_draft_pick_player_fix_staging,row_order,integer,NO,null
+audit_draft_pick_player_fix_staging,source_file,text,NO,null
+audit_draft_pick_player_fix_staging,correction_source,text,NO,null
+audit_draft_pick_player_fix_staging,draft_year,integer,NO,null
+audit_draft_pick_player_fix_staging,round,integer,YES,null
+audit_draft_pick_player_fix_staging,pick_number,integer,NO,null
+audit_draft_pick_player_fix_staging,spreadsheet_wrong_player_name,text,YES,null
+audit_draft_pick_player_fix_staging,correct_player_name,text,NO,null
+cfc_asset_source_values,id,bigint,NO,null
+cfc_asset_source_values,asset_key,text,NO,null
+cfc_asset_source_values,source_key,text,NO,null
+cfc_asset_source_values,raw_value,numeric,YES,null
+cfc_asset_source_values,source_101_value,numeric,YES,null
+cfc_asset_source_values,multiple_101,numeric,YES,null
+cfc_asset_source_values,import_batch,text,YES,null
+cfc_asset_source_values,source_updated_at,timestamp with time zone,YES,null
+cfc_asset_source_values,created_at,timestamp with time zone,NO,now()
+cfc_asset_source_values,updated_at,timestamp with time zone,NO,now()
+cfc_manual_player_mappings,id,bigint,NO,null
+cfc_manual_player_mappings,player_name,text,NO,null
+cfc_manual_player_mappings,position,text,YES,null
+cfc_manual_player_mappings,nfl_team,text,YES,null
+cfc_manual_player_mappings,sleeper_player_id,text,YES,null
+cfc_manual_player_mappings,created_at,timestamp with time zone,NO,now()
+cfc_manual_player_mappings,updated_at,timestamp with time zone,NO,now()
+cfc_team_manual_value_overrides,id,bigint,NO,null
+cfc_team_manual_value_overrides,team_id,text,NO,null
+cfc_team_manual_value_overrides,asset_key,text,NO,null
+cfc_team_manual_value_overrides,manual_value,numeric,NO,null
+cfc_team_manual_value_overrides,firsts_equivalent,numeric,YES,null
+cfc_team_manual_value_overrides,seconds_equivalent,numeric,YES,null
+cfc_team_manual_value_overrides,created_at,timestamp with time zone,NO,now()
+cfc_team_manual_value_overrides,updated_at,timestamp with time zone,NO,now()
+cfc_team_player_attachment,league_id,text,NO,null
+cfc_team_player_attachment,team_id,text,NO,null
+cfc_team_player_attachment,sleeper_player_id,text,NO,null
+cfc_team_player_attachment,attachment,text,NO,'neutral'::text
+cfc_team_player_attachment,updated_at,timestamp with time zone,NO,now()
+cfc_team_player_value_overrides,league_id,text,NO,null
+cfc_team_player_value_overrides,team_id,text,NO,null
+cfc_team_player_value_overrides,sleeper_player_id,text,NO,null
+cfc_team_player_value_overrides,manual_override_value,numeric,NO,null
+cfc_team_player_value_overrides,override_note,text,YES,null
+cfc_team_player_value_overrides,created_at,timestamp with time zone,NO,now()
+cfc_team_player_value_overrides,updated_at,timestamp with time zone,NO,now()
+cfc_team_roster_players,id,bigint,NO,null
+cfc_team_roster_players,team_id,text,NO,null
+cfc_team_roster_players,sleeper_player_id,text,NO,null
+cfc_team_roster_players,player_name,text,YES,null
+cfc_team_roster_players,position,text,YES,null
+cfc_team_roster_players,created_at,timestamp with time zone,NO,now()
+cfc_team_roster_players,updated_at,timestamp with time zone,NO,now()
+cfc_team_trade_values_current,league_id,text,NO,null
+cfc_team_trade_values_current,team_id,text,NO,null
+cfc_team_trade_values_current,sleeper_player_id,text,NO,null
+cfc_team_trade_values_current,player_name,text,YES,null
+cfc_team_trade_values_current,position,text,YES,null
+cfc_team_trade_values_current,nfl_team,text,YES,null
+cfc_team_trade_values_current,base_value,numeric,NO,null
+cfc_team_trade_values_current,auto_value,numeric,NO,null
+cfc_team_trade_values_current,manual_override_value,numeric,YES,null
+cfc_team_trade_values_current,final_value,numeric,NO,null
+cfc_team_trade_values_current,studs_modifier_pct,numeric,NO,0
+cfc_team_trade_values_current,youth_modifier_pct,numeric,NO,0
+cfc_team_trade_values_current,market_modifier_pct,numeric,NO,0
+cfc_team_trade_values_current,own_guys_modifier_pct,numeric,NO,0
+cfc_team_trade_values_current,total_modifier_pct,numeric,NO,0
+cfc_team_trade_values_current,is_overridden,boolean,NO,false
+cfc_team_trade_values_current,created_at,timestamp with time zone,NO,now()
+cfc_team_trade_values_current,updated_at,timestamp with time zone,NO,now()
+cfc_team_value_preferences,team_id,text,NO,null
+cfc_team_value_preferences,own_players_setting,text,NO,'balanced'::text
+cfc_team_value_preferences,timeline_setting,text,NO,'balanced'::text
+cfc_team_value_preferences,target_positions,ARRAY,NO,ARRAY[]::text[]
+cfc_team_value_preferences,created_at,timestamp with time zone,NO,now()
+cfc_team_value_preferences,updated_at,timestamp with time zone,NO,now()
+cfc_value_settings,setting_key,text,NO,null
+cfc_value_settings,numeric_value,numeric,YES,null
+cfc_value_settings,text_value,text,YES,null
+cfc_value_settings,updated_at,timestamp with time zone,NO,now()
+cfc_value_sources,source_key,text,NO,null
+cfc_value_sources,source_name,text,NO,null
+cfc_value_sources,source_type,text,NO,null
+cfc_value_sources,is_enabled,boolean,NO,true
+cfc_value_sources,created_at,timestamp with time zone,NO,now()
+cfc_value_sources,updated_at,timestamp with time zone,NO,now()
+definitive_values,asset_type,text,NO,null
+definitive_values,asset_key,text,NO,null
+definitive_values,value,numeric,NO,null
+definitive_values,updated_at,timestamp with time zone,NO,now()
+definitive_values,detail,jsonb,NO,'{}'::jsonb
+ff_source_player_map,source_player_map_id,uuid,NO,gen_random_uuid()
+ff_source_player_map,platform,text,NO,null
+ff_source_player_map,source_player_id,text,NO,null
+ff_source_player_map,source_player_name,text,YES,null
+ff_source_player_map,player_id,uuid,NO,null
+ff_source_player_map,confidence_score,numeric,YES,null
+ff_source_player_map,mapping_method,text,YES,null
+ff_source_player_map,notes,text,YES,null
+ff_source_player_map,created_at,timestamp with time zone,NO,now()
+flea_mirror_player_listing_nodes,player_listing_node_id,bigint,NO,nextval('flea_mirror_player_listing_nodes_player_listing_node_id_seq'::regclass)
+flea_mirror_player_listing_nodes,season_year,integer,NO,null
+flea_mirror_player_listing_nodes,source_league_id,text,NO,null
+flea_mirror_player_listing_nodes,week,integer,NO,null
+flea_mirror_player_listing_nodes,source_key,text,NO,null
+flea_mirror_player_listing_nodes,json_path,text,NO,null
+flea_mirror_player_listing_nodes,path_template,text,NO,null
+flea_mirror_player_listing_nodes,parent_path,text,YES,null
+flea_mirror_player_listing_nodes,depth,integer,NO,null
+flea_mirror_player_listing_nodes,object_key,text,YES,null
+flea_mirror_player_listing_nodes,array_index,integer,YES,null
+flea_mirror_player_listing_nodes,node_type,text,NO,null
+flea_mirror_player_listing_nodes,scalar_text,text,YES,null
+flea_mirror_player_listing_nodes,scalar_json,jsonb,YES,null
+flea_mirror_player_listing_nodes,created_at,timestamp with time zone,NO,now()
+flea_mirror_player_scores_weekly,mirror_player_score_id,bigint,NO,nextval('flea_mirror_player_scores_weekly_mirror_player_score_id_seq'::regclass)
+flea_mirror_player_scores_weekly,season_year,integer,NO,null
+flea_mirror_player_scores_weekly,source_league_id,text,NO,null
+flea_mirror_player_scores_weekly,week,integer,NO,null
+flea_mirror_player_scores_weekly,source_page_key,text,NO,null
+flea_mirror_player_scores_weekly,source_player_id,integer,NO,null
+flea_mirror_player_scores_weekly,player_name_first,text,YES,null
+flea_mirror_player_scores_weekly,player_name_last,text,YES,null
+flea_mirror_player_scores_weekly,player_name_short,text,YES,null
+flea_mirror_player_scores_weekly,player_position,text,YES,null
+flea_mirror_player_scores_weekly,player_position_eligibility,ARRAY,NO,'{}'::text[]
+flea_mirror_player_scores_weekly,pro_team_abbreviation,text,YES,null
+flea_mirror_player_scores_weekly,pro_team_location,text,YES,null
+flea_mirror_player_scores_weekly,pro_team_name,text,YES,null
+flea_mirror_player_scores_weekly,nfl_bye_week,integer,YES,null
+flea_mirror_player_scores_weekly,source_owner_team_id,integer,YES,null
+flea_mirror_player_scores_weekly,owner_team_name,text,YES,null
+flea_mirror_player_scores_weekly,owner_initials,text,YES,null
+flea_mirror_player_scores_weekly,viewing_actual_points,numeric,YES,null
+flea_mirror_player_scores_weekly,viewing_actual_points_formatted,text,YES,null
+flea_mirror_player_scores_weekly,viewing_format,text,YES,null
+flea_mirror_player_scores_weekly,viewing_range_low,integer,YES,null
+flea_mirror_player_scores_weekly,viewing_range_season,integer,YES,null
+flea_mirror_player_scores_weekly,requested_games_period_ordinal,integer,YES,null
+flea_mirror_player_scores_weekly,requested_games_period_start_epoch_milli,text,YES,null
+flea_mirror_player_scores_weekly,transaction_status_is_lineup_status_locked,boolean,YES,null
+flea_mirror_player_scores_weekly,actual_stats_json,jsonb,YES,null
+flea_mirror_player_scores_weekly,last_x_json,jsonb,YES,null
+flea_mirror_player_scores_weekly,pro_player_json,jsonb,YES,null
+flea_mirror_player_scores_weekly,owner_json,jsonb,YES,null
+flea_mirror_player_scores_weekly,player_json,jsonb,NO,null
+flea_mirror_player_scores_weekly,created_at,timestamp with time zone,NO,now()
+flea_mirror_roster_players_weekly,mirror_roster_player_id,bigint,NO,nextval('flea_mirror_roster_players_weekly_mirror_roster_player_id_seq'::regclass)
+flea_mirror_roster_players_weekly,season_year,integer,NO,null
+flea_mirror_roster_players_weekly,source_league_id,text,NO,null
+flea_mirror_roster_players_weekly,week,integer,NO,null
+flea_mirror_roster_players_weekly,source_team_id,integer,NO,null
+flea_mirror_roster_players_weekly,fantasy_team_name,text,YES,null
+flea_mirror_roster_players_weekly,source_player_id,integer,NO,null
+flea_mirror_roster_players_weekly,player_name_full,text,YES,null
+flea_mirror_roster_players_weekly,player_name_first,text,YES,null
+flea_mirror_roster_players_weekly,player_name_last,text,YES,null
+flea_mirror_roster_players_weekly,player_name_short,text,YES,null
+flea_mirror_roster_players_weekly,player_position,text,YES,null
+flea_mirror_roster_players_weekly,player_position_eligibility,ARRAY,NO,'{}'::text[]
+flea_mirror_roster_players_weekly,pro_team_abbreviation,text,YES,null
+flea_mirror_roster_players_weekly,pro_team_location,text,YES,null
+flea_mirror_roster_players_weekly,pro_team_name,text,YES,null
+flea_mirror_roster_players_weekly,display_group,text,YES,null
+flea_mirror_roster_players_weekly,is_starter,boolean,YES,null
+flea_mirror_roster_players_weekly,requested_games_period_ordinal,integer,YES,null
+flea_mirror_roster_players_weekly,requested_games_period_start_epoch_milli,text,YES,null
+flea_mirror_roster_players_weekly,transaction_status_is_lineup_status_locked,boolean,YES,null
+flea_mirror_roster_players_weekly,viewing_format,text,YES,null
+flea_mirror_roster_players_weekly,viewing_range_low,integer,YES,null
+flea_mirror_roster_players_weekly,viewing_range_high,integer,YES,null
+flea_mirror_roster_players_weekly,viewing_range_season,integer,YES,null
+flea_mirror_roster_players_weekly,pro_player_json,jsonb,YES,null
+flea_mirror_roster_players_weekly,transaction_status_json,jsonb,YES,null
+flea_mirror_roster_players_weekly,last_x_json,jsonb,YES,null
+flea_mirror_roster_players_weekly,player_json,jsonb,NO,null
+flea_mirror_roster_players_weekly,created_at,timestamp with time zone,NO,now()
+flea_raw_fetchtrades,raw_fetchtrades_id,bigint,NO,nextval('flea_raw_fetchtrades_raw_fetchtrades_id_seq'::regclass)
+flea_raw_fetchtrades,loaded_at,timestamp with time zone,NO,now()
+flea_raw_fetchtrades,league_id,bigint,NO,null
+flea_raw_fetchtrades,sport,text,NO,null
+flea_raw_fetchtrades,request_filter,text,NO,null
+flea_raw_fetchtrades,result_offset,integer,NO,null
+flea_raw_fetchtrades,result_offset_next,integer,YES,null
+flea_raw_fetchtrades,result_total,integer,YES,null
+flea_raw_fetchtrades,response_json,jsonb,NO,null
+llm_player_games,platform,text,YES,null
+llm_player_games,season_year,integer,NO,null
+llm_player_games,week,integer,NO,null
+llm_player_games,is_starter,boolean,NO,null
+llm_player_games,slot_code_canonical,text,YES,null
+llm_player_games,lineup_bucket,text,YES,null
+llm_player_games,points,numeric,NO,null
+llm_player_games,franchise_id,uuid,NO,null
+llm_player_games,franchise_name,text,YES,null
+llm_player_games,canonical_player_id,uuid,NO,null
+llm_player_games,player_name,text,YES,null
+llm_player_games,player_position,text,YES,null
+llm_player_games,player_nfl_team,text,YES,null
+llm_player_games,season_id,uuid,NO,null
+llm_player_games,season_week_id,uuid,NO,null
+llm_player_games,metadata_json,jsonb,YES,'{}'::jsonb
+llm_players,player_id,uuid,NO,gen_random_uuid()
+llm_players,player_name,text,NO,null
+llm_players,first_name,text,YES,null
+llm_players,last_name,text,YES,null
+llm_players,primary_position,text,YES,null
+llm_players,nfl_team,text,YES,null
+llm_players,birth_date,date,YES,null
+llm_players,rookie_year,integer,YES,null
+llm_players,active_status,text,YES,null
+llm_players,metadata_json,jsonb,NO,'{}'::jsonb
+mfl_mirror_players,mirror_player_id,bigint,NO,nextval('mfl_mirror_players_mirror_player_id_seq'::regclass)
+mfl_mirror_players,season_year,integer,NO,null
+mfl_mirror_players,source_league_id,text,NO,null
+mfl_mirror_players,source_player_id,text,NO,null
+mfl_mirror_players,player_name,text,YES,null
+mfl_mirror_players,player_name_first,text,YES,null
+mfl_mirror_players,player_name_last,text,YES,null
+mfl_mirror_players,player_name_short,text,YES,null
+mfl_mirror_players,player_position,text,YES,null
+mfl_mirror_players,nfl_team,text,YES,null
+mfl_mirror_players,nfl_team_abbreviation,text,YES,null
+mfl_mirror_players,jersey_number,text,YES,null
+mfl_mirror_players,player_json,jsonb,NO,null
+mfl_mirror_players,created_at,timestamp with time zone,NO,now()
+player_values,sleeper_id,text,NO,null
+player_values,value,numeric,NO,null
+player_values,updated_at,timestamp with time zone,NO,now()
+slp_player_playoff_game_log,id,bigint,NO,null
+slp_player_playoff_game_log,league_id,text,NO,null
+slp_player_playoff_game_log,season,integer,YES,null
+slp_player_playoff_game_log,week,integer,NO,null
+slp_player_playoff_game_log,roster_id,integer,NO,null
+slp_player_playoff_game_log,matchup_id,integer,YES,null
+slp_player_playoff_game_log,game_type,text,NO,null
+slp_player_playoff_game_log,team_name,text,YES,null
+slp_player_playoff_game_log,player_id,text,NO,null
+slp_player_playoff_game_log,player_name,text,YES,null
+slp_player_playoff_game_log,position,text,YES,null
+slp_player_playoff_game_log,team,text,YES,null
+slp_player_playoff_game_log,was_started,boolean,NO,false
+slp_player_playoff_game_log,starter_order,integer,YES,null
+slp_player_playoff_game_log,player_points,numeric,YES,null
+slp_player_playoff_game_log,lineup_points,numeric,YES,null
+slp_player_playoff_game_log,won_matchup,boolean,YES,null
+slp_player_playoff_game_log,inserted_at,timestamp with time zone,NO,now()
+slp_player_playoff_game_log,updated_at,timestamp with time zone,NO,now()
+slp_player_weekly_game_log,id,bigint,NO,null
+slp_player_weekly_game_log,league_id,text,NO,null
+slp_player_weekly_game_log,season,integer,YES,null
+slp_player_weekly_game_log,week,integer,NO,null
+slp_player_weekly_game_log,roster_id,integer,NO,null
+slp_player_weekly_game_log,matchup_id,integer,YES,null
+slp_player_weekly_game_log,player_id,text,NO,null
+slp_player_weekly_game_log,player_name,text,YES,null
+slp_player_weekly_game_log,position,text,YES,null
+slp_player_weekly_game_log,team,text,YES,null
+slp_player_weekly_game_log,was_started,boolean,NO,false
+slp_player_weekly_game_log,starter_order,integer,YES,null
+slp_player_weekly_game_log,player_points,numeric,YES,null
+slp_player_weekly_game_log,lineup_points,numeric,YES,null
+slp_player_weekly_game_log,won_matchup,boolean,YES,null
+slp_player_weekly_game_log,game_type,text,YES,null
+slp_player_weekly_game_log,inserted_at,timestamp with time zone,NO,now()
+slp_player_weekly_game_log,updated_at,timestamp with time zone,NO,now()
+slp_player_weekly_presence,id,bigint,NO,null
+slp_player_weekly_presence,league_id,text,NO,null
+slp_player_weekly_presence,season,integer,YES,null
+slp_player_weekly_presence,week,integer,NO,null
+slp_player_weekly_presence,roster_id,integer,NO,null
+slp_player_weekly_presence,player_id,text,NO,null
+slp_player_weekly_presence,player_name,text,YES,null
+slp_player_weekly_presence,position,text,YES,null
+slp_player_weekly_presence,team,text,YES,null
+slp_player_weekly_presence,was_started,boolean,NO,false
+slp_player_weekly_presence,starter_order,integer,YES,null
+slp_player_weekly_presence,lineup_points,numeric,YES,null
+slp_player_weekly_presence,won_matchup,boolean,YES,null
+slp_player_weekly_presence,is_week_16,boolean,NO,false
+slp_player_weekly_presence,is_week_17,boolean,NO,false
+slp_player_weekly_presence,inserted_at,timestamp with time zone,NO,now()
+slp_player_weekly_presence,updated_at,timestamp with time zone,NO,now()
+slp_raw_players_catalog,sleeper_player_id,text,NO,null
+slp_raw_players_catalog,payload_json,jsonb,NO,null
+slp_raw_players_catalog,full_name,text,YES,null
+slp_raw_players_catalog,first_name,text,YES,null
+slp_raw_players_catalog,last_name,text,YES,null
+slp_raw_players_catalog,team,text,YES,null
+slp_raw_players_catalog,position,text,YES,null
+slp_raw_players_catalog,years_exp,integer,YES,null
+slp_raw_players_catalog,active,boolean,YES,null
+slp_raw_players_catalog,sport,text,NO,'nfl'::text
+slp_raw_players_catalog,source_updated_at,timestamp with time zone,YES,null
+slp_raw_players_catalog,ingested_at,timestamp with time zone,NO,now()
+trade values raw upload,player_name,text,YES,null
+trade values raw upload,asset_type,text,YES,null
+trade values raw upload,NFL Team,text,YES,null
+trade values raw upload,Position,text,YES,null
+trade values raw upload,fantasypros_raw,bigint,YES,null
+trade values raw upload,draftsharks_raw,text,YES,null
+trade values raw upload,yahoo_raw,bigint,YES,null
+trade_messages,id,uuid,NO,gen_random_uuid()
+trade_messages,trade_id,uuid,YES,null
+trade_messages,created_at,timestamp with time zone,YES,now()
+trade_messages,sender_team,text,YES,null
+trade_messages,message,text,NO,null
+trade_messages,offer_id,uuid,YES,null
+trade_messages,thread_id,uuid,YES,null
+trade_messages,from_team_id,text,NO,null
+trade_messages,league_id,text,NO,null
+trade_offers,id,uuid,NO,gen_random_uuid()
+trade_offers,league_id,text,NO,null
+trade_offers,from_team_id,text,NO,null
+trade_offers,to_team_id,text,NO,null
+trade_offers,assets_from,jsonb,NO,null
+trade_offers,assets_to,jsonb,NO,null
+trade_offers,from_value,integer,NO,0
+trade_offers,to_value,integer,NO,0
+trade_offers,grade_label,text,NO,'Fair'::text
+trade_offers,status,text,NO,'pending'::text
+trade_offers,parent_offer_id,uuid,YES,null
+trade_offers,created_at,timestamp with time zone,NO,now()
+trade_offers,updated_at,timestamp with time zone,NO,now()
+trade_offers,read_at,timestamp with time zone,YES,null
+trade_offers,thread_id,uuid,NO,null
+trade_threads,id,uuid,NO,gen_random_uuid()
+trade_threads,league_id,text,NO,null
+trade_threads,team_a_id,text,NO,null
+trade_threads,team_b_id,text,NO,null
+trade_threads,created_by_team_id,text,NO,null
+trade_threads,status,text,NO,'open'::text
+trade_threads,last_activity_at,timestamp with time zone,NO,now()
+trade_threads,last_message_at,timestamp with time zone,YES,null
+trade_threads,last_offer_at,timestamp with time zone,YES,null
+trade_threads,unread_by_team_a,integer,NO,0
+trade_threads,unread_by_team_b,integer,NO,0
+trade_threads,created_at,timestamp with time zone,NO,now()
+trade_threads,updated_at,timestamp with time zone,NO,now()
+trade_values_debug_patch,latest_import_batch,text,YES,null
+trade_values_debug_patch,player_name,text,YES,null
+trade_values_debug_patch,position,text,YES,null
+trade_values_debug_patch,nfl_team,text,YES,null
+trade_values_debug_patch,manual_mapping_status,text,YES,null
+trade_values_debug_patch,manual_sleeper_player_id,text,YES,null
+trade_values_debug_patch,sleeper_player_id_from_staging,bigint,YES,null
+trade_values_debug_patch,resolved_sleeper_player_id,bigint,YES,null
+trade_values_debug_patch,resolved_asset_key,text,YES,null
+trade_values_debug_patch,canonical_display_name,text,YES,null
+trade_values_debug_patch,fantasypros_raw_staging,bigint,YES,null
+trade_values_debug_patch,draftsharks_raw_staging,bigint,YES,null
+trade_values_debug_patch,yahoo_raw_staging,bigint,YES,null
+trade_values_debug_patch,fantasycalc_raw_staging,bigint,YES,null
+trade_values_debug_patch,dynastyprocess_raw_staging,bigint,YES,null
+trades,id,uuid,NO,gen_random_uuid()
+trades,league_id,text,NO,null
+trades,created_at,timestamp with time zone,YES,now()
+trades,status,text,NO,'proposed'::text
+trades,team_a,text,NO,null
+trades,team_b,text,NO,null
+trades,offer,jsonb,NO,null
+unmatched players,player_name,text,YES,null
+unmatched players,position,text,YES,null
+unmatched players,nfl_team,text,YES,null
+unmatched players,sleeper_id,bigint,YES,null
