@@ -803,11 +803,14 @@ export default function ThreadPage() {
       {/* Content */}
       <div
         style={{
-          flex: 1,
-          display: "grid",
-          gridTemplateColumns: counterMode ? "40% 60%" : "1fr",
-          minHeight: 0,
-        }}
+  flex: 1,
+  display: "grid",
+  gridTemplateColumns: counterMode ? "40% 60%" : "1fr",
+  minHeight: 0,
+  maxWidth: counterMode ? "100%" : "70%",
+  margin: "0 auto",
+  width: "100%",
+}}
       >
         {/* Timeline */}
         <div
