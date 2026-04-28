@@ -103,6 +103,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Draft has not been started." }, { status: 400 });
   }
 
+  if (existing.status === "completed") {
+    return NextResponse.json({ data: existing, status: "completed" });
+  }
+
   const baseSeconds =
     body.secondsRemaining ??
     body.seconds_remaining ??
