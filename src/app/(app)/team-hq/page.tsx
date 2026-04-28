@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 
-import TeamHqView from "../../../components/TeamHqView";
+import OwnersBoxView from "../../../components/owners-box/OwnersBoxView";
 
 export default function TeamHqPage() {
   return (
     <Suspense fallback={<main className="min-h-[calc(100vh-44px)] bg-[var(--cfc-canvas)]" />}>
-      <TeamHqView />
+      <OwnersBoxView />
     </Suspense>
   );
 }
