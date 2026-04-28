@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { readStoredTeam } from "../../lib/storedTeam";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   formatDraftPickLabel,
@@ -205,7 +206,7 @@ export default function TradeBuilderView() {
   /* ---------- Restore selected team ---------- */
   useEffect(() => {
     if (selectedTeam || typeof window === "undefined") return;
-    const stored = getStoredSelectedTeam();
+    const stored = readStoredTeam().rosterId || "";
     if (stored) { setSelectedTeam(stored); return; }
     const fromParams = searchParams.get("myTeam");
     if (fromParams) setSelectedTeam(fromParams);
