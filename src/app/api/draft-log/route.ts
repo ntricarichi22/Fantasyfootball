@@ -162,6 +162,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Draft is paused" }, { status: 409 });
   }
 
+  if (draftState?.status === "completed") {
+    return NextResponse.json({ error: "Draft is completed" }, { status: 409 });
+  }
+
   // Server-side duplicate-pick guard. The DB-level partial unique index
   // (migration 008) is the race-safe backstop, but pre-checking lets us
   // return a clean 409 with a stable error code the client can map to a
