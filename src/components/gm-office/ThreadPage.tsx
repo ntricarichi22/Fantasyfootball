@@ -163,6 +163,9 @@ export default function ThreadPage() {
   const [showAccept, setShowAccept] = useState(false);
   const [showReject, setShowReject] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const [showScrollBtn, setShowScrollBtn] = useState(false);
 
   const flash = useCallback((m: string) => {
     setToast(m);
@@ -172,6 +175,19 @@ export default function ThreadPage() {
     (id: string) => rosterNames[id] || `Team ${id}`,
     [rosterNames],
   );
+
+  const handleTimelineScroll = useCallback(() => {
+  const el = scrollRef.current;
+  if (!el) return;
+  const near = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  isNearBottomRef.current = near;
+  setShowScrollBtn(!near);
+}, []);
+
+const scrollToBottom = useCallback(() => {
+  endRef.current?.scrollIntoView({ behavior: "smooth" });
+  setShowScrollBtn(false);
+}, []);
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.hash === "#counter") {
@@ -220,8 +236,12 @@ export default function ThreadPage() {
   }, [fetchMsgs]);
 
   useEffect(() => {
+  if (isNearBottomRef.current) {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, offers]);
+  } else {
+    setShowScrollBtn(true);
+  }
+}, [messages, offers]);
 
   const timeline = useMemo(() => {
     const items: TimelineItem[] = [
@@ -441,7 +461,7 @@ export default function ThreadPage() {
         {/* Timeline column */}
         <div style={{ display: "flex", flexDirection: "column", borderRight: counterMode ? "2px solid #1A1A1A" : "none", overflow: "hidden", opacity: counterMode ? 0.4 : 1, height: "100%" }}>
           {/* Scrollable timeline */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16, minHeight: 0 }}>
+          <div ref={scrollRef} onScroll={handleTimelineScroll} style={{ flex: 1, overflowY: "auto", padding: "20px 24px", display: "flex", flexDirection: "column", gap: 16, minHeight: 0, position: "relative" }}>
             {timeline.map((item, i) => {
               const nodes: React.ReactNode[] = [];
               const dateLabel = new Date(item.data.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -459,6 +479,13 @@ export default function ThreadPage() {
               return nodes;
             })}
             {isClosed && <div style={{ textAlign: "center", fontFamily: FM, fontSize: 10, color: "#8C7E6A", padding: "8px 0" }}>Thread {thread.status}.</div>}
+            {showScrollBtn && (
+              <div style={{ position: "sticky", bottom: 8, display: "flex", justifyContent: "center" }}>
+                <div onClick={scrollToBottom} style={{ width: 36, height: 36, background: "#1A1A1A", border: "2.5px solid #1A1A1A", boxShadow: "2px 2px 0 rgba(0,0,0,0.2)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FEFCF9" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+                </div>
+              </div>
+            )}
             <div ref={endRef} />
           </div>
 
