@@ -491,8 +491,7 @@ export default function TradeBuilderView() {
       const json = await res.json();
       showToast("Offer sent!");
       setTeam1Sends([]); setTeam2Sends([]);
-      const tid = json.thread_id || counterThreadId;
-      if (tid) router.push(`/trades/${tid}`);
+      window.location.href = "/trades";
     } catch (e) { showToast(e instanceof Error ? e.message : "Failed to send offer"); }
     finally { setSending(false); }
   }, [canSend, sending, selectedTeam, team2Id, team1Sends, team2Sends, team1GivesTotal, team1GetsTotal, dealQuality, showToast, counterMode, counterOfferId, counterThreadId, router]);
