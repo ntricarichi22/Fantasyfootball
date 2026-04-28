@@ -6,8 +6,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 
 import { getLeagueId } from "../lib/config";
 import ClockBar from "./ClockBar";
-import DraftTicker from "./DraftTicker";
-import { DraftStatusProvider, useDraftStatusContext } from "./DraftStatusProvider";
+import { DraftStatusProvider } from "./DraftStatusProvider";
 import { readStoredTeam, SELECTED_TEAM_CACHE_KEY, type StoredTeam } from "../lib/storedTeam";
 
 type StoredSelection = StoredTeam;
@@ -19,14 +18,6 @@ const safeLeagueId = () => {
     return "";
   }
 };
-
-const TICKER_ITEMS: Array<{ name: string; text: string }> = [
-  { name: "DRAFT ROOM", text: "Live · 2026 offseason draft is open" },
-  { name: "TRADE CENTER", text: "AI counter-offers ready in your inbox" },
-  { name: "TEAM HQ", text: "Strategy · depth chart · trade chart" },
-  { name: "HISTORIAN", text: "Ask the league archive anything" },
-  { name: "CFC", text: "Cleveland Football Club · est. 2010" },
-];
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -117,120 +108,89 @@ export default function AppShell({ children }: { children: ReactNode }) {
   return (
     <DraftStatusProvider>
       <div className="flex min-h-screen flex-col bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
-      {/* TOP BAR — ink/black, yellow CFC logo, underlined active nav */}
-      <header className="cfc-topbar cfc-shell-chrome sticky top-0 z-40">
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-6 px-4 py-3 sm:px-6">
-          <Link href="/" className="cfc-topbar-logo shrink-0" aria-label="CFC home">
-            CFC
-          </Link>
+        {/* TOP BAR — ink/black, yellow CFC logo, underlined active nav */}
+        <header className="cfc-topbar cfc-shell-chrome sticky top-0 z-40">
+          <div className="mx-auto flex w-full max-w-7xl items-center gap-6 px-4 py-3 sm:px-6">
+            <Link href="/" className="cfc-topbar-logo shrink-0" aria-label="CFC home">
+              CFC
+            </Link>
 
-          <nav className="flex flex-1 items-center gap-5 overflow-x-auto cfc-no-scrollbar">
-            {navItems.map((item) => {
-              const isTradeCenterItem = item.href === "/trades";
-              const active = isTradeCenterItem
-                ? (pathname === "/trades" ||
-                    pathname?.startsWith("/trades/") ||
-                    pathname === "/trade-studio" ||
-                    pathname === "/trade-builder")
-                : item.href === "/team-hq"
-                  ? (pathname === "/team-hq" ||
-                      pathname?.startsWith("/team-hq/") ||
-                      pathname === "/team-snapshot")
-                  : (pathname === item.href || pathname?.startsWith(`${item.href}/`));
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={[
-                    "cfc-topbar-link relative",
-                    active ? "cfc-topbar-link-active" : "",
-                  ].join(" ")}
+            <nav className="flex flex-1 items-center gap-5 overflow-x-auto cfc-no-scrollbar">
+              {navItems.map((item) => {
+                const isTradeCenterItem = item.href === "/trades";
+                const active = isTradeCenterItem
+                  ? (pathname === "/trades" ||
+                      pathname?.startsWith("/trades/") ||
+                      pathname === "/trade-studio" ||
+                      pathname === "/trade-builder")
+                  : item.href === "/team-hq"
+                    ? (pathname === "/team-hq" ||
+                        pathname?.startsWith("/team-hq/") ||
+                        pathname === "/team-snapshot")
+                    : (pathname === item.href || pathname?.startsWith(`${item.href}/`));
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    className={[
+                      "cfc-topbar-link relative",
+                      active ? "cfc-topbar-link-active" : "",
+                    ].join(" ")}
+                  >
+                    <span>{item.label}</span>
+                    {item.badge && unreadCount > 0 && (
+                      <span
+                        className="ml-2 inline-flex h-4 min-w-4 items-center justify-center px-1 align-middle"
+                        style={{
+                          background: "var(--cfc-red)",
+                          color: "#fff",
+                          border: "1.5px solid #1A1A1A",
+                          borderRadius: "4px",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: "9px",
+                          fontWeight: 800,
+                          lineHeight: 1,
+                        }}
+                      >
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                    )}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="hidden sm:flex items-center gap-3">
+              <div className="text-right leading-tight">
+                <p
+                  className="text-[9px] font-bold uppercase tracking-[0.18em]"
+                  style={{ color: "#999" }}
                 >
-                  <span>{item.label}</span>
-                  {item.badge && unreadCount > 0 && (
-                    <span
-                      className="ml-2 inline-flex h-4 min-w-4 items-center justify-center px-1 align-middle"
-                      style={{
-                        background: "var(--cfc-red)",
-                        color: "#fff",
-                        border: "1.5px solid #1A1A1A",
-                        borderRadius: "4px",
-                        fontFamily: "var(--font-mono)",
-                        fontSize: "9px",
-                        fontWeight: 800,
-                        lineHeight: 1,
-                      }}
-                    >
-                      {unreadCount > 99 ? "99+" : unreadCount}
-                    </span>
-                  )}
-                </Link>
-              );
-            })}
-          </nav>
-
-          <div className="hidden sm:flex items-center gap-3">
-            <div className="text-right leading-tight">
-              <p
-                className="text-[9px] font-bold uppercase tracking-[0.18em]"
-                style={{ color: "#999" }}
+                  Active Team
+                </p>
+                <p className="text-xs font-semibold text-white truncate max-w-[180px]">
+                  {teamName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleSwitchTeam}
+                className="cfc-btn cfc-btn-accent cfc-btn-sm"
               >
-                Active Team
-              </p>
-              <p className="text-xs font-semibold text-white truncate max-w-[180px]">
-                {teamName}
-              </p>
+                Switch
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleSwitchTeam}
-              className="cfc-btn cfc-btn-accent cfc-btn-sm"
-            >
-              Switch
-            </button>
           </div>
+        </header>
+
+        {/* CLOCK BAR — gated on isActive via DraftStatusProvider */}
+        <div className="cfc-shell-chrome">
+          <ClockBar />
         </div>
-      </header>
 
-      {/* CLOCK BAR — gated on isActive via DraftStatusProvider */}
-      <div className="cfc-shell-chrome">
-        <ClockBar />
-      </div>
-
-      {/* CONTENT — bottom padding reserves room for the fixed ticker. */}
-      <main className="flex-1 bg-[var(--cfc-canvas)]" style={{ paddingBottom: 38 }}>{children}</main>
-
-      {/* TICKER BAR — blue activity ticker normally; swapped for the draft
-          pick ticker while a draft is active. */}
-      <div className="cfc-shell-chrome">
-        <BottomTicker />
-      </div>
+        {/* CONTENT */}
+        <main className="flex-1 bg-[var(--cfc-canvas)]">{children}</main>
       </div>
     </DraftStatusProvider>
-  );
-}
-
-function BottomTicker() {
-  const { isActive } = useDraftStatusContext();
-
-  if (isActive) {
-    return <DraftTicker />;
-  }
-
-  // Ticker is rendered twice for seamless looping
-  const tickerItems = [...TICKER_ITEMS, ...TICKER_ITEMS];
-
-  return (
-    <footer className="cfc-ticker">
-      <div className="cfc-ticker-track">
-        {tickerItems.map((item, idx) => (
-          <span key={idx} className="inline-flex items-center gap-3">
-            <span className="cfc-ticker-name">{item.name}</span>
-            <span>{item.text}</span>
-            <span className="cfc-ticker-dot" />
-          </span>
-        ))}
-      </div>
-    </footer>
   );
 }
