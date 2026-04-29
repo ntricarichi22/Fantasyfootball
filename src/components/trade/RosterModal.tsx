@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import PlayerRow from "./PlayerRow";
+import { useMemo, useState } from "react";
+import PlayerRow, { AVAILABILITY_CHIPS } from "./PlayerRow";
 import TierDivider from "./TierDivider";
 
 type RosterAsset = {
   key: string;
   name: string;
   meta: string;
-  tier: "priority" | "moveable" | "listening" | "core" | "untouchable";
+  tier: string;
   tierLabel?: string;
+  posGroup?: string;
+  value?: number;
+  fitScore?: number;
 };
 
 type Props = {
@@ -23,9 +26,14 @@ type Props = {
 };
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
-const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
-const CHIP_COLORS: Record<string, string> = { Moveable: "#E8503A", Listening: "#F5C230", Core: "#3366CC", Untouchable: "#1A1A1A" };
+
+const POS_SECTIONS = [
+  { key: "QB", label: "Quarterbacks" },
+  { key: "RB", label: "Running Backs" },
+  { key: "PASS", label: "Pass Catchers" },
+  { key: "PICK", label: "Draft Picks" },
+];
 
 export type { RosterAsset };
 
@@ -34,13 +42,18 @@ export default function RosterModal({ teamName, assets, selectedKeys, onToggle, 
   const q = search.toLowerCase();
   const filtered = q ? assets.filter(a => a.name.toLowerCase().includes(q) || a.meta.toLowerCase().includes(q)) : assets;
 
-  const tiers: { key: RosterAsset["tier"]; label: string; showAI?: boolean; showChips?: boolean }[] = [
-    { key: "priority", label: "Priority targets", showAI: true, showChips: true },
-    { key: "moveable", label: "Moveable" },
-    { key: "listening", label: "Listening" },
-    { key: "core", label: "Core" },
-    { key: "untouchable", label: "Untouchable" },
-  ];
+  // Priority targets: top 3-5 by fitScore
+  const priorityTargets = useMemo(() => {
+    return filtered.filter(a => (a.fitScore ?? 0) >= 50).sort((a, b) => (b.fitScore ?? 0) - (a.fitScore ?? 0)).slice(0, 5);
+  }, [filtered]);
+
+  // Position groups (sorted by value within each, includes priority target players too)
+  const posSections = useMemo(() => {
+    return POS_SECTIONS.map(sec => ({
+      ...sec,
+      items: filtered.filter(a => (a.posGroup ?? "OTHER") === sec.key).sort((a, b) => (b.value ?? 0) - (a.value ?? 0)),
+    })).filter(s => s.items.length > 0);
+  }, [filtered]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(26,26,26,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50, padding: 20 }} onClick={onClose}>
@@ -53,30 +66,24 @@ export default function RosterModal({ teamName, assets, selectedKeys, onToggle, 
           <input type="text" placeholder={`Search ${teamName} roster…`} value={search} onChange={e => setSearch(e.target.value)} style={{ width: "100%", border: "2px solid #1A1A1A", padding: "8px 10px", fontSize: 12, background: "#FEFCF9", fontFamily: F, outline: "none", boxSizing: "border-box" }} />
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "0 20px" }}>
-          {tiers.map(tier => {
-            const tierAssets = filtered.filter(a => a.tier === tier.key);
-            if (tierAssets.length === 0) return null;
-            return (
-              <div key={tier.key}>
-                <TierDivider label={tier.label} showAI={tier.showAI} />
-                {tierAssets.map(asset => {
-                  const selected = selectedKeys.has(asset.key);
-                  return (
-                    <div key={asset.key} onClick={() => onToggle(asset.key)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: selected ? "#E6F1FB" : "transparent", borderBottom: selected ? "none" : "1px solid rgba(200,195,184,0.3)", cursor: "pointer" }}>
-                      <span style={{ fontWeight: 700, fontSize: 13, flex: 1, color: selected ? "#185FA5" : "#1A1A1A", fontFamily: F }}>{asset.name}</span>
-                      <span style={{ fontFamily: FM, fontSize: 9, color: selected ? "#185FA5" : "#8C7E6A" }}>{asset.meta}</span>
-                      {tier.showChips && asset.tierLabel && !selected && (
-                        <span style={{ fontFamily: FM, fontSize: 6, fontWeight: 700, color: CHIP_COLORS[asset.tierLabel] ?? "#8C7E6A", border: `1.5px solid ${CHIP_COLORS[asset.tierLabel] ?? "#8C7E6A"}`, padding: "1px 4px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{asset.tierLabel}</span>
-                      )}
-                      <div style={{ width: 20, height: 20, border: selected ? "none" : "2.5px solid #1A1A1A", background: selected ? "#185FA5" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
-                        {selected ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#E6F1FB" strokeWidth="3" strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg> : "+"}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
+          {/* Priority targets with availability chips */}
+          {priorityTargets.length > 0 && (
+            <div>
+              <TierDivider label="Priority targets" showAI />
+              {priorityTargets.map(a => (
+                <PlayerRow key={`pri-${a.key}`} name={a.name} meta={a.meta} selected={selectedKeys.has(a.key)} onToggle={() => onToggle(a.key)} chip={AVAILABILITY_CHIPS[a.tier]} />
+              ))}
+            </div>
+          )}
+          {/* Position sections */}
+          {posSections.map(sec => (
+            <div key={sec.key}>
+              <TierDivider label={sec.label} />
+              {sec.items.map(a => (
+                <PlayerRow key={a.key} name={a.name} meta={a.meta} selected={selectedKeys.has(a.key)} onToggle={() => onToggle(a.key)} chip={AVAILABILITY_CHIPS[a.tier]} />
+              ))}
+            </div>
+          ))}
           <div style={{ height: 8 }} />
         </div>
         <div style={{ padding: "14px 20px", borderTop: "2.5px solid #1A1A1A", display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
