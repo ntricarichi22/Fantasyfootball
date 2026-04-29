@@ -15,6 +15,8 @@ type Props = {
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 
+const CHIP_WIDTH = 62;
+
 export const AVAILABILITY_CHIPS: Record<string, ChipData> = {
   moveable: { label: "Moveable", color: "#007370" },
   listening: { label: "Listening", color: "#F5C230" },
@@ -43,7 +45,7 @@ export default function PlayerRow({ name, meta, selected, onToggle, showAction =
       <span style={{ fontWeight: 700, fontSize: 12, flex: 1, color: selected ? "#185FA5" : "#1A1A1A", fontFamily: F, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{name}</span>
       <span style={{ fontFamily: FM, fontSize: 9, color: selected ? "#185FA5" : "#8C7E6A", whiteSpace: "nowrap" }}>{meta}</span>
       {chip && !selected && (
-        <span style={{ fontFamily: FM, fontSize: 6, fontWeight: 700, color: "#FEFCF9", background: chip.color, padding: "2px 5px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{chip.label}</span>
+        <span style={{ fontFamily: FM, fontSize: 6, fontWeight: 700, color: "#FEFCF9", background: chip.color, padding: "2px 0", width: CHIP_WIDTH, textAlign: "center", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{chip.label}</span>
       )}
       {showAction && (
         <div style={{ width: 20, height: 20, border: selected ? "none" : "2.5px solid #1A1A1A", background: selected ? "#185FA5" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, fontWeight: 800, color: selected ? "#E6F1FB" : "#1A1A1A", flexShrink: 0 }}>
