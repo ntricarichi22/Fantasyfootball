@@ -6,14 +6,14 @@ import CartSidebar, { type CartItem } from "./CartSidebar";
 import ConfirmModal, { type SuggestionItem } from "./ConfirmModal";
 import RosterModal, { type RosterAsset } from "./RosterModal";
 
-type Asset = { key: string; name: string; meta: string; position: string; tier: string; tierLabel: string; teamId: string; teamName: string; value: number; fitScore: number; type: "player" | "pick" };
+type Asset = { key: string; name: string; meta: string; rosterMeta: string; position: string; posGroup: string; tier: string; tierLabel: string; teamId: string; teamName: string; value: number; fitScore: number; type: "player" | "pick" };
 type RankedTeam = { teamId: string; teamName: string; score: number; wantsLabels: string[]; headline: string };
 type Props = { onCheckout: (cart: CartItem[], teams: { id: string; name: string }[]) => void };
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
-const TIER_COLORS: Record<string, string> = { Moveable: "#E8503A", Listening: "#F5C230", Core: "#3366CC", Untouchable: "#1A1A1A" };
+const CHIP_COLORS: Record<string, string> = { Moveable: "#007370", Listening: "#F5C230", Core: "#1A1A1A", Untouchable: "#E8503A" };
 
 function SectionBar({ label }: { label: string }) {
   return (
@@ -51,8 +51,7 @@ export default function LandingPage({ onCheckout }: Props) {
   useEffect(() => {
     if (!search.trim()) { setSearchResults([]); return; }
     const q = search.toLowerCase();
-    const results: Asset[] = [];
-    const seen = new Set<string>();
+    const results: Asset[] = []; const seen = new Set<string>();
     for (const rid of Object.keys(allRosters)) {
       if (rid === rosterId) continue;
       for (const p of allRosters[rid] ?? []) {
@@ -73,29 +72,13 @@ export default function LandingPage({ onCheckout }: Props) {
     setCart(prev => prev.some(c => c.key === key) ? prev : [...prev, { key, name, meta, teamId, teamName }]);
     setAddedKeys(prev => new Set(prev).add(key));
   }, []);
-
   const removeFromCart = useCallback((key: string) => {
     setCart(prev => prev.filter(c => c.key !== key));
     setAddedKeys(prev => { const n = new Set(prev); n.delete(key); return n; });
   }, []);
-
-  const handlePlayerClick = useCallback((t: Asset) => {
-    if (cartKeys.has(t.key)) return;
-    addToCart(t.key, t.name, t.meta, t.teamId, t.teamName);
-    setConfirmTarget(t);
-  }, [addToCart, cartKeys]);
-
-  const handleTeamClick = useCallback((team: RankedTeam) => {
-    setRosterTeam({ id: team.teamId, name: team.teamName });
-  }, []);
-
-  const handleCheckout = useCallback(() => {
-    setConfirmTarget(null); setRosterTeam(null);
-    const teamIds = [...new Set(cart.map(c => c.teamId))];
-    const teams = teamIds.map(id => ({ id, name: cart.find(c => c.teamId === id)?.teamName ?? id }));
-    onCheckout(cart, teams);
-  }, [cart, onCheckout]);
-
+  const handlePlayerClick = useCallback((t: Asset) => { if (cartKeys.has(t.key)) return; addToCart(t.key, t.name, t.meta, t.teamId, t.teamName); setConfirmTarget(t); }, [addToCart, cartKeys]);
+  const handleTeamClick = useCallback((team: RankedTeam) => { setRosterTeam({ id: team.teamId, name: team.teamName }); }, []);
+  const handleCheckout = useCallback(() => { setConfirmTarget(null); setRosterTeam(null); const teamIds = [...new Set(cart.map(c => c.teamId))]; onCheckout(cart, teamIds.map(id => ({ id, name: cart.find(c => c.teamId === id)?.teamName ?? id }))); }, [cart, onCheckout]);
   const handleKeepShopping = useCallback(() => { setConfirmTarget(null); setRosterTeam(null); }, []);
   const handleSeeMore = useCallback(() => { if (confirmTarget) { setRosterTeam({ id: confirmTarget.teamId, name: confirmTarget.teamName }); setConfirmTarget(null); } }, [confirmTarget]);
 
@@ -104,19 +87,20 @@ export default function LandingPage({ onCheckout }: Props) {
     return (allRosters[confirmTarget.teamId] ?? [])
       .filter(t => t.key !== confirmTarget.key && (t.tier === "moveable" || t.tier === "listening" || t.type === "pick"))
       .slice(0, 4)
-      .map(t => {
-        const parts = t.name.split(" ");
-        const isPick = t.type === "pick";
-        return { key: t.key, row1: isPick ? (parts[0] ?? t.name) : (parts[0] ?? t.name), row2: isPick ? (parts.slice(1).join(" ") || t.name) : (parts.slice(1).join(" ") || ""), meta: isPick ? "Draft pick" : t.meta.split(" · ").slice(0, 2).join(" · ") };
-      });
+      .map(t => ({ key: t.key, row1: t.name.split(" ")[0] ?? t.name, row2: t.name.split(" ").slice(1).join(" ") || "", meta: t.type === "pick" ? "Draft pick" : t.meta.split(" · ").slice(0, 2).join(" · ") }));
   }, [confirmTarget, allRosters]);
 
+  // Roster modal: use rosterMeta instead of meta for pick context
   const rosterAssets = useMemo<RosterAsset[]>(() => {
     if (!rosterTeam) return [];
     return (allRosters[rosterTeam.id] ?? []).map(t => ({
-      key: t.key, name: t.name, meta: t.meta,
-      tier: (t.fitScore >= 50 ? "priority" : t.tier === "core_piece" ? "core" : t.tier || "core") as RosterAsset["tier"],
+      key: t.key, name: t.name,
+      meta: t.rosterMeta ?? t.meta,
+      tier: t.tier === "core_piece" ? "core" : (t.tier || "core"),
       tierLabel: t.tierLabel,
+      posGroup: t.posGroup,
+      value: t.value,
+      fitScore: t.fitScore,
     }));
   }, [rosterTeam, allRosters]);
 
@@ -152,7 +136,7 @@ export default function LandingPage({ onCheckout }: Props) {
                     <span style={{ fontWeight: 700, fontSize: 13, color: inCart ? "#185FA5" : "#1A1A1A" }}>{t.name}</span>
                     <span style={{ fontFamily: FM, fontSize: 8, color: inCart ? "#185FA5" : "#8C7E6A", marginLeft: 6 }}>{t.meta}</span>
                   </div>
-                  {!inCart && <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: TIER_COLORS[t.tierLabel] ?? "#8C7E6A", border: `1.5px solid ${TIER_COLORS[t.tierLabel] ?? "#8C7E6A"}`, padding: "1px 5px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{t.tierLabel}</span>}
+                  {!inCart && <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#FEFCF9", background: CHIP_COLORS[t.tierLabel] ?? "#1A1A1A", padding: "2px 5px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{t.tierLabel}</span>}
                   <div style={{ width: 22, height: 22, border: inCart ? "none" : "2.5px solid #1A1A1A", background: inCart ? "#185FA5" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
                     {inCart ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#E6F1FB" strokeWidth="3" strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg> : "+"}
                   </div>
@@ -183,7 +167,7 @@ export default function LandingPage({ onCheckout }: Props) {
         onAddSuggestion={key => { const t = (allRosters[confirmTarget.teamId] ?? []).find(x => x.key === key); if (t) addToCart(t.key, t.name, t.meta, t.teamId, t.teamName); }}
         onSeeMore={handleSeeMore} onCheckout={handleCheckout} onKeepShopping={handleKeepShopping} />}
       {rosterTeam && <RosterModal teamName={rosterTeam.name} assets={rosterAssets} selectedKeys={cartKeys}
-        onToggle={key => { if (cartKeys.has(key)) { removeFromCart(key); } else { const t = (allRosters[rosterTeam.id] ?? []).find(x => x.key === key); if (t) addToCart(t.key, t.name, t.meta, t.teamId, t.teamName); } }}
+        onToggle={key => { if (cartKeys.has(key)) removeFromCart(key); else { const t = (allRosters[rosterTeam.id] ?? []).find(x => x.key === key); if (t) addToCart(t.key, t.name, t.meta, t.teamId, t.teamName); } }}
         onCheckout={handleCheckout} onKeepShopping={handleKeepShopping} onClose={handleKeepShopping} />}
     </div>
   );
