@@ -10,26 +10,19 @@ import RoutingPopup from "./RoutingPopup";
 import type { CartItem } from "./CartSidebar";
 
 type Props = { initialCart: CartItem[]; initialTeams: { id: string; name: string }[]; onBack: () => void };
-type RosterPlayer = { key: string; name: string; meta: string; rosterMeta: string; tier: string; value: number; position: string; posGroup: string; type: "player" | "pick"; fitScore: number };
+type RosterPlayer = { key: string; name: string; meta: string; rosterMeta: string; tier: string; value: number; position: string; posGroup: string; type: "player" | "pick"; fitScore: number; isStud: boolean; isYouth: boolean };
 type StratProfile = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; wr_market: string; te_market: string };
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
-
-const POS_SECTIONS = [
-  { key: "QB", label: "Quarterbacks" },
-  { key: "RB", label: "Running Backs" },
-  { key: "PASS", label: "Pass Catchers" },
-  { key: "PICK", label: "Draft Picks" },
-];
+const POS_SECTIONS = [{ key: "QB", label: "Quarterbacks" }, { key: "RB", label: "Running Backs" }, { key: "PASS", label: "Pass Catchers" }, { key: "PICK", label: "Draft Picks" }];
 
 function adjustedValue(base: number, pos: string, p: StratProfile | null): number {
   if (!p) return base;
   const m = pos === "QB" ? p.qb_market : pos === "RB" ? p.rb_market : pos === "WR" || pos === "TE" ? p.wr_market : "hold";
   return Math.round(base * (m === "buy" ? 1.25 : m === "sell" ? 0.8 : 1));
 }
-
 function teamNick(name: string): string { const p = name.split(" "); return p.length > 1 ? p.slice(1).join(" ") : name; }
 
 export default function TradeBuilder({ initialCart, initialTeams, onBack }: Props) {
@@ -67,7 +60,7 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
         const raw = j.rosters ?? {};
         const r: Record<string, RosterPlayer[]> = {};
         for (const rid of Object.keys(raw)) {
-          r[rid] = (raw[rid] ?? []).map((p: RosterPlayer) => ({ ...p, tier: p.tier === "core_piece" ? "core" : (p.tier || "core"), rosterMeta: p.rosterMeta ?? p.meta }));
+          r[rid] = (raw[rid] ?? []).map((p: RosterPlayer) => ({ ...p, tier: p.tier === "core_piece" ? "core" : (p.tier || "core"), rosterMeta: p.rosterMeta ?? p.meta, isStud: p.isStud ?? false, isYouth: p.isYouth ?? false }));
         }
         setRosters(r); setProfiles(j.profiles ?? {});
       })
@@ -95,7 +88,7 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     if (hasSend && hasRecv) {
       if (ratio > 1.2 || ratio < 0.8) { grade = ratio > 1 ? "Great deal for you" : "Way off"; gradeColor = "#E8503A"; }
       else if (ratio > 1.1 || ratio < 0.9) { grade = ratio > 1 ? "You're ahead" : "You're reaching"; gradeColor = "#F5C230"; }
-      else { grade = "In the range"; gradeColor = "#4CAF50"; }
+      else { grade = "In the range"; gradeColor = "#007370"; }
     } else if (hasRecv) { grade = "Add your pieces"; gradeColor = "#F5C230"; }
     else { grade = "Pick your targets"; gradeColor = "#F5C230"; }
 
@@ -121,45 +114,61 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
       if (mySelling.includes(p.position)) s += 50;
       if (otherBuying.includes(p.position)) s += 30;
       if (otherWants.has("draft_picks") && p.type === "pick") s += 20;
-      if (otherWants.has("elite_producers") && p.value >= 6000) s += 15;
-      if (otherWants.has("young_upside") && p.meta.includes("2")) s += 10;
+      if (otherWants.has("elite_producers") && p.isStud) s += 25;
+      if (otherWants.has("young_upside") && p.isYouth) s += 15;
       return s;
     };
 
-    const needsSuggestions = (hasSend && hasRecv && (ratio < 0.95 || ratio > 1.05)) || (hasRecv && !hasSend) || (hasSend && !hasRecv);
-    if (needsSuggestions) {
-      if (hasSend && hasRecv && ratio < 0.95) {
+    // ALWAYS show suggestions
+    if (hasSend && hasRecv && ratio < 0.95) {
+      // Underpaying — suggest MY assets to send
+      const needed = rv - sv;
+      const avail = (rosters[myTeamId] ?? []).filter(filterMyAsset).map(p => ({ ...p, adjVal: adjustedValue(p.value, p.position, myP), fit: scoreMyAsset(p) })).sort((a, b) => b.fit - a.fit || Math.abs(a.adjVal - needed) - Math.abs(b.adjVal - needed));
+      const singles = avail.filter(p => p.adjVal >= needed * 0.7 && p.adjVal <= needed * 1.3);
+      for (const p of (singles.length ? singles : avail).slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "send" });
+      if (!suggestions.length && avail.length) for (const p of avail.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "send" });
+    } else if (hasSend && hasRecv && ratio > 1.05) {
+      // Overpaying or great deal — suggest THEIR assets to receive
+      const surplus = sv - rv;
+      const avail = (rosters[otherTeam?.id ?? ""] ?? []).filter(p => !dealKeys.has(p.key) && p.value > 0).sort((a, b) => Math.abs(a.value - surplus) - Math.abs(b.value - surplus));
+      for (const p of avail.filter(p => p.value >= surplus * 0.5 && p.value <= surplus * 1.5).slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "receive" });
+      if (!suggestions.length && avail.length) for (const p of avail.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "receive" });
+    } else if (hasSend && hasRecv && ratio >= 0.95 && ratio <= 1.05) {
+      // Close — suggest small adds to seal the deal
+      if (ratio < 1.0) {
+        // Slightly under — suggest small MY assets to send
         const needed = rv - sv;
-        const avail = (rosters[myTeamId] ?? []).filter(filterMyAsset).map(p => ({ ...p, adjVal: adjustedValue(p.value, p.position, myP), fit: scoreMyAsset(p) })).sort((a, b) => b.fit - a.fit || Math.abs(a.adjVal - needed) - Math.abs(b.adjVal - needed));
-        const singles = avail.filter(p => p.adjVal >= needed * 0.7 && p.adjVal <= needed * 1.3);
-        for (const p of singles.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: `${p.rosterMeta} · Your roster` });
-        if (!suggestions.length) { for (let i = 0; i < Math.min(avail.length, 8); i++) for (let j = i + 1; j < Math.min(avail.length, 8); j++) { if (avail[i].adjVal + avail[j].adjVal >= needed * 0.7 && avail[i].adjVal + avail[j].adjVal <= needed * 1.3) { suggestions.push({ key: avail[i].key, name: `${avail[i].name} + ${avail[j].name}`, meta: "Combo · Your roster" }); break; } if (suggestions.length) break; } }
-        if (!suggestions.length) for (const p of avail.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: `${p.rosterMeta} · Your roster` });
-      } else if (hasSend && hasRecv && ratio > 1.05) {
+        const avail = (rosters[myTeamId] ?? []).filter(filterMyAsset).filter(p => p.value <= needed * 2).sort((a, b) => Math.abs(a.value - needed) - Math.abs(b.value - needed));
+        for (const p of avail.slice(0, 2)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "send" });
+      } else {
+        // Slightly over — suggest small THEIR assets to receive
         const surplus = sv - rv;
-        const avail = (rosters[otherTeam?.id ?? ""] ?? []).filter(p => !dealKeys.has(p.key) && p.value > 0).sort((a, b) => Math.abs(a.value - surplus) - Math.abs(b.value - surplus));
-        for (const p of avail.filter(p => p.value >= surplus * 0.5 && p.value <= surplus * 1.5).slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: `${p.rosterMeta} · Their roster` });
-      } else if (hasRecv && !hasSend) {
-        const avail = (rosters[myTeamId] ?? []).filter(filterMyAsset).map(p => ({ ...p, adjVal: adjustedValue(p.value, p.position, myP), fit: scoreMyAsset(p) })).sort((a, b) => b.fit - a.fit || b.adjVal - a.adjVal);
-        const singles = avail.filter(p => p.adjVal >= rv * 0.7 && p.adjVal <= rv * 1.3);
-        for (const p of (singles.length ? singles : avail).slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: `${p.rosterMeta} · Your roster` });
-      } else if (hasSend && !hasRecv && otherTeam) {
-        const avail = (rosters[otherTeam.id] ?? []).filter(p => !dealKeys.has(p.key) && p.value > 0).sort((a, b) => b.value - a.value);
-        for (const p of avail.filter(p => p.value >= sv * 0.7 && p.value <= sv * 1.3).slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: `${p.rosterMeta} · Their roster` });
+        const avail = (rosters[otherTeam?.id ?? ""] ?? []).filter(p => !dealKeys.has(p.key) && p.value > 0 && p.value <= surplus * 2).sort((a, b) => Math.abs(a.value - surplus) - Math.abs(b.value - surplus));
+        for (const p of avail.slice(0, 2)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "receive" });
       }
+    } else if (hasRecv && !hasSend) {
+      // Only receive — suggest MY assets to send
+      const avail = (rosters[myTeamId] ?? []).filter(filterMyAsset).map(p => ({ ...p, adjVal: adjustedValue(p.value, p.position, myP), fit: scoreMyAsset(p) })).sort((a, b) => b.fit - a.fit || b.adjVal - a.adjVal);
+      const singles = avail.filter(p => p.adjVal >= rv * 0.7 && p.adjVal <= rv * 1.3);
+      for (const p of (singles.length ? singles : avail).slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "send" });
+    } else if (hasSend && !hasRecv && otherTeam) {
+      // Only send — suggest THEIR assets to receive
+      const avail = (rosters[otherTeam.id] ?? []).filter(p => !dealKeys.has(p.key) && p.value > 0).sort((a, b) => b.value - a.value);
+      for (const p of avail.filter(p => p.value >= sv * 0.7 && p.value <= sv * 1.3).slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "receive" });
     }
     return { grade, gradeColor, suggestions };
   }, [computeGap, dealAssets, rosters, profiles, myTeamId, otherTeams, dealKeys]);
 
+  // Async AI prose
   useEffect(() => {
     if (advisorTimer.current) clearTimeout(advisorTimer.current);
     if (!dealAssets.length) { setAdvisorProse("Add players or picks to both sides to get my take."); return; }
     setAdvisorLoading(true);
     advisorTimer.current = setTimeout(async () => {
       const { sv, rv } = computeGap();
-      const myRoster = (rosters[myTeamId] ?? []).map(p => ({ name: p.name, position: p.position, value: p.value, tier: p.tier }));
-      const otherRosters: Record<string, { name: string; position: string; value: number; tier: string }[]> = {};
-      for (const t of otherTeams) otherRosters[t.id] = (rosters[t.id] ?? []).map(p => ({ name: p.name, position: p.position, value: p.value, tier: p.tier }));
+      const myRoster = (rosters[myTeamId] ?? []).map(p => ({ name: p.name, position: p.position, value: p.value, tier: p.tier, isStud: p.isStud, isYouth: p.isYouth }));
+      const otherRosters: Record<string, { name: string; position: string; value: number; tier: string; isStud: boolean; isYouth: boolean }[]> = {};
+      for (const t of otherTeams) otherRosters[t.id] = (rosters[t.id] ?? []).map(p => ({ name: p.name, position: p.position, value: p.value, tier: p.tier, isStud: p.isStud, isYouth: p.isYouth }));
       try {
         const res = await fetch("/api/trades/advisor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ my_team_id: myTeamId, other_team_ids: otherTeams.map(t => t.id), deal_assets: dealAssets, my_sends_value: sv, my_receives_value: rv, my_roster: myRoster, other_rosters: otherRosters }) });
         if (res.ok) { const j = await res.json(); if (j.prose) setAdvisorProse(j.prose); }
@@ -184,8 +193,8 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
   const handleUniversalBrowse = useCallback((teamId: string) => { setRoutingPopup(null); setActiveTab(teamId); setRosterSearch(""); }, []);
   const handleSuggestionTap = useCallback((key: string) => {
     const s = gradeData.suggestions.find(x => x.key === key); if (!s) return;
-    if (s.meta.includes("Your roster")) { const o = otherTeams[0]; if (o) addDealAsset(key, s.name.split(" + ")[0], myTeamId, o.id); }
-    else addDealAsset(key, s.name, otherTeams[0]?.id ?? "", myTeamId);
+    if (s.direction === "send") { const o = otherTeams[0]; if (o) addDealAsset(key, s.name, myTeamId, o.id); }
+    else { addDealAsset(key, s.name, otherTeams[0]?.id ?? "", myTeamId); }
   }, [gradeData.suggestions, otherTeams, myTeamId, addDealAsset]);
   const handleSendOffer = useCallback(async () => {
     if (sending) return;
@@ -205,9 +214,7 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     if (rosterSearch.trim()) { const q = rosterSearch.toLowerCase(); players = players.filter(p => p.name.toLowerCase().includes(q) || p.meta.toLowerCase().includes(q) || p.rosterMeta.toLowerCase().includes(q)); }
     return players;
   }, [rosters, activeTab, rosterSearch]);
-
   const posSections = useMemo(() => POS_SECTIONS.map(sec => ({ ...sec, items: activeRoster.filter(p => (p.posGroup ?? "OTHER") === sec.key).sort((a, b) => b.value - a.value) })).filter(s => s.items.length > 0), [activeRoster]);
-
   const canSend = dealAssets.some(a => a.fromTeamId === myTeamId) && dealAssets.some(a => a.toTeamId === myTeamId);
   const tabFontSize = teams.length > 2 ? Math.min(11, Math.floor(90 / Math.max(...teams.map(t => teamNick(t.name).length), 1))) : 11;
 
