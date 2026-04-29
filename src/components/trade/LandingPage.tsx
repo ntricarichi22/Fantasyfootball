@@ -2,31 +2,40 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "../../lib/storedTeam";
-import PlayerRow from "./PlayerRow";
-import TierDivider from "./TierDivider";
 import CartSidebar, { type CartItem } from "./CartSidebar";
 import ConfirmModal, { type SuggestionItem } from "./ConfirmModal";
 import RosterModal, { type RosterAsset } from "./RosterModal";
 
-type Target = { key: string; name: string; meta: string; tier: string; tierLabel: string; teamId: string; teamName: string; value: number };
-type RankedTeam = { teamId: string; teamName: string; score: number; wantsLabels: string[]; headline: string; headlineAssets: string[] };
+type Target = { key: string; name: string; meta: string; tier: string; tierLabel: string; teamId: string; teamName: string; value: number; fitScore: number };
+type RankedTeam = { teamId: string; teamName: string; score: number; wantsLabels: string[]; headline: string };
 
-type Props = {
-  onCheckout: (cart: CartItem[], teams: { id: string; name: string }[]) => void;
-};
+type Props = { onCheckout: (cart: CartItem[], teams: { id: string; name: string }[]) => void };
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
-
 const TIER_COLORS: Record<string, string> = { Moveable: "#E8503A", Listening: "#F5C230", Core: "#3366CC", Untouchable: "#1A1A1A" };
+
+function SectionBar({ label }: { label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "6px 0" }}>
+      <div style={{ flex: 1, height: 0, borderBottom: "3px solid #1A1A1A" }} />
+      <div style={{ background: "#1A1A1A", padding: "8px 14px" }}>
+        <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: "#FEFCF9" }}>{label}</span>
+      </div>
+      <div style={{ flex: 1, height: 0, borderBottom: "3px solid #1A1A1A" }} />
+    </div>
+  );
+}
 
 export default function LandingPage({ onCheckout }: Props) {
   const { rosterId = "" } = readStoredTeam();
   const [targets, setTargets] = useState<Target[]>([]);
   const [rankings, setRankings] = useState<RankedTeam[]>([]);
+  const [allRosters, setAllRosters] = useState<Record<string, Target[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<Target[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [confirmTarget, setConfirmTarget] = useState<Target | null>(null);
   const [rosterTeam, setRosterTeam] = useState<{ id: string; name: string } | null>(null);
@@ -36,19 +45,42 @@ export default function LandingPage({ onCheckout }: Props) {
     if (!rosterId) return;
     fetch(`/api/trades/targets?teamId=${encodeURIComponent(rosterId)}`)
       .then((r) => r.json())
-      .then((j) => { setTargets(j.targets ?? []); setRankings(j.rankings ?? []); })
+      .then((j) => {
+        setTargets(j.targets ?? []);
+        setRankings(j.rankings ?? []);
+        setAllRosters(j.rosters ?? {});
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [rosterId]);
 
+  // Search across ALL players from all teams (not just targets)
+  useEffect(() => {
+    if (!search.trim()) { setSearchResults([]); return; }
+    const q = search.toLowerCase();
+    const results: Target[] = [];
+    const seen = new Set<string>();
+    for (const rid of Object.keys(allRosters)) {
+      if (rid === rosterId) continue;
+      for (const p of allRosters[rid] ?? []) {
+        if (seen.has(p.key)) continue;
+        if (p.name.toLowerCase().includes(q) || p.meta.toLowerCase().includes(q)) {
+          results.push(p);
+          seen.add(p.key);
+        }
+      }
+    }
+    results.sort((a, b) => b.value - a.value);
+    setSearchResults(results.slice(0, 10));
+  }, [search, allRosters, rosterId]);
+
   const cartKeys = useMemo(() => new Set(cart.map((c) => c.key)), [cart]);
   const hasCart = cart.length > 0;
+  const isSearching = search.trim().length > 0;
+  const displayTargets = isSearching ? searchResults : targets;
 
   const addToCart = useCallback((key: string, name: string, meta: string, teamId: string, teamName: string) => {
-    setCart((prev) => {
-      if (prev.some((c) => c.key === key)) return prev;
-      return [...prev, { key, name, meta, teamId, teamName }];
-    });
+    setCart((prev) => prev.some((c) => c.key === key) ? prev : [...prev, { key, name, meta, teamId, teamName }]);
     setAddedKeys((prev) => new Set(prev).add(key));
   }, []);
 
@@ -58,9 +90,10 @@ export default function LandingPage({ onCheckout }: Props) {
   }, []);
 
   const handlePlayerClick = useCallback((t: Target) => {
+    if (cartKeys.has(t.key)) return;
     addToCart(t.key, t.name, t.meta, t.teamId, t.teamName);
     setConfirmTarget(t);
-  }, [addToCart]);
+  }, [addToCart, cartKeys]);
 
   const handleTeamClick = useCallback((team: RankedTeam) => {
     setRosterTeam({ id: team.teamId, name: team.teamName });
@@ -74,10 +107,7 @@ export default function LandingPage({ onCheckout }: Props) {
     onCheckout(cart, teams);
   }, [cart, onCheckout]);
 
-  const handleKeepShopping = useCallback(() => {
-    setConfirmTarget(null);
-    setRosterTeam(null);
-  }, []);
+  const handleKeepShopping = useCallback(() => { setConfirmTarget(null); setRosterTeam(null); }, []);
 
   const handleSeeMore = useCallback(() => {
     if (confirmTarget) {
@@ -86,37 +116,38 @@ export default function LandingPage({ onCheckout }: Props) {
     }
   }, [confirmTarget]);
 
+  // Suggestions for confirm modal: other players from same team
   const confirmSuggestions = useMemo<SuggestionItem[]>(() => {
     if (!confirmTarget) return [];
-    return targets
-      .filter((t) => t.teamId === confirmTarget.teamId && t.key !== confirmTarget.key)
+    const teamPlayers = allRosters[confirmTarget.teamId] ?? [];
+    return teamPlayers
+      .filter((t) => t.key !== confirmTarget.key && (t.tier === "moveable" || t.tier === "listening"))
       .slice(0, 4)
       .map((t) => {
         const parts = t.name.split(" ");
-        const isPlayer = t.key.startsWith("player:");
+        const isPick = t.key.startsWith("pick:");
         return {
           key: t.key,
-          row1: isPlayer ? (parts[0] ?? t.name) : (t.name.split(" ")[0] ?? t.name),
-          row2: isPlayer ? (parts.slice(1).join(" ") || "") : (t.meta.includes("Draft") ? t.name.replace(/^\d{4}\s*/, "") : t.name),
-          meta: isPlayer ? t.meta.split(" · ").slice(0, 2).join(" · ") : "Draft pick",
+          row1: isPick ? (t.name.split(" ")[0] ?? t.name) : (parts[0] ?? t.name),
+          row2: isPick ? (t.name.replace(/^\S+\s*/, "") || t.name) : (parts.slice(1).join(" ") || ""),
+          meta: isPick ? "Draft pick" : t.meta.split(" · ").slice(0, 2).join(" · "),
         };
       });
-  }, [confirmTarget, targets]);
+  }, [confirmTarget, allRosters]);
 
+  // Full roster assets for roster modal
   const rosterAssets = useMemo<RosterAsset[]>(() => {
     if (!rosterTeam) return [];
-    const teamTargets = targets.filter((t) => t.teamId === rosterTeam.id);
-    const tierMap: Record<string, RosterAsset["tier"]> = { moveable: "moveable", listening: "listening", core_piece: "core", core: "core", untouchable: "untouchable" };
-    return teamTargets.map((t) => ({
-      key: t.key,
-      name: t.name,
-      meta: t.meta,
-      tier: (tierMap[t.tier] ?? "core") as RosterAsset["tier"],
-    }));
-  }, [rosterTeam, targets]);
-
-  const searchLower = search.toLowerCase();
-  const filteredTargets = searchLower ? targets.filter((t) => t.name.toLowerCase().includes(searchLower) || t.meta.toLowerCase().includes(searchLower)) : targets;
+    const teamPlayers = allRosters[rosterTeam.id] ?? [];
+    const myNeeds = new Set<string>();
+    // Players that match my needs go to "priority" tier
+    return teamPlayers.map((t) => {
+      const tierMap: Record<string, RosterAsset["tier"]> = { moveable: "moveable", listening: "listening", core_piece: "core", core: "core", untouchable: "untouchable" };
+      const baseTier = tierMap[t.tier] ?? "core";
+      const isPriority = t.fitScore >= 100;
+      return { key: t.key, name: t.name, meta: t.meta, tier: isPriority ? ("priority" as const) : baseTier };
+    });
+  }, [rosterTeam, allRosters]);
 
   if (!rosterId) {
     return (
@@ -131,14 +162,16 @@ export default function LandingPage({ onCheckout }: Props) {
 
   return (
     <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      {/* Header */}
       <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
         <div onClick={() => { window.location.href = "/trades"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back to inbox</div>
         <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
-        <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15, color: "#1A1A1A" }}>Who are you targeting?</div>
+        <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>Who are you targeting?</div>
       </div>
 
       <div style={{ flex: 1, display: "flex", minHeight: 0, overflow: "hidden" }}>
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Search */}
           <div style={{ border: "2.5px solid #1A1A1A", background: "#FEFCF9", display: "flex", alignItems: "center" }}>
             <div style={{ padding: "0 12px", display: "flex", alignItems: "center" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8C7E6A" strokeWidth="2.5" strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M21 21l-4.35-4.35" /></svg>
@@ -146,62 +179,67 @@ export default function LandingPage({ onCheckout }: Props) {
             <input type="text" placeholder="Search for a player to trade for…" value={search} onChange={(e) => setSearch(e.target.value)} style={{ flex: 1, padding: "12px 8px", fontSize: 13, border: "none", outline: "none", background: "transparent", fontFamily: F }} />
           </div>
 
-          <div style={{ background: "#1A1A1A", padding: "8px 14px" }}>
-            <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: "#FEFCF9" }}>On the block</span>
-          </div>
+          {/* On the block */}
+          <SectionBar label={isSearching ? "Search results" : "On the block"} />
 
           {loading ? (
             <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>Loading targets…</div>
+          ) : displayTargets.length === 0 ? (
+            <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>
+              {isSearching ? "No players found." : "No players on the block right now. Try searching for someone specific."}
+            </div>
           ) : (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-              {filteredTargets.slice(0, 10).map((t) => (
-                <div key={t.key} onClick={() => handlePlayerClick(t)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", border: cartKeys.has(t.key) ? "none" : "2px solid #1A1A1A", background: cartKeys.has(t.key) ? "#E6F1FB" : "#FEFCF9", cursor: "pointer" }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: cartKeys.has(t.key) ? "#185FA5" : "#1A1A1A" }}>{t.name}</span>
-                    <span style={{ fontFamily: FM, fontSize: 8, color: cartKeys.has(t.key) ? "#185FA5" : "#8C7E6A", marginLeft: 6 }}>{t.meta}</span>
+              {displayTargets.map((t) => {
+                const inCart = cartKeys.has(t.key);
+                return (
+                  <div key={t.key} onClick={() => handlePlayerClick(t)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", border: inCart ? "2px solid #185FA5" : "2px solid #1A1A1A", background: inCart ? "#E6F1FB" : "#FEFCF9", cursor: inCart ? "default" : "pointer" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: inCart ? "#185FA5" : "#1A1A1A" }}>{t.name}</span>
+                      <span style={{ fontFamily: FM, fontSize: 8, color: inCart ? "#185FA5" : "#8C7E6A", marginLeft: 6 }}>{t.meta}</span>
+                    </div>
+                    {!inCart && (
+                      <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: TIER_COLORS[t.tierLabel] ?? "#8C7E6A", border: `1.5px solid ${TIER_COLORS[t.tierLabel] ?? "#8C7E6A"}`, padding: "1px 5px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{t.tierLabel}</span>
+                    )}
+                    <div style={{ width: 22, height: 22, border: inCart ? "none" : "2.5px solid #1A1A1A", background: inCart ? "#185FA5" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
+                      {inCart ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#E6F1FB" strokeWidth="3" strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg> : "+"}
+                    </div>
                   </div>
-                  {!cartKeys.has(t.key) && (
-                    <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: TIER_COLORS[t.tierLabel] ?? "#8C7E6A", border: `1.5px solid ${TIER_COLORS[t.tierLabel] ?? "#8C7E6A"}`, padding: "1px 5px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>{t.tierLabel}</span>
-                  )}
-                  <div style={{ width: 22, height: 22, border: cartKeys.has(t.key) ? "none" : "2.5px solid #1A1A1A", background: cartKeys.has(t.key) ? "#185FA5" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 12, fontWeight: 800, flexShrink: 0 }}>
-                    {cartKeys.has(t.key) ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#E6F1FB" strokeWidth="3" strokeLinecap="round"><path d="M20 6L9 17l-5-5" /></svg> : "+"}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
-          <div style={{ display: "flex", alignItems: "center", gap: 14, padding: "6px 0" }}>
-            <div style={{ flex: 1, height: 0, borderBottom: "3px solid #1A1A1A" }} />
-            <div style={{ background: "#1A1A1A", padding: "8px 14px" }}>
-              <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: "#FEFCF9" }}>Trade partners</span>
-            </div>
-            <div style={{ flex: 1, height: 0, borderBottom: "3px solid #1A1A1A" }} />
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            {rankings.map((team, i) => (
-              <div key={team.teamId} onClick={() => handleTeamClick(team)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: "1.5px solid #C8C3B8", background: "#FEFCF9", cursor: "pointer" }}>
-                <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 20, color: "#C8C3B8", width: 26, textAlign: "center", flexShrink: 0 }}>{i + 1}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13 }}>{team.teamName}</span>
-                    {team.wantsLabels.map((l) => (
-                      <span key={l} style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#3366CC", border: "1.5px solid #3366CC", padding: "1px 5px", textTransform: "uppercase" }}>{l}</span>
-                    ))}
+          {/* Trade partners */}
+          {!isSearching && (
+            <>
+              <SectionBar label="Trade partners" />
+              <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                {rankings.map((team, i) => (
+                  <div key={team.teamId} onClick={() => handleTeamClick(team)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", border: "1.5px solid #C8C3B8", background: "#FEFCF9", cursor: "pointer" }}>
+                    <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 20, color: "#C8C3B8", width: 26, textAlign: "center", flexShrink: 0 }}>{i + 1}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13 }}>{team.teamName}</span>
+                        {team.wantsLabels.map((l) => (
+                          <span key={l} style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#3366CC", border: "1.5px solid #3366CC", padding: "1px 5px", textTransform: "uppercase" }}>{l}</span>
+                        ))}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#8C7E6A", marginTop: 2 }}>{team.headline}</div>
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C8C3B8" strokeWidth="2.5" strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
                   </div>
-                  <div style={{ fontSize: 11, color: "#8C7E6A", marginTop: 2 }}>{team.headline}</div>
-                </div>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C8C3B8" strokeWidth="2.5" strokeLinecap="round"><path d="M9 18l6-6-6-6" /></svg>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
           <div style={{ height: 20 }} />
         </div>
 
         {hasCart && <CartSidebar items={cart} onRemove={removeFromCart} onCheckout={handleCheckout} />}
       </div>
 
+      {/* Confirm modal */}
       {confirmTarget && (
         <ConfirmModal
           playerName={confirmTarget.name}
@@ -210,7 +248,8 @@ export default function LandingPage({ onCheckout }: Props) {
           suggestions={confirmSuggestions}
           addedKeys={addedKeys}
           onAddSuggestion={(key) => {
-            const t = targets.find((x) => x.key === key);
+            const teamPlayers = allRosters[confirmTarget.teamId] ?? [];
+            const t = teamPlayers.find((x) => x.key === key);
             if (t) addToCart(t.key, t.name, t.meta, t.teamId, t.teamName);
           }}
           onSeeMore={handleSeeMore}
@@ -219,6 +258,7 @@ export default function LandingPage({ onCheckout }: Props) {
         />
       )}
 
+      {/* Roster modal */}
       {rosterTeam && (
         <RosterModal
           teamName={rosterTeam.name}
@@ -226,7 +266,8 @@ export default function LandingPage({ onCheckout }: Props) {
           selectedKeys={cartKeys}
           onToggle={(key) => {
             if (cartKeys.has(key)) { removeFromCart(key); } else {
-              const t = targets.find((x) => x.key === key);
+              const teamPlayers = allRosters[rosterTeam.id] ?? [];
+              const t = teamPlayers.find((x) => x.key === key);
               if (t) addToCart(t.key, t.name, t.meta, t.teamId, t.teamName);
             }
           }}
