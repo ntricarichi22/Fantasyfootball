@@ -4,6 +4,7 @@ type Suggestion = {
   key: string;
   name: string;
   meta: string;
+  direction: "send" | "receive";
 };
 
 type Props = {
@@ -25,52 +26,19 @@ export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTap
     <div style={{ border: "2.5px solid #1A1A1A", background: "#FEFCF9", padding: "14px 16px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div
-            style={{
-              width: 18,
-              height: 18,
-              background: "#F5C230",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: FM,
-              fontSize: 7,
-              fontWeight: 800,
-              color: "#1A1A1A",
-              flexShrink: 0,
-            }}
-          >
-            AI
-          </div>
-          <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-            Trade advisor
-          </div>
+          <div style={{ width: 18, height: 18, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 7, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
+          <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Trade advisor</div>
         </div>
         {grade && (
-          <span
-            style={{
-              fontFamily: FM,
-              fontSize: 8,
-              fontWeight: 700,
-              color: "#FEFCF9",
-              background: gradeColor,
-              padding: "3px 10px",
-              textTransform: "uppercase",
-              letterSpacing: "0.06em",
-            }}
-          >
-            {grade}
-          </span>
+          <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#FEFCF9", background: gradeColor, padding: "3px 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>{grade}</span>
         )}
       </div>
-
       <div style={{ fontSize: 12, lineHeight: 1.6, color: "#1A1A1A", fontFamily: F, marginBottom: suggestions.length > 0 ? 12 : 0 }}>
         {loading ? "Analyzing this deal…" : prose}
       </div>
-
       {suggestions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {suggestions.map((s) => (
+          {suggestions.map(s => (
             <div
               key={s.key}
               onClick={() => onTapSuggestion(s.key)}
@@ -89,7 +57,11 @@ export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTap
             >
               <span style={{ fontWeight: 700, fontSize: 12, flex: 1, fontFamily: F }}>{s.name}</span>
               <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>{s.meta}</span>
-              <span style={{ fontFamily: FM, fontSize: 8, color: "#F5C230", fontWeight: 700 }}>TAP TO ADD →</span>
+              {s.direction === "send" ? (
+                <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#FEFCF9", background: "#3366CC", padding: "3px 8px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>Send →</span>
+              ) : (
+                <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#3366CC", border: "1.5px solid #3366CC", background: "transparent", padding: "2px 7px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>← Receive</span>
+              )}
             </div>
           ))}
         </div>
