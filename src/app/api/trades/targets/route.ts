@@ -9,13 +9,11 @@ export const maxDuration = 30;
 const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 
 type AttachRow = { team_id: string; sleeper_player_id: string; attachment: string };
-type StratRow = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; wr_market: string; te_market: string };
+type StratRow = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; wr_market: string; te_market: string; picks_market: string };
+type TeamValueRow = { team_id: string; sleeper_player_id: string; player_name: string; position: string; final_value: number };
+type BaseValueRow = { display_name: string; cfc_value: number; elite_multiplier_applied: number | null; age_multiplier_applied: number | null };
 
-function getCFCYear(): number {
-  const now = new Date();
-  return now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1;
-}
-
+function getCFCYear(): number { const n = new Date(); return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1; }
 function needLevel(m: string): number { return m === "buy" ? 3 : m === "sell" ? 0 : 1; }
 function getNeedPositions(p: StratRow | null): Record<string, number> {
   if (!p) return {};
@@ -24,6 +22,7 @@ function getNeedPositions(p: StratRow | null): Record<string, number> {
   if (needLevel(p.rb_market) >= 2) m["RB"] = needLevel(p.rb_market);
   if (needLevel(p.wr_market) >= 2) m["WR"] = needLevel(p.wr_market);
   if (needLevel(p.te_market) >= 2) m["TE"] = needLevel(p.te_market);
+  if (needLevel(p.picks_market) >= 2) m["PICK"] = needLevel(p.picks_market);
   return m;
 }
 function getSellPos(p: StratRow | null): string[] {
@@ -31,7 +30,16 @@ function getSellPos(p: StratRow | null): string[] {
   const s: string[] = [];
   if (p.qb_market === "sell") s.push("QB"); if (p.rb_market === "sell") s.push("RB");
   if (p.wr_market === "sell") s.push("WR"); if (p.te_market === "sell") s.push("TE");
+  if (p.picks_market === "sell") s.push("PICK");
   return s;
+}
+function getBuyPos(p: StratRow | null): string[] {
+  if (!p) return [];
+  const b: string[] = [];
+  if (p.qb_market === "buy") b.push("QB"); if (p.rb_market === "buy") b.push("RB");
+  if (p.wr_market === "buy") b.push("WR"); if (p.te_market === "buy") b.push("TE");
+  if (p.picks_market === "buy") b.push("PICK");
+  return b;
 }
 function wantsLabels(p: StratRow | null): string[] {
   return (p?.wants_more ?? []).map(w => w === "elite_producers" ? "Wants studs" : w === "draft_picks" ? "Wants picks" : w === "young_upside" ? "Wants youth" : w === "roster_depth" ? "Wants depth" : w);
@@ -62,11 +70,12 @@ export async function GET(request: NextRequest) {
 
   const cfcYear = getCFCYear();
 
-  const [attachRes, stratRes, teamRes, valRes, draftLogRes, slRosters, slTraded, slPlayers] = await Promise.all([
+  const [attachRes, stratRes, teamRes, teamValRes, baseValRes, draftLogRes, slRosters, slTraded, slPlayers] = await Promise.all([
     client.from("cfc_team_player_attachment").select("team_id, sleeper_player_id, attachment").eq("league_id", league_id),
-    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, wr_market, te_market").eq("league_id", league_id),
+    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, wr_market, te_market, picks_market").eq("league_id", league_id),
     client.from("team_email_map").select("roster_id, team_name"),
-    client.from("cfc_trade_values_current").select("sleeper_player_id, display_name, cfc_value, elite_multiplier_applied, age_multiplier_applied"),
+    client.from("cfc_team_trade_values_current").select("team_id, sleeper_player_id, player_name, position, final_value").eq("league_id", league_id),
+    client.from("cfc_trade_values_current").select("display_name, cfc_value, elite_multiplier_applied, age_multiplier_applied"),
     client.from("draft_log").select("pick_number, submitted_at").not("submitted_at", "is", null),
     LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/rosters`).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
     LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/traded_picks`).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
@@ -78,18 +87,29 @@ export async function GET(request: NextRequest) {
   const tNames: Record<string, string> = {};
   for (const r of teamRes.data ?? []) if (r.roster_id && r.team_name) tNames[String(r.roster_id)] = r.team_name;
 
-  // Build values map keyed by display_name for pick lookup, and by sleeper_player_id for players
-  const playerValues: Record<string, { value: number; isStud: boolean; isYouth: boolean }> = {};
+  // Team-adjusted values: team_id:player_id → final_value
+  const teamValues: Record<string, number> = {};
+  for (const v of (teamValRes.data ?? []) as TeamValueRow[]) {
+    if (v.sleeper_player_id && typeof v.final_value === "number") {
+      teamValues[`${v.team_id}:${v.sleeper_player_id}`] = v.final_value;
+    }
+  }
+
+  // Base values for stud/youth tags + pick values
+  const baseStud: Record<string, boolean> = {};
+  const baseYouth: Record<string, boolean> = {};
   const pickValuesByDisplay: Record<string, number> = {};
-  for (const v of valRes.data ?? []) {
-    if (v.sleeper_player_id && typeof v.cfc_value === "number") {
-      const elite = typeof v.elite_multiplier_applied === "number" ? v.elite_multiplier_applied : 1;
-      const ageMult = typeof v.age_multiplier_applied === "number" ? v.age_multiplier_applied : 1;
-      playerValues[v.sleeper_player_id] = { value: v.cfc_value, isStud: elite > 1.0, isYouth: ageMult === 1.0 };
+  const baseValues: Record<string, number> = {};
+  for (const v of (baseValRes.data ?? []) as BaseValueRow[]) {
+    if (v.display_name && typeof v.cfc_value === "number") {
+      if (v.display_name.match(/^\d+\.\d+$/)) {
+        pickValuesByDisplay[v.display_name] = v.cfc_value;
+      } else {
+        baseValues[v.display_name] = v.cfc_value;
+      }
     }
-    if (v.display_name && typeof v.cfc_value === "number" && v.display_name.match(/^\d+\.\d+$/)) {
-      pickValuesByDisplay[v.display_name] = v.cfc_value;
-    }
+    if (v.display_name && v.elite_multiplier_applied != null) baseStud[v.display_name] = v.elite_multiplier_applied > 1.0;
+    if (v.display_name && v.age_multiplier_applied != null) baseYouth[v.display_name] = v.age_multiplier_applied === 1.0;
   }
 
   // Spent picks from draft_log
@@ -120,7 +140,6 @@ export async function GET(request: NextRequest) {
   const myProfile = strategies.find(s => s.team_id === teamId) ?? null;
   const myNeeds = getNeedPositions(myProfile);
   const myWants = wantsSet(myProfile);
-  const wantsPicks = myWants.has("draft_picks");
 
   const allRosters: Record<string, Asset[]> = {};
 
@@ -131,16 +150,19 @@ export async function GET(request: NextRequest) {
     // Players
     for (const pid of (roster.players ?? []).map(String)) {
       const info = pDict[pid]; if (!info) continue;
-      const pv = playerValues[pid]; if (!pv || pv.value <= 0) continue;
+      const val = teamValues[`${rid}:${pid}`] ?? 0;
+      if (val <= 0) continue;
       const name = info.full_name || [info.first_name, info.last_name].filter(Boolean).join(" ") || pid;
       const pos = info.position?.toUpperCase() || "–";
       const age = computeAge(info);
       const att = attMap[`${rid}:${pid}`] || "core";
+      const isStud = baseStud[name] ?? false;
+      const isYouth = baseYouth[name] ?? false;
       const needW = myNeeds[pos] ?? 0;
-      const wantsW = (myWants.has("elite_producers") && pv.isStud) ? 25 : (myWants.has("young_upside") && pv.isYouth) ? 20 : (myWants.has("roster_depth") && pv.value >= 1000 && pv.value <= 4000) ? 10 : 0;
-      const fitScore = needW * 30 + wantsW - tierSort(att) * 3 + Math.min(pv.value / 200, 25);
+      const wantsW = (myWants.has("elite_producers") && isStud) ? 25 : (myWants.has("young_upside") && isYouth) ? 20 : (myWants.has("roster_depth") && val >= 30 && val <= 120) ? 10 : 0;
+      const fitScore = needW * 30 + wantsW - tierSort(att) * 3 + Math.min(val / 10, 25);
       const meta = [pos, info.team || "FA", age ? String(age) : ""].filter(Boolean).join(" · ");
-      assets.push({ key: `player:${pid}`, name, meta, rosterMeta: meta, position: pos, posGroup: posGroup(pos), tier: att === "core_piece" ? "core" : att, tierLabel: tierLabel(att), teamId: rid, teamName: tNames[rid] ?? `Team ${rid}`, value: pv.value, fitScore, type: "player", isStud: pv.isStud, isYouth: pv.isYouth });
+      assets.push({ key: `player:${pid}`, name, meta, rosterMeta: meta, position: pos, posGroup: posGroup(pos), tier: att === "core_piece" ? "core" : att, tierLabel: tierLabel(att), teamId: rid, teamName: tNames[rid] ?? `Team ${rid}`, value: val, fitScore, type: "player", isStud, isYouth });
     }
 
     // Picks
@@ -148,46 +170,36 @@ export async function GET(request: NextRequest) {
       const round = pick.round ?? 1;
       const season = Number(pick.season ?? cfcYear);
       const slot = pick.pick_no;
-
-      // Exclude prior year picks entirely
       if (season < cfcYear) continue;
-
       const isCurrentYear = season === cfcYear;
+      let val = 0;
+      let label = "";
 
       if (isCurrentYear) {
-        // Current year: check draft_log for spent picks
         const pickNum = slot ? `${round}.${String(slot).padStart(2, "0")}` : null;
         if (pickNum && spentPicks.has(pickNum)) continue;
-        // Value from display_name lookup
-        const val = pickNum ? (pickValuesByDisplay[pickNum] ?? 0) : (futurePickValues[round] ?? 0);
-        if (val <= 0) continue;
-        const label = pickNum ? `${season} ${pickNum}` : `${season} Rd ${round}`;
-        const origRid = String(pick.original_roster_id ?? pick.roster_id ?? rid);
-        const ownerName = tNames[rid] ?? `Team ${rid}`;
-        const isVia = origRid !== rid;
-        const origNick = isVia ? teamNick(tNames[origRid] ?? `Team ${origRid}`) : "";
-        const meta = isVia ? `Draft pick · ${ownerName} (via ${origNick})` : `Draft pick · ${ownerName}`;
-        const rosterMeta = isVia ? `Draft pick (via ${origNick})` : "Draft pick";
-        const pickKey = `pick:${season}-${round}-${slot || "tbd"}-${origRid}`;
-        let pickFit = wantsPicks ? (round === 1 ? 100 : round === 2 ? 70 : 40) : (round === 1 ? 30 : round === 2 ? 15 : 5);
-        pickFit += Math.min(val / 100, 30);
-        assets.push({ key: pickKey, name: label, meta, rosterMeta, position: "PICK", posGroup: "PICK", tier: "core", tierLabel: "Core", teamId: rid, teamName: ownerName, value: val, fitScore: pickFit, type: "pick", isStud: false, isYouth: false });
+        val = pickNum ? (pickValuesByDisplay[pickNum] ?? 0) : (futurePickValues[round] ?? 0);
+        label = pickNum ? `${season} ${pickNum}` : `${season} Rd ${round}`;
       } else {
-        // Future year: generic display, middle slot value
-        const val = futurePickValues[round] ?? 0;
-        if (val <= 0) continue;
-        const label = `${season} Rd ${round}`;
-        const origRid = String(pick.original_roster_id ?? pick.roster_id ?? rid);
-        const ownerName = tNames[rid] ?? `Team ${rid}`;
-        const isVia = origRid !== rid;
-        const origNick = isVia ? teamNick(tNames[origRid] ?? `Team ${origRid}`) : "";
-        const meta = isVia ? `Draft pick · ${ownerName} (via ${origNick})` : `Draft pick · ${ownerName}`;
-        const rosterMeta = isVia ? `Draft pick (via ${origNick})` : "Draft pick";
-        const pickKey = `pick:${season}-${round}-${origRid}`;
-        let pickFit = wantsPicks ? (round === 1 ? 100 : round === 2 ? 70 : 40) : (round === 1 ? 30 : round === 2 ? 15 : 5);
-        pickFit += Math.min(val / 100, 30);
-        assets.push({ key: pickKey, name: label, meta, rosterMeta, position: "PICK", posGroup: "PICK", tier: "core", tierLabel: "Core", teamId: rid, teamName: ownerName, value: val, fitScore: pickFit, type: "pick", isStud: false, isYouth: false });
+        val = futurePickValues[round] ?? 0;
+        label = `${season} Rd ${round}`;
       }
+      if (val <= 0) continue;
+
+      const origRid = String(pick.original_roster_id ?? pick.roster_id ?? rid);
+      const ownerName = tNames[rid] ?? `Team ${rid}`;
+      const isVia = origRid !== rid;
+      const origNick = isVia ? teamNick(tNames[origRid] ?? `Team ${origRid}`) : "";
+      const meta = isVia ? `Draft pick · ${ownerName} (via ${origNick})` : `Draft pick · ${ownerName}`;
+      const rosterMeta = isVia ? `Draft pick (via ${origNick})` : "Draft pick";
+      const pickKey = isCurrentYear ? `pick:${season}-${round}-${slot || "tbd"}-${origRid}` : `pick:${season}-${round}-${origRid}`;
+
+      // Same scoring formula as players — picks_market drives needLevel
+      const needW = myNeeds["PICK"] ?? 0;
+      const wantsW = myWants.has("draft_picks") ? 25 : 0;
+      const fitScore = needW * 30 + wantsW - 6 + Math.min(val / 10, 25);
+
+      assets.push({ key: pickKey, name: label, meta, rosterMeta, position: "PICK", posGroup: "PICK", tier: "core", tierLabel: "Core", teamId: rid, teamName: ownerName, value: val, fitScore, type: "pick", isStud: false, isYouth: false });
     }
 
     assets.sort((a, b) => b.fitScore - a.fitScore || b.value - a.value);
@@ -213,35 +225,30 @@ export async function GET(request: NextRequest) {
     // Stage 1: Do they have what I want?
     let s1 = 0;
     for (const a of theirAssets) {
-      if (myWants.has("elite_producers") && a.isStud) s1 += 10 + Math.min(a.value / 500, 20);
-      if (myWants.has("young_upside") && a.isYouth) s1 += 5 + Math.min(a.value / 500, 10);
-      if (myWants.has("draft_picks") && a.type === "pick") s1 += 8 + Math.min(a.value / 500, 15);
-      if (myWants.has("roster_depth") && a.value >= 1000 && a.value <= 4000) s1 += 3;
-      const pos = a.position;
-      if (myNeeds[pos]) s1 += myNeeds[pos] * 5 + Math.min(a.value / 500, 10);
+      if (myWants.has("elite_producers") && a.isStud) s1 += 10 + Math.min(a.value / 20, 20);
+      if (myWants.has("young_upside") && a.isYouth) s1 += 5 + Math.min(a.value / 20, 10);
+      if (myWants.has("draft_picks") && a.type === "pick") s1 += 8 + Math.min(a.value / 20, 15);
+      if (myWants.has("roster_depth") && a.value >= 30 && a.value <= 120) s1 += 3;
+      if (myNeeds[a.position]) s1 += myNeeds[a.position] * 5 + Math.min(a.value / 20, 10);
     }
 
     // Stage 2: Complementary or competing?
     let s2 = 0;
     const theirSell = getSellPos(tp);
     for (const pos of Object.keys(myNeeds)) if (theirSell.includes(pos)) s2 += 5;
-    // Competing wants = negative
     for (const w of myWants) if (tw.has(w)) s2 -= 4;
-    // Complementary wants = positive
     if (myWants.has("draft_picks") && tw.has("elite_producers")) s2 += 6;
     if (myWants.has("elite_producers") && tw.has("draft_picks")) s2 += 6;
     if (myWants.has("young_upside") && tw.has("elite_producers")) s2 += 3;
 
     // Stage 3: Do I have what they want? (including untouchables)
     let s3 = 0;
-    if (tw.has("elite_producers")) { const count = myAssets.filter(a => a.isStud).length; s3 += count * 4; }
-    if (tw.has("young_upside")) { const count = myAssets.filter(a => a.isYouth).length; s3 += count * 3; }
-    if (tw.has("draft_picks")) { const count = myAssets.filter(a => a.type === "pick").length; s3 += count * 3; }
-    if (tw.has("roster_depth")) { const count = myAssets.filter(a => a.value >= 1000 && a.value <= 4000).length; s3 += count * 2; }
-    const theirNeeds: string[] = [];
-    if (tp?.qb_market === "buy") theirNeeds.push("QB"); if (tp?.rb_market === "buy") theirNeeds.push("RB");
-    if (tp?.wr_market === "buy") theirNeeds.push("WR"); if (tp?.te_market === "buy") theirNeeds.push("TE");
-    for (const pos of theirNeeds) { const count = myAssets.filter(a => a.position === pos && a.tier !== "untouchable").length; s3 += count * 3; }
+    if (tw.has("elite_producers")) s3 += myAssets.filter(a => a.isStud).length * 4;
+    if (tw.has("young_upside")) s3 += myAssets.filter(a => a.isYouth).length * 3;
+    if (tw.has("draft_picks")) s3 += myAssets.filter(a => a.type === "pick").length * 3;
+    if (tw.has("roster_depth")) s3 += myAssets.filter(a => a.value >= 30 && a.value <= 120).length * 2;
+    const theirBuy = getBuyPos(tp);
+    for (const pos of theirBuy) s3 += myAssets.filter(a => a.position === pos && a.tier !== "untouchable").length * 3;
 
     const score = s1 * 3 + s2 * 2 + s3;
     const labels = wantsLabels(tp);
