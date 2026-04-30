@@ -10,15 +10,35 @@ import RoutingPopup from "./RoutingPopup";
 import type { CartItem } from "./CartSidebar";
 
 type Props = { initialCart: CartItem[]; initialTeams: { id: string; name: string }[]; onBack: () => void };
-type RosterPlayer = { key: string; name: string; meta: string; rosterMeta: string; tier: string; value: number; position: string; posGroup: string; type: "player" | "pick"; fitScore: number; isStud: boolean; isYouth: boolean };
-type StratProfile = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; wr_market: string; te_market: string; picks_market: string };
+type RosterPlayer = {
+  key: string;
+  name: string;
+  meta: string;
+  rosterMeta: string;
+  tier: string;
+  value: number;
+  position: string;
+  posGroup: string;
+  type: "player" | "pick";
+  fitScore: number;
+  isStud: boolean;
+  isYouth: boolean;
+};
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
-const POS_SECTIONS = [{ key: "QB", label: "Quarterbacks" }, { key: "RB", label: "Running Backs" }, { key: "PASS", label: "Pass Catchers" }, { key: "PICK", label: "Draft Picks" }];
+const POS_SECTIONS = [
+  { key: "QB", label: "Quarterbacks" },
+  { key: "RB", label: "Running Backs" },
+  { key: "PASS", label: "Pass Catchers" },
+  { key: "PICK", label: "Draft Picks" },
+];
 
-function teamNick(name: string): string { const p = name.split(" "); return p.length > 1 ? p.slice(1).join(" ") : name; }
+function teamNick(name: string): string {
+  const p = name.split(" ");
+  return p.length > 1 ? p.slice(1).join(" ") : name;
+}
 
 export default function TradeBuilder({ initialCart, initialTeams, onBack }: Props) {
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
@@ -28,15 +48,27 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     return [me, ...initialTeams.filter(t => t.id !== myTeamId)];
   });
   const [dealAssets, setDealAssets] = useState<DealAsset[]>(() =>
-    initialCart.map(c => ({ key: c.key, name: c.name, fromTeamId: c.teamId, toTeamId: myTeamId, fromTeamName: c.teamName, toTeamName: myTeamName || `Team ${myTeamId}` }))
+    initialCart.map(c => ({
+      key: c.key,
+      name: c.name,
+      fromTeamId: c.teamId,
+      toTeamId: myTeamId,
+      fromTeamName: c.teamName,
+      toTeamName: myTeamName || `Team ${myTeamId}`,
+    }))
   );
   const [activeTab, setActiveTab] = useState(myTeamId);
   const [rosters, setRosters] = useState<Record<string, RosterPlayer[]>>({});
-  const [profiles, setProfiles] = useState<Record<string, StratProfile>>({});
   const [loading, setLoading] = useState(true);
   const [routingPopup, setRoutingPopup] = useState<{ key: string; name: string; fromTeamId: string } | null>(null);
+
+  // Advisor state — single source of truth from server
   const [advisorProse, setAdvisorProse] = useState("Add assets to both sides to get my take on this deal.");
+  const [advisorGrade, setAdvisorGrade] = useState("");
+  const [advisorGradeColor, setAdvisorGradeColor] = useState("#8C7E6A");
+  const [advisorSuggestions, setAdvisorSuggestions] = useState<AdvisorSuggestion[]>([]);
   const [advisorLoading, setAdvisorLoading] = useState(false);
+
   const [sending, setSending] = useState(false);
   const [toast, setToast] = useState("");
   const [rosterSearch, setRosterSearch] = useState("");
@@ -64,200 +96,194 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
           }));
         }
         setRosters(r);
-        setProfiles(j.profiles ?? {});
       })
-      .catch(() => {}).finally(() => setLoading(false));
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [myTeamId]);
 
-  // Gap calculation — uses values directly from API (no client-side adjustments)
-  // MY sends use MY team's final_value, THEIR assets use THEIR team's final_value
-  const computeGap = useCallback(() => {
-    let sv = 0;
-    let rv = 0;
-    for (const a of dealAssets) {
-      const fromRoster = rosters[a.fromTeamId] ?? [];
-      const p = fromRoster.find(r => r.key === a.key);
-      if (!p) continue;
-      if (a.fromTeamId === myTeamId) sv += p.value;
-      if (a.toTeamId === myTeamId) rv += p.value;
-    }
-    return { sv, rv };
-  }, [dealAssets, rosters, myTeamId]);
-
-  // Grade + suggestions — always on, sized to gap
-  const gradeData = useMemo(() => {
-    const { sv, rv } = computeGap();
-    const hasSend = dealAssets.some(a => a.fromTeamId === myTeamId);
-    const hasRecv = dealAssets.some(a => a.toTeamId === myTeamId);
-    if (!hasSend && !hasRecv) return { grade: "", gradeColor: "#8C7E6A", suggestions: [] as AdvisorSuggestion[] };
-
-    // Grade chip
-    const ratio = sv > 0 ? rv / sv : (hasRecv ? 99 : 0);
-    let grade = ""; let gradeColor = "#8C7E6A";
-    if (hasSend && hasRecv) {
-      if (ratio > 1.2 || ratio < 0.8) { grade = ratio > 1 ? "Great deal for you" : "Way off"; gradeColor = "#E8503A"; }
-      else if (ratio > 1.1 || ratio < 0.9) { grade = ratio > 1 ? "You're ahead" : "You're reaching"; gradeColor = "#F5C230"; }
-      else { grade = "In the range"; gradeColor = "#007370"; }
-    } else if (hasRecv) { grade = "Add your pieces"; gradeColor = "#F5C230"; }
-    else { grade = "Pick your targets"; gradeColor = "#F5C230"; }
-
-    // Suggestion logic
-    const suggestions: AdvisorSuggestion[] = [];
-    const myP = profiles[myTeamId] ?? null;
-    const otherTeam = otherTeams[0];
-    const otherP = otherTeam ? (profiles[otherTeam.id] ?? null) : null;
-
-    // What the OTHER team wants (for scoring my send suggestions)
-    const otherBuying: string[] = [];
-    if (otherP) {
-      if (otherP.qb_market === "buy") otherBuying.push("QB");
-      if (otherP.rb_market === "buy") otherBuying.push("RB");
-      if (otherP.wr_market === "buy") otherBuying.push("WR");
-      if (otherP.te_market === "buy") otherBuying.push("TE");
-      if (otherP.picks_market === "buy") otherBuying.push("PICK");
-    }
-    const otherWants = new Set(otherP?.wants_more ?? []);
-
-    // What positions I'm SELLING (prefer to send these)
-    const mySelling: string[] = [];
-    if (myP) {
-      if (myP.qb_market === "sell") mySelling.push("QB");
-      if (myP.rb_market === "sell") mySelling.push("RB");
-      if (myP.wr_market === "sell") mySelling.push("WR");
-      if (myP.te_market === "sell") mySelling.push("TE");
-      if (myP.picks_market === "sell") mySelling.push("PICK");
-    }
-    const myWants = new Set(myP?.wants_more ?? []);
-
-    // Filter: don't suggest assets I want to keep
-    const filterMyAsset = (p: RosterPlayer): boolean => {
-      if (dealKeys.has(p.key) || p.tier === "untouchable" || p.value <= 0) return false;
-      if (myWants.has("draft_picks") && p.type === "pick") return false;
-      const pm = p.position === "QB" ? myP?.qb_market : p.position === "RB" ? myP?.rb_market : (p.position === "WR" || p.position === "TE") ? myP?.wr_market : p.position === "PICK" ? myP?.picks_market : "hold";
-      return pm !== "buy";
-    };
-
-    // Score: prioritize what OTHER team wants + positions I'm selling
-    const scoreMyAsset = (p: RosterPlayer): number => {
-      let s = 0;
-      if (mySelling.includes(p.position)) s += 50;
-      if (otherBuying.includes(p.position)) s += 30;
-      if (otherWants.has("elite_producers") && p.isStud) s += 25;
-      if (otherWants.has("young_upside") && p.isYouth) s += 15;
-      if (otherWants.has("draft_picks") && p.type === "pick") s += 20;
-      return s;
-    };
-
-    const gap = rv - sv; // positive = I'm getting more (good for me), negative = I'm sending more (bad for me)
-    const absGap = Math.abs(gap);
-
-    if (gap > 0 || (hasSend && hasRecv && gap === 0)) {
-      // I'm getting more OR it's even — suggest MY assets to SEND (sweeten for them or seal the deal)
-      const target = gap > 0 ? gap : (sv * 0.05); // if even, suggest ~5% sweetener
-      const avail = (rosters[myTeamId] ?? [])
-        .filter(filterMyAsset)
-        .map(p => ({ ...p, fit: scoreMyAsset(p) }))
-        .sort((a, b) => b.fit - a.fit || Math.abs(a.value - target) - Math.abs(b.value - target));
-      // Find assets within 70-130% of gap
-      const singles = avail.filter(p => p.value >= target * 0.7 && p.value <= target * 1.3);
-      const pool = singles.length >= 2 ? singles : avail;
-      for (const p of pool.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "send" });
-    } else if (gap < 0) {
-      // I'm sending more — suggest THEIR assets to RECEIVE (get more back)
-      const target = absGap;
-      const avail = (rosters[otherTeam?.id ?? ""] ?? [])
-        .filter(p => !dealKeys.has(p.key) && p.value > 0)
-        .sort((a, b) => Math.abs(a.value - target) - Math.abs(b.value - target));
-      const singles = avail.filter(p => p.value >= target * 0.5 && p.value <= target * 1.5);
-      const pool = singles.length >= 2 ? singles : avail;
-      for (const p of pool.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "receive" });
-    } else if (hasRecv && !hasSend) {
-      // Only receive side — suggest MY assets to SEND
-      const avail = (rosters[myTeamId] ?? [])
-        .filter(filterMyAsset)
-        .map(p => ({ ...p, fit: scoreMyAsset(p) }))
-        .sort((a, b) => b.fit - a.fit || b.value - a.value);
-      const singles = avail.filter(p => p.value >= rv * 0.7 && p.value <= rv * 1.3);
-      const pool = singles.length >= 2 ? singles : avail;
-      for (const p of pool.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "send" });
-    } else if (hasSend && !hasRecv && otherTeam) {
-      // Only send side — suggest THEIR assets to RECEIVE
-      const avail = (rosters[otherTeam.id] ?? [])
-        .filter(p => !dealKeys.has(p.key) && p.value > 0)
-        .sort((a, b) => Math.abs(a.value - sv) - Math.abs(b.value - sv));
-      const singles = avail.filter(p => p.value >= sv * 0.7 && p.value <= sv * 1.3);
-      const pool = singles.length >= 2 ? singles : avail;
-      for (const p of pool.slice(0, 3)) suggestions.push({ key: p.key, name: p.name, meta: p.rosterMeta, direction: "receive" });
-    }
-
-    return { grade, gradeColor, suggestions };
-  }, [computeGap, dealAssets, rosters, profiles, myTeamId, otherTeams, dealKeys]);
-
-  // Async AI prose
+  // Single advisor call — server returns prose + grade + suggestions together
   useEffect(() => {
     if (advisorTimer.current) clearTimeout(advisorTimer.current);
-    if (!dealAssets.length) { setAdvisorProse("Add players or picks to both sides to get my take."); return; }
+
+    if (!dealAssets.length) {
+      setAdvisorProse("Add players or picks to both sides to get my take.");
+      setAdvisorGrade("");
+      setAdvisorGradeColor("#8C7E6A");
+      setAdvisorSuggestions([]);
+      return;
+    }
+
     setAdvisorLoading(true);
     advisorTimer.current = setTimeout(async () => {
-      const { sv, rv } = computeGap();
-      const myRoster = (rosters[myTeamId] ?? []).map(p => ({ name: p.name, position: p.position, value: p.value, tier: p.tier, isStud: p.isStud, isYouth: p.isYouth }));
-      const otherRosters: Record<string, { name: string; position: string; value: number; tier: string; isStud: boolean; isYouth: boolean }[]> = {};
-      for (const t of otherTeams) otherRosters[t.id] = (rosters[t.id] ?? []).map(p => ({ name: p.name, position: p.position, value: p.value, tier: p.tier, isStud: p.isStud, isYouth: p.isYouth }));
       try {
         const res = await fetch("/api/trades/advisor", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ my_team_id: myTeamId, other_team_ids: otherTeams.map(t => t.id), deal_assets: dealAssets, my_sends_value: sv, my_receives_value: rv, my_roster: myRoster, other_rosters: otherRosters }),
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            my_team_id: myTeamId,
+            other_team_ids: otherTeams.map(t => t.id),
+            deal_assets: dealAssets,
+            rosters,
+          }),
         });
-        if (res.ok) { const j = await res.json(); if (j.prose) setAdvisorProse(j.prose); }
-      } catch {} finally { setAdvisorLoading(false); }
-    }, 2000);
-    return () => { if (advisorTimer.current) clearTimeout(advisorTimer.current); };
-  }, [dealAssets, myTeamId, otherTeams, computeGap, rosters]);
+        if (res.ok) {
+          const j = await res.json();
+          if (j.prose) setAdvisorProse(j.prose);
+          setAdvisorGrade(j.grade ?? "");
+          setAdvisorGradeColor(j.gradeColor ?? "#8C7E6A");
+          setAdvisorSuggestions(Array.isArray(j.suggestions) ? j.suggestions : []);
+        }
+      } catch {
+        // keep previous state on error
+      } finally {
+        setAdvisorLoading(false);
+      }
+    }, 1500);
 
-  const removeDealAsset = useCallback((key: string) => { setDealAssets(prev => prev.filter(a => a.key !== key)); }, []);
+    return () => {
+      if (advisorTimer.current) clearTimeout(advisorTimer.current);
+    };
+  }, [dealAssets, myTeamId, otherTeams, rosters]);
+
+  const removeDealAsset = useCallback((key: string) => {
+    setDealAssets(prev => prev.filter(a => a.key !== key));
+  }, []);
+
   const addDealAsset = useCallback((key: string, name: string, fromTeamId: string, toTeamId: string) => {
-    const from = teams.find(t => t.id === fromTeamId); const to = teams.find(t => t.id === toTeamId);
-    setDealAssets(prev => prev.some(a => a.key === key) ? prev : [...prev, { key, name, fromTeamId, toTeamId, fromTeamName: from?.name ?? fromTeamId, toTeamName: to?.name ?? toTeamId }]);
+    const from = teams.find(t => t.id === fromTeamId);
+    const to = teams.find(t => t.id === toTeamId);
+    setDealAssets(prev => prev.some(a => a.key === key) ? prev : [...prev, {
+      key, name, fromTeamId, toTeamId,
+      fromTeamName: from?.name ?? fromTeamId,
+      toTeamName: to?.name ?? toTeamId,
+    }]);
   }, [teams]);
+
   const handleRosterTap = useCallback((key: string, name: string) => {
     if (dealKeys.has(key)) { removeDealAsset(key); return; }
     if (threeTeam) { setRoutingPopup({ key, name, fromTeamId: activeTab }); return; }
-    if (activeTab === myTeamId) { const o = otherTeams[0]; if (o) addDealAsset(key, name, myTeamId, o.id); }
-    else addDealAsset(key, name, activeTab, myTeamId);
+    if (activeTab === myTeamId) {
+      const o = otherTeams[0];
+      if (o) addDealAsset(key, name, myTeamId, o.id);
+    } else {
+      addDealAsset(key, name, activeTab, myTeamId);
+    }
   }, [activeTab, threeTeam, myTeamId, otherTeams, dealKeys, addDealAsset, removeDealAsset]);
-  const handleRoutingSelect = useCallback((toTeamId: string) => { if (!routingPopup) return; addDealAsset(routingPopup.key, routingPopup.name, routingPopup.fromTeamId, toTeamId); setRoutingPopup(null); }, [routingPopup, addDealAsset]);
-  const handleAddFromTeam = useCallback((teamId: string) => { if (teamId === "__universal__") setRoutingPopup({ key: "__browse__", name: "", fromTeamId: "__universal__" }); else { setActiveTab(teamId); setRosterSearch(""); } }, []);
-  const handleUniversalBrowse = useCallback((teamId: string) => { setRoutingPopup(null); setActiveTab(teamId); setRosterSearch(""); }, []);
-  const handleSuggestionTap = useCallback((key: string) => {
-    const s = gradeData.suggestions.find(x => x.key === key); if (!s) return;
-    if (s.direction === "send") { const o = otherTeams[0]; if (o) addDealAsset(key, s.name, myTeamId, o.id); }
-    else addDealAsset(key, s.name, otherTeams[0]?.id ?? "", myTeamId);
-  }, [gradeData.suggestions, otherTeams, myTeamId, addDealAsset]);
+
+  const handleRoutingSelect = useCallback((toTeamId: string) => {
+    if (!routingPopup) return;
+    addDealAsset(routingPopup.key, routingPopup.name, routingPopup.fromTeamId, toTeamId);
+    setRoutingPopup(null);
+  }, [routingPopup, addDealAsset]);
+
+  const handleAddFromTeam = useCallback((teamId: string) => {
+    if (teamId === "__universal__") {
+      setRoutingPopup({ key: "__browse__", name: "", fromTeamId: "__universal__" });
+    } else {
+      setActiveTab(teamId);
+      setRosterSearch("");
+    }
+  }, []);
+
+  const handleUniversalBrowse = useCallback((teamId: string) => {
+    setRoutingPopup(null);
+    setActiveTab(teamId);
+    setRosterSearch("");
+  }, []);
+
+  // Suggestions are bundles — tapping adds ALL assets in the suggestion atomically
+  const handleSuggestionTap = useCallback((suggestion: AdvisorSuggestion) => {
+    const otherTeam = otherTeams[0];
+    if (!otherTeam) return;
+    const fromTeamId = suggestion.direction === "send" ? myTeamId : otherTeam.id;
+    const toTeamId = suggestion.direction === "send" ? otherTeam.id : myTeamId;
+    const fromTeam = teams.find(t => t.id === fromTeamId);
+    const toTeam = teams.find(t => t.id === toTeamId);
+
+    setDealAssets(prev => {
+      const existing = new Set(prev.map(a => a.key));
+      const additions: DealAsset[] = [];
+      for (const asset of suggestion.assets) {
+        if (existing.has(asset.key)) continue;
+        additions.push({
+          key: asset.key,
+          name: asset.name,
+          fromTeamId,
+          toTeamId,
+          fromTeamName: fromTeam?.name ?? fromTeamId,
+          toTeamName: toTeam?.name ?? toTeamId,
+        });
+      }
+      return [...prev, ...additions];
+    });
+  }, [otherTeams, myTeamId, teams]);
+
   const handleSendOffer = useCallback(async () => {
     if (sending) return;
-    const ms = dealAssets.filter(a => a.fromTeamId === myTeamId); const mr = dealAssets.filter(a => a.toTeamId === myTeamId);
+    const ms = dealAssets.filter(a => a.fromTeamId === myTeamId);
+    const mr = dealAssets.filter(a => a.toTeamId === myTeamId);
     if (!ms.length || !mr.length) { flash("Add assets to both sides."); return; }
     setSending(true);
     try {
-      const to = otherTeams[0]; if (!to) return;
-      const res = await fetch("/api/trades/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ from_team_id: myTeamId, to_team_id: to.id, assets_from: ms.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("player:") ? "player" : "pick", value: 0 })), assets_to: mr.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("player:") ? "player" : "pick", value: 0 })), from_value: 0, to_value: 0, grade_label: gradeData.grade || "Fair" }) });
-      if (res.ok) { flash("Offer sent!"); setTimeout(() => { window.location.href = "/trades"; }, 1000); }
-      else { const j = await res.json().catch(() => ({})); flash(j.error || "Failed"); }
-    } catch { flash("Failed"); } finally { setSending(false); }
-  }, [sending, dealAssets, myTeamId, otherTeams, gradeData.grade, flash]);
+      const to = otherTeams[0];
+      if (!to) return;
+      const res = await fetch("/api/trades/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from_team_id: myTeamId,
+          to_team_id: to.id,
+          assets_from: ms.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("player:") ? "player" : "pick", value: 0 })),
+          assets_to: mr.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("player:") ? "player" : "pick", value: 0 })),
+          from_value: 0,
+          to_value: 0,
+          grade_label: advisorGrade || "Fair",
+        }),
+      });
+      if (res.ok) {
+        flash("Offer sent!");
+        setTimeout(() => { window.location.href = "/trades"; }, 1000);
+      } else {
+        const j = await res.json().catch(() => ({}));
+        flash(j.error || "Failed");
+      }
+    } catch {
+      flash("Failed");
+    } finally {
+      setSending(false);
+    }
+  }, [sending, dealAssets, myTeamId, otherTeams, advisorGrade, flash]);
 
   const activeRoster = useMemo(() => {
     let players = rosters[activeTab] ?? [];
-    if (rosterSearch.trim()) { const q = rosterSearch.toLowerCase(); players = players.filter(p => p.name.toLowerCase().includes(q) || p.meta.toLowerCase().includes(q) || p.rosterMeta.toLowerCase().includes(q)); }
+    if (rosterSearch.trim()) {
+      const q = rosterSearch.toLowerCase();
+      players = players.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.meta.toLowerCase().includes(q) ||
+        p.rosterMeta.toLowerCase().includes(q)
+      );
+    }
     return players;
   }, [rosters, activeTab, rosterSearch]);
-  const posSections = useMemo(() => POS_SECTIONS.map(sec => ({ ...sec, items: activeRoster.filter(p => (p.posGroup ?? "OTHER") === sec.key).sort((a, b) => b.value - a.value) })).filter(s => s.items.length > 0), [activeRoster]);
+
+  const posSections = useMemo(() =>
+    POS_SECTIONS.map(sec => ({
+      ...sec,
+      items: activeRoster.filter(p => (p.posGroup ?? "OTHER") === sec.key).sort((a, b) => b.value - a.value),
+    })).filter(s => s.items.length > 0)
+  , [activeRoster]);
+
   const canSend = dealAssets.some(a => a.fromTeamId === myTeamId) && dealAssets.some(a => a.toTeamId === myTeamId);
   const tabFontSize = teams.length > 2 ? Math.min(11, Math.floor(90 / Math.max(...teams.map(t => teamNick(t.name).length), 1))) : 11;
 
   return (
     <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {toast && <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#3366CC", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>{toast}</div>}
+      {toast && (
+        <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#3366CC", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>
+          {toast}
+        </div>
+      )}
       <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div onClick={onBack} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back</div>
@@ -273,29 +299,69 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
         <div style={{ display: "flex", flexDirection: "column", borderRight: "2px solid #1A1A1A", overflow: "hidden" }}>
           <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
             <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={threeTeam} />
-            <AIAdvisor grade={gradeData.grade} gradeColor={gradeData.gradeColor} prose={advisorProse} suggestions={gradeData.suggestions} onTapSuggestion={handleSuggestionTap} loading={advisorLoading} />
+            <AIAdvisor
+              grade={advisorGrade}
+              gradeColor={advisorGradeColor}
+              prose={advisorProse}
+              suggestions={advisorSuggestions}
+              onTapSuggestion={handleSuggestionTap}
+              loading={advisorLoading}
+            />
           </div>
           <div style={{ padding: "12px 20px", borderTop: "2px solid #1A1A1A", flexShrink: 0, background: "#F5F0E6" }}>
-            <div onClick={canSend ? handleSendOffer : undefined} style={{ background: canSend ? "#E8503A" : "#C8C3B8", color: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: canSend ? "3px 3px 0 #1A1A1A" : "none", padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: 14, cursor: canSend ? "pointer" : "not-allowed", textTransform: "uppercase", letterSpacing: "0.04em", opacity: canSend ? 1 : 0.5 }}>{sending ? "Sending…" : "Send offer"}</div>
+            <div onClick={canSend ? handleSendOffer : undefined} style={{ background: canSend ? "#E8503A" : "#C8C3B8", color: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: canSend ? "3px 3px 0 #1A1A1A" : "none", padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: 14, cursor: canSend ? "pointer" : "not-allowed", textTransform: "uppercase", letterSpacing: "0.04em", opacity: canSend ? 1 : 0.5 }}>
+              {sending ? "Sending…" : "Send offer"}
+            </div>
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", background: "#FEFCF9", overflow: "hidden" }}>
           <div style={{ display: "flex", borderBottom: "2.5px solid #1A1A1A", flexShrink: 0 }}>
-            {teams.map((t, i) => <div key={t.id} onClick={() => { setActiveTab(t.id); setRosterSearch(""); }} style={{ flex: 1, padding: "10px 4px", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: tabFontSize, textTransform: "uppercase", letterSpacing: "0.04em", cursor: "pointer", background: activeTab === t.id ? "#1A1A1A" : "#FEFCF9", color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A", borderRight: i < teams.length - 1 ? "1px solid " + (activeTab === t.id ? "#FEFCF9" : "#C8C3B8") : "none" }}>{teamNick(t.name)}</div>)}
+            {teams.map((t, i) => (
+              <div key={t.id} onClick={() => { setActiveTab(t.id); setRosterSearch(""); }} style={{ flex: 1, padding: "10px 4px", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: tabFontSize, textTransform: "uppercase", letterSpacing: "0.04em", cursor: "pointer", background: activeTab === t.id ? "#1A1A1A" : "#FEFCF9", color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A", borderRight: i < teams.length - 1 ? "1px solid " + (activeTab === t.id ? "#FEFCF9" : "#C8C3B8") : "none" }}>
+                {teamNick(t.name)}
+              </div>
+            ))}
           </div>
           <div style={{ padding: "8px 14px", borderBottom: "1.5px solid #C8C3B8", flexShrink: 0 }}>
-            <input type="text" placeholder={`Search ${teamNick(teams.find(t => t.id === activeTab)?.name ?? "")} roster…`} value={rosterSearch} onChange={e => setRosterSearch(e.target.value)} style={{ width: "100%", border: "2px solid #1A1A1A", padding: "6px 10px", fontSize: 11, background: "#FEFCF9", fontFamily: F, outline: "none", boxSizing: "border-box" }} />
+            <input
+              type="text"
+              placeholder={`Search ${teamNick(teams.find(t => t.id === activeTab)?.name ?? "")} roster…`}
+              value={rosterSearch}
+              onChange={e => setRosterSearch(e.target.value)}
+              style={{ width: "100%", border: "2px solid #1A1A1A", padding: "6px 10px", fontSize: 11, background: "#FEFCF9", fontFamily: F, outline: "none", boxSizing: "border-box" }}
+            />
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "0 14px", minHeight: 0 }}>
-            {loading ? <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>Loading roster…</div>
-            : posSections.length === 0 ? <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>No players found.</div>
-            : posSections.map(sec => <div key={sec.key}><TierDivider label={sec.label} />{sec.items.map(p => <PlayerRow key={p.key} name={p.name} meta={p.rosterMeta} selected={dealKeys.has(p.key)} onToggle={() => handleRosterTap(p.key, p.name)} chip={AVAILABILITY_CHIPS[p.tier]} />)}</div>)}
+            {loading ? (
+              <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>Loading roster…</div>
+            ) : posSections.length === 0 ? (
+              <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>No players found.</div>
+            ) : (
+              posSections.map(sec => (
+                <div key={sec.key}>
+                  <TierDivider label={sec.label} />
+                  {sec.items.map(p => (
+                    <PlayerRow
+                      key={p.key}
+                      name={p.name}
+                      meta={p.rosterMeta}
+                      selected={dealKeys.has(p.key)}
+                      onToggle={() => handleRosterTap(p.key, p.name)}
+                      chip={AVAILABILITY_CHIPS[p.tier]}
+                    />
+                  ))}
+                </div>
+              ))
+            )}
             <div style={{ height: 12 }} />
           </div>
         </div>
       </div>
-      {routingPopup && routingPopup.key === "__browse__" ? <RoutingPopup teams={teams} onSelect={handleUniversalBrowse} onClose={() => setRoutingPopup(null)} />
-      : routingPopup ? <RoutingPopup teams={teams.filter(t => t.id !== routingPopup.fromTeamId)} onSelect={handleRoutingSelect} onClose={() => setRoutingPopup(null)} /> : null}
+      {routingPopup && routingPopup.key === "__browse__" ? (
+        <RoutingPopup teams={teams} onSelect={handleUniversalBrowse} onClose={() => setRoutingPopup(null)} />
+      ) : routingPopup ? (
+        <RoutingPopup teams={teams.filter(t => t.id !== routingPopup.fromTeamId)} onSelect={handleRoutingSelect} onClose={() => setRoutingPopup(null)} />
+      ) : null}
     </div>
   );
 }
