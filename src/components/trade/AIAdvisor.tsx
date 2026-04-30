@@ -39,22 +39,7 @@ export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTap
       {suggestions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {suggestions.map(s => (
-            <div
-              key={s.key}
-              onClick={() => onTapSuggestion(s.key)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "7px 10px",
-                borderLeft: "3px solid #F5C230",
-                background: "#FEFCF9",
-                borderTop: "1px solid #C8C3B8",
-                borderRight: "1px solid #C8C3B8",
-                borderBottom: "1px solid #C8C3B8",
-                cursor: "pointer",
-              }}
-            >
+            <div key={s.key} onClick={() => onTapSuggestion(s.key)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderLeft: "3px solid #F5C230", background: "#FEFCF9", borderTop: "1px solid #C8C3B8", borderRight: "1px solid #C8C3B8", borderBottom: "1px solid #C8C3B8", cursor: "pointer" }}>
               <span style={{ fontWeight: 700, fontSize: 12, flex: 1, fontFamily: F }}>{s.name}</span>
               <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>{s.meta}</span>
               {s.direction === "send" ? (
