@@ -31,10 +31,10 @@ export type PromptInputs = {
   warnings: PostTradeWarning[];
   shapeMismatch: string | null;
   cfcYear: number;
-  behaviorSummary: string; // optional: brief trade history summary
+  behaviorSummary: string;
 };
 
-export const SYSTEM_PROMPT = `You are a sharp dynasty fantasy football trade advisor for the Cleveland Football Club, a 12-team Superflex league. You're advising one specific GM on a trade THEY are proposing.
+export const SYSTEM_PROMPT = `You are a sharp dynasty fantasy football trade advisor for the Cleveland Football Club, a 12-team Superflex league. You're advising one specific GM on a trade THEY are proposing — they're actively trying to get a deal done, not browsing.
 
 Voice: like a friend who knows the league cold. Direct. Specific. No filler. Talk like a GM, not like an app.
 
@@ -52,13 +52,15 @@ Hard rules — every single one is mandatory:
 
 6. If the system flags a critical roster issue (CRITICAL ROSTER FLAG), you MUST mention it.
 
-7. If the system flags an asset-type mismatch (ASSET-TYPE MISMATCH), you MUST mention it. Math working on paper doesn't matter if the deal isn't the shape the other team wants.
+7. If the system flags an asset-type mismatch (ASSET-TYPE MISMATCH), you MUST mention it.
 
 8. Reference the other team's personality when relevant — how they negotiate matters as much as the math.
 
-9. Never say "you're right," "absolutely," "great question," "I agree," or any sycophantic filler. Just give the read.
+9. When a suggestion has a TRADEOFF noted, acknowledge it naturally in your prose. The user is in active deal-making mode and is willing to consider crossing their own preferences to get something done. Don't refuse to recommend the cleanest fit just because it crosses a stated preference — surface it AND name the tradeoff. Example: "A 2027 2nd is the cleanest fit here. Yes, you've been trying to accumulate picks, but Boston wants picks and a smaller pick going out for a 1st coming back is still a net win."
 
-10. Keep it tight: 2-4 sentences. Be specific, name the actual players, talk like a real GM.`;
+10. Never say "you're right," "absolutely," "great question," "I agree," or any sycophantic filler. Just give the read.
+
+11. Keep it tight: 2-4 sentences. Be specific, name the actual players, talk like a real GM.`;
 
 export function buildUserPrompt(inputs: PromptInputs): string {
   const {
@@ -71,17 +73,14 @@ export function buildUserPrompt(inputs: PromptInputs): string {
 
   const sections: string[] = [];
 
-  // Date context
   sections.push(`CURRENT CONTEXT: ${new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}. CFC Year: ${cfcYear}. The ${cfcYear} first-round rookie draft is COMPLETE — only ${cfcYear} rounds 2-3 and ${cfcYear + 1}+ picks are tradeable.`);
 
-  // Strategy translations
   sections.push("YOUR STRATEGY:");
   sections.push(translateStrategy(myProfile, myTeamName, true));
 
   sections.push(`\n${otherTeamName.toUpperCase()}'S STRATEGY:`);
   sections.push(translateStrategy(otherProfile, otherTeamName, false));
 
-  // Team mode (contender/retool/rebuild)
   if (otherTeamMode !== "unknown") {
     const modeLabel =
       otherTeamMode === "contend" ? "in CONTENDER mode — they want win-now help; picks are a tougher sell" :
@@ -90,21 +89,17 @@ export function buildUserPrompt(inputs: PromptInputs): string {
     sections.push(`\n${otherTeamName} appears to be ${modeLabel}.`);
   }
 
-  // Personality
   sections.push(`\n${otherTeamName.toUpperCase()} OWNER PROFILE:`);
   sections.push(`  ${otherTeamPersonality.identity}`);
   sections.push(`  ${otherTeamPersonality.negotiation_style}`);
 
-  // Trade history if any
   if (behaviorSummary) {
     sections.push(`\nTRADE HISTORY: ${behaviorSummary}`);
   }
 
-  // Rosters
   sections.push(`\n${summarizeRoster(myRoster, myTeamName, true)}`);
   sections.push(`\n${summarizeRoster(otherRoster, otherTeamName, false)}`);
 
-  // Current deal
   sections.push(`\nCURRENT DEAL ON THE TABLE:`);
   if (dealAssets.length === 0) {
     sections.push("  Nothing yet.");
@@ -115,26 +110,20 @@ export function buildUserPrompt(inputs: PromptInputs): string {
     }
   }
 
-  // The verdict + gap translation (this drives the prose)
   sections.push(`\nGAP ANALYSIS (your prose MUST agree with this read):`);
   sections.push(translateGap(gap, myTeamName, otherTeamName));
 
-  // Suggestions to reference
   sections.push(`\n${describeSuggestions(suggestions)}`);
 
-  // Warnings
   const warningsText = describeWarnings(warnings);
   if (warningsText) sections.push(`\n${warningsText}`);
 
-  // Shape mismatch
   const mismatchText = describeShapeMismatch(shapeMismatch, myTeamName, otherTeamName);
   if (mismatchText) sections.push(`\n${mismatchText}`);
 
-  // Final instructions
   sections.push(`\n---`);
-  sections.push(`Write 2-4 sentences of advice for ${myTeamName}. Reference the suggested assets by name. Address any critical roster flags or asset-type mismatches. Match the gap verdict — don't contradict it. Reference ${otherTeamName}'s negotiation style if it's relevant to whether this gets done.`);
+  sections.push(`Write 2-4 sentences of advice for ${myTeamName}. Reference the suggested assets by name. If a suggestion has a tradeoff, acknowledge it naturally — don't refuse to recommend it. Address any critical roster flags or asset-type mismatches. Match the gap verdict — don't contradict it. Reference ${otherTeamName}'s negotiation style if it's relevant to whether this gets done.`);
   sections.push(`Output ONLY the prose. No JSON, no markdown, no preamble.`);
-  // Note: otherTeamId is included in the input type for completeness but not needed in prompt copy
   void otherTeamId;
 
   return sections.join("\n");
