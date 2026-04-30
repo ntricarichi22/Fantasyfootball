@@ -1,25 +1,23 @@
 "use client";
 
-type Suggestion = {
-  key: string;
-  name: string;
-  meta: string;
+type SuggestionAsset = { key: string; name: string; meta: string; value: number };
+export type AdvisorSuggestion = {
+  assets: SuggestionAsset[];
   direction: "send" | "receive";
+  closesGap: boolean;
 };
 
 type Props = {
   grade: string;
   gradeColor: string;
   prose: string;
-  suggestions: Suggestion[];
-  onTapSuggestion: (key: string) => void;
+  suggestions: AdvisorSuggestion[];
+  onTapSuggestion: (suggestion: AdvisorSuggestion) => void;
   loading?: boolean;
 };
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
-
-export type { Suggestion as AdvisorSuggestion };
 
 export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTapSuggestion, loading }: Props) {
   return (
@@ -38,17 +36,43 @@ export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTap
       </div>
       {suggestions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          {suggestions.map(s => (
-            <div key={s.key} onClick={() => onTapSuggestion(s.key)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderLeft: "3px solid #F5C230", background: "#FEFCF9", borderTop: "1px solid #C8C3B8", borderRight: "1px solid #C8C3B8", borderBottom: "1px solid #C8C3B8", cursor: "pointer" }}>
-              <span style={{ fontWeight: 700, fontSize: 12, flex: 1, fontFamily: F }}>{s.name}</span>
-              <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>{s.meta}</span>
-              {s.direction === "send" ? (
-                <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#FEFCF9", background: "#3366CC", padding: "3px 8px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>Send →</span>
-              ) : (
-                <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#3366CC", border: "1.5px solid #3366CC", background: "transparent", padding: "2px 7px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>← Receive</span>
-              )}
-            </div>
-          ))}
+          {suggestions.map((s, idx) => {
+            const isBundle = s.assets.length > 1;
+            const primaryName = isBundle
+              ? s.assets.map(a => a.name).join(" + ")
+              : s.assets[0].name;
+            const meta = isBundle
+              ? `${s.assets.length}-piece package`
+              : s.assets[0].meta;
+            return (
+              <div
+                key={`sug-${idx}-${s.assets.map(a => a.key).join("|")}`}
+                onClick={() => onTapSuggestion(s)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "7px 10px",
+                  borderLeft: "3px solid #F5C230",
+                  background: "#FEFCF9",
+                  borderTop: "1px solid #C8C3B8",
+                  borderRight: "1px solid #C8C3B8",
+                  borderBottom: "1px solid #C8C3B8",
+                  cursor: "pointer",
+                }}
+              >
+                <span style={{ fontWeight: 700, fontSize: 12, flex: 1, fontFamily: F, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {primaryName}
+                </span>
+                <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A", flexShrink: 0 }}>{meta}</span>
+                {s.direction === "send" ? (
+                  <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#FEFCF9", background: "#3366CC", padding: "3px 8px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>Send →</span>
+                ) : (
+                  <span style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "#3366CC", border: "1.5px solid #3366CC", background: "transparent", padding: "2px 7px", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>← Receive</span>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
