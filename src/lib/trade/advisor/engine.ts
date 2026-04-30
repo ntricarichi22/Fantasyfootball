@@ -29,8 +29,7 @@ export type GapVerdict =
 
 export type Gap = {
   sendValue: number; receiveValue: number;
-  ratio: number;   // receive / send
-  delta: number;   // receive - send (positive = user gets more)
+  ratio: number; delta: number;
   verdict: GapVerdict;
   hasSend: boolean; hasReceive: boolean;
 };
@@ -88,11 +87,7 @@ export function gradeFromVerdict(v: GapVerdict): { label: string; color: string;
   }
 }
 
-// ─── Liquidity tiers — the currency rule ─────────────────────────────────
-// S = Studs + 1st picks (universal currency)
-// A = Young ascending starters + 2nd picks (broadly desirable)
-// B = Established starters + 3rd picks (usable, position-dependent)
-// C = Old depth, deep bench (low currency regardless of point total)
+// ─── Liquidity tiers ─────────────────────────────────────────────────────
 
 export type LiquidityTier = "S" | "A" | "B" | "C";
 
@@ -121,9 +116,10 @@ export type Suggestion = {
   totalValue: number;
   closesGap: boolean;
   liquidityTiers: LiquidityTier[];
+  tradeoff: string | null;  // null when suggestion respects all preferences
 };
 
-type ScoredAsset = RosterAsset & { fitScore: number; tier_liq: LiquidityTier };
+type ScoredAsset = RosterAsset & { fitScore: number; tier_liq: LiquidityTier; tradeoff: string | null };
 
 function listFromMarkets(p: StrategyProfile | null, target: "buy" | "sell"): string[] {
   if (!p) return [];
@@ -136,8 +132,34 @@ function listFromMarkets(p: StrategyProfile | null, target: "buy" | "sell"): str
   return out;
 }
 
+function getMyMarket(p: StrategyProfile | null, position: string): string {
+  if (!p) return "hold";
+  if (position === "QB") return p.qb_market;
+  if (position === "RB") return p.rb_market;
+  if (position === "WR" || position === "TE") return p.wr_market;
+  if (position === "PICK") return p.picks_market;
+  return "hold";
+}
+
+// Compute tradeoff annotation when sending an asset crosses a user preference.
+// Returns null if no preference is crossed.
+function computeSendTradeoff(asset: RosterAsset, myProfile: StrategyProfile | null): string | null {
+  if (!myProfile) return null;
+  const myWants = new Set(myProfile.wants_more ?? []);
+  if (asset.type === "pick" && myWants.has("draft_picks")) {
+    return "costs you a pick when you're trying to accumulate them";
+  }
+  const market = getMyMarket(myProfile, asset.position);
+  if (asset.type === "player" && market === "buy") {
+    return `sends a ${asset.position} while you're shopping for ${asset.position}s`;
+  }
+  return null;
+}
+
 function scoreAssetForSend(asset: RosterAsset, myProfile: StrategyProfile | null, otherProfile: StrategyProfile | null): number {
   let s = 0;
+
+  // POSITIVE SIGNALS
   const mySelling = listFromMarkets(myProfile, "sell");
   if (mySelling.includes(asset.position)) s += 50;
   const otherBuying = listFromMarkets(otherProfile, "buy");
@@ -145,21 +167,27 @@ function scoreAssetForSend(asset: RosterAsset, myProfile: StrategyProfile | null
   const otherWants = new Set(otherProfile?.wants_more ?? []);
   if (otherWants.has("elite_producers") && asset.isStud) s += 25;
   if (otherWants.has("young_upside") && asset.isYouth) s += 15;
-  if (otherWants.has("draft_picks") && asset.type === "pick") s += 20;
+  // BOOSTED: other team wanting picks is the strongest send-pick signal
+  if (otherWants.has("draft_picks") && asset.type === "pick") s += 60;
   if (otherWants.has("roster_depth") && asset.value >= 30 && asset.value <= 120) s += 8;
+
+  // PENALTIES (soft — don't filter out, just nudge ordering)
+  const myWants = new Set(myProfile?.wants_more ?? []);
+  if (myWants.has("draft_picks") && asset.type === "pick") s -= 25;
+  const market = getMyMarket(myProfile, asset.position);
+  if (asset.type === "player" && market === "buy") s -= 25;
+
   return s;
 }
 
-function filterMyAsset(asset: RosterAsset, myProfile: StrategyProfile | null, dealKeys: Set<string>): boolean {
-  if (dealKeys.has(asset.key) || asset.tier === "untouchable" || asset.value <= 0) return false;
-  const myWants = new Set(myProfile?.wants_more ?? []);
-  if (myWants.has("draft_picks") && asset.type === "pick") return false;
-  const posMarket =
-    asset.position === "QB" ? myProfile?.qb_market :
-    asset.position === "RB" ? myProfile?.rb_market :
-    (asset.position === "WR" || asset.position === "TE") ? myProfile?.wr_market :
-    asset.position === "PICK" ? myProfile?.picks_market : "hold";
-  return posMarket !== "buy";
+// Filter: hard exclusions only. No preference-based bans — user is in
+// active deal-making mode and may want to consider crossing their own
+// preferences. The scoring + tradeoff annotations handle the soft cases.
+function filterMyAsset(asset: RosterAsset, dealKeys: Set<string>): boolean {
+  if (dealKeys.has(asset.key)) return false;
+  if (asset.tier === "untouchable") return false;
+  if (asset.value <= 0) return false;
+  return true;
 }
 
 function dealHasStud(dealAssets: DealAsset[], rosters: Record<string, RosterAsset[]>): boolean {
@@ -175,9 +203,12 @@ function findSingleClosers(pool: ScoredAsset[], targetValue: number, tolerance =
   return pool
     .filter(p => p.value >= min && p.value <= max)
     .sort((a, b) => {
+      // Distance to target dominates ordering when meaningfully different
       const distA = Math.abs(a.value - targetValue), distB = Math.abs(b.value - targetValue);
       if (Math.abs(distA - distB) > targetValue * 0.02) return distA - distB;
+      // Tied on value: fit score wins (this is where pick boost beats Kendre)
       if (b.fitScore !== a.fitScore) return b.fitScore - a.fitScore;
+      // Final tiebreak: prefer picks (granular currency)
       if (a.type !== b.type) return a.type === "pick" ? -1 : 1;
       return 0;
     });
@@ -211,6 +242,14 @@ function passesCurrencyRule(combo: ScoredAsset[], dealHasStudFlag: boolean): boo
   return combo.some(a => isPremiumAsset(a));
 }
 
+function combineTradeoffs(parts: (string | null)[]): string | null {
+  const real = parts.filter((p): p is string => p !== null);
+  if (real.length === 0) return null;
+  if (real.length === 1) return real[0];
+  // Combine multiple tradeoffs naturally
+  return real.join("; also ");
+}
+
 export type SuggestionContext = {
   dealAssets: DealAsset[];
   rosters: Record<string, RosterAsset[]>;
@@ -230,30 +269,42 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
 
   if (gap.verdict === "EMPTY") return [];
 
+  const buildSendPool = (): ScoredAsset[] =>
+    (rosters[myTeamId] ?? [])
+      .filter(p => filterMyAsset(p, dealKeys))
+      .map(p => ({
+        ...p,
+        fitScore: scoreAssetForSend(p, myProfile, otherProfile),
+        tier_liq: getLiquidityTier(p),
+        tradeoff: computeSendTradeoff(p, myProfile),
+      }));
+
+  const buildReceivePool = (): ScoredAsset[] =>
+    (rosters[otherTeamId] ?? [])
+      .filter(p => !dealKeys.has(p.key) && p.value > 0 && p.tier !== "untouchable")
+      .map(p => ({
+        ...p,
+        fitScore: 0,
+        tier_liq: getLiquidityTier(p),
+        tradeoff: null, // receive-side suggestions don't have user-pref tradeoffs
+      }));
+
   if (gap.verdict === "RECV_ONLY") {
     direction = "send";
     targetValue = gap.receiveValue;
-    pool = (rosters[myTeamId] ?? [])
-      .filter(p => filterMyAsset(p, myProfile, dealKeys))
-      .map(p => ({ ...p, fitScore: scoreAssetForSend(p, myProfile, otherProfile), tier_liq: getLiquidityTier(p) }));
+    pool = buildSendPool();
   } else if (gap.verdict === "SEND_ONLY") {
     direction = "receive";
     targetValue = gap.sendValue;
-    pool = (rosters[otherTeamId] ?? [])
-      .filter(p => !dealKeys.has(p.key) && p.value > 0 && p.tier !== "untouchable")
-      .map(p => ({ ...p, fitScore: 0, tier_liq: getLiquidityTier(p) }));
+    pool = buildReceivePool();
   } else if (gap.delta > 0 || gap.verdict === "FAIR") {
     direction = "send";
     targetValue = gap.delta > 0 ? gap.delta : gap.sendValue * 0.05;
-    pool = (rosters[myTeamId] ?? [])
-      .filter(p => filterMyAsset(p, myProfile, dealKeys))
-      .map(p => ({ ...p, fitScore: scoreAssetForSend(p, myProfile, otherProfile), tier_liq: getLiquidityTier(p) }));
+    pool = buildSendPool();
   } else {
     direction = "receive";
     targetValue = Math.abs(gap.delta);
-    pool = (rosters[otherTeamId] ?? [])
-      .filter(p => !dealKeys.has(p.key) && p.value > 0 && p.tier !== "untouchable")
-      .map(p => ({ ...p, fitScore: 0, tier_liq: getLiquidityTier(p) }));
+    pool = buildReceivePool();
   }
 
   if (pool.length === 0 || targetValue <= 0) return [];
@@ -267,6 +318,7 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
       assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value }],
       direction, totalValue: s.value, closesGap: true,
       liquidityTiers: [s.tier_liq],
+      tradeoff: s.tradeoff,
     });
   }
 
@@ -283,6 +335,7 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
         ],
         direction, totalValue: c.total, closesGap: true,
         liquidityTiers: [c.a.tier_liq, c.b.tier_liq],
+        tradeoff: combineTradeoffs([c.a.tradeoff, c.b.tradeoff]),
       });
       if (suggestions.length >= 3) break;
     }
@@ -297,6 +350,7 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
         assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value }],
         direction, totalValue: s.value, closesGap: false,
         liquidityTiers: [s.tier_liq],
+        tradeoff: s.tradeoff,
       });
     }
   }
