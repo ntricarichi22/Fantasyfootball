@@ -9,14 +9,6 @@ import type { StrategyProfile, RosterAsset, Gap, PostTradeWarning } from "./engi
 // Strategy translator — raw markets → natural language
 // ─────────────────────────────────────────────────────────────────────────
 
-const POSITION_LABEL: Record<string, string> = {
-  qb_market: "QB",
-  rb_market: "RB",
-  wr_market: "WR",
-  te_market: "TE",
-  picks_market: "draft picks",
-};
-
 export function translateStrategy(profile: StrategyProfile | null, teamName: string, isMe: boolean): string {
   if (!profile) return `${isMe ? "Your" : `${teamName}'s`} strategy isn't on file.`;
 
@@ -78,7 +70,7 @@ export function translateStrategy(profile: StrategyProfile | null, teamName: str
       wantsTranslated.push(isMe ? "young players with upside" : "youth");
     }
     if (wants.includes("draft_picks")) {
-      wantsTranslated.push(isMe ? "draft picks (you want to KEEP yours and acquire more — never suggest sending picks)" : "more draft picks");
+      wantsTranslated.push(isMe ? "draft picks (you're trying to NET acquire picks — but a smaller pick going out for a bigger return is still a net win)" : "more draft picks");
     }
     if (wants.includes("roster_depth")) {
       wantsTranslated.push(isMe ? "general roster depth" : "depth");
@@ -101,7 +93,6 @@ export function translateStrategy(profile: StrategyProfile | null, teamName: str
 export function summarizeRoster(roster: RosterAsset[], teamName: string, isMine: boolean): string {
   if (!roster.length) return `${teamName} roster: not loaded.`;
 
-  // Group + sort
   const sorted = [...roster].sort((a, b) => b.value - a.value);
   const lines: string[] = [];
   for (const p of sorted.slice(0, 30)) {
@@ -123,6 +114,8 @@ export function summarizeRoster(roster: RosterAsset[], teamName: string, isMine:
 // ─────────────────────────────────────────────────────────────────────────
 
 export function translateGap(gap: Gap, myTeamName: string, otherTeamName: string): string {
+  // myTeamName intentionally available for future tone shifts; current text uses second-person
+  void myTeamName;
   switch (gap.verdict) {
     case "EMPTY":
       return "Nothing's on the table yet.";
@@ -150,20 +143,27 @@ export function translateGap(gap: Gap, myTeamName: string, otherTeamName: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Suggestion description for prompt — tells AI what suggestions exist so prose matches
+// Suggestion description for prompt — tells AI what suggestions exist + tradeoffs
 // ─────────────────────────────────────────────────────────────────────────
 
 export function describeSuggestions(
-  suggestions: Array<{ assets: { name: string }[]; direction: "send" | "receive"; closesGap: boolean }>
+  suggestions: Array<{
+    assets: { name: string }[];
+    direction: "send" | "receive";
+    closesGap: boolean;
+    tradeoff: string | null;
+  }>
 ): string {
   if (suggestions.length === 0) return "No specific asset suggestions — speak generally.";
 
-  const lines = ["The system has identified these specific assets to suggest. YOUR PROSE MUST REFERENCE THESE EXACT NAMES — do not invent other player names:"];
+  const lines = ["The system identified these specific assets to suggest. YOUR PROSE MUST REFERENCE THESE EXACT NAMES — do not invent other player names. When a suggestion has a TRADEOFF noted, you should acknowledge that tradeoff naturally in your prose (e.g., 'a 2nd-round pick is the cleanest fit, though it costs you a pick when you're trying to accumulate them — but Boston wants picks and you're trying to make this happen'). Don't refuse to suggest something just because it crosses a stated preference; the user is actively trying to get a deal done."];
+
   suggestions.forEach((s, i) => {
     const names = s.assets.map(a => a.name).join(" + ");
     const dir = s.direction === "send" ? "to ADD to your send side" : "to ADD to your receive side";
     const fit = s.closesGap ? "closes the gap" : "moves the needle but won't fully close the gap";
-    lines.push(`  ${i + 1}. ${names} — ${dir} (${fit})`);
+    const tradeoffNote = s.tradeoff ? ` [TRADEOFF: ${s.tradeoff}]` : "";
+    lines.push(`  ${i + 1}. ${names} — ${dir} (${fit})${tradeoffNote}`);
   });
   return lines.join("\n");
 }
@@ -191,6 +191,7 @@ export function describeWarnings(warnings: PostTradeWarning[]): string {
 
 export function describeShapeMismatch(mismatch: string | null, myTeamName: string, otherTeamName: string): string {
   if (!mismatch) return "";
+  void myTeamName;
   switch (mismatch) {
     case "stacked_depth_for_studs":
       return `ASSET-TYPE MISMATCH: ${otherTeamName} wants studs. You're offering multiple depth pieces. Even if the math works on paper, 3-4 depth players for one stud isn't a deal that gets done in this league. Mention this directly — suggest restructuring around a stud-for-stud framework or adding picks instead of bodies.`;
