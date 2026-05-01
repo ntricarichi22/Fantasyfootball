@@ -116,7 +116,7 @@ export type Suggestion = {
   totalValue: number;
   closesGap: boolean;
   liquidityTiers: LiquidityTier[];
-  tradeoff: string | null;  // null when suggestion respects all preferences
+  tradeoff: string | null;
 };
 
 type ScoredAsset = RosterAsset & { fitScore: number; tier_liq: LiquidityTier; tradeoff: string | null };
@@ -141,8 +141,6 @@ function getMyMarket(p: StrategyProfile | null, position: string): string {
   return "hold";
 }
 
-// Compute tradeoff annotation when sending an asset crosses a user preference.
-// Returns null if no preference is crossed.
 function computeSendTradeoff(asset: RosterAsset, myProfile: StrategyProfile | null): string | null {
   if (!myProfile) return null;
   const myWants = new Set(myProfile.wants_more ?? []);
@@ -158,8 +156,6 @@ function computeSendTradeoff(asset: RosterAsset, myProfile: StrategyProfile | nu
 
 function scoreAssetForSend(asset: RosterAsset, myProfile: StrategyProfile | null, otherProfile: StrategyProfile | null): number {
   let s = 0;
-
-  // POSITIVE SIGNALS
   const mySelling = listFromMarkets(myProfile, "sell");
   if (mySelling.includes(asset.position)) s += 50;
   const otherBuying = listFromMarkets(otherProfile, "buy");
@@ -167,22 +163,15 @@ function scoreAssetForSend(asset: RosterAsset, myProfile: StrategyProfile | null
   const otherWants = new Set(otherProfile?.wants_more ?? []);
   if (otherWants.has("elite_producers") && asset.isStud) s += 25;
   if (otherWants.has("young_upside") && asset.isYouth) s += 15;
-  // BOOSTED: other team wanting picks is the strongest send-pick signal
   if (otherWants.has("draft_picks") && asset.type === "pick") s += 60;
   if (otherWants.has("roster_depth") && asset.value >= 30 && asset.value <= 120) s += 8;
-
-  // PENALTIES (soft — don't filter out, just nudge ordering)
   const myWants = new Set(myProfile?.wants_more ?? []);
   if (myWants.has("draft_picks") && asset.type === "pick") s -= 25;
   const market = getMyMarket(myProfile, asset.position);
   if (asset.type === "player" && market === "buy") s -= 25;
-
   return s;
 }
 
-// Filter: hard exclusions only. No preference-based bans — user is in
-// active deal-making mode and may want to consider crossing their own
-// preferences. The scoring + tradeoff annotations handle the soft cases.
 function filterMyAsset(asset: RosterAsset, dealKeys: Set<string>): boolean {
   if (dealKeys.has(asset.key)) return false;
   if (asset.tier === "untouchable") return false;
@@ -190,10 +179,25 @@ function filterMyAsset(asset: RosterAsset, dealKeys: Set<string>): boolean {
   return true;
 }
 
-function dealHasStud(dealAssets: DealAsset[], rosters: Record<string, RosterAsset[]>): boolean {
+// Currency rule: applied at DEAL LEVEL, not per-suggestion.
+// The rule says: "stud out demands premium return." If a stud is being moved AND
+// the SIDE that's giving up the stud already lacks premium on the receive side,
+// then sweeteners to that receive side need premium. If both sides already have
+// premium presence, sweeteners can be any tier — the deal shape is already fine.
+function dealHasStudInDirection(dealAssets: DealAsset[], rosters: Record<string, RosterAsset[]>, fromTeamId: string): boolean {
   for (const a of dealAssets) {
+    if (a.fromTeamId !== fromTeamId) continue;
     const asset = (rosters[a.fromTeamId] ?? []).find(x => x.key === a.key);
     if (asset?.isStud) return true;
+  }
+  return false;
+}
+
+function sideHasPremium(dealAssets: DealAsset[], rosters: Record<string, RosterAsset[]>, toTeamId: string): boolean {
+  for (const a of dealAssets) {
+    if (a.toTeamId !== toTeamId) continue;
+    const asset = (rosters[a.fromTeamId] ?? []).find(x => x.key === a.key);
+    if (asset && isPremiumAsset(asset)) return true;
   }
   return false;
 }
@@ -203,12 +207,9 @@ function findSingleClosers(pool: ScoredAsset[], targetValue: number, tolerance =
   return pool
     .filter(p => p.value >= min && p.value <= max)
     .sort((a, b) => {
-      // Distance to target dominates ordering when meaningfully different
       const distA = Math.abs(a.value - targetValue), distB = Math.abs(b.value - targetValue);
       if (Math.abs(distA - distB) > targetValue * 0.02) return distA - distB;
-      // Tied on value: fit score wins (this is where pick boost beats Kendre)
       if (b.fitScore !== a.fitScore) return b.fitScore - a.fitScore;
-      // Final tiebreak: prefer picks (granular currency)
       if (a.type !== b.type) return a.type === "pick" ? -1 : 1;
       return 0;
     });
@@ -237,16 +238,10 @@ function findCombos(pool: ScoredAsset[], targetValue: number, tolerance = 0.10):
   return combos;
 }
 
-function passesCurrencyRule(combo: ScoredAsset[], dealHasStudFlag: boolean): boolean {
-  if (!dealHasStudFlag) return true;
-  return combo.some(a => isPremiumAsset(a));
-}
-
 function combineTradeoffs(parts: (string | null)[]): string | null {
   const real = parts.filter((p): p is string => p !== null);
   if (real.length === 0) return null;
   if (real.length === 1) return real[0];
-  // Combine multiple tradeoffs naturally
   return real.join("; also ");
 }
 
@@ -261,7 +256,6 @@ export type SuggestionContext = {
 export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
   const { dealAssets, rosters, myTeamId, otherTeamId, myProfile, otherProfile, gap } = ctx;
   const dealKeys = new Set(dealAssets.map(a => a.key));
-  const studInDeal = dealHasStud(dealAssets, rosters);
 
   let direction: "send" | "receive" = "send";
   let targetValue = 0;
@@ -272,60 +266,72 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
   const buildSendPool = (): ScoredAsset[] =>
     (rosters[myTeamId] ?? [])
       .filter(p => filterMyAsset(p, dealKeys))
-      .map(p => ({
-        ...p,
-        fitScore: scoreAssetForSend(p, myProfile, otherProfile),
-        tier_liq: getLiquidityTier(p),
-        tradeoff: computeSendTradeoff(p, myProfile),
-      }));
+      .map(p => ({ ...p, fitScore: scoreAssetForSend(p, myProfile, otherProfile), tier_liq: getLiquidityTier(p), tradeoff: computeSendTradeoff(p, myProfile) }));
 
   const buildReceivePool = (): ScoredAsset[] =>
     (rosters[otherTeamId] ?? [])
       .filter(p => !dealKeys.has(p.key) && p.value > 0 && p.tier !== "untouchable")
-      .map(p => ({
-        ...p,
-        fitScore: 0,
-        tier_liq: getLiquidityTier(p),
-        tradeoff: null, // receive-side suggestions don't have user-pref tradeoffs
-      }));
+      .map(p => ({ ...p, fitScore: 0, tier_liq: getLiquidityTier(p), tradeoff: null }));
 
   if (gap.verdict === "RECV_ONLY") {
-    direction = "send";
-    targetValue = gap.receiveValue;
-    pool = buildSendPool();
+    direction = "send"; targetValue = gap.receiveValue; pool = buildSendPool();
   } else if (gap.verdict === "SEND_ONLY") {
-    direction = "receive";
-    targetValue = gap.sendValue;
-    pool = buildReceivePool();
+    direction = "receive"; targetValue = gap.sendValue; pool = buildReceivePool();
   } else if (gap.delta > 0 || gap.verdict === "FAIR") {
     direction = "send";
     targetValue = gap.delta > 0 ? gap.delta : gap.sendValue * 0.05;
     pool = buildSendPool();
   } else {
-    direction = "receive";
-    targetValue = Math.abs(gap.delta);
-    pool = buildReceivePool();
+    direction = "receive"; targetValue = Math.abs(gap.delta); pool = buildReceivePool();
   }
 
   if (pool.length === 0 || targetValue <= 0) return [];
 
+  // Deal-level currency rule:
+  // If a stud is going to one side, that side should already have premium received.
+  // If yes, sweeteners are unconstrained. If no AND we're suggesting for that side,
+  // sweeteners need premium.
+  let requirePremium = false;
+  if (direction === "send") {
+    // Suggestion goes to other team's RECEIVE side (i.e., toTeamId = otherTeamId).
+    // Check if my SEND side already has premium for them.
+    const myStudGoingOut = dealHasStudInDirection(dealAssets, rosters, myTeamId);
+    const otherReceivesPremium = sideHasPremium(dealAssets, rosters, otherTeamId);
+    // But also: am I receiving a stud from them? Then THEIR send side needs premium presence on MY receive side.
+    const otherStudGoingOut = dealHasStudInDirection(dealAssets, rosters, otherTeamId);
+    const meReceivesPremium = sideHasPremium(dealAssets, rosters, myTeamId);
+    // Only require premium on suggestion if a stud is moving AND the receiving side currently lacks premium
+    if (otherStudGoingOut && !otherReceivesPremium) requirePremium = true;
+    // Suppress unused var warning when stud-on-my-side path doesn't gate
+    void myStudGoingOut; void meReceivesPremium;
+  } else {
+    // Suggestion goes to MY receive side
+    const otherStudGoingOut = dealHasStudInDirection(dealAssets, rosters, otherTeamId);
+    const meReceivesPremium = sideHasPremium(dealAssets, rosters, myTeamId);
+    if (otherStudGoingOut && !meReceivesPremium) requirePremium = true;
+  }
+
+  const passesPremium = (combo: ScoredAsset[]): boolean => {
+    if (!requirePremium) return true;
+    return combo.some(a => isPremiumAsset(a));
+  };
+
   const suggestions: Suggestion[] = [];
 
-  // 1. Single-asset closers first (simpler is better)
+  // 1. Single-asset closers
   for (const s of findSingleClosers(pool, targetValue, 0.15).slice(0, 3)) {
-    if (!passesCurrencyRule([s], studInDeal)) continue;
+    if (!passesPremium([s])) continue;
     suggestions.push({
       assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value }],
       direction, totalValue: s.value, closesGap: true,
-      liquidityTiers: [s.tier_liq],
-      tradeoff: s.tradeoff,
+      liquidityTiers: [s.tier_liq], tradeoff: s.tradeoff,
     });
   }
 
-  // 2. Fill with combos if we have <3 singles
+  // 2. Fill with combos
   if (suggestions.length < 3) {
     for (const c of findCombos(pool, targetValue, 0.10)) {
-      if (!passesCurrencyRule([c.a, c.b], studInDeal)) continue;
+      if (!passesPremium([c.a, c.b])) continue;
       const usedKeys = new Set(suggestions.flatMap(s => s.assets.map(a => a.key)));
       if (usedKeys.has(c.a.key) && usedKeys.has(c.b.key)) continue;
       suggestions.push({
@@ -341,16 +347,15 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     }
   }
 
-  // 3. Fallback for huge gaps with no fit — top assets by fit
+  // 3. Fallback for huge gaps with no fit
   if (suggestions.length === 0) {
     const sorted = [...pool].sort((a, b) => b.fitScore - a.fitScore || b.value - a.value);
     for (const s of sorted.slice(0, 3)) {
-      if (!passesCurrencyRule([s], studInDeal)) continue;
+      if (!passesPremium([s])) continue;
       suggestions.push({
         assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value }],
         direction, totalValue: s.value, closesGap: false,
-        liquidityTiers: [s.tier_liq],
-        tradeoff: s.tradeoff,
+        liquidityTiers: [s.tier_liq], tradeoff: s.tradeoff,
       });
     }
   }
@@ -361,6 +366,10 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
 // ─── Post-trade roster state ─────────────────────────────────────────────
 
 export type PostTradeWarning = { severity: "info" | "warning" | "alarm"; message: string };
+
+// Threshold for "real starter QB" — anything above this is a legit Superflex starter.
+// Below this is depth/backup territory regardless of how the league as a whole values them.
+const REAL_QB_THRESHOLD = 150;
 
 export function computePostTradeWarnings(
   dealAssets: DealAsset[],
@@ -378,14 +387,31 @@ export function computePostTradeWarnings(
   }
   const postTrade = [...myRoster.filter(p => !sentKeys.has(p.key)), ...receivedAssets];
 
-  // QB scarcity (Superflex makes this critical)
-  const qbs = postTrade.filter(p => p.position === "QB" && p.type === "player");
-  if (qbs.length === 1) {
+  // QB analysis: count both total QBs AND "real starter" QBs (stud or value >= threshold)
+  const allQbs = postTrade.filter(p => p.position === "QB" && p.type === "player");
+  const realStarterQbs = allQbs.filter(p => p.isStud || p.value >= REAL_QB_THRESHOLD);
+
+  // Did the user send away a real starter QB?
+  const sentRealStarterQB = myRoster.some(p =>
+    sentKeys.has(p.key) && p.position === "QB" && p.type === "player" && (p.isStud || p.value >= REAL_QB_THRESHOLD)
+  );
+
+  if (allQbs.length === 1) {
     warnings.push({
       severity: "alarm",
-      message: `This trade leaves you with only one QB (${qbs[0].name}). Superflex makes this a major roster hole.`,
+      message: `This trade leaves you with only one QB (${allQbs[0].name}). Superflex makes this a major roster hole.`,
     });
-  } else if (qbs.length === 2 && myRoster.some(p => sentKeys.has(p.key) && p.position === "QB")) {
+  } else if (sentRealStarterQB && realStarterQbs.length <= 1) {
+    // Quality alarm: you sent a stud QB and what's left is mostly backup-level
+    const bench = allQbs.filter(p => !p.isStud && p.value < REAL_QB_THRESHOLD).map(p => p.name).slice(0, 2).join(", ");
+    const remaining = realStarterQbs.length === 1
+      ? `Only ${realStarterQbs[0].name} remains as a real starter; the rest (${bench || "your backups"}) are depth.`
+      : `What's left (${bench || "your backups"}) is bench-level QB play.`;
+    warnings.push({
+      severity: "alarm",
+      message: `This trade ships out a real starter QB. ${remaining} For Superflex, that's a major hole.`,
+    });
+  } else if (allQbs.length === 2 && myRoster.some(p => sentKeys.has(p.key) && p.position === "QB")) {
     warnings.push({ severity: "warning", message: "This trade drops you to two QBs. Thin for Superflex." });
   }
 
