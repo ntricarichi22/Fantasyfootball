@@ -55,8 +55,11 @@ export function translateStrategy(profile: StrategyProfile | null, teamName: str
     }
   }
 
+  // FIX: Don't say "set at" — that implies roster strength. Use neutral market language.
+  // The market is "hold" but that says nothing about whether the user is actually deep
+  // at the position. Don't let this leak into prose as a roster-quality claim.
   if (holding.length > 0 && isMe) {
-    lines.push(`You're SET at ${holding.join(", ")} — not actively shopping there, not actively selling.`);
+    lines.push(`Your stance on ${holding.join(", ")} is HOLD — not actively shopping or selling, but situational moves are still on the table. Do NOT describe the user as "set at" any of these positions; that's a roster-quality claim, not a market signal.`);
   }
 
   // Translate wants_more separately and explicitly
@@ -114,7 +117,6 @@ export function summarizeRoster(roster: RosterAsset[], teamName: string, isMine:
 // ─────────────────────────────────────────────────────────────────────────
 
 export function translateGap(gap: Gap, myTeamName: string, otherTeamName: string): string {
-  // myTeamName intentionally available for future tone shifts; current text uses second-person
   void myTeamName;
   switch (gap.verdict) {
     case "EMPTY":
@@ -143,7 +145,7 @@ export function translateGap(gap: Gap, myTeamName: string, otherTeamName: string
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Suggestion description for prompt — tells AI what suggestions exist + tradeoffs
+// Suggestion description for prompt
 // ─────────────────────────────────────────────────────────────────────────
 
 export function describeSuggestions(
@@ -176,7 +178,7 @@ export function describeWarnings(warnings: PostTradeWarning[]): string {
   if (warnings.length === 0) return "";
   const alarms = warnings.filter(w => w.severity === "alarm");
   if (alarms.length > 0) {
-    return `CRITICAL ROSTER FLAG — your prose MUST mention this:\n${alarms.map(w => `  - ${w.message}`).join("\n")}`;
+    return `CRITICAL ROSTER FLAG — your prose MUST mention this and MUST NOT contradict it (e.g., do not say the user is "set at QB" when this flag is present):\n${alarms.map(w => `  - ${w.message}`).join("\n")}`;
   }
   const others = warnings.filter(w => w.severity !== "alarm");
   if (others.length > 0) {
