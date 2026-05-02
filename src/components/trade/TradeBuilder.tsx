@@ -7,22 +7,16 @@ import AIAdvisor, { type AdvisorSuggestion } from "./AIAdvisor";
 import PlayerRow, { AVAILABILITY_CHIPS } from "./PlayerRow";
 import TierDivider from "./TierDivider";
 import RoutingPopup from "./RoutingPopup";
+import TeamPickerModal from "./TeamPickerModal";
 import type { CartItem } from "./CartSidebar";
 
-type Props = { initialCart: CartItem[]; initialTeams: { id: string; name: string }[]; onBack: () => void };
+type Team = { id: string; name: string };
+type Props = { initialCart: CartItem[]; initialTeams: Team[]; onBack: () => void };
 type RosterPlayer = {
-  key: string;
-  name: string;
-  meta: string;
-  rosterMeta: string;
-  tier: string;
-  value: number;
-  position: string;
-  posGroup: string;
-  type: "player" | "pick";
-  fitScore: number;
-  isStud: boolean;
-  isYouth: boolean;
+  key: string; name: string; meta: string; rosterMeta: string;
+  tier: string; value: number; position: string; posGroup: string;
+  type: "player" | "pick"; fitScore: number;
+  isStud: boolean; isYouth: boolean;
 };
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
@@ -43,26 +37,27 @@ function teamNick(name: string): string {
 export default function TradeBuilder({ initialCart, initialTeams, onBack }: Props) {
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
   const myTeamId = rosterId;
-  const [teams] = useState(() => {
+
+  // teams is now mutable so we can swap/add/remove
+  const [teams, setTeams] = useState<Team[]>(() => {
     const me = { id: myTeamId, name: myTeamName || `Team ${myTeamId}` };
     return [me, ...initialTeams.filter(t => t.id !== myTeamId)];
   });
+
   const [dealAssets, setDealAssets] = useState<DealAsset[]>(() =>
     initialCart.map(c => ({
-      key: c.key,
-      name: c.name,
-      fromTeamId: c.teamId,
-      toTeamId: myTeamId,
-      fromTeamName: c.teamName,
-      toTeamName: myTeamName || `Team ${myTeamId}`,
+      key: c.key, name: c.name,
+      fromTeamId: c.teamId, toTeamId: myTeamId,
+      fromTeamName: c.teamName, toTeamName: myTeamName || `Team ${myTeamId}`,
     }))
   );
   const [activeTab, setActiveTab] = useState(myTeamId);
   const [rosters, setRosters] = useState<Record<string, RosterPlayer[]>>({});
+  const [allTeamsList, setAllTeamsList] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
   const [routingPopup, setRoutingPopup] = useState<{ key: string; name: string; fromTeamId: string } | null>(null);
+  const [pickerMode, setPickerMode] = useState<"swap" | "add" | null>(null);
 
-  // Advisor state — single source of truth from server
   const [advisorProse, setAdvisorProse] = useState("Add assets to both sides to get my take on this deal.");
   const [advisorGrade, setAdvisorGrade] = useState("");
   const [advisorGradeColor, setAdvisorGradeColor] = useState("#8C7E6A");
@@ -96,6 +91,14 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
           }));
         }
         setRosters(r);
+        // Build a list of all teams for the picker modal, derived from the rosters response.
+        const list: Team[] = [];
+        for (const rid of Object.keys(raw)) {
+          const sample = (raw[rid] ?? [])[0];
+          const name = sample?.teamName ?? `Team ${rid}`;
+          list.push({ id: rid, name });
+        }
+        setAllTeamsList(list);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -191,7 +194,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     setRosterSearch("");
   }, []);
 
-  // Suggestions are bundles — tapping adds ALL assets in the suggestion atomically
   const handleSuggestionTap = useCallback((suggestion: AdvisorSuggestion) => {
     const otherTeam = otherTeams[0];
     if (!otherTeam) return;
@@ -206,10 +208,8 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
       for (const asset of suggestion.assets) {
         if (existing.has(asset.key)) continue;
         additions.push({
-          key: asset.key,
-          name: asset.name,
-          fromTeamId,
-          toTeamId,
+          key: asset.key, name: asset.name,
+          fromTeamId, toTeamId,
           fromTeamName: fromTeam?.name ?? fromTeamId,
           toTeamName: toTeam?.name ?? toTeamId,
         });
@@ -218,6 +218,67 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     });
   }, [otherTeams, myTeamId, teams]);
 
+  // ── Team management: swap, add, remove ─────────────────────────────────
+
+  // Swap the (first) other team. Keeps user's send-side assets, drops anything
+  // involving the team being swapped out.
+  const handleSwapTeam = useCallback((newTeamId: string) => {
+    setPickerMode(null);
+    if (newTeamId === myTeamId) return;
+    const oldOtherId = otherTeams[0]?.id;
+    if (!oldOtherId || oldOtherId === newTeamId) return;
+    const newTeamName = allTeamsList.find(t => t.id === newTeamId)?.name ?? `Team ${newTeamId}`;
+
+    // Filter assets:
+    //  - keep your sends → re-tag toTeamId to the new team
+    //  - drop anything from the old other team (those assets came from a roster you no longer want)
+    //  - drop anything that targeted the old other team that wasn't yours (3-team case shouldn't happen here, defensive)
+    setDealAssets(prev =>
+      prev
+        .filter(a => a.fromTeamId !== oldOtherId) // drop their assets
+        .map(a => {
+          if (a.toTeamId === oldOtherId) {
+            return { ...a, toTeamId: newTeamId, toTeamName: newTeamName };
+          }
+          return a;
+        })
+    );
+
+    // Update teams: replace the old other with the new one.
+    setTeams(prev => {
+      const me = prev.find(t => t.id === myTeamId);
+      return [
+        me ?? { id: myTeamId, name: myTeamName || `Team ${myTeamId}` },
+        { id: newTeamId, name: newTeamName },
+      ];
+    });
+    setActiveTab(newTeamId);
+    setRosterSearch("");
+  }, [myTeamId, myTeamName, otherTeams, allTeamsList]);
+
+  // Add a 3rd team. Existing 2-team deal preserved; switch active tab to new team.
+  const handleAddTeam = useCallback((newTeamId: string) => {
+    setPickerMode(null);
+    if (teams.length >= 3) return;
+    if (teams.some(t => t.id === newTeamId)) return;
+    const newTeamName = allTeamsList.find(t => t.id === newTeamId)?.name ?? `Team ${newTeamId}`;
+    setTeams(prev => [...prev, { id: newTeamId, name: newTeamName }]);
+    setActiveTab(newTeamId);
+    setRosterSearch("");
+  }, [teams, allTeamsList]);
+
+  // Remove the third team. Drops any assets involving them. Returns to 2-team mode.
+  const handleRemoveThirdTeam = useCallback(() => {
+    if (teams.length < 3) return;
+    const thirdId = teams[2].id;
+    setDealAssets(prev =>
+      prev.filter(a => a.fromTeamId !== thirdId && a.toTeamId !== thirdId)
+    );
+    setTeams(prev => prev.slice(0, 2));
+    if (activeTab === thirdId) setActiveTab(myTeamId);
+  }, [teams, activeTab, myTeamId]);
+
+  // ── Send offer ─────────────────────────────────────────────────────────
   const handleSendOffer = useCallback(async () => {
     if (sending) return;
     const ms = dealAssets.filter(a => a.fromTeamId === myTeamId);
@@ -255,27 +316,42 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
   }, [sending, dealAssets, myTeamId, otherTeams, advisorGrade, flash]);
 
   const activeRoster = useMemo(() => {
-    let players = rosters[activeTab] ?? [];
-    if (rosterSearch.trim()) {
-      const q = rosterSearch.toLowerCase();
-      players = players.filter(p =>
-        p.name.toLowerCase().includes(q) ||
-        p.meta.toLowerCase().includes(q) ||
-        p.rosterMeta.toLowerCase().includes(q)
-      );
-    }
-    return players;
+    const players = rosters[activeTab] ?? [];
+    if (!rosterSearch.trim()) return players;
+    const q = rosterSearch.toLowerCase();
+    return players.filter(p => p.name.toLowerCase().includes(q) || p.meta.toLowerCase().includes(q) || p.rosterMeta.toLowerCase().includes(q));
   }, [rosters, activeTab, rosterSearch]);
 
-  const posSections = useMemo(() =>
-    POS_SECTIONS.map(sec => ({
-      ...sec,
-      items: activeRoster.filter(p => (p.posGroup ?? "OTHER") === sec.key).sort((a, b) => b.value - a.value),
-    })).filter(s => s.items.length > 0)
-  , [activeRoster]);
+  const posSections = useMemo(() => POS_SECTIONS.map(sec => ({
+    ...sec,
+    items: activeRoster.filter(p => (p.posGroup ?? "OTHER") === sec.key).sort((a, b) => b.value - a.value),
+  })).filter(s => s.items.length > 0), [activeRoster]);
 
   const canSend = dealAssets.some(a => a.fromTeamId === myTeamId) && dealAssets.some(a => a.toTeamId === myTeamId);
   const tabFontSize = teams.length > 2 ? Math.min(11, Math.floor(90 / Math.max(...teams.map(t => teamNick(t.name).length), 1))) : 11;
+
+  // Picker modal config — switches based on mode
+  const pickerProps = useMemo(() => {
+    if (pickerMode === "swap") {
+      return {
+        title: "Switch trade partner",
+        subtitle: "Your send side stays. Their assets will be cleared.",
+        teams: allTeamsList,
+        excludeIds: [myTeamId, ...otherTeams.map(t => t.id)],
+        onSelect: handleSwapTeam,
+      };
+    }
+    if (pickerMode === "add") {
+      return {
+        title: "Add a third team",
+        subtitle: "The current deal stays in place.",
+        teams: allTeamsList,
+        excludeIds: teams.map(t => t.id),
+        onSelect: handleAddTeam,
+      };
+    }
+    return null;
+  }, [pickerMode, allTeamsList, myTeamId, otherTeams, teams, handleSwapTeam, handleAddTeam]);
 
   return (
     <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -291,8 +367,20 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
           <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Change team</div>
-          {teams.length < 3 && <div style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>+ Add team</div>}
+          <div
+            onClick={() => setPickerMode("swap")}
+            style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}
+          >
+            Change team
+          </div>
+          {teams.length < 3 && (
+            <div
+              onClick={() => setPickerMode("add")}
+              style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}
+            >
+              + Add team
+            </div>
+          )}
         </div>
       </div>
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "58% 42%", minHeight: 0, overflow: "hidden" }}>
@@ -316,11 +404,42 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
         </div>
         <div style={{ display: "flex", flexDirection: "column", background: "#FEFCF9", overflow: "hidden" }}>
           <div style={{ display: "flex", borderBottom: "2.5px solid #1A1A1A", flexShrink: 0 }}>
-            {teams.map((t, i) => (
-              <div key={t.id} onClick={() => { setActiveTab(t.id); setRosterSearch(""); }} style={{ flex: 1, padding: "10px 4px", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: tabFontSize, textTransform: "uppercase", letterSpacing: "0.04em", cursor: "pointer", background: activeTab === t.id ? "#1A1A1A" : "#FEFCF9", color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A", borderRight: i < teams.length - 1 ? "1px solid " + (activeTab === t.id ? "#FEFCF9" : "#C8C3B8") : "none" }}>
-                {teamNick(t.name)}
-              </div>
-            ))}
+            {teams.map((t, i) => {
+              const isThird = i === 2;
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => { setActiveTab(t.id); setRosterSearch(""); }}
+                  style={{
+                    flex: 1, padding: "10px 4px",
+                    textAlign: "center",
+                    fontFamily: FH, fontWeight: 800, fontSize: tabFontSize,
+                    textTransform: "uppercase", letterSpacing: "0.04em",
+                    cursor: "pointer",
+                    background: activeTab === t.id ? "#1A1A1A" : "#FEFCF9",
+                    color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A",
+                    borderRight: i < teams.length - 1 ? "1px solid " + (activeTab === t.id ? "#FEFCF9" : "#C8C3B8") : "none",
+                    position: "relative",
+                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+                  }}
+                >
+                  <span>{teamNick(t.name)}</span>
+                  {isThird && (
+                    <span
+                      onClick={e => { e.stopPropagation(); handleRemoveThirdTeam(); }}
+                      style={{
+                        fontSize: 11, fontWeight: 800,
+                        color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A",
+                        cursor: "pointer", padding: "0 2px",
+                      }}
+                      title="Remove third team"
+                    >
+                      ✕
+                    </span>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div style={{ padding: "8px 14px", borderBottom: "1.5px solid #C8C3B8", flexShrink: 0 }}>
             <input
@@ -362,6 +481,16 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
       ) : routingPopup ? (
         <RoutingPopup teams={teams.filter(t => t.id !== routingPopup.fromTeamId)} onSelect={handleRoutingSelect} onClose={() => setRoutingPopup(null)} />
       ) : null}
+      {pickerProps && (
+        <TeamPickerModal
+          title={pickerProps.title}
+          subtitle={pickerProps.subtitle}
+          teams={pickerProps.teams}
+          excludeIds={pickerProps.excludeIds}
+          onSelect={pickerProps.onSelect}
+          onClose={() => setPickerMode(null)}
+        />
+      )}
     </div>
   );
 }
