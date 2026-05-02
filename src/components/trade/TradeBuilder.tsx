@@ -38,7 +38,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
   const myTeamId = rosterId;
 
-  // teams is now mutable so we can swap/add/remove
   const [teams, setTeams] = useState<Team[]>(() => {
     const me = { id: myTeamId, name: myTeamName || `Team ${myTeamId}` };
     return [me, ...initialTeams.filter(t => t.id !== myTeamId)];
@@ -91,7 +90,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
           }));
         }
         setRosters(r);
-        // Build a list of all teams for the picker modal, derived from the rosters response.
         const list: Team[] = [];
         for (const rid of Object.keys(raw)) {
           const sample = (raw[rid] ?? [])[0];
@@ -104,10 +102,8 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
       .finally(() => setLoading(false));
   }, [myTeamId]);
 
-  // Single advisor call — server returns prose + grade + suggestions together
   useEffect(() => {
     if (advisorTimer.current) clearTimeout(advisorTimer.current);
-
     if (!dealAssets.length) {
       setAdvisorProse("Add players or picks to both sides to get my take.");
       setAdvisorGrade("");
@@ -115,7 +111,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
       setAdvisorSuggestions([]);
       return;
     }
-
     setAdvisorLoading(true);
     advisorTimer.current = setTimeout(async () => {
       try {
@@ -136,21 +131,29 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
           setAdvisorGradeColor(j.gradeColor ?? "#8C7E6A");
           setAdvisorSuggestions(Array.isArray(j.suggestions) ? j.suggestions : []);
         }
-      } catch {
-        // keep previous state on error
-      } finally {
+      } catch {} finally {
         setAdvisorLoading(false);
       }
     }, 1500);
-
-    return () => {
-      if (advisorTimer.current) clearTimeout(advisorTimer.current);
-    };
+    return () => { if (advisorTimer.current) clearTimeout(advisorTimer.current); };
   }, [dealAssets, myTeamId, otherTeams, rosters]);
 
   const removeDealAsset = useCallback((key: string) => {
     setDealAssets(prev => prev.filter(a => a.key !== key));
   }, []);
+
+  // Reroute: change toTeamId on the asset, keep fromTeamId as-is
+  const rerouteDealAsset = useCallback((key: string, newToTeamId: string) => {
+    setDealAssets(prev => prev.map(a => {
+      if (a.key !== key) return a;
+      const newToTeam = teams.find(t => t.id === newToTeamId);
+      return {
+        ...a,
+        toTeamId: newToTeamId,
+        toTeamName: newToTeam?.name ?? newToTeamId,
+      };
+    }));
+  }, [teams]);
 
   const addDealAsset = useCallback((key: string, name: string, fromTeamId: string, toTeamId: string) => {
     const from = teams.find(t => t.id === fromTeamId);
@@ -201,7 +204,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     const toTeamId = suggestion.direction === "send" ? otherTeam.id : myTeamId;
     const fromTeam = teams.find(t => t.id === fromTeamId);
     const toTeam = teams.find(t => t.id === toTeamId);
-
     setDealAssets(prev => {
       const existing = new Set(prev.map(a => a.key));
       const additions: DealAsset[] = [];
@@ -218,24 +220,16 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     });
   }, [otherTeams, myTeamId, teams]);
 
-  // ── Team management: swap, add, remove ─────────────────────────────────
-
-  // Swap the (first) other team. Keeps user's send-side assets, drops anything
-  // involving the team being swapped out.
+  // ── Team management ────────────────────────────────────────────────────
   const handleSwapTeam = useCallback((newTeamId: string) => {
     setPickerMode(null);
     if (newTeamId === myTeamId) return;
     const oldOtherId = otherTeams[0]?.id;
     if (!oldOtherId || oldOtherId === newTeamId) return;
     const newTeamName = allTeamsList.find(t => t.id === newTeamId)?.name ?? `Team ${newTeamId}`;
-
-    // Filter assets:
-    //  - keep your sends → re-tag toTeamId to the new team
-    //  - drop anything from the old other team (those assets came from a roster you no longer want)
-    //  - drop anything that targeted the old other team that wasn't yours (3-team case shouldn't happen here, defensive)
     setDealAssets(prev =>
       prev
-        .filter(a => a.fromTeamId !== oldOtherId) // drop their assets
+        .filter(a => a.fromTeamId !== oldOtherId)
         .map(a => {
           if (a.toTeamId === oldOtherId) {
             return { ...a, toTeamId: newTeamId, toTeamName: newTeamName };
@@ -243,8 +237,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
           return a;
         })
     );
-
-    // Update teams: replace the old other with the new one.
     setTeams(prev => {
       const me = prev.find(t => t.id === myTeamId);
       return [
@@ -256,7 +248,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     setRosterSearch("");
   }, [myTeamId, myTeamName, otherTeams, allTeamsList]);
 
-  // Add a 3rd team. Existing 2-team deal preserved; switch active tab to new team.
   const handleAddTeam = useCallback((newTeamId: string) => {
     setPickerMode(null);
     if (teams.length >= 3) return;
@@ -267,7 +258,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     setRosterSearch("");
   }, [teams, allTeamsList]);
 
-  // Remove the third team. Drops any assets involving them. Returns to 2-team mode.
   const handleRemoveThirdTeam = useCallback(() => {
     if (teams.length < 3) return;
     const thirdId = teams[2].id;
@@ -278,7 +268,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     if (activeTab === thirdId) setActiveTab(myTeamId);
   }, [teams, activeTab, myTeamId]);
 
-  // ── Send offer ─────────────────────────────────────────────────────────
   const handleSendOffer = useCallback(async () => {
     if (sending) return;
     const ms = dealAssets.filter(a => a.fromTeamId === myTeamId);
@@ -330,7 +319,6 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
   const canSend = dealAssets.some(a => a.fromTeamId === myTeamId) && dealAssets.some(a => a.toTeamId === myTeamId);
   const tabFontSize = teams.length > 2 ? Math.min(11, Math.floor(90 / Math.max(...teams.map(t => teamNick(t.name).length), 1))) : 11;
 
-  // Picker modal config — switches based on mode
   const pickerProps = useMemo(() => {
     if (pickerMode === "swap") {
       return {
@@ -367,26 +355,16 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
           <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div
-            onClick={() => setPickerMode("swap")}
-            style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}
-          >
-            Change team
-          </div>
+          <div onClick={() => setPickerMode("swap")} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Change team</div>
           {teams.length < 3 && (
-            <div
-              onClick={() => setPickerMode("add")}
-              style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}
-            >
-              + Add team
-            </div>
+            <div onClick={() => setPickerMode("add")} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>+ Add team</div>
           )}
         </div>
       </div>
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "58% 42%", minHeight: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", flexDirection: "column", borderRight: "2px solid #1A1A1A", overflow: "hidden" }}>
           <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
-            <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={threeTeam} />
+            <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={threeTeam} />
             <AIAdvisor
               grade={advisorGrade}
               gradeColor={advisorGradeColor}
@@ -407,35 +385,10 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
             {teams.map((t, i) => {
               const isThird = i === 2;
               return (
-                <div
-                  key={t.id}
-                  onClick={() => { setActiveTab(t.id); setRosterSearch(""); }}
-                  style={{
-                    flex: 1, padding: "10px 4px",
-                    textAlign: "center",
-                    fontFamily: FH, fontWeight: 800, fontSize: tabFontSize,
-                    textTransform: "uppercase", letterSpacing: "0.04em",
-                    cursor: "pointer",
-                    background: activeTab === t.id ? "#1A1A1A" : "#FEFCF9",
-                    color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A",
-                    borderRight: i < teams.length - 1 ? "1px solid " + (activeTab === t.id ? "#FEFCF9" : "#C8C3B8") : "none",
-                    position: "relative",
-                    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-                  }}
-                >
+                <div key={t.id} onClick={() => { setActiveTab(t.id); setRosterSearch(""); }} style={{ flex: 1, padding: "10px 4px", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: tabFontSize, textTransform: "uppercase", letterSpacing: "0.04em", cursor: "pointer", background: activeTab === t.id ? "#1A1A1A" : "#FEFCF9", color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A", borderRight: i < teams.length - 1 ? "1px solid " + (activeTab === t.id ? "#FEFCF9" : "#C8C3B8") : "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   <span>{teamNick(t.name)}</span>
                   {isThird && (
-                    <span
-                      onClick={e => { e.stopPropagation(); handleRemoveThirdTeam(); }}
-                      style={{
-                        fontSize: 11, fontWeight: 800,
-                        color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A",
-                        cursor: "pointer", padding: "0 2px",
-                      }}
-                      title="Remove third team"
-                    >
-                      ✕
-                    </span>
+                    <span onClick={e => { e.stopPropagation(); handleRemoveThirdTeam(); }} style={{ fontSize: 11, fontWeight: 800, color: activeTab === t.id ? "#FEFCF9" : "#8C7E6A", cursor: "pointer", padding: "0 2px" }} title="Remove third team">✕</span>
                   )}
                 </div>
               );
@@ -460,14 +413,7 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
                 <div key={sec.key}>
                   <TierDivider label={sec.label} />
                   {sec.items.map(p => (
-                    <PlayerRow
-                      key={p.key}
-                      name={p.name}
-                      meta={p.rosterMeta}
-                      selected={dealKeys.has(p.key)}
-                      onToggle={() => handleRosterTap(p.key, p.name)}
-                      chip={AVAILABILITY_CHIPS[p.tier]}
-                    />
+                    <PlayerRow key={p.key} name={p.name} meta={p.rosterMeta} selected={dealKeys.has(p.key)} onToggle={() => handleRosterTap(p.key, p.name)} chip={AVAILABILITY_CHIPS[p.tier]} />
                   ))}
                 </div>
               ))
