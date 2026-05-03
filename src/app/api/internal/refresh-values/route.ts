@@ -79,17 +79,19 @@ function isAuthorized(request: NextRequest): boolean {
 // Source fetching with skip+log+continue resilience
 // ──────────────────────────────────────────────────────────────────────
 
+type FetcherResult = { rows: SourceRow[]; pick_101_value: number | null };
+
 async function fetchSourceSafely(
   sourceKey: string,
-  fetcher: () => Promise<SourceRow[]>,
-): Promise<{ source_key: string; rows: SourceRow[]; error?: string }> {
+  fetcher: () => Promise<FetcherResult>,
+): Promise<{ source_key: string; rows: SourceRow[]; pick_101_value: number | null; error?: string }> {
   try {
-    const rows = await fetcher();
-    return { source_key: sourceKey, rows };
+    const result = await fetcher();
+    return { source_key: sourceKey, rows: result.rows, pick_101_value: result.pick_101_value };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     console.error(`[refresh-values] ${sourceKey} fetch failed:`, error);
-    return { source_key: sourceKey, rows: [], error };
+    return { source_key: sourceKey, rows: [], pick_101_value: null, error };
   }
 }
 
@@ -263,7 +265,7 @@ export async function GET(request: NextRequest) {
       continue;
     }
     try {
-      const { resolved, unmapped } = await normalizeRows(client, source_key, rows, importBatch);
+      const { resolved, unmapped } = await normalizeRows(client, source_key, rows, importBatch, sleeperPlayers);
       for (const r of resolved) {
         allResolvedRows.push({
           source_key,
@@ -291,17 +293,25 @@ export async function GET(request: NextRequest) {
     }, { status: 500 });
   }
 
-  // 5. Compute per-source max value to derive multiple_101 (1.01 = $300 anchor)
-  // We compute multiple_101 as raw_value / source_max, then scale at rebuild time.
-  const maxBySource: Record<string, number> = {};
-  for (const r of allResolvedRows) {
-    if (!maxBySource[r.source_key] || r.raw_value > maxBySource[r.source_key]) {
-      maxBySource[r.source_key] = r.raw_value;
-    }
+  // 5. Build pick_101_value lookup per source. This is the denominator
+  // for multiple_101: source_player_value / source_1.01_value gives a ratio
+  // that, multiplied by our $300 anchor, yields the player's CFC composite.
+  const pick101BySource: Record<string, number | null> = {};
+  for (const f of fetched) {
+    pick101BySource[f.source_key] = f.pick_101_value;
   }
 
+  // Sources without a 1.01 anchor cannot be used (no denominator).
+  // Filter resolved rows accordingly so we don't pollute the composite.
+  const usableSources = new Set(
+    Object.entries(pick101BySource)
+      .filter(([, v]) => typeof v === "number" && v > 0)
+      .map(([k]) => k),
+  );
+  const filteredResolvedRows = allResolvedRows.filter(r => usableSources.has(r.source_key));
+
   // 6. Upsert cfc_assets — collect distinct sleeper_player_ids
-  const distinctPlayerIds = new Set(allResolvedRows.map(r => r.sleeper_player_id));
+  const distinctPlayerIds = new Set(filteredResolvedRows.map(r => r.sleeper_player_id));
   const assetRows: {
     asset_key: string;
     asset_type: string;
@@ -350,8 +360,8 @@ export async function GET(request: NextRequest) {
   // Also filter to only players we have asset rows for (prevents FK violations
   // when a source returns a Sleeper ID that isn't in Sleeper's current dict).
   const validPlayerIds = new Set(assetRows.map(a => a.sleeper_player_id));
-  const dedupeMap = new Map<string, typeof allResolvedRows[number]>();
-  for (const r of allResolvedRows) {
+  const dedupeMap = new Map<string, typeof filteredResolvedRows[number]>();
+  for (const r of filteredResolvedRows) {
     if (!validPlayerIds.has(r.sleeper_player_id)) continue;
     const key = `${r.source_key}|player.${r.sleeper_player_id}`;
     const existing = dedupeMap.get(key);
@@ -361,14 +371,20 @@ export async function GET(request: NextRequest) {
   }
   const dedupedRows = Array.from(dedupeMap.values());
 
-  const sourceValueRows = dedupedRows.map(r => ({
-    import_batch: importBatch,
-    asset_key: `player.${r.sleeper_player_id}`,
-    source_key: r.source_key,
-    raw_value: r.raw_value,
-    source_101_value: maxBySource[r.source_key],
-    multiple_101: maxBySource[r.source_key] > 0 ? r.raw_value / maxBySource[r.source_key] : 0,
-  }));
+  const sourceValueRows = dedupedRows.map(r => {
+    const anchor = pick101BySource[r.source_key];
+    if (typeof anchor !== "number" || anchor <= 0) {
+      throw new Error(`Source ${r.source_key} has no 1.01 anchor — should have been filtered earlier`);
+    }
+    return {
+      import_batch: importBatch,
+      asset_key: `player.${r.sleeper_player_id}`,
+      source_key: r.source_key,
+      raw_value: r.raw_value,
+      source_101_value: anchor,
+      multiple_101: r.raw_value / anchor,
+    };
+  });
 
   const SVBATCH = 500;
   for (let i = 0; i < sourceValueRows.length; i += SVBATCH) {
@@ -414,6 +430,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     import_batch: importBatch,
     summary,
+    pick_101_by_source: pick101BySource,
     distinct_players: distinctPlayerIds.size,
     scoring_factors_computed: scoringFactorCount,
     team_rebuilds: teamRebuildResults,
