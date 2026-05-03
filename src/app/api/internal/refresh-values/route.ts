@@ -130,9 +130,10 @@ async function computeAndStoreScoringFactors(
   const lastSeason = now.getMonth() >= 2 ? now.getFullYear() - 1 : now.getFullYear() - 2;
   const priorSeason = lastSeason - 1;
 
+  const emptyStats: Record<string, SleeperStat> = {};
   const [statsLast, statsPrior] = await Promise.all([
-    fetchSleeperStats(lastSeason).catch(() => ({})),
-    fetchSleeperStats(priorSeason).catch(() => ({})),
+    fetchSleeperStats(lastSeason).catch(() => emptyStats),
+    fetchSleeperStats(priorSeason).catch(() => emptyStats),
   ]);
 
   const rows: {
