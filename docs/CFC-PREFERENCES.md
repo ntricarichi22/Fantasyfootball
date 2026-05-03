@@ -1,6 +1,6 @@
 # CFC Front Office — Preferences & Non-Negotiables
 
-**Last Updated:** April 29, 2026
+**Last Updated:** May 3, 2026
 
 ---
 
@@ -15,15 +15,25 @@
 - Before writing ANY code, confirm you have everything you need. Ask questions first.
 
 ### Communication
-- Be direct and concise. No over-hedging, no excessive caveats.
+- **Be concise. Tight. No hedging.** Short responses unless explicitly asked to dig in.
+- No filler ("absolutely", "great question", "I agree"). No excessive caveats.
 - Plain English, not jargon. Use real-world analogies (sports, business, apps).
 - Nick pushes back fast. Don't take it personally — just adapt.
 - If given a direction, run with it. Don't second-guess unless something is genuinely unclear.
 - Don't give a wall of bullet points when a few sentences will do.
 - Don't ask more than 2-3 questions at a time.
 
+### One Step at a Time — IMPORTANT
+- **Step-by-step.** One step at a time. Don't bundle multiple actions into a single response unless asked.
+- **No multi-step responses.** When working through a problem, give ONE thing to do, wait for it to be done, then give the next thing.
+- **Hold for ALL results.** When asking for multiple SQL queries or multiple tasks at once, **wait until everything is pasted back before reacting.** Don't comment on the first result while others are still in flight. Just say "Standing by" and wait.
+
+### SQL Formatting
+- **Each separate SQL query in its own code block.** Nick copies/pastes them individually. Don't bundle multiple queries into a single block.
+- **Verification queries always separate from migration queries.** Different code blocks. Run the migration, see it succeed, THEN run verification.
+
 ### Code Delivery
-- All code goes into downloadable .tsx / .ts files. Never markdown with code fences — raw code only.
+- All code goes into downloadable .tsx / .ts / .sql files. Never markdown with code fences — raw code only.
 - Full file replacements always. Nick never wants to hunt for specific lines.
 - Keep files under 500 lines. If something gets big, split into logical sub-components.
 - Tell the exact file path for each file (e.g. `src/components/gm-office/InboxPage.tsx`).
@@ -33,8 +43,13 @@
 - Nick uses the GitHub web editor — can only commit one file at a time.
 - Give files in the right order so each commit builds cleanly. Standalone components first, then files that import them, page wrappers last.
 - If a deletion might break the build because something else imports it, warn and give the safe order.
-- After database changes, give a verification query.
+- After database changes, give a verification query (in a separate code block).
 - Build order: database changes → API routes → UI components. Foundation first.
+
+### When Errors Happen
+- Show the actual error message before guessing at fixes. If Vercel logs only show the status code, have Nick hit the URL directly to see the JSON response body.
+- If a fix doesn't work the first time, **don't keep guessing**. Get more diagnostic info first.
+- **NEVER guess at Supabase schemas or Sleeper player IDs.** Look it up. Don't invent.
 
 ---
 
@@ -100,6 +115,11 @@ All chips use white (#FEFCF9) text. All chips are the same fixed width (62px). T
 8. **Check asset type fit.** Even if values match, if the asset types don't match what the other team wants (e.g. offering picks to a team that wants studs), call it out.
 9. **No filler.** Never use "you're right", "you're absolutely right", "I agree", "great question", "absolutely".
 10. **Pre-interpret the gap.** The server computes the verdict (FAVORS USER / FAVORS OTHER TEAM / FAIR). The AI prose MUST agree with the verdict. Never contradict the chip.
+11. **NEVER speak in raw DB terms.** Don't say "core at WR" or "marked as untouchable". Translate to natural language.
+12. **NEVER say "building around your core" if the trade ships out core players.**
+13. **Reference other team's personality/negotiation style** when relevant.
+14. **Acknowledge tradeoffs naturally.**
+15. **2-4 sentences, name actual players.**
 
 ### AI Suggestion Direction
 - Suggestions are ALWAYS shown, regardless of gap size
@@ -112,7 +132,7 @@ All chips use white (#FEFCF9) text. All chips are the same fixed width (62px). T
 - Pick values: use `cfc_value` from `cfc_trade_values_current` via `display_name` lookup
 - No client-side value adjustment functions — values come pre-adjusted from the database
 - Stud: `elite_multiplier_applied > 1.0` in `cfc_trade_values_current`
-- Youth: `age_multiplier_applied = 1.0` in `cfc_trade_values_current`
+- Youth: `age_multiplier_applied > 1.0` in `cfc_trade_values_current` (note: rookie 1.12, young 1.10)
 
 ---
 
@@ -164,11 +184,52 @@ Three-stage sort:
 
 ---
 
+## Value Pipeline — Non-Negotiables
+
+### Sources
+- ONLY: FantasyCalc, KeepTradeCut, DynastyProcess. ALL using Superflex/2QB endpoints.
+- Pick values: each source's own 1.01 pick value is the denominator. Computed multiple = `raw_value / source_1.01_value`.
+- Pick values for app use stay locked to manually-set anchors in `cfc_assets.manual_override_value` (1.01=$300, 1.02=$250, etc.) — sources only inform player values, not pick values.
+
+### League-Level Multiplier Stack
+1. Source consensus (median of multiples × $300 anchor)
+2. Position multiplier — QB/WR 1.00, TE tiered (1.00/0.85/0.70/0.50), RB tiered (1.00/0.97/0.95/0.92/0.88)
+3. Elite multiplier — 1.20 above $300
+4. Age multiplier — rookie 1.12, young 1.10, prime 1.00, aging 0.90
+5. Per-player CFC scoring factor (last/prior 70/30 blend, 1.00 for rookies)
+6. Manual override (escape hatch)
+
+### Age Cutoffs (used at BOTH league and team level)
+- QB: young ≤25, prime 26-32, aging 33+
+- RB: young ≤23, prime 24-26, aging 27+
+- WR/TE: young ≤24, prime 25-29, aging 30+
+
+### Team-Level Modifier Stack (in `rebuildTeamTradeValuesForTeam`)
+Three modifiers, additive, NO global cap (bounded by design):
+1. **Studs** — +5% if `base_value > $250` AND `wants_more` includes "studs"
+2. **Youth** — +5% young / -5% aging / 0 prime, only if `wants_more` includes "youth"
+3. **Attachment** (per-player from `cfc_team_player_attachment`):
+   - untouchable: +10%
+   - core_piece: +5%
+   - listening: 0%
+   - moveable: -5%
+
+Max stack: +20% (untouchable young stud). Min stack: -10% (aging moveable).
+
+### Manual Overrides
+- Stored as absolute dollar amounts in `cfc_team_player_value_overrides`
+- NOT touched by cron — represent the user's stable signal of "what would I trade this player for"
+- Override → `final_value` path is preserved
+- UI should surface auto_value vs override delta when they drift (open item)
+
+---
+
 ## Database — Non-Negotiables
 
-- **NEVER guess at Supabase table schemas.** Always query `information_schema.columns` first and confirm with Nick before writing code that references tables.
+- **NEVER guess at Supabase table schemas.** Always query `information_schema.columns` first and confirm before writing code that references tables.
 - Don't assume column names exist. Don't assume data types. Ask first.
-- After any database change, provide a verification query.
+- After any database change, provide a verification query in a separate code block.
+- Verification queries are ALWAYS separate from migration queries.
 
 ---
 
