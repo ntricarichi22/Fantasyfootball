@@ -344,8 +344,20 @@ export async function GET(request: NextRequest) {
     .delete()
     .in("source_key", enabledSources);
 
-  // Insert fresh source values
-  const sourceValueRows = allResolvedRows.map(r => ({
+  // Insert fresh source values — dedupe by (asset_key, source_key) first.
+  // Two source rows can resolve to the same Sleeper ID (e.g. KTC listing a
+  // player under two names); keep the highest raw_value.
+  const dedupeMap = new Map<string, typeof allResolvedRows[number]>();
+  for (const r of allResolvedRows) {
+    const key = `${r.source_key}|player.${r.sleeper_player_id}`;
+    const existing = dedupeMap.get(key);
+    if (!existing || r.raw_value > existing.raw_value) {
+      dedupeMap.set(key, r);
+    }
+  }
+  const dedupedRows = Array.from(dedupeMap.values());
+
+  const sourceValueRows = dedupedRows.map(r => ({
     import_batch: importBatch,
     asset_key: `player.${r.sleeper_player_id}`,
     source_key: r.source_key,
@@ -357,9 +369,11 @@ export async function GET(request: NextRequest) {
   const SVBATCH = 500;
   for (let i = 0; i < sourceValueRows.length; i += SVBATCH) {
     const batch = sourceValueRows.slice(i, i + SVBATCH);
-    const { error } = await client.from("cfc_asset_source_values").insert(batch);
+    const { error } = await client
+      .from("cfc_asset_source_values")
+      .upsert(batch, { onConflict: "asset_key,source_key" });
     if (error) {
-      return NextResponse.json({ error: `cfc_asset_source_values insert failed: ${error.message}` }, { status: 500 });
+      return NextResponse.json({ error: `cfc_asset_source_values upsert failed: ${error.message}` }, { status: 500 });
     }
   }
 
