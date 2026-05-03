@@ -347,8 +347,12 @@ export async function GET(request: NextRequest) {
   // Insert fresh source values — dedupe by (asset_key, source_key) first.
   // Two source rows can resolve to the same Sleeper ID (e.g. KTC listing a
   // player under two names); keep the highest raw_value.
+  // Also filter to only players we have asset rows for (prevents FK violations
+  // when a source returns a Sleeper ID that isn't in Sleeper's current dict).
+  const validPlayerIds = new Set(assetRows.map(a => a.sleeper_player_id));
   const dedupeMap = new Map<string, typeof allResolvedRows[number]>();
   for (const r of allResolvedRows) {
+    if (!validPlayerIds.has(r.sleeper_player_id)) continue;
     const key = `${r.source_key}|player.${r.sleeper_player_id}`;
     const existing = dedupeMap.get(key);
     if (!existing || r.raw_value > existing.raw_value) {
