@@ -1,10 +1,6 @@
 {
   "crons": [
     {
-      "path": "/api/admin/refresh-definitive-values",
-      "schedule": "0 11 * * *"
-    },
-    {
       "path": "/api/internal/refresh-values",
       "schedule": "0 8 * * *"
     }
