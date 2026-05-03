@@ -1,10 +1,15 @@
 // src/lib/values/sources/keeptradecut.ts
 //
 // Scrapes dynasty values from KeepTradeCut's public rankings page.
-// Superflex is the default format on their site (no &format=1 means Superflex).
+// Uses Superflex format (format=2) with RDP filter to include rookie picks.
+// Paginates through all 10 pages to capture full ~600-player ranking.
+//
+// KTC appends a team suffix to player names (e.g. "Patrick MahomesKC",
+// "Caleb WilliamsR CHI" for rookies, "Calvin RidleyFA" for free agents).
+// We strip these before returning so name normalization can match cleanly.
 //
 // KTC does NOT expose Sleeper IDs, so rows here have sleeper_player_id=null.
-// The normalize step (alias map) handles the lookup.
+// The normalize step (alias map + Sleeper dictionary lookup) handles resolution.
 //
 // FRAGILITY NOTE: this is the only scraped source. If KTC changes HTML
 // structure or adds bot protection, this fetcher will break and the run
@@ -13,61 +18,145 @@
 import * as cheerio from "cheerio";
 import type { SourceRow } from "../normalize";
 
-const URL =
-  "https://keeptradecut.com/dynasty-rankings?filters=QB|WR|RB|TE";
+const URL_TEMPLATE =
+  "https://keeptradecut.com/dynasty-rankings?page={page}&filters=QB|WR|RB|TE|RDP&format=2";
 
-export async function fetchKeepTradeCut(): Promise<SourceRow[]> {
-  const res = await fetch(URL, {
+const PICK_YEAR = "2026";
+const NUM_PAGES = 10;
+
+const USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+export type KeepTradeCutResult = {
+  rows: SourceRow[];
+  pick_101_value: number | null;
+};
+
+/**
+ * Strips the team suffix from a KTC player name.
+ * Examples:
+ *   "Patrick MahomesKC"      → "Patrick Mahomes"
+ *   "Caleb WilliamsR CHI"    → "Caleb Williams"  (R = rookie)
+ *   "Calvin RidleyFA"        → "Calvin Ridley"
+ *   "Some PlayerRFA"         → "Some Player"
+ *   "2026 Pick 1.01"         → "2026 Pick 1.01"  (no suffix)
+ */
+function stripTeamSuffix(rawName: string): string {
+  let name = rawName.trim();
+
+  // RFA / FA suffixes
+  if (name.endsWith("RFA")) {
+    return name.slice(0, -3).trim();
+  }
+  if (name.endsWith("FA")) {
+    return name.slice(0, -2).trim();
+  }
+
+  // Rookie pattern: "...R XXX" where XXX is a 2-4 letter team code
+  const rookieMatch = name.match(/^(.*?)R\s([A-Z]{2,4})$/);
+  if (rookieMatch) {
+    return rookieMatch[1].trim();
+  }
+
+  // Trailing 2-4 uppercase letters = team code (e.g. KC, BUF, JAX, WSH)
+  const teamMatch = name.match(/^(.*?)([A-Z]{2,4})$/);
+  if (teamMatch) {
+    const before = teamMatch[1];
+    if (/[a-z\s.'-]$/.test(before) && before.length >= 3) {
+      return before.trim();
+    }
+  }
+
+  return name;
+}
+
+async function fetchPage(page: number): Promise<string> {
+  const url = URL_TEMPLATE.replace("{page}", String(page));
+  const res = await fetch(url, {
     headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
-        "(KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      "User-Agent": USER_AGENT,
       "Accept": "text/html,application/xhtml+xml",
     },
     next: { revalidate: 0 },
   });
-
   if (!res.ok) {
-    throw new Error(`KTC fetch failed: ${res.status} ${res.statusText}`);
+    throw new Error(`KTC page ${page} failed: ${res.status} ${res.statusText}`);
   }
+  return res.text();
+}
 
-  const html = await res.text();
+function parsePage(
+  html: string,
+  rows: SourceRow[],
+  pickState: { exact: number | null; fallback: number | null },
+): void {
   const $ = cheerio.load(html);
 
-  const rows: SourceRow[] = [];
-  $("#rankings-page-rankings > div").each((_, el) => {
+  $(".onePlayer").each((_, el) => {
     const $row = $(el);
 
-    // Player name — inside .player-name > p > a
-    const name = $row.find(".player-name > p > a").first().text().trim();
-    if (!name) return;
+    const rawName = $row.find(".player-name").first().text().trim();
+    if (!rawName) return;
 
-    // Value — inside .value (or similar). KTC renders the numeric value
-    // as the visible value column on each row.
     let valueText = $row.find(".value").first().text().trim();
-
-    // Some KTC layouts put it in a div without .value — fall back to
-    // looking for a 4-digit number in the row.
     if (!valueText) {
       const candidate = $row.text().match(/\b\d{4,5}\b/);
       if (candidate) valueText = candidate[0];
     }
-
     const raw = parseInt(valueText.replace(/[^\d]/g, ""), 10);
     if (!Number.isFinite(raw) || raw <= 0) return;
 
+    const positionRank = $row.find(".position").first().text().trim();
+    const isPick = positionRank.toUpperCase().startsWith("PI");
+
+    if (isPick) {
+      const upper = rawName.toUpperCase();
+      if (upper.includes(PICK_YEAR) && upper.includes("1.01")) {
+        pickState.exact = raw;
+      } else if (
+        pickState.fallback === null &&
+        upper.includes(PICK_YEAR) &&
+        upper.includes("EARLY") &&
+        upper.includes("1ST")
+      ) {
+        pickState.fallback = raw;
+      }
+      return;
+    }
+
+    const cleanName = stripTeamSuffix(rawName);
+    if (!cleanName) return;
+
     rows.push({
-      source_player_name: name,
-      sleeper_player_id: null, // resolved by normalize
+      source_player_name: cleanName,
+      sleeper_player_id: null,
       raw_value: raw,
     });
   });
+}
+
+export async function fetchKeepTradeCut(): Promise<KeepTradeCutResult> {
+  const rows: SourceRow[] = [];
+  const pickState = { exact: null as number | null, fallback: null as number | null };
+
+  // Fetch all pages in parallel
+  const htmlPages = await Promise.all(
+    Array.from({ length: NUM_PAGES }, (_, i) => fetchPage(i)),
+  );
+
+  for (const html of htmlPages) {
+    parsePage(html, rows, pickState);
+  }
 
   if (rows.length === 0) {
     throw new Error(
-      "KTC scrape returned 0 rows — HTML structure may have changed"
+      "KTC scrape returned 0 player rows — HTML structure may have changed",
     );
   }
 
-  return rows;
+  return {
+    rows,
+    pick_101_value: pickState.exact ?? pickState.fallback,
+  };
 }
