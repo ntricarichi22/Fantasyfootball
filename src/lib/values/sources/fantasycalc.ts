@@ -4,12 +4,15 @@
 // Uses Superflex/2QB endpoint (numQbs=2). Each row natively includes
 // player.sleeperId, so no name mapping needed.
 //
-// Returns players only — picks are filtered out (they have no sleeperId).
+// Returns players + the source's 2026 1.01 pick value (used as denominator
+// for multiple_101 calculation).
 
 import type { SourceRow } from "../normalize";
 
 const ENDPOINT =
   "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1";
+
+const PICK_YEAR = "2026";
 
 type FantasyCalcRow = {
   player: {
@@ -24,7 +27,12 @@ type FantasyCalcRow = {
   positionRank: number;
 };
 
-export async function fetchFantasyCalc(): Promise<SourceRow[]> {
+export type FantasyCalcResult = {
+  rows: SourceRow[];
+  pick_101_value: number | null;
+};
+
+export async function fetchFantasyCalc(): Promise<FantasyCalcResult> {
   const res = await fetch(ENDPOINT, {
     headers: { "User-Agent": "CFC-Front-Office/1.0" },
     next: { revalidate: 0 },
@@ -40,17 +48,41 @@ export async function fetchFantasyCalc(): Promise<SourceRow[]> {
   }
 
   const rows: SourceRow[] = [];
+  let pick_101_value: number | null = null;
+  let pick_101_fallback: number | null = null;
+
   for (const row of data) {
-    // Skip rows without a sleeperId (picks, defenses, etc.)
+    const pos = row.player?.position?.toUpperCase() ?? "";
+    const name = row.player?.name ?? "";
+    const value = typeof row.value === "number" ? row.value : 0;
+
+    if (pos === "PICK") {
+      const upper = name.toUpperCase();
+      if (upper.includes(PICK_YEAR) && upper.includes("1.01")) {
+        pick_101_value = value;
+      } else if (
+        pick_101_fallback === null &&
+        upper.includes(PICK_YEAR) &&
+        upper.includes("EARLY") &&
+        upper.includes("1ST")
+      ) {
+        pick_101_fallback = value;
+      }
+      continue;
+    }
+
     if (!row.player?.sleeperId) continue;
-    if (typeof row.value !== "number" || row.value <= 0) continue;
+    if (value <= 0) continue;
 
     rows.push({
       source_player_name: row.player.name,
       sleeper_player_id: row.player.sleeperId,
-      raw_value: row.value,
+      raw_value: value,
     });
   }
 
-  return rows;
+  return {
+    rows,
+    pick_101_value: pick_101_value ?? pick_101_fallback,
+  };
 }
