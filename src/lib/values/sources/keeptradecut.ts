@@ -6,14 +6,12 @@
 //
 // KTC appends a team suffix to player names (e.g. "Patrick MahomesKC",
 // "Caleb WilliamsR CHI" for rookies, "Calvin RidleyFA" for free agents).
+// Some names also contain Roman numeral suffixes embedded before the team
+// code: "Kenneth Walker IIIKCC", "Chris Brazzell IIRCAR".
 // We strip these before returning so name normalization can match cleanly.
 //
 // KTC does NOT expose Sleeper IDs, so rows here have sleeper_player_id=null.
 // The normalize step (alias map + Sleeper dictionary lookup) handles resolution.
-//
-// FRAGILITY NOTE: this is the only scraped source. If KTC changes HTML
-// structure or adds bot protection, this fetcher will break and the run
-// will fall back to FantasyCalc + DynastyProcess.
 
 import * as cheerio from "cheerio";
 import type { SourceRow } from "../normalize";
@@ -35,17 +33,21 @@ export type KeepTradeCutResult = {
 
 /**
  * Strips the team suffix from a KTC player name.
+ *
  * Examples:
- *   "Patrick MahomesKC"      → "Patrick Mahomes"
- *   "Caleb WilliamsR CHI"    → "Caleb Williams"  (R = rookie)
- *   "Calvin RidleyFA"        → "Calvin Ridley"
- *   "Some PlayerRFA"         → "Some Player"
- *   "2026 Pick 1.01"         → "2026 Pick 1.01"  (no suffix)
+ *   "Patrick MahomesKC"          → "Patrick Mahomes"
+ *   "Caleb WilliamsR CHI"        → "Caleb Williams"  (R = rookie)
+ *   "Calvin RidleyFA"            → "Calvin Ridley"
+ *   "Some PlayerRFA"             → "Some Player"
+ *   "Kenneth Walker IIIKCC"      → "Kenneth Walker III"  (Roman numeral + team)
+ *   "Chris Brazzell IIRCAR"      → "Chris Brazzell II"   (II + R rookie + CAR)
+ *   "Calvin Austin IIINYG"       → "Calvin Austin III"
+ *   "2026 Pick 1.01"             → "2026 Pick 1.01"  (no suffix)
  */
 function stripTeamSuffix(rawName: string): string {
   let name = rawName.trim();
 
-  // RFA / FA suffixes
+  // RFA / FA suffixes (no Roman numeral involvement)
   if (name.endsWith("RFA")) {
     return name.slice(0, -3).trim();
   }
@@ -53,7 +55,20 @@ function stripTeamSuffix(rawName: string): string {
     return name.slice(0, -2).trim();
   }
 
-  // Rookie pattern: "...R XXX" where XXX is a 2-4 letter team code
+  // Roman numeral + rookie + team: "...III R XXX" rendered as "IIIRXXX"
+  // Pattern: ...{II|III|IV} R {2-4 letter team code} (no spaces in raw)
+  const romanRookieMatch = name.match(/^(.*?\b(?:II|III|IV))R([A-Z]{2,4})$/);
+  if (romanRookieMatch) {
+    return romanRookieMatch[1].trim();
+  }
+
+  // Roman numeral + team: "...III KCC" rendered as "IIIKCC"
+  const romanTeamMatch = name.match(/^(.*?\b(?:II|III|IV))([A-Z]{2,4})$/);
+  if (romanTeamMatch) {
+    return romanTeamMatch[1].trim();
+  }
+
+  // Rookie pattern: "...R XXX" where XXX is a 2-4 letter team code (no Roman numeral)
   const rookieMatch = name.match(/^(.*?)R\s([A-Z]{2,4})$/);
   if (rookieMatch) {
     return rookieMatch[1].trim();
