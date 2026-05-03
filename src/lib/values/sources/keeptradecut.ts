@@ -57,13 +57,13 @@ function stripTeamSuffix(rawName: string): string {
 
   // Roman numeral + rookie + team: "...III R XXX" rendered as "IIIRXXX"
   // Pattern: ...{II|III|IV} R {2-4 letter team code} (no spaces in raw)
-  const romanRookieMatch = name.match(/^(.*?\b(?:II|III|IV))R([A-Z]{2,4})$/);
+  const romanRookieMatch = name.match(/^(.*?\b(?:IV|III|II))R([A-Z]{2,4})$/);
   if (romanRookieMatch) {
     return romanRookieMatch[1].trim();
   }
 
   // Roman numeral + team: "...III KCC" rendered as "IIIKCC"
-  const romanTeamMatch = name.match(/^(.*?\b(?:II|III|IV))([A-Z]{2,4})$/);
+  const romanTeamMatch = name.match(/^(.*?\b(?:IV|III|II))([A-Z]{2,4})$/);
   if (romanTeamMatch) {
     return romanTeamMatch[1].trim();
   }
