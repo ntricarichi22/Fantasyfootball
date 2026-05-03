@@ -28,23 +28,44 @@ type SleeperPlayerMeta = {
   birth_date?: string | null;
 };
 
+type AttachmentLevel = "untouchable" | "core_piece" | "listening" | "moveable";
+
 const WANTS_SET = new Set<string>(TEAM_HQ_WANTS_MORE_VALUES);
 const MARKET_SET = new Set<string>(TEAM_HQ_MARKET_VALUES);
 const OWN_GUYS_SET = new Set<string>(TEAM_HQ_OWN_GUYS_VALUES);
+const ATTACHMENT_SET = new Set<AttachmentLevel>([
+  "untouchable",
+  "core_piece",
+  "listening",
+  "moveable",
+]);
 
 let sleeperPlayersCache: Record<string, SleeperPlayerMeta> | null = null;
 let sleeperPlayersCacheFetchedAt = 0;
 const SLEEPER_PLAYERS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const STUDS_VALUE_THRESHOLD = 250;
-const MIN_TOTAL_MODIFIER_PCT = -0.2;
-const MAX_TOTAL_MODIFIER_PCT = 0.2;
+
+// Modifier configuration — single source of truth for all team-level adjustments.
+// All modifiers stack additively. No global cap; ranges are bounded by design.
+//   max positive stack: studs (+5) + youth_young (+5) + untouchable (+10) = +20%
+//   max negative stack: youth_old (-5) + moveable (-5) = -10%
+const STUDS_VALUE_THRESHOLD = 250; // base value above this triggers studs modifier
+const STUDS_MODIFIER_PCT = 0.05;
+
+const YOUTH_YOUNG_MODIFIER_PCT = 0.05;
+const YOUTH_OLD_MODIFIER_PCT = -0.05;
+
+// Attachment modifiers — per-player tags from cfc_team_player_attachment
+const ATTACHMENT_MODIFIERS: Record<AttachmentLevel, number> = {
+  untouchable: 0.10,
+  core_piece: 0.05,
+  listening: 0.00,
+  moveable: -0.05,
+};
 
 const roundTo = (value: number, precision: number) => {
   const factor = 10 ** precision;
   return Math.round(value * factor) / factor;
 };
-
-const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const normalizeWantsMore = (value: unknown): TeamHqWantsMore[] => {
   if (!Array.isArray(value)) return [];
@@ -156,52 +177,50 @@ const computeAge = (birthDate: string | null | undefined): number | null => {
   return age;
 };
 
-const getYouthModifier = (position: string | null, age: number | null, wantsMore: TeamHqWantsMore[]) => {
+/**
+ * Youth modifier — aligned with league-level age buckets (Phase 2 spec):
+ *   QB:    young ≤ 25, prime 26–32, aging ≥ 33
+ *   RB:    young ≤ 23, prime 24–26, aging ≥ 27
+ *   WR/TE: young ≤ 24, prime 25–29, aging ≥ 30
+ *
+ * Only fires when team's wants_more includes "youth".
+ *   Young player: +5%
+ *   Aging player: -5%
+ *   Prime player: 0%
+ */
+const getYouthModifier = (
+  position: string | null,
+  age: number | null,
+  wantsMore: TeamHqWantsMore[],
+): number => {
   if (!wantsMore.includes("youth") || !position || age == null) return 0;
 
   if (position === "QB") {
-    if (age <= 26) return 0.1;
-    if (age >= 31) return -0.1;
+    if (age <= 25) return YOUTH_YOUNG_MODIFIER_PCT;
+    if (age >= 33) return YOUTH_OLD_MODIFIER_PCT;
     return 0;
   }
 
   if (position === "RB") {
-    if (age <= 24) return 0.1;
-    if (age >= 27) return -0.1;
+    if (age <= 23) return YOUTH_YOUNG_MODIFIER_PCT;
+    if (age >= 27) return YOUTH_OLD_MODIFIER_PCT;
     return 0;
   }
 
   if (position === "WR" || position === "TE") {
-    if (age <= 25) return 0.1;
-    if (age >= 29) return -0.1;
+    if (age <= 24) return YOUTH_YOUNG_MODIFIER_PCT;
+    if (age >= 30) return YOUTH_OLD_MODIFIER_PCT;
     return 0;
   }
 
   return 0;
 };
 
-const getMarketModifier = (
-  position: string | null,
-  strategy: Omit<TeamStrategyProfile, "league_id" | "team_id">,
-) => {
-  const postureByPosition: Record<string, TeamHqMarket> = {
-    QB: strategy.qb_market,
-    RB: strategy.rb_market,
-    WR: strategy.wr_market,
-    TE: strategy.te_market,
-  };
-
-  const posture = position ? postureByPosition[position] : undefined;
-  if (posture === "buy") return 0.07;
-  if (posture === "sell") return -0.07;
-  return 0;
-};
-
-const getOwnGuysModifier = (ownGuysPreference: TeamHqOwnGuysPreference) => {
-  if (ownGuysPreference === "love_my_guys") return 0.1;
-  if (ownGuysPreference === "prefer_to_keep_them") return 0.05;
-  if (ownGuysPreference === "ready_to_shake_it_up") return -0.08;
-  return 0;
+const getAttachmentModifier = (attachment: string | undefined | null): number => {
+  if (!attachment) return 0;
+  const normalized = attachment.toLowerCase().trim() as AttachmentLevel;
+  if (!ATTACHMENT_SET.has(normalized)) return 0;
+  return ATTACHMENT_MODIFIERS[normalized];
 };
 
 export async function readTeamTradeChartAnchors(): Promise<TeamTradeChartAnchors> {
@@ -324,7 +343,7 @@ const upsertComputedRows = async (
   const client = getClientOrThrow();
   if (!playerIds.length) return { upserted: 0 };
 
-  const [valuesResult, overridesResult, sleeperDict] = await Promise.all([
+  const [valuesResult, overridesResult, attachmentResult, sleeperDict] = await Promise.all([
     client
       .from("cfc_trade_values_current")
       .select("sleeper_player_id,cfc_value")
@@ -335,15 +354,23 @@ const upsertComputedRows = async (
       .eq("league_id", leagueId)
       .eq("team_id", teamId)
       .in("sleeper_player_id", playerIds),
+    client
+      .from("cfc_team_player_attachment")
+      .select("sleeper_player_id,attachment")
+      .eq("league_id", leagueId)
+      .eq("team_id", teamId)
+      .in("sleeper_player_id", playerIds),
     getSleeperPlayersDictionary(),
   ]);
 
   if (valuesResult.error) {
     throw new Error(valuesResult.error.message);
   }
-
   if (overridesResult.error) {
     throw new Error(overridesResult.error.message);
+  }
+  if (attachmentResult.error) {
+    throw new Error(attachmentResult.error.message);
   }
 
   const baseByPlayerId = new Map<string, number>();
@@ -360,7 +387,13 @@ const upsertComputedRows = async (
     }
   });
 
-  const ownGuysModifierPct = getOwnGuysModifier(strategy.own_guys_preference);
+  const attachmentByPlayerId = new Map<string, string>();
+  (attachmentResult.data ?? []).forEach((row) => {
+    if (row.sleeper_player_id && typeof row.attachment === "string") {
+      attachmentByPlayerId.set(row.sleeper_player_id, row.attachment);
+    }
+  });
+
   const nowIso = new Date().toISOString();
 
   const rows = playerIds
@@ -372,14 +405,20 @@ const upsertComputedRows = async (
       const position = typeof playerMeta.position === "string" ? playerMeta.position.toUpperCase() : null;
       const age = computeAge(playerMeta.birth_date ?? null);
 
-      const studsModifierPct = strategy.wants_more.includes("studs") && baseValue > STUDS_VALUE_THRESHOLD ? 0.08 : 0;
+      // Modifier 1: Studs — small premium for high-value players when wants_more includes "studs"
+      const studsModifierPct =
+        strategy.wants_more.includes("studs") && baseValue > STUDS_VALUE_THRESHOLD
+          ? STUDS_MODIFIER_PCT
+          : 0;
+
+      // Modifier 2: Youth — premium/discount based on age vs position-adjusted thresholds
       const youthModifierPct = getYouthModifier(position, age, strategy.wants_more);
-      const marketModifierPct = getMarketModifier(position, strategy);
-      const totalModifierPct = clamp(
-        studsModifierPct + youthModifierPct + marketModifierPct + ownGuysModifierPct,
-        MIN_TOTAL_MODIFIER_PCT,
-        MAX_TOTAL_MODIFIER_PCT,
-      );
+
+      // Modifier 3: Attachment — per-player premium/discount based on availability tag
+      const attachmentModifierPct = getAttachmentModifier(attachmentByPlayerId.get(playerId));
+
+      // Total modifier — additive, no overall cap (individual modifiers are bounded by design)
+      const totalModifierPct = studsModifierPct + youthModifierPct + attachmentModifierPct;
 
       const autoValue = roundTo(baseValue * (1 + totalModifierPct), 2);
       const manualOverrideValue = overrideByPlayerId.get(playerId);
@@ -404,8 +443,8 @@ const upsertComputedRows = async (
         final_value: roundTo(finalValue, 2),
         studs_modifier_pct: roundTo(studsModifierPct, 4),
         youth_modifier_pct: roundTo(youthModifierPct, 4),
-        market_modifier_pct: roundTo(marketModifierPct, 4),
-        own_guys_modifier_pct: roundTo(ownGuysModifierPct, 4),
+        market_modifier_pct: 0, // legacy column — market modifier removed
+        own_guys_modifier_pct: roundTo(attachmentModifierPct, 4), // repurposed to attachment
         total_modifier_pct: roundTo(totalModifierPct, 4),
         is_overridden: isOverridden,
         updated_at: nowIso,
@@ -614,23 +653,3 @@ export async function readTeamTradeChart(
     };
   });
 }
-
-/*
-Dev-only SQL checks:
-
--- Strategy row(s) for a team
-SELECT *
-FROM public.cfc_team_strategy_profiles
-WHERE league_id = 'YOUR_LEAGUE_ID' AND team_id = 'YOUR_TEAM_ID';
-
--- Computed trade values count for a team
-SELECT COUNT(*) AS row_count
-FROM public.cfc_team_trade_values_current
-WHERE league_id = 'YOUR_LEAGUE_ID' AND team_id = 'YOUR_TEAM_ID';
-
--- Overridden players for a team
-SELECT sleeper_player_id, manual_override_value, override_note, updated_at
-FROM public.cfc_team_player_value_overrides
-WHERE league_id = 'YOUR_LEAGUE_ID' AND team_id = 'YOUR_TEAM_ID'
-ORDER BY updated_at DESC;
-*/
