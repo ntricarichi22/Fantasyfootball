@@ -2,9 +2,10 @@
 //
 // Fetches dynasty values from DynastyProcess's public GitHub data repo.
 // The values.csv file has a value_2qb column for Superflex.
-// We also fetch db_playerids.csv to map their internal IDs to Sleeper IDs.
+// We also fetch db_playerids.csv to map their player names to Sleeper IDs.
 //
-// CSV is parsed with a minimal hand-rolled parser to avoid adding a dependency.
+// Returns players + the source's 2026 1.01 pick value (used as denominator
+// for multiple_101 calculation).
 
 import type { SourceRow } from "../normalize";
 
@@ -12,6 +13,8 @@ const VALUES_URL =
   "https://github.com/DynastyProcess/data/raw/master/files/values.csv";
 const PLAYERIDS_URL =
   "https://github.com/DynastyProcess/data/raw/master/files/db_playerids.csv";
+
+const PICK_YEAR = "2026";
 
 // Minimal CSV parser — handles quoted fields with commas
 function parseCSV(text: string): Record<string, string>[] {
@@ -62,7 +65,12 @@ async function fetchCSV(url: string): Promise<Record<string, string>[]> {
   return parseCSV(await res.text());
 }
 
-export async function fetchDynastyProcess(): Promise<SourceRow[]> {
+export type DynastyProcessResult = {
+  rows: SourceRow[];
+  pick_101_value: number | null;
+};
+
+export async function fetchDynastyProcess(): Promise<DynastyProcessResult> {
   const [values, playerIds] = await Promise.all([
     fetchCSV(VALUES_URL),
     fetchCSV(PLAYERIDS_URL),
@@ -72,9 +80,7 @@ export async function fetchDynastyProcess(): Promise<SourceRow[]> {
     throw new Error("DP values.csv was empty");
   }
 
-  // Build a map of dp's internal player id → sleeper_id using db_playerids.csv.
-  // values.csv has a player name column; we'll match by name when no direct
-  // join key exists. db_playerids.csv has both `player` (name) and sleeper_id.
+  // Build a map of player name → sleeper_id using db_playerids.csv.
   const nameToSleeper = new Map<string, string>();
   for (const p of playerIds) {
     const name = (p.player ?? p.name ?? "").trim();
@@ -83,16 +89,34 @@ export async function fetchDynastyProcess(): Promise<SourceRow[]> {
   }
 
   const rows: SourceRow[] = [];
+  let pick_101_value: number | null = null;
+  let pick_101_fallback: number | null = null;
+
   for (const v of values) {
     const name = (v.player ?? "").trim();
     if (!name) continue;
 
-    // Skip picks — they don't have sleeper_ids
     const pos = (v.pos ?? "").trim().toUpperCase();
-    if (pos === "PICK" || pos === "" || pos === "DST") continue;
-
     const valueStr = (v.value_2qb ?? "").trim();
     const raw = parseInt(valueStr, 10);
+
+    if (pos === "PICK") {
+      if (!Number.isFinite(raw) || raw <= 0) continue;
+      const upper = name.toUpperCase();
+      if (upper.includes(PICK_YEAR) && upper.includes("1.01")) {
+        pick_101_value = raw;
+      } else if (
+        pick_101_fallback === null &&
+        upper.includes(PICK_YEAR) &&
+        upper.includes("EARLY") &&
+        upper.includes("1ST")
+      ) {
+        pick_101_fallback = raw;
+      }
+      continue;
+    }
+
+    if (pos === "" || pos === "DST") continue;
     if (!Number.isFinite(raw) || raw <= 0) continue;
 
     const sleeperId = nameToSleeper.get(name.toLowerCase()) ?? null;
@@ -104,5 +128,8 @@ export async function fetchDynastyProcess(): Promise<SourceRow[]> {
     });
   }
 
-  return rows;
+  return {
+    rows,
+    pick_101_value: pick_101_value ?? pick_101_fallback,
+  };
 }
