@@ -1,0 +1,238 @@
+"use client";
+
+import { useMemo } from "react";
+
+export type RosterAssetItem = {
+  key: string;
+  name: string;
+  meta: string;          // "QB · DEN · 25" or "Your pick"
+  position: string;
+  posGroup: string;      // QB / RB / PASS / PICK
+  tier: string;          // moveable / listening / core / untouchable
+  value: number;
+  type: "player" | "pick";
+};
+
+type Props = {
+  assets: RosterAssetItem[];
+  selectedKeys: Set<string>;
+  onToggle: (key: string) => void;
+  onGenerate: () => void;
+  layout: "grid" | "list";    // grid = landing (2x2), list = drawer-open
+  buttonLabel: string;        // "Generate offers" or "Regenerate offers"
+  buttonPulse?: boolean;      // pulse the regenerate button when block changed
+  buttonDisabled?: boolean;
+};
+
+const F = "var(--font-body, 'DM Sans', sans-serif)";
+const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
+const FH = "var(--font-headline, 'Syne', sans-serif)";
+
+const POS_SECTIONS = [
+  { key: "QB", label: "Quarterbacks" },
+  { key: "RB", label: "Running Backs" },
+  { key: "PASS", label: "Pass Catchers" },
+  { key: "PICK", label: "Draft Picks" },
+];
+
+const TIER_ORDER: Record<string, number> = {
+  moveable: 0,
+  listening: 1,
+  core: 2,
+  core_piece: 2,
+  untouchable: 3,
+};
+
+function sortAssets(items: RosterAssetItem[]): RosterAssetItem[] {
+  return [...items].sort((a, b) => {
+    if (a.type === "pick" && b.type === "pick") return b.value - a.value;
+    const tierA = TIER_ORDER[a.tier] ?? 4;
+    const tierB = TIER_ORDER[b.tier] ?? 4;
+    if (tierA !== tierB) return tierA - tierB;
+    return b.value - a.value;
+  });
+}
+
+function AssetRow({ asset, selected, onToggle }: { asset: RosterAssetItem; selected: boolean; onToggle: () => void }) {
+  const isUntouchable = asset.tier === "untouchable";
+  const rowBg = selected ? "#E6F1FB" : "transparent";
+  const textColor = selected ? "#185FA5" : "#1A1A1A";
+  const metaColor = selected ? "#185FA5" : "#8C7E6A";
+
+  return (
+    <div
+      onClick={onToggle}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "5px 8px",
+        background: rowBg,
+        borderBottom: "1px solid rgba(200,195,184,0.3)",
+        cursor: "pointer",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontWeight: 700, fontSize: 11, color: textColor, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {asset.name}
+          </span>
+          {isUntouchable && (
+            <span style={{ fontFamily: FM, fontSize: 6, fontWeight: 700, color: "#FEFCF9", background: "#E8503A", padding: "2px 0", width: 56, textAlign: "center", textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0 }}>
+              Untouchable
+            </span>
+          )}
+        </div>
+        <div style={{ fontFamily: FM, fontSize: 8, color: metaColor, marginTop: 1 }}>{asset.meta}</div>
+      </div>
+      <div style={{ display: "flex", gap: 0, border: "2px solid #1A1A1A", flexShrink: 0 }}>
+        <div style={{
+          background: selected ? "#185FA5" : "transparent",
+          color: selected ? "#FEFCF9" : "#1A1A1A",
+          padding: "2px 8px",
+          fontFamily: FM,
+          fontSize: 9,
+          fontWeight: 700,
+        }}>Y</div>
+        <div style={{
+          background: !selected ? "#1A1A1A" : (selected ? "#E6F1FB" : "transparent"),
+          color: !selected ? "#FEFCF9" : "#185FA5",
+          padding: "2px 8px",
+          fontFamily: FM,
+          fontSize: 9,
+          fontWeight: 700,
+          borderLeft: "2px solid #1A1A1A",
+        }}>N</div>
+      </div>
+    </div>
+  );
+}
+
+function SectionDivider({ label }: { label: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0 6px" }}>
+      <div style={{ flex: 1, height: 1.5, background: "#1A1A1A" }} />
+      <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 11, color: "#1A1A1A", letterSpacing: "0.04em", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <div style={{ flex: 1, height: 1.5, background: "#1A1A1A" }} />
+    </div>
+  );
+}
+
+function QuadrantBox({ title, count, items, selectedKeys, onToggle }: {
+  title: string;
+  count: number;
+  items: RosterAssetItem[];
+  selectedKeys: Set<string>;
+  onToggle: (key: string) => void;
+}) {
+  return (
+    <div style={{ background: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", display: "flex", flexDirection: "column", height: 320, overflow: "hidden" }}>
+      <div style={{ background: "#1A1A1A", color: "#FEFCF9", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+        <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase" }}>{title}</span>
+        <span style={{ fontFamily: FM, fontSize: 9, color: "#FEFCF9", opacity: 0.6, fontWeight: 700 }}>{count}</span>
+      </div>
+      <div style={{ padding: "0 14px", overflowY: "auto", flex: 1 }}>
+        {items.length === 0 ? (
+          <div style={{ padding: "20px 0", textAlign: "center", fontFamily: FM, fontSize: 10, color: "#8C7E6A" }}>None</div>
+        ) : (
+          items.map(a => <AssetRow key={a.key} asset={a} selected={selectedKeys.has(a.key)} onToggle={() => onToggle(a.key)} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default function RosterPanel({ assets, selectedKeys, onToggle, onGenerate, layout, buttonLabel, buttonPulse, buttonDisabled }: Props) {
+  const grouped = useMemo(() => {
+    const m: Record<string, RosterAssetItem[]> = { QB: [], RB: [], PASS: [], PICK: [] };
+    for (const a of assets) {
+      const g = a.posGroup ?? "OTHER";
+      if (m[g]) m[g].push(a);
+    }
+    for (const k of Object.keys(m)) m[k] = sortAssets(m[k]);
+    return m;
+  }, [assets]);
+
+  if (layout === "grid") {
+    return (
+      <div style={{ flex: 1, padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, flex: 1, minHeight: 0 }}>
+          <QuadrantBox title="Quarterbacks" count={grouped.QB.length} items={grouped.QB} selectedKeys={selectedKeys} onToggle={onToggle} />
+          <QuadrantBox title="Running Backs" count={grouped.RB.length} items={grouped.RB} selectedKeys={selectedKeys} onToggle={onToggle} />
+          <QuadrantBox title="Pass Catchers" count={grouped.PASS.length} items={grouped.PASS} selectedKeys={selectedKeys} onToggle={onToggle} />
+          <QuadrantBox title="Draft Picks" count={grouped.PICK.length} items={grouped.PICK} selectedKeys={selectedKeys} onToggle={onToggle} />
+        </div>
+        <div
+          onClick={buttonDisabled ? undefined : onGenerate}
+          style={{
+            background: buttonDisabled ? "#C8C3B8" : "#F5C230",
+            color: "#1A1A1A",
+            border: "2.5px solid #1A1A1A",
+            boxShadow: buttonDisabled ? "none" : "4px 4px 0 #1A1A1A",
+            padding: "14px 0",
+            textAlign: "center",
+            fontFamily: FH,
+            fontWeight: 800,
+            fontSize: 14,
+            cursor: buttonDisabled ? "not-allowed" : "pointer",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            opacity: buttonDisabled ? 0.6 : 1,
+          }}
+        >
+          {buttonLabel}
+        </div>
+      </div>
+    );
+  }
+
+  // List layout (drawer open)
+  return (
+    <div style={{ display: "flex", flexDirection: "column", background: "#FEFCF9", borderRight: "2px solid #1A1A1A", overflow: "hidden", height: "100%" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 16px", minHeight: 0 }}>
+        {POS_SECTIONS.map(sec => {
+          const items = grouped[sec.key] ?? [];
+          if (items.length === 0) return null;
+          return (
+            <div key={sec.key}>
+              <SectionDivider label={sec.label} />
+              {items.map(a => <AssetRow key={a.key} asset={a} selected={selectedKeys.has(a.key)} onToggle={() => onToggle(a.key)} />)}
+            </div>
+          );
+        })}
+        <div style={{ height: 12 }} />
+      </div>
+      <div style={{ padding: "12px 16px", borderTop: "2.5px solid #1A1A1A", flexShrink: 0, background: "#F5F0E6" }}>
+        <div
+          onClick={buttonDisabled ? undefined : onGenerate}
+          style={{
+            background: buttonDisabled ? "#C8C3B8" : "#F5C230",
+            color: "#1A1A1A",
+            border: "2.5px solid #1A1A1A",
+            boxShadow: buttonDisabled ? "none" : "3px 3px 0 #1A1A1A",
+            padding: "12px 0",
+            textAlign: "center",
+            fontFamily: FH,
+            fontWeight: 800,
+            fontSize: 13,
+            cursor: buttonDisabled ? "not-allowed" : "pointer",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+            opacity: buttonDisabled ? 0.6 : 1,
+            animation: buttonPulse ? "studioPulse 1.5s ease-in-out infinite" : "none",
+          }}
+        >
+          {buttonLabel}
+        </div>
+      </div>
+      <style>{`
+        @keyframes studioPulse {
+          0%, 100% { transform: scale(1); }
+          50% { transform: scale(1.02); }
+        }
+      `}</style>
+    </div>
+  );
+}
