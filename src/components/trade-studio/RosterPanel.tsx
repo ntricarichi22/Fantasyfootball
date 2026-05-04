@@ -5,10 +5,10 @@ import { useMemo } from "react";
 export type RosterAssetItem = {
   key: string;
   name: string;
-  meta: string;          // "QB · DEN · 25" or "Your pick"
+  meta: string;
   position: string;
-  posGroup: string;      // QB / RB / PASS / PICK
-  tier: string;          // moveable / listening / core / untouchable
+  posGroup: string;
+  tier: string;
   value: number;
   type: "player" | "pick";
 };
@@ -18,9 +18,9 @@ type Props = {
   selectedKeys: Set<string>;
   onToggle: (key: string) => void;
   onGenerate: () => void;
-  layout: "grid" | "list";    // grid = landing (2x2), list = drawer-open
-  buttonLabel: string;        // "Generate offers" or "Regenerate offers"
-  buttonPulse?: boolean;      // pulse the regenerate button when block changed
+  layout: "grid" | "list";
+  buttonLabel: string;
+  buttonPulse?: boolean;
   buttonDisabled?: boolean;
 };
 
@@ -63,13 +63,8 @@ function AssetRow({ asset, selected, onToggle }: { asset: RosterAssetItem; selec
     <div
       onClick={onToggle}
       style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "5px 8px",
-        background: rowBg,
-        borderBottom: "1px solid rgba(200,195,184,0.3)",
-        cursor: "pointer",
+        display: "flex", alignItems: "center", gap: 8, padding: "5px 8px",
+        background: rowBg, borderBottom: "1px solid rgba(200,195,184,0.3)", cursor: "pointer",
       }}
     >
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -86,22 +81,11 @@ function AssetRow({ asset, selected, onToggle }: { asset: RosterAssetItem; selec
         <div style={{ fontFamily: FM, fontSize: 8, color: metaColor, marginTop: 1 }}>{asset.meta}</div>
       </div>
       <div style={{ display: "flex", gap: 0, border: "2px solid #1A1A1A", flexShrink: 0 }}>
-        <div style={{
-          background: selected ? "#185FA5" : "transparent",
-          color: selected ? "#FEFCF9" : "#1A1A1A",
-          padding: "2px 8px",
-          fontFamily: FM,
-          fontSize: 9,
-          fontWeight: 700,
-        }}>Y</div>
+        <div style={{ background: selected ? "#185FA5" : "transparent", color: selected ? "#FEFCF9" : "#1A1A1A", padding: "2px 8px", fontFamily: FM, fontSize: 9, fontWeight: 700 }}>Y</div>
         <div style={{
           background: !selected ? "#1A1A1A" : (selected ? "#E6F1FB" : "transparent"),
           color: !selected ? "#FEFCF9" : "#185FA5",
-          padding: "2px 8px",
-          fontFamily: FM,
-          fontSize: 9,
-          fontWeight: 700,
-          borderLeft: "2px solid #1A1A1A",
+          padding: "2px 8px", fontFamily: FM, fontSize: 9, fontWeight: 700, borderLeft: "2px solid #1A1A1A",
         }}>N</div>
       </div>
     </div>
@@ -112,28 +96,24 @@ function SectionDivider({ label }: { label: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0 6px" }}>
       <div style={{ flex: 1, height: 1.5, background: "#1A1A1A" }} />
-      <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 11, color: "#1A1A1A", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-        {label}
-      </span>
+      <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 11, color: "#1A1A1A", letterSpacing: "0.04em", textTransform: "uppercase" }}>{label}</span>
       <div style={{ flex: 1, height: 1.5, background: "#1A1A1A" }} />
     </div>
   );
 }
 
 function QuadrantBox({ title, count, items, selectedKeys, onToggle }: {
-  title: string;
-  count: number;
-  items: RosterAssetItem[];
-  selectedKeys: Set<string>;
-  onToggle: (key: string) => void;
+  title: string; count: number; items: RosterAssetItem[];
+  selectedKeys: Set<string>; onToggle: (key: string) => void;
 }) {
   return (
-    <div style={{ background: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", display: "flex", flexDirection: "column", height: 320, overflow: "hidden" }}>
+    // height: 100% with min-height: 0 lets the box shrink AND scroll inside the grid track
+    <div style={{ background: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", display: "flex", flexDirection: "column", height: "100%", minHeight: 0, overflow: "hidden" }}>
       <div style={{ background: "#1A1A1A", color: "#FEFCF9", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
         <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, letterSpacing: "0.04em", textTransform: "uppercase" }}>{title}</span>
         <span style={{ fontFamily: FM, fontSize: 9, color: "#FEFCF9", opacity: 0.6, fontWeight: 700 }}>{count}</span>
       </div>
-      <div style={{ padding: "0 14px", overflowY: "auto", flex: 1 }}>
+      <div style={{ padding: "0 14px", overflowY: "auto", flex: 1, minHeight: 0 }}>
         {items.length === 0 ? (
           <div style={{ padding: "20px 0", textAlign: "center", fontFamily: FM, fontSize: 10, color: "#8C7E6A" }}>None</div>
         ) : (
@@ -155,40 +135,64 @@ export default function RosterPanel({ assets, selectedKeys, onToggle, onGenerate
     return m;
   }, [assets]);
 
+  // Always-yellow button (opacity changes for disabled)
+  const generateButton = (
+    <div
+      onClick={buttonDisabled ? undefined : onGenerate}
+      style={{
+        background: "#F5C230",
+        color: "#1A1A1A",
+        border: "2.5px solid #1A1A1A",
+        boxShadow: buttonDisabled ? "none" : "4px 4px 0 #1A1A1A",
+        padding: layout === "grid" ? "14px 0" : "12px 0",
+        textAlign: "center",
+        fontFamily: FH,
+        fontWeight: 800,
+        fontSize: layout === "grid" ? 14 : 13,
+        cursor: buttonDisabled ? "not-allowed" : "pointer",
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+        opacity: buttonDisabled ? 0.45 : 1,
+        animation: buttonPulse && !buttonDisabled ? "studioPulse 1.5s ease-in-out infinite" : "none",
+      }}
+    >
+      {buttonLabel}
+    </div>
+  );
+
   if (layout === "grid") {
+    // Grid layout: 4 boxes in a 2x2 that fill available vertical space equally,
+    // generate button pinned at the bottom of the 40% viewport with breathing room above.
     return (
-      <div style={{ flex: 1, padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, flex: 1, minHeight: 0 }}>
+      <div style={{ flex: 1, padding: "20px 24px 16px", display: "flex", flexDirection: "column", gap: 18, minHeight: 0, overflow: "hidden" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gridTemplateRows: "1fr 1fr",
+            gap: 14,
+            flex: 1,
+            minHeight: 0,
+            paddingBottom: 4,
+          }}
+        >
           <QuadrantBox title="Quarterbacks" count={grouped.QB.length} items={grouped.QB} selectedKeys={selectedKeys} onToggle={onToggle} />
           <QuadrantBox title="Running Backs" count={grouped.RB.length} items={grouped.RB} selectedKeys={selectedKeys} onToggle={onToggle} />
           <QuadrantBox title="Pass Catchers" count={grouped.PASS.length} items={grouped.PASS} selectedKeys={selectedKeys} onToggle={onToggle} />
           <QuadrantBox title="Draft Picks" count={grouped.PICK.length} items={grouped.PICK} selectedKeys={selectedKeys} onToggle={onToggle} />
         </div>
-        <div
-          onClick={buttonDisabled ? undefined : onGenerate}
-          style={{
-            background: buttonDisabled ? "#C8C3B8" : "#F5C230",
-            color: "#1A1A1A",
-            border: "2.5px solid #1A1A1A",
-            boxShadow: buttonDisabled ? "none" : "4px 4px 0 #1A1A1A",
-            padding: "14px 0",
-            textAlign: "center",
-            fontFamily: FH,
-            fontWeight: 800,
-            fontSize: 14,
-            cursor: buttonDisabled ? "not-allowed" : "pointer",
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
-            opacity: buttonDisabled ? 0.6 : 1,
-          }}
-        >
-          {buttonLabel}
-        </div>
+        {generateButton}
+        <style>{`
+          @keyframes studioPulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.02); }
+          }
+        `}</style>
       </div>
     );
   }
 
-  // List layout (drawer open)
+  // List layout (drawer open) — single scrollable column, button sticky at bottom
   return (
     <div style={{ display: "flex", flexDirection: "column", background: "#FEFCF9", borderRight: "2px solid #1A1A1A", overflow: "hidden", height: "100%" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: "0 16px", minHeight: 0 }}>
@@ -205,27 +209,7 @@ export default function RosterPanel({ assets, selectedKeys, onToggle, onGenerate
         <div style={{ height: 12 }} />
       </div>
       <div style={{ padding: "12px 16px", borderTop: "2.5px solid #1A1A1A", flexShrink: 0, background: "#F5F0E6" }}>
-        <div
-          onClick={buttonDisabled ? undefined : onGenerate}
-          style={{
-            background: buttonDisabled ? "#C8C3B8" : "#F5C230",
-            color: "#1A1A1A",
-            border: "2.5px solid #1A1A1A",
-            boxShadow: buttonDisabled ? "none" : "3px 3px 0 #1A1A1A",
-            padding: "12px 0",
-            textAlign: "center",
-            fontFamily: FH,
-            fontWeight: 800,
-            fontSize: 13,
-            cursor: buttonDisabled ? "not-allowed" : "pointer",
-            textTransform: "uppercase",
-            letterSpacing: "0.04em",
-            opacity: buttonDisabled ? 0.6 : 1,
-            animation: buttonPulse ? "studioPulse 1.5s ease-in-out infinite" : "none",
-          }}
-        >
-          {buttonLabel}
-        </div>
+        {generateButton}
       </div>
       <style>{`
         @keyframes studioPulse {
