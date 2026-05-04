@@ -1,31 +1,37 @@
 // Persona definitions for Trade Studio.
 //
-// Each persona drives WHICH offers the engine searches for. The persona is
-// not just a label — it shapes the target fit signature (Your Fit / Their Fit
-// ranges) and the structural preferences (sweetener allowed, exotic allowed,
-// asymmetric allowed) that the offer search uses to filter candidates.
+// Each persona has TWO things that drive the engine:
+//   1. ratioBand — what range of received/sent ratios are valid
+//   2. fitTarget — what range of "Works for you / Works for them" scores
+//      are required to make the slate
+//
+// Ratio is the primary filter (it's what makes personas structurally distinct).
+// Fit targets are a softer filter (they prevent garbage from sneaking through).
 
 export type PersonaKey = "closer" | "straight_shooter" | "architect" | "hustler";
 
+export type RatioBand = {
+  min: number;     // minimum received/sent ratio
+  max: number;     // maximum received/sent ratio
+  prefer: number;  // ideal target for candidate generation
+};
+
 export type FitTarget = {
-  // Acceptable range for "Works for you" (0-100 scale)
   yourFitMin: number;
   yourFitMax: number;
-  // Acceptable range for "Works for them" (0-100 scale)
   theirFitMin: number;
   theirFitMax: number;
 };
 
 export type PersonaConfig = {
   key: PersonaKey;
-  label: string;          // Display name (e.g., "The Closer")
-  shortLabel: string;     // For inline display ("Closer")
-  description: string;    // 1-line description for the picker
+  label: string;
+  shortLabel: string;
+  description: string;
+  ratioBand: RatioBand;
   fitTarget: FitTarget;
-  // Structural flags that gate the offer search
-  allowSweetener: boolean;       // Sender can throw in a small piece to push partner fit higher
-  allowExoticStructure: boolean; // Pick swaps, far-future picks, asymmetric bundles
-  preferSimple: boolean;         // Skip complex multi-piece structures
+  allowExoticStructure: boolean;  // pick swaps, far-future picks, asymmetric bundles
+  requireExoticStructure: boolean; // architect MUST be exotic
 };
 
 export const PERSONAS: Record<PersonaKey, PersonaConfig> = {
@@ -34,60 +40,44 @@ export const PERSONAS: Record<PersonaKey, PersonaConfig> = {
     label: "The Closer",
     shortLabel: "Closer",
     description: "Get the deal done. Throw in a sweetener if needed.",
-    fitTarget: {
-      yourFitMin: 75,
-      yourFitMax: 100,
-      theirFitMin: 80,
-      theirFitMax: 100,
-    },
-    allowSweetener: true,
+    // Closer pays a small premium (sends more than receives) → ratio < 1
+    ratioBand: { min: 0.82, max: 1.00, prefer: 0.92 },
+    fitTarget: { yourFitMin: 55, yourFitMax: 100, theirFitMin: 70, theirFitMax: 100 },
     allowExoticStructure: false,
-    preferSimple: true,
+    requireExoticStructure: false,
   },
   straight_shooter: {
     key: "straight_shooter",
     label: "The Straight Shooter",
     shortLabel: "Straight Shooter",
     description: "Fair value, no games. Down the middle.",
-    fitTarget: {
-      yourFitMin: 70,
-      yourFitMax: 90,
-      theirFitMin: 70,
-      theirFitMax: 90,
-    },
-    allowSweetener: false,
+    // Tight band around even-up
+    ratioBand: { min: 0.93, max: 1.07, prefer: 1.00 },
+    fitTarget: { yourFitMin: 60, yourFitMax: 95, theirFitMin: 60, theirFitMax: 95 },
     allowExoticStructure: false,
-    preferSimple: true,
+    requireExoticStructure: false,
   },
   architect: {
     key: "architect",
     label: "The Architect",
     shortLabel: "Architect",
     description: "Make it interesting. Pick swaps and creative structures.",
-    fitTarget: {
-      yourFitMin: 65,
-      yourFitMax: 95,
-      theirFitMin: 65,
-      theirFitMax: 95,
-    },
-    allowSweetener: true,
+    // Wide ratio range — the structure is what makes it interesting, not the value
+    ratioBand: { min: 0.80, max: 1.25, prefer: 1.00 },
+    fitTarget: { yourFitMin: 50, yourFitMax: 100, theirFitMin: 50, theirFitMax: 100 },
     allowExoticStructure: true,
-    preferSimple: false,
+    requireExoticStructure: true,
   },
   hustler: {
     key: "hustler",
     label: "The Hustler",
     shortLabel: "Hustler",
     description: "Come in low. Get them on the phone.",
-    fitTarget: {
-      yourFitMin: 85,
-      yourFitMax: 100,
-      theirFitMin: 50,
-      theirFitMax: 70,
-    },
-    allowSweetener: false,
+    // Hustler asks for more than they send → ratio > 1, intentionally
+    ratioBand: { min: 1.12, max: 1.50, prefer: 1.25 },
+    fitTarget: { yourFitMin: 65, yourFitMax: 100, theirFitMin: 35, theirFitMax: 75 },
     allowExoticStructure: false,
-    preferSimple: true,
+    requireExoticStructure: false,
   },
 };
 
