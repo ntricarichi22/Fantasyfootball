@@ -23,19 +23,21 @@ type RosterApiAsset = {
   tier: string;
   value: number;
   type: "player" | "pick";
+  isStud?: boolean;
+  isYouth?: boolean;
 };
 
 export default function TradeStudioView() {
   const { rosterId = "", teamName = "" } = readStoredTeam();
-  const [assets, setAssets] = useState<RosterAssetItem[]>([]);
+  const [allRosters, setAllRosters] = useState<Record<string, RosterApiAsset[]>>({});
+  const [teamNames, setTeamNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [shopKeys, setShopKeys] = useState<Set<string>>(new Set());
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [offers, setOffers] = useState<StudioOffer[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [generating, setGenerating] = useState(false);
-  const [advisorProseByOffer, setAdvisorProseByOffer] = useState<Record<string, string>>({});
-  const [advisorLoadingByOffer, setAdvisorLoadingByOffer] = useState<Record<string, boolean>>({});
+  const [advisorByOffer, setAdvisorByOffer] = useState<Record<string, { prose: string; loading: boolean }>>({});
   const [needsRegenerate, setNeedsRegenerate] = useState(false);
   const [showPassModal, setShowPassModal] = useState(false);
   const [showMoreModal, setShowMoreModal] = useState(false);
@@ -47,28 +49,41 @@ export default function TradeStudioView() {
 
   const flash = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(""), 3000); }, []);
 
-  // Load roster + picks via the existing trade-builder targets endpoint
+  // Load all rosters via existing trade-builder targets endpoint
   useEffect(() => {
     if (!rosterId) return;
     fetch(`/api/trades/targets?teamId=${encodeURIComponent(rosterId)}`)
       .then(r => r.json())
       .then(j => {
-        const myAssets: RosterApiAsset[] = j.rosters?.[rosterId] ?? [];
-        const mapped: RosterAssetItem[] = myAssets.map(a => ({
-          key: a.key,
-          name: a.name,
-          meta: a.rosterMeta ?? a.meta,
-          position: a.position,
-          posGroup: a.posGroup,
-          tier: a.tier === "core_piece" ? "core" : (a.tier || "core"),
-          value: a.value ?? 0,
-          type: a.type,
-        }));
-        setAssets(mapped);
+        const rosters: Record<string, RosterApiAsset[]> = j.rosters ?? {};
+        setAllRosters(rosters);
+        const names: Record<string, string> = {};
+        for (const [tid, assets] of Object.entries(rosters)) {
+          const sample = (assets as { teamName?: string }[])[0];
+          names[tid] = sample?.teamName ?? `Team ${tid}`;
+        }
+        // Use stored team name for self
+        if (teamName) names[rosterId] = teamName;
+        setTeamNames(names);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [rosterId]);
+  }, [rosterId, teamName]);
+
+  // My roster items for the panel
+  const myAssets = useMemo<RosterAssetItem[]>(() => {
+    const raw = allRosters[rosterId] ?? [];
+    return raw.map(a => ({
+      key: a.key,
+      name: a.name,
+      meta: a.rosterMeta ?? a.meta,
+      position: a.position,
+      posGroup: a.posGroup,
+      tier: a.tier === "core_piece" ? "core" : (a.tier || "core"),
+      value: a.value ?? 0,
+      type: a.type,
+    }));
+  }, [allRosters, rosterId]);
 
   const handleToggle = useCallback((key: string) => {
     setShopKeys(prev => {
@@ -80,7 +95,11 @@ export default function TradeStudioView() {
     if (drawerOpen) setNeedsRegenerate(true);
   }, [drawerOpen]);
 
-  const fetchOffers = useCallback(async (opts?: { personaOverride?: PersonaKey; anchorPartnerId?: string }): Promise<StudioOffer[]> => {
+  const fetchOffers = useCallback(async (opts?: {
+    personaOverride?: PersonaKey;
+    anchorPartnerId?: string;
+    shapeSignature?: { sendCount: number; receiveCount: number; receiveValueMin: number; receiveValueMax: number };
+  }): Promise<StudioOffer[]> => {
     if (shopKeys.size === 0 || !rosterId) return [];
     const res = await fetch("/api/trade-studio/generate", {
       method: "POST",
@@ -90,6 +109,9 @@ export default function TradeStudioView() {
         shop_list_keys: Array.from(shopKeys),
         persona_override: opts?.personaOverride,
         anchor_partner_id: opts?.anchorPartnerId,
+        shape_signature: opts?.shapeSignature,
+        rosters: allRosters,
+        team_names: teamNames,
       }),
     });
     if (!res.ok) {
@@ -98,7 +120,7 @@ export default function TradeStudioView() {
     }
     const j = await res.json();
     return Array.isArray(j.offers) ? j.offers : [];
-  }, [shopKeys, rosterId]);
+  }, [shopKeys, rosterId, allRosters, teamNames]);
 
   const handleGenerate = useCallback(async () => {
     if (shopKeys.size === 0) return;
@@ -107,10 +129,10 @@ export default function TradeStudioView() {
       const generated = await fetchOffers();
       setOffers(generated);
       setActiveIndex(0);
-      setAdvisorProseByOffer({});
+      setAdvisorByOffer({});
       setNeedsRegenerate(false);
       setDrawerOpen(true);
-      if (generated.length === 0) flash("No offers met the constraints. Try adjusting your block or persona.");
+      if (generated.length === 0) flash("No offers met the constraints. Try a different persona or adjust your block.");
     } catch (err) {
       flash(err instanceof Error ? err.message : "Generation failed");
     } finally {
@@ -118,19 +140,39 @@ export default function TradeStudioView() {
     }
   }, [shopKeys, fetchOffers, flash]);
 
-  // Fetch advisor prose for the active offer when it changes (debounced)
+  // Build the rosters payload that the advisor expects (key + name only)
+  const advisorRosterPayload = useMemo(() => {
+    const payload: Record<string, Array<{ key: string; name: string; position: string; posGroup: string; value: number; tier: string; type: string; isStud?: boolean; isYouth?: boolean; meta: string; rosterMeta: string }>> = {};
+    for (const [tid, assets] of Object.entries(allRosters)) {
+      payload[tid] = assets.map(a => ({
+        key: a.key,
+        name: a.name,
+        position: a.position,
+        posGroup: a.posGroup,
+        value: a.value,
+        tier: a.tier === "core_piece" ? "core" : (a.tier || "core"),
+        type: a.type,
+        isStud: a.isStud,
+        isYouth: a.isYouth,
+        meta: a.meta,
+        rosterMeta: a.rosterMeta,
+      }));
+    }
+    return payload;
+  }, [allRosters]);
+
+  // Fetch advisor prose for active offer when it changes
   useEffect(() => {
     if (!drawerOpen || offers.length === 0) return;
     const offer = offers[activeIndex];
     if (!offer) return;
-    if (advisorProseByOffer[offer.id]) return;
+    if (advisorByOffer[offer.id]?.prose) return;
 
-    // Cancel any in-flight call for this offer
     const existing = advisorAbortRefs.current.get(offer.id);
     if (existing) existing.abort();
     const ctrl = new AbortController();
     advisorAbortRefs.current.set(offer.id, ctrl);
-    setAdvisorLoadingByOffer(prev => ({ ...prev, [offer.id]: true }));
+    setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: prev[offer.id]?.prose ?? "", loading: true } }));
 
     const dealAssets = [
       ...offer.send.map(a => ({ key: a.key, name: a.name, fromTeamId: rosterId, toTeamId: offer.partnerTeamId })),
@@ -144,20 +186,18 @@ export default function TradeStudioView() {
         my_team_id: rosterId,
         other_team_ids: [offer.partnerTeamId],
         deal_assets: dealAssets,
+        rosters: advisorRosterPayload,
       }),
       signal: ctrl.signal,
     })
       .then(r => r.json())
       .then(j => {
-        if (j.prose) {
-          setAdvisorProseByOffer(prev => ({ ...prev, [offer.id]: j.prose }));
-        }
+        setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: j.prose ?? "Couldn't generate analysis for this one.", loading: false } }));
       })
-      .catch(() => {})
-      .finally(() => {
-        setAdvisorLoadingByOffer(prev => ({ ...prev, [offer.id]: false }));
+      .catch(() => {
+        setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: prev[offer.id]?.prose ?? "Couldn't generate analysis for this one.", loading: false } }));
       });
-  }, [drawerOpen, offers, activeIndex, advisorProseByOffer, rosterId]);
+  }, [drawerOpen, offers, activeIndex, advisorByOffer, rosterId, advisorRosterPayload]);
 
   const handlePersonaChange = useCallback(async (newPersona: PersonaKey) => {
     if (offers.length === 0) return;
@@ -165,10 +205,7 @@ export default function TradeStudioView() {
     if (!current) return;
     setGenerating(true);
     try {
-      const replaced = await fetchOffers({
-        personaOverride: newPersona,
-        anchorPartnerId: current.partnerTeamId,
-      });
+      const replaced = await fetchOffers({ personaOverride: newPersona, anchorPartnerId: current.partnerTeamId });
       const replacement = replaced[0];
       if (!replacement) {
         flash(`No clean ${newPersona.replace("_", " ")} deal with ${current.partnerTeamName}.`);
@@ -179,8 +216,7 @@ export default function TradeStudioView() {
         next[activeIndex] = replacement;
         return next;
       });
-      // Clear cached advisor for the old offer id
-      setAdvisorProseByOffer(prev => {
+      setAdvisorByOffer(prev => {
         const next = { ...prev };
         delete next[current.id];
         return next;
@@ -195,7 +231,6 @@ export default function TradeStudioView() {
   const handlePass = useCallback(async () => {
     const offer = offers[activeIndex];
     if (!offer) return;
-    // Log feedback (fire-and-forget)
     fetch("/api/trade-studio/feedback", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -209,8 +244,6 @@ export default function TradeStudioView() {
         works_for_them: offer.worksForThem.total,
       }),
     }).catch(() => {});
-
-    // Remove the offer from the slate
     setOffers(prev => prev.filter((_, i) => i !== activeIndex));
     setActiveIndex(prev => Math.max(0, prev - (prev === offers.length - 1 ? 1 : 0)));
     setShowPassModal(false);
@@ -228,8 +261,14 @@ export default function TradeStudioView() {
     setMoreLoading(true);
     setMoreOffers([]);
     try {
-      const generated = await fetchOffers({ personaOverride: anchor.persona });
-      // Filter out the same partner as anchor + any partner already in main slate
+      // Build shape signature from anchor — same send count, same receive count, similar receive value
+      const sig = {
+        sendCount: anchor.send.length,
+        receiveCount: anchor.receive.length,
+        receiveValueMin: anchor.receiveValue * 0.85,
+        receiveValueMax: anchor.receiveValue * 1.15,
+      };
+      const generated = await fetchOffers({ personaOverride: anchor.persona, shapeSignature: sig });
       const slatePartners = new Set(offers.map(o => o.partnerTeamId));
       const filtered = generated.filter(o => o.partnerTeamId !== anchor.partnerTeamId && !slatePartners.has(o.partnerTeamId));
       setMoreOffers(filtered.slice(0, 5));
@@ -241,7 +280,6 @@ export default function TradeStudioView() {
   }, [offers, activeIndex, fetchOffers, flash]);
 
   const handlePickMore = useCallback((picked: StudioOffer) => {
-    // Insert the picked offer into the main slate, replacing the current
     setOffers(prev => {
       const next = [...prev];
       next[activeIndex] = picked;
@@ -252,7 +290,6 @@ export default function TradeStudioView() {
   const handleEdit = useCallback(() => {
     const offer = offers[activeIndex];
     if (!offer) return;
-    // Persist the deal seed in sessionStorage for the builder to pick up
     try {
       sessionStorage.setItem("cfc_studio_seed_deal", JSON.stringify({
         partner_team_id: offer.partnerTeamId,
@@ -284,8 +321,8 @@ export default function TradeStudioView() {
       });
       if (res.ok) {
         flash("Offer sent!");
-        const j = await res.json().catch(() => ({}));
-        setTimeout(() => { window.location.href = j.id ? `/trades/${j.id}` : "/trades"; }, 800);
+        // Always go to inbox, not the thread itself
+        setTimeout(() => { window.location.href = "/trades"; }, 800);
       } else {
         const j = await res.json().catch(() => ({}));
         flash(j.error || "Failed to send");
@@ -330,7 +367,6 @@ export default function TradeStudioView() {
         <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#3366CC", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>{toast}</div>
       )}
 
-      {/* Header strip */}
       <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
         <div onClick={() => { window.location.href = "/trades"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back to inbox</div>
         <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
@@ -339,10 +375,9 @@ export default function TradeStudioView() {
         <div style={{ fontFamily: FM, fontSize: 10, color: "#8C7E6A", letterSpacing: "0.04em", textTransform: "uppercase" }}>{teamName}</div>
       </div>
 
-      {/* Body */}
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: drawerOpen ? "40% 60%" : "1fr", minHeight: 0, overflow: "hidden" }}>
         <RosterPanel
-          assets={assets}
+          assets={myAssets}
           selectedKeys={shopKeys}
           onToggle={handleToggle}
           onGenerate={handleGenerate}
@@ -363,8 +398,8 @@ export default function TradeStudioView() {
                 offer={currentOffer}
                 index={activeIndex}
                 total={offers.length}
-                advisorProse={advisorProseByOffer[currentOffer.id] ?? "Reading the matchup…"}
-                advisorLoading={!!advisorLoadingByOffer[currentOffer.id]}
+                advisorProse={advisorByOffer[currentOffer.id]?.prose ?? "Reading the matchup…"}
+                advisorLoading={!!advisorByOffer[currentOffer.id]?.loading}
                 onPrev={goPrev}
                 onNext={goNext}
                 onPersonaChange={handlePersonaChange}
