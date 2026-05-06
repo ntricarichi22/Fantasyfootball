@@ -1,6 +1,6 @@
 # CFC Front Office — Preferences & Non-Negotiables
 
-**Last Updated:** May 3, 2026
+**Last Updated:** May 6, 2026
 
 ---
 
@@ -53,6 +53,41 @@
 
 ---
 
+## Trade Engine Architecture — Non-Negotiables (May 6, 2026)
+
+### Single Source of Truth
+- All gap math, grading, liquidity classification, post-trade warnings, and shape mismatch detection lives in `src/lib/trade/core/`.
+- Builder (`src/lib/trade/advisor/`) and Studio (`src/lib/trade/studio/`) **both** call core/. They do not reimplement these primitives.
+- If you find yourself adding a new gap calculation or grade derivation outside core/, stop. Put it in core/ and consume from there.
+
+### Canonical Functions
+- **`computeGap`** (in `core/gap.ts`) — given a deal's assets and rosters, returns sendValue / receiveValue / ratio / verdict / hasSend / hasReceive. Pure math, no side effects. **The single source of fairness signal.**
+- **`gradeFromVerdict`** (in `core/gap.ts`) — verdict → chip label + color + bucket. Neutral grading.
+- **`personaAwareGrade`** (in `core/gap.ts`) — same as above but knows partner persona's accept band. Builder uses this for the chip; Studio uses neutral grading because Studio offers are already filtered to the user's persona.
+
+### Persona Ratio Bands (defined in BOTH `core/gap.ts` and `studio/persona.ts` — keep in sync)
+- Straight Shooter: 0.90–1.10
+- Closer: 0.90–1.15
+- Hustler: 0.85–1.00
+- Architect: 0.90–1.10
+
+### Suggestion Shape (Builder)
+- `assets[].direction` is per-asset (each asset specifies "send" or "receive")
+- Top-level `kind` summarises ("send" / "receive" / "swap")
+- Swap suggestions only emit when partner persona is Architect AND deal has both sides AND verdict isn't FAIR
+- For Architect partners, single-asset suggestions are capped at 1 (vs. 3 for other personas) so swap/pick-heavy combos always have room in the slate
+
+### Studio Offer Shape
+- StudioOffer carries `valueGap` (full Gap object), `gradeLabel` (string), `gradeColor` (hex)
+- FitScore (the old 5-component score) is gone. Single fairness signal = `valueGap.ratio`.
+- "More Like This" feature is gone. Pass and Edit are the only secondary actions.
+- For ML-training continuity, the `/api/trade-studio/feedback` endpoint synthesizes works_for_you / works_for_them from `valueGap.ratio` (formula: `85 + (ratio - 1) × 50`, clamped 0-100).
+
+### Shared UI
+- `TradeBalanceChip` (in `src/components/trade/shared/`) is used by both Builder and Studio. Don't fork it — both features need to look identical.
+
+---
+
 ## Design System — Non-Negotiables
 
 ### Aesthetic
@@ -75,6 +110,7 @@
 | Yellow | #F5C230 | AI elements, offer card borders, alerts |
 | Muted | #8C7E6A | Secondary text, timestamps, labels |
 | Green | #007370 | Moveable chip, "In the range" grade |
+| Purple | #7A4BC9 | Swap suggestion badge in AIAdvisor |
 
 ### Availability Chips (Filled)
 | Label | Color | Hex |
@@ -93,12 +129,21 @@ All chips use white (#FEFCF9) text. All chips are the same fixed width (62px). T
 | DM Sans | 400-800 | Body text, player names, buttons |
 | JetBrains Mono | 700 | Data labels, chip text, metadata, timestamps |
 
-### Grade Chip Colors
-| Color | Meaning | Range |
-|-------|---------|-------|
-| Red (#E8503A) | Way off (either direction) | >20% gap |
-| Yellow (#F5C230) | On the line (either direction) | 10-20% gap |
-| Green (#007370) | Close / should work | <10% gap |
+### Grade Chip Logic (May 6, 2026 — Persona-Aware)
+
+**Studio:** uses neutral `gradeFromVerdict` because offers are already filtered to the user's chosen persona. Verdict → label + color:
+
+| Verdict | Label | Color |
+|---------|-------|-------|
+| MASSIVE_FAVOR_USER / STRONG_FAVOR_USER | "Great deal for you" | Red (#E8503A) |
+| SLIGHT_FAVOR_USER | "You're ahead" | Yellow (#F5C230) |
+| FAIR | "In the range" | Green (#007370) |
+| SLIGHT_FAVOR_OTHER | "You're reaching" | Yellow (#F5C230) |
+| STRONG_FAVOR_OTHER / MASSIVE_FAVOR_OTHER | "Way off" | Red (#E8503A) |
+| RECV_ONLY | "Add your pieces" | Yellow |
+| SEND_ONLY | "Pick your targets" | Yellow |
+
+**Builder:** uses `personaAwareGrade` so the chip respects the partner's accept band. Inside partner's band → green ("In the range"). Outside band → falls back to neutral grading. Example: a +12% deal grades green with a Closer (band goes to +15%) but yellow with a Straight Shooter (band caps at +10%).
 
 ---
 
@@ -120,12 +165,13 @@ All chips use white (#FEFCF9) text. All chips are the same fixed width (62px). T
 13. **Reference other team's personality/negotiation style** when relevant.
 14. **Acknowledge tradeoffs naturally.**
 15. **2-4 sentences, name actual players.**
+16. **Describe swap suggestions as swaps.** When a suggestion's kind is "swap", describe both sides explicitly — e.g., "swap your 2026 2nd for their 2027 1st and Lamb." Don't collapse it into a one-direction phrasing.
 
 ### AI Suggestion Direction
 - Suggestions are ALWAYS shown, regardless of gap size
 - Gap sized to the suggestion: big gap → high-value suggestions, small gap → small sweeteners, zero gap → 5% sweetener
 - Direction: user getting more (good deal for them) → suggest THEIR assets to Send (sweeten for other side). User giving more → suggest OTHER TEAM's assets to Receive (get more back)
-- Visual: "Send →" = blue filled chip, "← Receive" = blue outline chip
+- Visual: "Send →" = blue filled chip, "← Receive" = blue outline chip, "↔ Swap" = purple filled chip (only for Architect partners)
 
 ### Value Lookups
 - Player values: use `final_value` from `cfc_team_trade_values_current` for the team that owns the player
@@ -181,6 +227,41 @@ Three-stage sort:
 - Everything AFTER the first word: "Virginia Founders" → "Founders", "Midwest Matzo Balls" → "Matzo Balls"
 - NOT just the last word (would give "Balls" for Matzo Balls)
 - 3-team tabs use dynamic font sizing so full nicknames always fit
+
+### Suggestion Tap Behavior
+- Iterate `suggestion.assets`, route each by its per-asset `direction`
+- Same-direction suggestions populate one side of the deal
+- Swap suggestions populate both sides at once (one asset to send, one to receive)
+- Skip assets already in the deal
+
+---
+
+## Trade Studio — Non-Negotiables
+
+### Persona Selection
+- Driven by user's `gm_persona` from `cfc_team_strategy_profiles`, overridable via popover on offer card
+- Persona toggle in offer card lets user re-roll the same partner with a different persona
+- Persona ratio bands defined in `src/lib/trade/studio/persona.ts` — also mirrored in `core/gap.ts` for Builder's `personaAwareGrade`. Keep both in sync.
+
+### Offer Card UI
+- Top row: "Deal shape as [Persona ▾]" + prev/next + "1 / 5" counter
+- Team name row: partner team name on left, balance chip (label + color) on right — flex space-between
+- Send/receive grid in dark blue (#185FA5) panel
+- AI advisor prose
+- Two secondary buttons: Pass (red border), Edit (black border)
+- Primary CTA: "Make this offer" (blue filled, ink border with offset shadow)
+- No "More like this" button — feature was removed
+
+### Deal-breakers (filtered out before slate)
+- Partner untouchables in receive side
+- AGING BENCH GUY in any deal asset (currently inert — client doesn't ship `isAging` flag)
+- Alarm-severity post-trade warnings (e.g., "you'd be left without a starter at QB")
+
+### Slate Composition
+- Up to 5 offers
+- Pass 1: partner-unique (one offer per partner first)
+- Pass 2: allow partner repeats to fill remaining slots
+- No fallback — empty slate is the right answer when nothing fits the persona's ratio band
 
 ---
 
