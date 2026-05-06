@@ -1,37 +1,31 @@
 // Persona definitions for Trade Studio.
 //
-// Each persona has TWO things that drive the engine:
-//   1. ratioBand — what range of received/sent ratios are valid
-//   2. fitTarget — what range of "Works for you / Works for them" scores
-//      are required to make the slate
+// v3.1: PersonaKey now lives in types.ts so StudioOffer can use it directly.
+// We re-export it here so existing imports (`from "./persona"`) keep working.
 //
-// Ratio is the primary filter (it's what makes personas structurally distinct).
-// Fit targets are a softer filter (they prevent garbage from sneaking through).
+// Color-signature gates per the commandments:
+//
+//   STRAIGHT SHOOTER — both fits >= 85 (green / green)
+//   CLOSER           — your fit 67–84, their fit >= 85 (yellow / green)
+//   HUSTLER          — your fit >= 85, their fit 67–84 (green / yellow)
+//   ARCHITECT        — both fits >= 67, neither needs to be >= 85
+//
+// The candidate generator (candidates.ts) handles the shape rules; the engine
+// applies these gates as a final filter before slate ranking.
 
-export type PersonaKey = "closer" | "straight_shooter" | "architect" | "hustler";
+import type { PersonaKey } from "./types";
 
-export type RatioBand = {
-  min: number;     // minimum received/sent ratio
-  max: number;     // maximum received/sent ratio
-  prefer: number;  // ideal target for candidate generation
-};
-
-export type FitTarget = {
-  yourFitMin: number;
-  yourFitMax: number;
-  theirFitMin: number;
-  theirFitMax: number;
-};
+export type { PersonaKey };
 
 export type PersonaConfig = {
   key: PersonaKey;
   label: string;
   shortLabel: string;
   description: string;
-  ratioBand: RatioBand;
-  fitTarget: FitTarget;
-  allowExoticStructure: boolean;  // pick swaps, far-future picks, asymmetric bundles
-  requireExoticStructure: boolean; // architect MUST be exotic
+  yourFitMin: number;
+  yourFitMax: number;
+  theirFitMin: number;
+  theirFitMax: number;
 };
 
 export const PERSONAS: Record<PersonaKey, PersonaConfig> = {
@@ -40,44 +34,32 @@ export const PERSONAS: Record<PersonaKey, PersonaConfig> = {
     label: "The Closer",
     shortLabel: "Closer",
     description: "Get the deal done. Throw in a sweetener if needed.",
-    // Closer pays a small premium (sends more than receives) → ratio < 1
-    ratioBand: { min: 0.82, max: 1.00, prefer: 0.92 },
-    fitTarget: { yourFitMin: 55, yourFitMax: 100, theirFitMin: 70, theirFitMax: 100 },
-    allowExoticStructure: false,
-    requireExoticStructure: false,
+    yourFitMin: 67, yourFitMax: 84,
+    theirFitMin: 85, theirFitMax: 100,
   },
   straight_shooter: {
     key: "straight_shooter",
     label: "The Straight Shooter",
     shortLabel: "Straight Shooter",
     description: "Fair value, no games. Down the middle.",
-    // Tight band around even-up
-    ratioBand: { min: 0.93, max: 1.07, prefer: 1.00 },
-    fitTarget: { yourFitMin: 60, yourFitMax: 95, theirFitMin: 60, theirFitMax: 95 },
-    allowExoticStructure: false,
-    requireExoticStructure: false,
+    yourFitMin: 85, yourFitMax: 100,
+    theirFitMin: 85, theirFitMax: 100,
   },
   architect: {
     key: "architect",
     label: "The Architect",
     shortLabel: "Architect",
     description: "Make it interesting. Pick swaps and creative structures.",
-    // Wide ratio range — the structure is what makes it interesting, not the value
-    ratioBand: { min: 0.80, max: 1.25, prefer: 1.00 },
-    fitTarget: { yourFitMin: 50, yourFitMax: 100, theirFitMin: 50, theirFitMax: 100 },
-    allowExoticStructure: true,
-    requireExoticStructure: true,
+    yourFitMin: 67, yourFitMax: 100,
+    theirFitMin: 67, theirFitMax: 100,
   },
   hustler: {
     key: "hustler",
     label: "The Hustler",
     shortLabel: "Hustler",
     description: "Come in low. Get them on the phone.",
-    // Hustler asks for more than they send → ratio > 1, intentionally
-    ratioBand: { min: 1.12, max: 1.50, prefer: 1.25 },
-    fitTarget: { yourFitMin: 65, yourFitMax: 100, theirFitMin: 35, theirFitMax: 75 },
-    allowExoticStructure: false,
-    requireExoticStructure: false,
+    yourFitMin: 85, yourFitMax: 100,
+    theirFitMin: 67, theirFitMax: 84,
   },
 };
 
