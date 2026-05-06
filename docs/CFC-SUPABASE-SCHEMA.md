@@ -1,6 +1,6 @@
 # CFC Front Office — Supabase Schema Reference
 
-**Last Updated:** May 3, 2026
+**Last Updated:** May 6, 2026
 
 ---
 
@@ -60,6 +60,23 @@ Player/pick watchlist per team.
 | asset_key | text | e.g. "player:1234" or "pick:2027-1-5" |
 | owner_team_id | text | Team that currently owns the asset |
 | created_at | timestamp | |
+
+### trade_studio_feedback
+Feedback log written when a user passes on a Studio offer. Used for ML training continuity.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid | PK |
+| team_id | text | |
+| partner_team_id | text | |
+| persona | text | One of "closer" / "straight_shooter" / "architect" / "hustler" |
+| shop_list | jsonb | Array of asset keys the user had on the shop list |
+| offer_payload | jsonb | Full offer object (assets, valueGap, persona) |
+| works_for_you | numeric | Synthesized from valueGap.ratio (formula: 85 + (ratio - 1) × 50, clamped 0-100) |
+| works_for_them | numeric | Synthesized from inverse ratio |
+| created_at | timestamp | |
+
+**Note:** `works_for_you` / `works_for_them` are kept for backward compatibility with the original FitScore-based system. The new engine doesn't compute them directly — they're synthesized from the ratio at write time. Schema unchanged.
 
 ---
 
@@ -224,7 +241,7 @@ Team values with preference multipliers. Similar to cfc_team_trade_values_curren
 ## Team Strategy & Profiles
 
 ### cfc_team_strategy_profiles
-Team strategy set during onboarding. Drives AI recommendations, trade partner rankings, and roster organization.
+Team strategy set during onboarding. Drives AI recommendations, trade partner rankings, roster organization, **and persona-aware grading + Studio offer generation as of May 2026**.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -236,11 +253,22 @@ Team strategy set during onboarding. Drives AI recommendations, trade partner ra
 | wr_market | text | "buy" / "hold" / "sell" |
 | te_market | text | "buy" / "hold" / "sell" |
 | picks_market | text | "buy" / "hold" / "sell" |
+| **gm_persona** | **text** | **One of "closer" / "straight_shooter" / "architect" / "hustler". Drives Studio offer generation (sets ratio band + shape rule) and Builder grade chip via `personaAwareGrade`. NULL falls back to neutral grading and a default of "straight_shooter" for Studio.** |
 | own_guys_preference | text | Legacy — no longer used in modifier math (replaced by per-player attachment) |
 | created_at | timestamp | |
 | updated_at | timestamp | |
 
-**Key usage:** Position markets map to onboarding's Low/Med/High via: sell=Low, hold=Med, buy=High. The position market columns are kept for the LLM advisor's strategic reasoning, but the **market modifier no longer affects player values** — it was removed May 2026.
+**Persona ratio bands** (canonical definition lives in `src/lib/trade/studio/persona.ts` and is mirrored in `src/lib/trade/core/gap.ts`):
+- straight_shooter: 0.90–1.10 (simple shapes only — no future picks, no pick swaps)
+- closer: 0.90–1.15 (any shape — adds sweetener pick on user's send side)
+- hustler: 0.85–1.00 (any shape — adds sweetener pick on partner's receive side)
+- architect: 0.90–1.10 (exotic shapes only — 4+ assets, pick swaps, future picks)
+
+**Key usage:**
+- Builder's `/api/trades/advisor` route loads `gm_persona` for the partner team and uses it in `personaAwareGrade` so the chip respects the partner's accept band
+- Studio's `/api/trade-studio/generate` route uses the user's own `gm_persona` as the default offer-generation persona (overridable via UI toggle)
+- Position markets (qb/rb/wr/te/picks) map to onboarding's Low/Med/High via: sell=Low, hold=Med, buy=High
+- Position markets are kept for the LLM advisor's strategic reasoning, but **the market modifier no longer affects player values** — it was removed May 2026
 
 ### cfc_team_player_attachment
 Per-player availability tags. **The primary driver of team-level value adjustments as of May 2026.**
@@ -422,3 +450,4 @@ The CFC year is determined by the March 1 boundary: if today is on or after Marc
 - Pick values in `cfc_trade_values_current` use `display_name` format "1.06" (matches `draft_log.pick_number`). Do NOT use `asset_key` format "pick 1.06".
 - Future draft picks (years beyond CFC year) use the middle slot value: 1sts = value of "1.06", 2nds = value of "2.06", 3rds = value of "3.06".
 - The value pipeline rebuild (May 2026) means `cfc_asset_source_values` rows from before that date use a different multiple_101 formula (raw / source_max instead of raw / source_1.01). Old rows from disabled sources have been cleared. The "fix7-preview" import_batch tag on any remaining rows indicates pre-rebuild data.
+- The trade engine refactor (May 6, 2026) added no new schema; it only began reading the existing `gm_persona` column on `cfc_team_strategy_profiles`. If any team has NULL gm_persona, Builder falls back to neutral grading and Studio defaults to "straight_shooter".
