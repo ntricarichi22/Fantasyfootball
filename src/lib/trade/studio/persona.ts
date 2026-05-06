@@ -1,31 +1,33 @@
+// src/lib/trade/studio/persona.ts
+//
 // Persona definitions for Trade Studio.
 //
-// v3.1: PersonaKey now lives in types.ts so StudioOffer can use it directly.
-// We re-export it here so existing imports (`from "./persona"`) keep working.
+// v3.4: ratio-based gates replace fit-score gates. Each persona has a
+// numeric receive/send ratio band the engine uses to filter candidates,
+// plus a shape rule that tells the candidate generator what structures
+// are allowed.
 //
-// Color-signature gates per the commandments:
-//
-//   STRAIGHT SHOOTER — both fits >= 85 (green / green)
-//   CLOSER           — your fit 67–84, their fit >= 85 (yellow / green)
-//   HUSTLER          — your fit >= 85, their fit 67–84 (green / yellow)
-//   ARCHITECT        — both fits >= 67, neither needs to be >= 85
-//
-// The candidate generator (candidates.ts) handles the shape rules; the engine
-// applies these gates as a final filter before slate ranking.
+//   STRAIGHT SHOOTER — fair value, simple shapes (1-for-1 / 1-for-2 / etc.),
+//                      ratio 0.90–1.10
+//   CLOSER           — extends UP to 1.15 (sweetener-friendly), any shape
+//   HUSTLER          — extends DOWN to 0.85 (lowball lift), any shape
+//   ARCHITECT        — exotic shapes only (4+ assets / pick swap / future pick),
+//                      ratio 0.90–1.10
 
-import type { PersonaKey } from "./types";
+import type { PersonaKey } from "../core/types";
 
 export type { PersonaKey };
+
+export type PersonaShapeRule = "simple" | "exotic" | "any";
 
 export type PersonaConfig = {
   key: PersonaKey;
   label: string;
   shortLabel: string;
   description: string;
-  yourFitMin: number;
-  yourFitMax: number;
-  theirFitMin: number;
-  theirFitMax: number;
+  ratioMin: number;
+  ratioMax: number;
+  shapeRule: PersonaShapeRule;
 };
 
 export const PERSONAS: Record<PersonaKey, PersonaConfig> = {
@@ -34,32 +36,36 @@ export const PERSONAS: Record<PersonaKey, PersonaConfig> = {
     label: "The Closer",
     shortLabel: "Closer",
     description: "Get the deal done. Throw in a sweetener if needed.",
-    yourFitMin: 67, yourFitMax: 84,
-    theirFitMin: 85, theirFitMax: 100,
+    ratioMin: 0.90,
+    ratioMax: 1.15,
+    shapeRule: "any",
   },
   straight_shooter: {
     key: "straight_shooter",
     label: "The Straight Shooter",
     shortLabel: "Straight Shooter",
     description: "Fair value, no games. Down the middle.",
-    yourFitMin: 85, yourFitMax: 100,
-    theirFitMin: 85, theirFitMax: 100,
+    ratioMin: 0.90,
+    ratioMax: 1.10,
+    shapeRule: "simple",
   },
   architect: {
     key: "architect",
     label: "The Architect",
     shortLabel: "Architect",
     description: "Make it interesting. Pick swaps and creative structures.",
-    yourFitMin: 67, yourFitMax: 100,
-    theirFitMin: 67, theirFitMax: 100,
+    ratioMin: 0.90,
+    ratioMax: 1.10,
+    shapeRule: "exotic",
   },
   hustler: {
     key: "hustler",
     label: "The Hustler",
     shortLabel: "Hustler",
     description: "Come in low. Get them on the phone.",
-    yourFitMin: 85, yourFitMax: 100,
-    theirFitMin: 67, theirFitMax: 84,
+    ratioMin: 0.85,
+    ratioMax: 1.00,
+    shapeRule: "any",
   },
 };
 
