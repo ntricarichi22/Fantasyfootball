@@ -1,25 +1,18 @@
 // POST /api/trade-studio/generate
 //
-// v2: accepts rosters from the client. The client already has them via
-// /api/trades/targets, so we don't need to reload from the DB. This is the
-// fix for "picks are being ignored" — the previous version only loaded
-// players from cfc_team_trade_values_current, which doesn't have picks.
+// v3 changes from v2:
+//   - Loads age_multiplier_applied flags so we can mark isAging on hydration
+//   - Calls enrichRosters() to compute isStarterLevel + parse pickYear/Round/Slot
+//   - Infers team_mode per team and stores it on each profile
+//   - Returns isFallback in the response (true when persona gates couldn't fill 5)
 //
-// Body:
-//   {
-//     team_id: string,
-//     shop_list_keys: string[],
-//     persona_override?: string,
-//     anchor_partner_id?: string,
-//     shape_signature?: { sendCount, receiveCount, receiveValueMin, receiveValueMax },
-//     rosters: Record<teamId, StudioAsset[]>,
-//     team_names: Record<teamId, string>,
-//   }
+// Body shape unchanged — frontend sees the same request schema as v2.
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { generateStudioOffers } from "../../../../lib/trade/studio/engine";
 import { isValidPersona, type PersonaKey } from "../../../../lib/trade/studio/persona";
+import { enrichRosters, inferTeamMode } from "../../../../lib/trade/studio/classification";
 import type {
   StudioAsset,
   StudioStrategyProfile,
@@ -36,9 +29,11 @@ function admin() {
   return createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
 }
 
+// ─── Profile + persona load ──────────────────────────────────────────────
+
 async function loadProfilesAndPersonas(
   supabase: ReturnType<typeof admin>,
-  leagueId: string
+  leagueId: string,
 ): Promise<{ profiles: Map<string, StudioStrategyProfile>; personas: Map<string, PersonaKey> }> {
   const { data, error } = await supabase
     .from("cfc_team_strategy_profiles")
@@ -62,7 +57,33 @@ async function loadProfilesAndPersonas(
   return { profiles, personas };
 }
 
-// Hydrate raw asset payload from client into the StudioAsset shape the engine expects
+// ─── Value flag load (stud / youth / aging) ──────────────────────────────
+
+async function loadValueFlags(supabase: ReturnType<typeof admin>): Promise<{
+  studFlags: Map<string, boolean>;
+  youthFlags: Map<string, boolean>;
+  agingFlags: Map<string, boolean>;
+}> {
+  const { data, error } = await supabase
+    .from("cfc_trade_values_current")
+    .select("sleeper_player_id, elite_multiplier_applied, age_multiplier_applied");
+  if (error) throw new Error(`Value flags load failed: ${error.message}`);
+  const studFlags = new Map<string, boolean>();
+  const youthFlags = new Map<string, boolean>();
+  const agingFlags = new Map<string, boolean>();
+  for (const row of data ?? []) {
+    if (!row.sleeper_player_id) continue;
+    const elite = row.elite_multiplier_applied ?? 1;
+    const age = row.age_multiplier_applied ?? 1;
+    studFlags.set(row.sleeper_player_id, elite > 1.0);
+    youthFlags.set(row.sleeper_player_id, age > 1.0);
+    agingFlags.set(row.sleeper_player_id, age < 1.0);
+  }
+  return { studFlags, youthFlags, agingFlags };
+}
+
+// ─── Hydration: raw client payload → StudioAsset ─────────────────────────
+
 type RawClientAsset = {
   key: string;
   name: string;
@@ -77,29 +98,12 @@ type RawClientAsset = {
   isYouth?: boolean;
 };
 
-async function loadValueFlags(supabase: ReturnType<typeof admin>): Promise<{
-  studFlags: Map<string, boolean>;
-  youthFlags: Map<string, boolean>;
-}> {
-  const { data, error } = await supabase
-    .from("cfc_trade_values_current")
-    .select("sleeper_player_id, elite_multiplier_applied, age_multiplier_applied");
-  if (error) throw new Error(`Value flags load failed: ${error.message}`);
-  const studFlags = new Map<string, boolean>();
-  const youthFlags = new Map<string, boolean>();
-  for (const row of data ?? []) {
-    if (!row.sleeper_player_id) continue;
-    studFlags.set(row.sleeper_player_id, (row.elite_multiplier_applied ?? 1) > 1.0);
-    youthFlags.set(row.sleeper_player_id, (row.age_multiplier_applied ?? 1) > 1.0);
-  }
-  return { studFlags, youthFlags };
-}
-
 function hydrateAsset(
   a: RawClientAsset,
   ownerTeamId: string,
   studFlags: Map<string, boolean>,
-  youthFlags: Map<string, boolean>
+  youthFlags: Map<string, boolean>,
+  agingFlags: Map<string, boolean>,
 ): StudioAsset {
   const sleeperId = a.key.startsWith("player:") ? a.key.replace(/^player:/, "") : "";
   return {
@@ -112,11 +116,14 @@ function hydrateAsset(
     type: a.type ?? "player",
     isStud: typeof a.isStud === "boolean" ? a.isStud : (sleeperId ? (studFlags.get(sleeperId) ?? false) : false),
     isYouth: typeof a.isYouth === "boolean" ? a.isYouth : (sleeperId ? (youthFlags.get(sleeperId) ?? false) : false),
+    isAging: sleeperId ? (agingFlags.get(sleeperId) ?? false) : false,
     meta: a.meta ?? "",
     rosterMeta: a.rosterMeta ?? a.meta ?? "",
     ownerTeamId,
   };
 }
+
+// ─── POST handler ────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
   try {
@@ -130,24 +137,36 @@ export async function POST(req: Request) {
     const teamNames: Record<string, string> = body.team_names ?? {};
 
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
-    if (shopKeys.length === 0) return NextResponse.json({ offers: [], totalCandidatesEvaluated: 0 });
+    if (shopKeys.length === 0) return NextResponse.json({ offers: [], totalCandidatesEvaluated: 0, isFallback: false });
     if (!rawRosters[teamId]) return NextResponse.json({ error: "rosters required for team" }, { status: 400 });
 
     const leagueId = getLeagueId();
     const supabase = admin();
-    const [{ studFlags, youthFlags }, { profiles, personas }] = await Promise.all([
+    const [{ studFlags, youthFlags, agingFlags }, { profiles, personas }] = await Promise.all([
       loadValueFlags(supabase),
       loadProfilesAndPersonas(supabase, leagueId),
     ]);
 
-    // Hydrate rosters with stud/youth flags
-    const hydratedRosters = new Map<string, StudioAsset[]>();
+    // Hydrate every roster's raw assets with flags
+    const hydrated = new Map<string, StudioAsset[]>();
     for (const [tid, assets] of Object.entries(rawRosters)) {
-      hydratedRosters.set(tid, assets.map(a => hydrateAsset(a, tid, studFlags, youthFlags)));
+      hydrated.set(tid, assets.map(a => hydrateAsset(a, tid, studFlags, youthFlags, agingFlags)));
     }
-    const myRoster = hydratedRosters.get(teamId) ?? [];
+
+    // Enrich with isStarterLevel + pick fields (league-wide ranking)
+    const enriched = enrichRosters(hydrated);
+
+    // Infer team mode per team and attach to profiles
+    for (const [tid, roster] of enriched) {
+      const profile = profiles.get(tid);
+      if (profile) profile.team_mode = inferTeamMode(roster, profile);
+    }
+
+    const myRoster = enriched.get(teamId) ?? [];
     const shopList = myRoster.filter(a => shopKeys.includes(a.key));
-    if (shopList.length === 0) return NextResponse.json({ offers: [], totalCandidatesEvaluated: 0 });
+    if (shopList.length === 0) {
+      return NextResponse.json({ offers: [], totalCandidatesEvaluated: 0, isFallback: false });
+    }
 
     const ctx: StudioEngineContext = {
       myTeamId: teamId,
@@ -156,7 +175,7 @@ export async function POST(req: Request) {
       myProfile: profiles.get(teamId) ?? null,
       myRoster,
       shopList,
-      partners: Array.from(hydratedRosters.entries())
+      partners: Array.from(enriched.entries())
         .filter(([tid]) => tid !== teamId)
         .map(([tid, roster]) => ({
           teamId: tid,
