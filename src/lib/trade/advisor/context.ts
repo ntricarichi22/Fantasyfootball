@@ -146,27 +146,45 @@ export function translateGap(gap: Gap, myTeamName: string, otherTeamName: string
 
 // ─────────────────────────────────────────────────────────────────────────
 // Suggestion description for prompt
+//
+// v3.5: Suggestion shape changed — `direction` moved per-asset, top-level
+// `kind` field summarises ("send" | "receive" | "swap"). Swap suggestions
+// (Architect partner only) get explicit "send X AND receive Y" prose so the
+// LLM understands the bidirectional structure.
 // ─────────────────────────────────────────────────────────────────────────
 
-export function describeSuggestions(
-  suggestions: Array<{
-    assets: { name: string }[];
-    direction: "send" | "receive";
-    closesGap: boolean;
-    tradeoff: string | null;
-  }>
-): string {
+type SuggestionInput = {
+  assets: { name: string; direction: "send" | "receive" }[];
+  kind: "send" | "receive" | "swap";
+  closesGap: boolean;
+  tradeoff: string | null;
+};
+
+export function describeSuggestions(suggestions: SuggestionInput[]): string {
   if (suggestions.length === 0) return "No specific asset suggestions — speak generally.";
 
-  const lines = ["The system identified these specific assets to suggest. YOUR PROSE MUST REFERENCE THESE EXACT NAMES — do not invent other player names. When a suggestion has a TRADEOFF noted, you should acknowledge that tradeoff naturally in your prose (e.g., 'a 2nd-round pick is the cleanest fit, though it costs you a pick when you're trying to accumulate them — but Boston wants picks and you're trying to make this happen'). Don't refuse to suggest something just because it crosses a stated preference; the user is actively trying to get a deal done."];
+  const lines = ["The system identified these specific assets to suggest. YOUR PROSE MUST REFERENCE THESE EXACT NAMES — do not invent other player names. When a suggestion has a TRADEOFF noted, you should acknowledge that tradeoff naturally in your prose (e.g., 'a 2nd-round pick is the cleanest fit, though it costs you a pick when you're trying to accumulate them — but Boston wants picks and you're trying to make this happen'). Don't refuse to suggest something just because it crosses a stated preference; the user is actively trying to get a deal done. SWAP suggestions add to BOTH sides at once — describe them as a swap, e.g., 'swap your 2026 2nd for their 2027 1st and Lamb'."];
 
   suggestions.forEach((s, i) => {
-    const names = s.assets.map(a => a.name).join(" + ");
-    const dir = s.direction === "send" ? "to ADD to your send side" : "to ADD to your receive side";
-    const fit = s.closesGap ? "closes the gap" : "moves the needle but won't fully close the gap";
     const tradeoffNote = s.tradeoff ? ` [TRADEOFF: ${s.tradeoff}]` : "";
+    const fit = s.closesGap ? "closes the gap" : "moves the needle but won't fully close the gap";
+
+    if (s.kind === "swap") {
+      const sendPart = s.assets.find(a => a.direction === "send");
+      const receivePart = s.assets.find(a => a.direction === "receive");
+      if (sendPart && receivePart) {
+        lines.push(`  ${i + 1}. SWAP — send ${sendPart.name} AND receive ${receivePart.name} (${fit})${tradeoffNote}`);
+        return;
+      }
+      // Defensive fallback: if a "swap" arrives without one of each direction,
+      // fall through to the same-direction renderer below.
+    }
+
+    const names = s.assets.map(a => a.name).join(" + ");
+    const dir = s.kind === "receive" ? "to ADD to your receive side" : "to ADD to your send side";
     lines.push(`  ${i + 1}. ${names} — ${dir} (${fit})${tradeoffNote}`);
   });
+
   return lines.join("\n");
 }
 
