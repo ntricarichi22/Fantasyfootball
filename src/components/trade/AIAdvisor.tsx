@@ -1,5 +1,7 @@
 "use client";
 
+import TradeBalanceChip from "./shared/TradeBalanceChip";
+
 type SuggestionAsset = { key: string; name: string; meta: string; value: number };
 export type AdvisorSuggestion = {
   assets: SuggestionAsset[];
@@ -27,9 +29,7 @@ export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTap
           <div style={{ width: 18, height: 18, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 7, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
           <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Trade advisor</div>
         </div>
-        {grade && (
-          <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#FEFCF9", background: gradeColor, padding: "3px 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>{grade}</span>
-        )}
+        {grade && <TradeBalanceChip label={grade} color={gradeColor} />}
       </div>
       <div style={{ fontSize: 12, lineHeight: 1.6, color: "#1A1A1A", fontFamily: F, marginBottom: suggestions.length > 0 ? 12 : 0 }}>
         {loading ? "Analyzing this deal…" : prose}
