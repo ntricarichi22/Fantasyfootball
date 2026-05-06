@@ -1,25 +1,43 @@
-// Shared types for the Trade Studio engine.
+// Trade Studio engine types.
+//
+// v3 changes:
+//   - StudioAsset gains: isAging, isStarterLevel, pickYear/Round/Slot
+//   - StudioStrategyProfile gains: team_mode (contend/retool/rebuild)
+//   - StudioOffer gains: isFallback (offer came from fallback path)
+//   - GenerationResult: top-level return type with fallback flag
 
-import type { PersonaKey } from "./persona";
+export type StudioAssetType = "player" | "pick";
 
-// ─── Asset shape (mirrors advisor/engine.ts RosterAsset) ─────────────────
+export type TeamMode = "contend" | "retool" | "rebuild";
 
 export type StudioAsset = {
+  // Identity
   key: string;
   name: string;
-  position: string;     // QB / RB / WR / TE / PICK
-  posGroup: string;     // QB / RB / PASS / PICK
-  value: number;        // final_value from cfc_team_trade_values_current (or cfc_value for picks)
-  tier: string;         // moveable / listening / core / untouchable
-  type: "player" | "pick";
-  isStud: boolean;
-  isYouth: boolean;
-  meta: string;         // "QB · DEN · 25" or "Your pick"
-  rosterMeta: string;
-  ownerTeamId: string;  // who currently owns this asset
-};
 
-// ─── Strategy profile (mirrors what advisor expects) ─────────────────────
+  // Player/pick metadata
+  position: string;
+  posGroup: string;
+  type: StudioAssetType;
+  meta: string;
+  rosterMeta: string;
+  ownerTeamId?: string;
+
+  // Value & attachment
+  value: number;
+  tier: string;
+
+  // Player class flags (computed in classification.ts)
+  isStud: boolean;          // elite_multiplier_applied > 1.0
+  isYouth: boolean;         // age_multiplier_applied > 1.0
+  isAging?: boolean;        // age_multiplier_applied < 1.0
+  isStarterLevel?: boolean; // top-N at position by value, excluding studs
+
+  // Pick fields (only for type === "pick")
+  pickYear?: number;
+  pickRound?: number;
+  pickSlot?: number;
+};
 
 export type StudioStrategyProfile = {
   team_id: string;
@@ -29,62 +47,61 @@ export type StudioStrategyProfile = {
   wr_market: string;
   te_market: string;
   picks_market: string;
+  team_mode?: TeamMode;
 };
 
-// ─── Offer shape ─────────────────────────────────────────────────────────
+export type FitScore = {
+  total: number;
+  fairValue: number;
+  positionNeed: number;
+  wantsMore: number;
+  rosterShape: number;
+  attachment: number;
+};
 
 export type OfferAssetSimple = {
   key: string;
   name: string;
-  type: "player" | "pick";
+  type: StudioAssetType;
   position?: string;
   team?: string;
   ageLabel?: string;
   value: number;
 };
 
-export type FitScore = {
-  total: number;          // 0-100, weighted average
-  fairValue: number;      // 0-100
-  positionNeed: number;   // 0-100
-  wantsMore: number;      // 0-100
-  rosterShape: number;    // 0-100
-  attachment: number;     // 0-100
-};
-
 export type StudioOffer = {
-  id: string;                    // synthetic, generated client-side
+  id: string;
   partnerTeamId: string;
   partnerTeamName: string;
-  persona: PersonaKey;            // which persona produced this offer
-  send: OfferAssetSimple[];       // what user gives up
-  receive: OfferAssetSimple[];    // what user gets back
+  persona: string;
+  send: OfferAssetSimple[];
+  receive: OfferAssetSimple[];
   worksForYou: FitScore;
   worksForThem: FitScore;
   sendValue: number;
   receiveValue: number;
+  isFallback?: boolean;
 };
 
-// ─── Engine context (everything needed to generate offers) ──────────────
+export type StudioPartner = {
+  teamId: string;
+  teamName: string;
+  profile: StudioStrategyProfile | null;
+  roster: StudioAsset[];
+};
 
 export type StudioEngineContext = {
   myTeamId: string;
   myTeamName: string;
-  myPersona: PersonaKey;
+  myPersona: string;
   myProfile: StudioStrategyProfile | null;
   myRoster: StudioAsset[];
-  shopList: StudioAsset[];   // subset of myRoster the user toggled "Y" on
-  partners: Array<{
-    teamId: string;
-    teamName: string;
-    profile: StudioStrategyProfile | null;
-    roster: StudioAsset[];
-  }>;
+  shopList: StudioAsset[];
+  partners: StudioPartner[];
 };
 
-// ─── API response shape ──────────────────────────────────────────────────
-
-export type GenerateOffersResponse = {
+export type GenerationResult = {
   offers: StudioOffer[];
   totalCandidatesEvaluated: number;
+  isFallback: boolean;
 };
