@@ -5,7 +5,6 @@ import { readStoredTeam } from "../../lib/storedTeam";
 import RosterPanel, { type RosterAssetItem } from "./RosterPanel";
 import OfferCard from "./OfferCard";
 import PassConfirmModal from "./PassConfirmModal";
-import MoreLikeThisModal from "./MoreLikeThisModal";
 import { type PersonaKey } from "../../lib/trade/studio/persona";
 import type { StudioOffer } from "../../lib/trade/studio/types";
 
@@ -27,6 +26,17 @@ type RosterApiAsset = {
   isYouth?: boolean;
 };
 
+// Synthesize works_for_you / works_for_them from value gap ratio for feedback
+// POST backwards-compat. The schema column accepts these as nullable but we
+// populate them so any downstream ML training data stays consistent.
+//   ratio = 1.00 → 85 (fair)
+//   ratio = 1.20 → 95 (you ahead)
+//   ratio = 0.80 → 75 (you behind)
+function synthFitFromRatio(ratio: number, perspective: "you" | "them"): number {
+  const r = perspective === "you" ? ratio : (ratio > 0 ? 1 / ratio : 0);
+  return Math.round(Math.max(0, Math.min(100, 85 + (r - 1) * 50)));
+}
+
 export default function TradeStudioView() {
   const { rosterId = "", teamName = "" } = readStoredTeam();
   const [allRosters, setAllRosters] = useState<Record<string, RosterApiAsset[]>>({});
@@ -40,9 +50,6 @@ export default function TradeStudioView() {
   const [advisorByOffer, setAdvisorByOffer] = useState<Record<string, { prose: string; loading: boolean }>>({});
   const [needsRegenerate, setNeedsRegenerate] = useState(false);
   const [showPassModal, setShowPassModal] = useState(false);
-  const [showMoreModal, setShowMoreModal] = useState(false);
-  const [moreOffers, setMoreOffers] = useState<StudioOffer[]>([]);
-  const [moreLoading, setMoreLoading] = useState(false);
   const [sendingOffer, setSendingOffer] = useState(false);
   const [toast, setToast] = useState("");
   const advisorAbortRefs = useRef<Map<string, AbortController>>(new Map());
@@ -98,7 +105,6 @@ export default function TradeStudioView() {
   const fetchOffers = useCallback(async (opts?: {
     personaOverride?: PersonaKey;
     anchorPartnerId?: string;
-    shapeSignature?: { sendCount: number; receiveCount: number; receiveValueMin: number; receiveValueMax: number };
   }): Promise<StudioOffer[]> => {
     if (shopKeys.size === 0 || !rosterId) return [];
     const res = await fetch("/api/trade-studio/generate", {
@@ -109,7 +115,6 @@ export default function TradeStudioView() {
         shop_list_keys: Array.from(shopKeys),
         persona_override: opts?.personaOverride,
         anchor_partner_id: opts?.anchorPartnerId,
-        shape_signature: opts?.shapeSignature,
         rosters: allRosters,
         team_names: teamNames,
       }),
@@ -240,8 +245,8 @@ export default function TradeStudioView() {
         persona: offer.persona,
         shop_list: Array.from(shopKeys),
         offer_payload: offer,
-        works_for_you: offer.worksForYou.total,
-        works_for_them: offer.worksForThem.total,
+        works_for_you: synthFitFromRatio(offer.valueGap.ratio, "you"),
+        works_for_them: synthFitFromRatio(offer.valueGap.ratio, "them"),
       }),
     }).catch(() => {});
     setOffers(prev => prev.filter((_, i) => i !== activeIndex));
@@ -253,39 +258,6 @@ export default function TradeStudioView() {
     setShowPassModal(false);
     handlePersonaChange(newPersona);
   }, [handlePersonaChange]);
-
-  const handleMoreLikeThis = useCallback(async () => {
-    const anchor = offers[activeIndex];
-    if (!anchor) return;
-    setShowMoreModal(true);
-    setMoreLoading(true);
-    setMoreOffers([]);
-    try {
-      // Build shape signature from anchor — same send count, same receive count, similar receive value
-      const sig = {
-        sendCount: anchor.send.length,
-        receiveCount: anchor.receive.length,
-        receiveValueMin: anchor.receiveValue * 0.85,
-        receiveValueMax: anchor.receiveValue * 1.15,
-      };
-      const generated = await fetchOffers({ personaOverride: anchor.persona, shapeSignature: sig });
-      const slatePartners = new Set(offers.map(o => o.partnerTeamId));
-      const filtered = generated.filter(o => o.partnerTeamId !== anchor.partnerTeamId && !slatePartners.has(o.partnerTeamId));
-      setMoreOffers(filtered.slice(0, 5));
-    } catch (err) {
-      flash(err instanceof Error ? err.message : "Failed to find similar offers");
-    } finally {
-      setMoreLoading(false);
-    }
-  }, [offers, activeIndex, fetchOffers, flash]);
-
-  const handlePickMore = useCallback((picked: StudioOffer) => {
-    setOffers(prev => {
-      const next = [...prev];
-      next[activeIndex] = picked;
-      return next;
-    });
-  }, [activeIndex]);
 
   const handleEdit = useCallback(() => {
     const offer = offers[activeIndex];
@@ -404,7 +376,6 @@ export default function TradeStudioView() {
                 onNext={goNext}
                 onPersonaChange={handlePersonaChange}
                 onPass={() => setShowPassModal(true)}
-                onMoreLikeThis={handleMoreLikeThis}
                 onEdit={handleEdit}
                 onMakeOffer={handleMakeOffer}
                 sendingOffer={sendingOffer}
@@ -424,16 +395,6 @@ export default function TradeStudioView() {
           onTryPersona={handleTryPersona}
           onPass={handlePass}
           onClose={() => setShowPassModal(false)}
-        />
-      )}
-
-      {showMoreModal && currentOffer && (
-        <MoreLikeThisModal
-          anchorOffer={currentOffer}
-          similarOffers={moreOffers}
-          loading={moreLoading}
-          onPick={handlePickMore}
-          onClose={() => setShowMoreModal(false)}
         />
       )}
     </div>
