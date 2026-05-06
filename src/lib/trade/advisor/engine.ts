@@ -2,14 +2,16 @@
 //
 // Builder-specific advisor logic.
 //
-// v3.4 refactor: gap math, grade derivation, liquidity classification,
-// post-trade warnings, and shape-mismatch detection have been extracted
-// to core/. This file now imports those primitives and re-exports them
-// for backwards compatibility with existing import paths
-// (advisor/route.ts, studio/engine.ts, etc.). Suggestion engine logic
-// stays here — it's Builder-specific. Stage 5 will modify
-// generateSuggestions to support bidirectional combos and persona-
-// awareness; this stage is a pure extraction with no behavioral change.
+// v3.5 (Stage 5): persona-aware suggestions.
+//   - Suggestion's `direction` moved from top-level to per-asset; new
+//     top-level `kind` field summarises ("send" / "receive" / "swap").
+//   - SuggestionContext gains `partnerPersona`. When the partner is
+//     ARCHITECT, the combo finder emits bidirectional swap pairs and
+//     weights future picks higher. Other personas keep prior behaviour.
+//
+// v3.4: gap math, grade derivation, liquidity, post-trade warnings, and
+// shape-mismatch detection are in core/. This file imports those and
+// re-exports them for backwards compatibility.
 
 import type {
   RosterAsset,
@@ -21,12 +23,14 @@ import type {
   GradeBucket,
   LiquidityTier,
   PostTradeWarning,
+  PersonaKey,
 } from "../core/types";
 
 import { computeGap, gradeFromVerdict, personaAwareGrade } from "../core/gap";
 import { getLiquidityTier, isPremiumAsset } from "../core/liquidity";
 import { computePostTradeWarnings } from "../core/warnings";
 import { detectShapeMismatch } from "../core/shape";
+import { getCFCYear } from "../core/classification";
 
 // ─── Re-exports (backwards compat) ─────────────────────────────────────
 
@@ -40,18 +44,29 @@ export type {
   GradeBucket,
   LiquidityTier,
   PostTradeWarning,
+  PersonaKey,
 };
 export { computeGap, gradeFromVerdict, personaAwareGrade };
 export { getLiquidityTier, isPremiumAsset };
 export { computePostTradeWarnings };
 export { detectShapeMismatch };
 
-// ─── Suggestion engine (Builder-specific) ──────────────────────────────
+// ─── Suggestion engine ─────────────────────────────────────────────────
+
+export type SuggestionAsset = {
+  key: string;
+  name: string;
+  meta: string;
+  value: number;
+  direction: "send" | "receive";
+};
+
+export type SuggestionKind = "send" | "receive" | "swap";
 
 export type Suggestion = {
-  assets: { key: string; name: string; meta: string; value: number }[];
-  direction: "send" | "receive";
-  totalValue: number;
+  assets: SuggestionAsset[];
+  kind: SuggestionKind;
+  totalValue: number;        // magnitude — sum of asset values
   closesGap: boolean;
   liquidityTiers: LiquidityTier[];
   tradeoff: string | null;
@@ -163,6 +178,10 @@ function sideHasPremium(
   return false;
 }
 
+function isFuturePick(a: RosterAsset, currentYear: number): boolean {
+  return a.type === "pick" && (a.pickYear ?? 0) > currentYear;
+}
+
 function findSingleClosers(
   pool: ScoredAsset[],
   targetValue: number,
@@ -188,16 +207,19 @@ type Combo = {
   total: number;
   pickCount: number;
   fitSum: number;
+  hasFuturePick: boolean;
 };
 
 function findCombos(
   pool: ScoredAsset[],
   targetValue: number,
   tolerance = 0.10,
+  preferFuturePicks = false,
 ): Combo[] {
   const min = targetValue * (1 - tolerance);
   const max = targetValue * (1 + tolerance);
   const combos: Combo[] = [];
+  const cy = getCFCYear();
   const top = [...pool].sort((a, b) => b.value - a.value).slice(0, 25);
   for (let i = 0; i < top.length; i++) {
     for (let j = i + 1; j < top.length; j++) {
@@ -205,12 +227,14 @@ function findCombos(
       if (total < min || total > max) continue;
       const pickCount =
         (top[i].type === "pick" ? 1 : 0) + (top[j].type === "pick" ? 1 : 0);
+      const hasFuture = isFuturePick(top[i], cy) || isFuturePick(top[j], cy);
       combos.push({
         a: top[i],
         b: top[j],
         total,
         pickCount,
         fitSum: top[i].fitScore + top[j].fitScore,
+        hasFuturePick: hasFuture,
       });
     }
   }
@@ -218,8 +242,69 @@ function findCombos(
     const distX = Math.abs(x.total - targetValue);
     const distY = Math.abs(y.total - targetValue);
     if (Math.abs(distX - distY) > targetValue * 0.02) return distX - distY;
+    if (preferFuturePicks && x.hasFuturePick !== y.hasFuturePick) {
+      return Number(y.hasFuturePick) - Number(x.hasFuturePick);
+    }
     if (x.pickCount !== y.pickCount) return y.pickCount - x.pickCount;
     return y.fitSum - x.fitSum;
+  });
+  return combos;
+}
+
+// ─── Swap combos (Architect-only) ──────────────────────────────────────
+//
+// A swap combo adds one asset to send and one to receive. Closes a signed
+// gap.delta when (sendAsset.value - receiveAsset.value) ≈ gap.delta.
+//
+// Example: gap.delta = +20 (you ahead). A swap of (send 50, receive 30)
+// has valueDiff = +20 → new delta = old + (30 - 50) = 0.
+
+type SwapCombo = {
+  send: ScoredAsset;
+  receive: ScoredAsset;
+  valueDiff: number;       // signed: send.value - receive.value
+  pickCount: number;
+  hasFuturePick: boolean;
+};
+
+function findSwapCombos(
+  myPool: ScoredAsset[],
+  theirPool: ScoredAsset[],
+  delta: number,           // signed gap.delta (target valueDiff)
+  tolerance = 0.10,
+): SwapCombo[] {
+  if (delta === 0) return [];
+  const targetMag = Math.abs(delta);
+  const minMag = targetMag * (1 - tolerance);
+  const maxMag = targetMag * (1 + tolerance);
+  const cy = getCFCYear();
+  const combos: SwapCombo[] = [];
+
+  // Cap pools to top 20 each — 400 pairs max
+  const myTop = [...myPool].sort((a, b) => b.value - a.value).slice(0, 20);
+  const theirTop = [...theirPool].sort((a, b) => b.value - a.value).slice(0, 20);
+
+  for (const a of myTop) {
+    for (const b of theirTop) {
+      const diff = a.value - b.value;
+      if (Math.sign(diff) !== Math.sign(delta)) continue;
+      const mag = Math.abs(diff);
+      if (mag < minMag || mag > maxMag) continue;
+      const pickCount =
+        (a.type === "pick" ? 1 : 0) + (b.type === "pick" ? 1 : 0);
+      const hasFuture = isFuturePick(a, cy) || isFuturePick(b, cy);
+      combos.push({ send: a, receive: b, valueDiff: diff, pickCount, hasFuturePick: hasFuture });
+    }
+  }
+
+  combos.sort((x, y) => {
+    if (x.hasFuturePick !== y.hasFuturePick) {
+      return Number(y.hasFuturePick) - Number(x.hasFuturePick);
+    }
+    if (x.pickCount !== y.pickCount) return y.pickCount - x.pickCount;
+    const distX = Math.abs(Math.abs(x.valueDiff) - targetMag);
+    const distY = Math.abs(Math.abs(y.valueDiff) - targetMag);
+    return distX - distY;
   });
   return combos;
 }
@@ -231,6 +316,8 @@ function combineTradeoffs(parts: (string | null)[]): string | null {
   return real.join("; also ");
 }
 
+// ─── Public entry ──────────────────────────────────────────────────────
+
 export type SuggestionContext = {
   dealAssets: DealAsset[];
   rosters: Record<string, RosterAsset[]>;
@@ -238,6 +325,7 @@ export type SuggestionContext = {
   otherTeamId: string;
   myProfile: StrategyProfile | null;
   otherProfile: StrategyProfile | null;
+  partnerPersona?: PersonaKey | null;
   gap: Gap;
 };
 
@@ -249,15 +337,14 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     otherTeamId,
     myProfile,
     otherProfile,
+    partnerPersona,
     gap,
   } = ctx;
   const dealKeys = new Set(dealAssets.map((a) => a.key));
 
-  let direction: "send" | "receive" = "send";
-  let targetValue = 0;
-  let pool: ScoredAsset[] = [];
-
   if (gap.verdict === "EMPTY") return [];
+
+  const isArchitect = partnerPersona === "architect";
 
   const buildSendPool = (): ScoredAsset[] =>
     (rosters[myTeamId] ?? [])
@@ -279,29 +366,36 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
         tradeoff: null,
       }));
 
+  // Always build both — needed for both same-direction and swap candidates
+  const sendPool = buildSendPool();
+  const receivePool = buildReceivePool();
+
+  let direction: "send" | "receive" = "send";
+  let targetValue = 0;
+  let pool: ScoredAsset[] = [];
+
   if (gap.verdict === "RECV_ONLY") {
     direction = "send";
     targetValue = gap.receiveValue;
-    pool = buildSendPool();
+    pool = sendPool;
   } else if (gap.verdict === "SEND_ONLY") {
     direction = "receive";
     targetValue = gap.sendValue;
-    pool = buildReceivePool();
+    pool = receivePool;
   } else if (gap.delta > 0 || gap.verdict === "FAIR") {
     direction = "send";
     targetValue = gap.delta > 0 ? gap.delta : gap.sendValue * 0.05;
-    pool = buildSendPool();
+    pool = sendPool;
   } else {
     direction = "receive";
     targetValue = Math.abs(gap.delta);
-    pool = buildReceivePool();
+    pool = receivePool;
   }
 
   if (pool.length === 0 || targetValue <= 0) return [];
 
-  // Premium-floor: when partner ships out a stud and isn't getting one
-  // back, suggestions need at least one premium (S/A liquidity) asset
-  // to be plausible.
+  // Premium-floor: when partner ships a stud out and isn't getting one back,
+  // suggestions need at least one premium (S/A liquidity) asset.
   let requirePremium = false;
   if (direction === "send") {
     const otherStudGoingOut = dealHasStudInDirection(dealAssets, rosters, otherTeamId);
@@ -312,20 +406,23 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     const meReceivesPremium = sideHasPremium(dealAssets, rosters, myTeamId);
     if (otherStudGoingOut && !meReceivesPremium) requirePremium = true;
   }
-
-  const passesPremium = (combo: ScoredAsset[]): boolean => {
-    if (!requirePremium) return true;
-    return combo.some((a) => isPremiumAsset(a));
-  };
+  const passesPremium = (combo: ScoredAsset[]): boolean =>
+    !requirePremium || combo.some((a) => isPremiumAsset(a));
 
   const suggestions: Suggestion[] = [];
+  const usedKeys = (): Set<string> =>
+    new Set(suggestions.flatMap((s) => s.assets.map((a) => a.key)));
 
-  // Pass 1: single-asset closers within ±15% of target
-  for (const s of findSingleClosers(pool, targetValue, 0.15).slice(0, 3)) {
+  // Pass 1: single-asset closers within ±15% of target. Architect partners
+  // cap singles at 1 so passes 2-3 (swap / pick-heavy combos) always have
+  // room in the slate — keeps suggestions feeling Architect-shaped.
+  const singleCap = isArchitect ? 1 : 3;
+  for (const s of findSingleClosers(pool, targetValue, 0.15).slice(0, singleCap)) {
+    if (suggestions.length >= 3) break;
     if (!passesPremium([s])) continue;
     suggestions.push({
-      assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value }],
-      direction,
+      assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value, direction }],
+      kind: direction,
       totalValue: s.value,
       closesGap: true,
       liquidityTiers: [s.tier_liq],
@@ -333,28 +430,57 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     });
   }
 
-  // Pass 2: 2-asset combos within ±10%
-  if (suggestions.length < 3) {
-    for (const c of findCombos(pool, targetValue, 0.10)) {
-      if (!passesPremium([c.a, c.b])) continue;
-      const usedKeys = new Set(suggestions.flatMap((s) => s.assets.map((a) => a.key)));
-      if (usedKeys.has(c.a.key) && usedKeys.has(c.b.key)) continue;
+  // Pass 2 (Architect bias): swap combos before same-direction combos.
+  // Only when both sides have assets AND gap is materially off.
+  const allowSwap =
+    isArchitect &&
+    gap.hasSend &&
+    gap.hasReceive &&
+    gap.verdict !== "FAIR" &&
+    gap.delta !== 0;
+
+  if (allowSwap && suggestions.length < 3) {
+    for (const sw of findSwapCombos(sendPool, receivePool, gap.delta, 0.10)) {
+      if (suggestions.length >= 3) break;
+      if (!passesPremium([sw.send, sw.receive])) continue;
+      const used = usedKeys();
+      if (used.has(sw.send.key) && used.has(sw.receive.key)) continue;
       suggestions.push({
         assets: [
-          { key: c.a.key, name: c.a.name, meta: c.a.rosterMeta, value: c.a.value },
-          { key: c.b.key, name: c.b.name, meta: c.b.rosterMeta, value: c.b.value },
+          { key: sw.send.key, name: sw.send.name, meta: sw.send.rosterMeta, value: sw.send.value, direction: "send" },
+          { key: sw.receive.key, name: sw.receive.name, meta: sw.receive.rosterMeta, value: sw.receive.value, direction: "receive" },
         ],
-        direction,
+        kind: "swap",
+        totalValue: sw.send.value + sw.receive.value,
+        closesGap: true,
+        liquidityTiers: [sw.send.tier_liq, sw.receive.tier_liq],
+        tradeoff: combineTradeoffs([sw.send.tradeoff, null]),
+      });
+    }
+  }
+
+  // Pass 3: 2-asset same-direction combos within ±10%
+  if (suggestions.length < 3) {
+    for (const c of findCombos(pool, targetValue, 0.10, isArchitect)) {
+      if (suggestions.length >= 3) break;
+      if (!passesPremium([c.a, c.b])) continue;
+      const used = usedKeys();
+      if (used.has(c.a.key) && used.has(c.b.key)) continue;
+      suggestions.push({
+        assets: [
+          { key: c.a.key, name: c.a.name, meta: c.a.rosterMeta, value: c.a.value, direction },
+          { key: c.b.key, name: c.b.name, meta: c.b.rosterMeta, value: c.b.value, direction },
+        ],
+        kind: direction,
         totalValue: c.total,
         closesGap: true,
         liquidityTiers: [c.a.tier_liq, c.b.tier_liq],
         tradeoff: combineTradeoffs([c.a.tradeoff, c.b.tradeoff]),
       });
-      if (suggestions.length >= 3) break;
     }
   }
 
-  // Pass 3: best-fit fallback if nothing closes the gap
+  // Pass 4: best-fit fallback when nothing closes the gap
   if (suggestions.length === 0) {
     const sorted = [...pool].sort(
       (a, b) => b.fitScore - a.fitScore || b.value - a.value,
@@ -362,8 +488,8 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     for (const s of sorted.slice(0, 3)) {
       if (!passesPremium([s])) continue;
       suggestions.push({
-        assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value }],
-        direction,
+        assets: [{ key: s.key, name: s.name, meta: s.rosterMeta, value: s.value, direction }],
+        kind: direction,
         totalValue: s.value,
         closesGap: false,
         liquidityTiers: [s.tier_liq],
