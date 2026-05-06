@@ -1,14 +1,13 @@
 // Trade Studio engine types.
 //
-// v3 changes:
-//   - StudioAsset gains: isAging, isStarterLevel, pickYear/Round/Slot
-//   - StudioStrategyProfile gains: team_mode (contend/retool/rebuild)
-//   - StudioOffer gains: isFallback (offer came from fallback path)
-//   - GenerationResult: top-level return type with fallback flag
+// v3.1: PersonaKey is now defined here (the lowest layer) so StudioOffer.persona
+// can be strictly typed. persona.ts re-exports for backwards compatibility.
 
 export type StudioAssetType = "player" | "pick";
 
 export type TeamMode = "contend" | "retool" | "rebuild";
+
+export type PersonaKey = "closer" | "straight_shooter" | "architect" | "hustler";
 
 export type StudioAsset = {
   // Identity
@@ -73,7 +72,7 @@ export type StudioOffer = {
   id: string;
   partnerTeamId: string;
   partnerTeamName: string;
-  persona: string;
+  persona: PersonaKey;
   send: OfferAssetSimple[];
   receive: OfferAssetSimple[];
   worksForYou: FitScore;
