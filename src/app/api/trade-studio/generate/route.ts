@@ -1,9 +1,12 @@
 // POST /api/trade-studio/generate
 //
-// v3.2 OPTIMIZATION: drops the cfc_trade_values_current full-table scan from
-// every API call. The client already populates isStud/isYouth on the assets
-// it sends in the request body, so we trust that and skip the value-flags
-// fetch. This cuts DB load roughly in half on every persona toggle.
+// v3.4: drops shape_signature param (More Like This feature removed).
+//
+// v3.2 OPTIMIZATION (still in effect): drops the cfc_trade_values_current
+// full-table scan from every API call. The client populates isStud/isYouth
+// on the assets it sends in the request body, so we trust that and skip
+// the value-flags fetch. This cuts DB load roughly in half on every persona
+// toggle.
 //
 // What still hits the DB:
 //   - cfc_team_strategy_profiles (12 rows, fast)
@@ -11,10 +14,9 @@
 // What is no longer fetched:
 //   - cfc_trade_values_current (was ~1500 rows on every call)
 //
-// isAging support is dropped for now — it's loaded from age_multiplier_applied
-// but the engine doesn't currently filter on AGING BENCH GUY anyway, so this
-// is a no-op in behavior. We can wire it back in later via client-provided
-// flags if/when we enforce that dealbreaker.
+// isAging support is still dropped — it's loaded from age_multiplier_applied
+// but the engine's AGING BENCH GUY dealbreaker is a no-op until the client
+// ships the flag. Wire-up is in place for when we enforce that dealbreaker.
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -109,7 +111,6 @@ export async function POST(req: Request) {
     const shopKeys: string[] = Array.isArray(body.shop_list_keys) ? body.shop_list_keys : [];
     const personaOverride = isValidPersona(body.persona_override) ? body.persona_override : undefined;
     const anchorPartnerId = body.anchor_partner_id ? String(body.anchor_partner_id) : undefined;
-    const shapeSignature = body.shape_signature ?? undefined;
     const rawRosters: Record<string, RawClientAsset[]> = body.rosters ?? {};
     const teamNames: Record<string, string> = body.team_names ?? {};
 
@@ -162,7 +163,6 @@ export async function POST(req: Request) {
     const result = generateStudioOffers(ctx, {
       personaOverride,
       anchorPartnerId,
-      shapeSignature,
     });
     return NextResponse.json(result);
   } catch (err) {
