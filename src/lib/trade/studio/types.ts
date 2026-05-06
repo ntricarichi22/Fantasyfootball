@@ -1,67 +1,36 @@
-// Trade Studio engine types.
+// src/lib/trade/studio/types.ts
 //
-// v3.1: PersonaKey is now defined here (the lowest layer) so StudioOffer.persona
-// can be strictly typed. persona.ts re-exports for backwards compatibility.
+// Trade Studio types.
+//
+// v3.4: Canonical types live in core/. This file is now a backwards-compat
+// layer — re-exporting RosterAsset as StudioAsset and StrategyProfile as
+// StudioStrategyProfile so existing import paths keep working without
+// churn. StudioOffer is updated: FitScore is gone; valueGap (Gap) +
+// gradeLabel + gradeColor replace worksForYou / worksForThem.
 
-export type StudioAssetType = "player" | "pick";
+import type {
+  RosterAsset,
+  StrategyProfile,
+  Gap,
+  PersonaKey,
+  AssetType,
+  TeamMode,
+} from "../core/types";
 
-export type TeamMode = "contend" | "retool" | "rebuild";
+// ─── Re-exports for backwards compat ───────────────────────────────────
 
-export type PersonaKey = "closer" | "straight_shooter" | "architect" | "hustler";
+export type { RosterAsset, StrategyProfile, Gap, PersonaKey, AssetType, TeamMode };
 
-export type StudioAsset = {
-  // Identity
-  key: string;
-  name: string;
+export type StudioAsset = RosterAsset;
+export type StudioStrategyProfile = StrategyProfile;
+export type StudioAssetType = AssetType;
 
-  // Player/pick metadata
-  position: string;
-  posGroup: string;
-  type: StudioAssetType;
-  meta: string;
-  rosterMeta: string;
-  ownerTeamId?: string;
-
-  // Value & attachment
-  value: number;
-  tier: string;
-
-  // Player class flags (computed in classification.ts)
-  isStud: boolean;          // elite_multiplier_applied > 1.0
-  isYouth: boolean;         // age_multiplier_applied > 1.0
-  isAging?: boolean;        // age_multiplier_applied < 1.0
-  isStarterLevel?: boolean; // top-N at position by value, excluding studs
-
-  // Pick fields (only for type === "pick")
-  pickYear?: number;
-  pickRound?: number;
-  pickSlot?: number;
-};
-
-export type StudioStrategyProfile = {
-  team_id: string;
-  wants_more: string[];
-  qb_market: string;
-  rb_market: string;
-  wr_market: string;
-  te_market: string;
-  picks_market: string;
-  team_mode?: TeamMode;
-};
-
-export type FitScore = {
-  total: number;
-  fairValue: number;
-  positionNeed: number;
-  wantsMore: number;
-  rosterShape: number;
-  attachment: number;
-};
+// ─── Studio-specific types ─────────────────────────────────────────────
 
 export type OfferAssetSimple = {
   key: string;
   name: string;
-  type: StudioAssetType;
+  type: AssetType;
   position?: string;
   team?: string;
   ageLabel?: string;
@@ -75,27 +44,28 @@ export type StudioOffer = {
   persona: PersonaKey;
   send: OfferAssetSimple[];
   receive: OfferAssetSimple[];
-  worksForYou: FitScore;
-  worksForThem: FitScore;
   sendValue: number;
   receiveValue: number;
-  isFallback?: boolean;
+  valueGap: Gap;          // canonical fairness signal
+  gradeLabel: string;     // "In the range" / "You're ahead" / etc.
+  gradeColor: string;     // hex chip color
+  isFallback?: boolean;   // retained on the type but never set in v3.4
 };
 
 export type StudioPartner = {
   teamId: string;
   teamName: string;
-  profile: StudioStrategyProfile | null;
-  roster: StudioAsset[];
+  profile: StrategyProfile | null;
+  roster: RosterAsset[];
 };
 
 export type StudioEngineContext = {
   myTeamId: string;
   myTeamName: string;
   myPersona: string;
-  myProfile: StudioStrategyProfile | null;
-  myRoster: StudioAsset[];
-  shopList: StudioAsset[];
+  myProfile: StrategyProfile | null;
+  myRoster: RosterAsset[];
+  shopList: RosterAsset[];
   partners: StudioPartner[];
 };
 
