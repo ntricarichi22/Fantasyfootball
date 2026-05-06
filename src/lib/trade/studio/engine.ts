@@ -1,22 +1,34 @@
-// Trade Studio engine — partner search, offer generation, fit scoring.
+// Trade Studio engine — main entry.
 //
-// v2 changes:
-//   - Persona ratios FLIPPED to correct direction (Closer < 1, Hustler > 1)
-//   - Fair value scoring is now ASYMMETRIC (recipient-perspective)
-//   - Filtering is by ratio band (primary) + fit target (secondary)
-//   - More candidates per partner, wider tolerance, more variety
-//   - "More like this" matches anchor SHAPE, not just persona
+// Pipeline:
+//   1. Dispatch to per-persona candidate generator (candidates.ts).
+//   2. Score every candidate with WORKS FOR YOU and WORKS FOR THEM.
+//   3. Apply the persona's color-signature gates (yourFit / theirFit ranges).
+//   4. Rank passing candidates by:
+//        (a) WANTS_MORE matches (count of want-buckets the receive bundle hits)
+//        (b) complementarity (count of inverted BUY/SELL signals with partner)
+//        (c) sum of fit scores as a tiebreaker
+//   5. Build slate (5 offers), preferring partner variety.
+//   6. If slate < 5, run fallback candidate set with looser bounds and ship
+//      whatever fills the remaining slots, marked isFallback.
+//
+// Component scoring is recipient-perspective (asymmetric fair value via sigmoid)
+// and combines fair value, position-need fit, WANTS_MORE fit, post-trade roster
+// shape, and source-side attachment penalty.
 
 import { computePostTradeWarnings, type RosterAsset, type DealAsset } from "../advisor/engine";
-import type { PersonaConfig, PersonaKey } from "./persona";
-import { getPersona } from "./persona";
+import { getPersona, type PersonaKey } from "./persona";
+import { generateCandidates, generateFallbackCandidates, type CandidateOffer } from "./candidates";
+import { countWantsMoreMatches, countComplementarity, sumValue } from "./classification";
 import type {
   StudioAsset,
   StudioStrategyProfile,
   StudioOffer,
   StudioEngineContext,
+  StudioPartner,
   FitScore,
   OfferAssetSimple,
+  GenerationResult,
 } from "./types";
 
 // ─── Constants ───────────────────────────────────────────────────────────
@@ -41,43 +53,17 @@ const SHAPE_PENALTY_BY_SEVERITY: Record<string, number> = {
   warning: 15,
   info: 5,
 };
-const RATIO_TOLERANCE = 0.04; // candidates can be ±4% off the persona's prefer ratio
 
-// ─── Helpers ─────────────────────────────────────────────────────────────
-
-function studioAssetToRosterAsset(a: StudioAsset): RosterAsset {
-  return {
-    key: a.key, name: a.name, position: a.position, posGroup: a.posGroup,
-    value: a.value, tier: a.tier, type: a.type,
-    isStud: a.isStud, isYouth: a.isYouth, meta: a.meta, rosterMeta: a.rosterMeta,
-  };
-}
-
-function toOfferAsset(a: StudioAsset): OfferAssetSimple {
-  const parts = a.meta.split(" · ");
-  return {
-    key: a.key, name: a.name, type: a.type,
-    position: a.type === "player" ? parts[0] : undefined,
-    team: a.type === "player" ? parts[1] : undefined,
-    ageLabel: a.type === "player" ? parts[2] : undefined,
-    value: a.value,
-  };
-}
-
-// ─── Asymmetric fair value scoring ───────────────────────────────────────
-// Returns a recipient-perspective score: how good is this trade FOR THIS SIDE?
-//   ratio = received_value / sent_value (from this side's POV)
-//   ratio = 1.0 → ~80 (fair is good but not perfect)
-//   ratio = 1.2 → ~89 (you're getting more, even better)
-//   ratio = 0.8 → ~67 (you're paying a premium, still acceptable)
-//   ratio = 0.5 → ~36 (overpaying badly)
+// ─── Asymmetric fair value ───────────────────────────────────────────────
+// Recipient-perspective sigmoid:
+//   ratio = received / sent
+//   1.0 → ~80, 1.2 → ~89, 0.8 → ~67, 0.5 → ~36
 
 function scoreFairValueAsymmetric(receivedValue: number, sentValue: number): number {
   if (sentValue <= 0 && receivedValue <= 0) return 50;
   if (sentValue <= 0) return 100;
   if (receivedValue <= 0) return 0;
   const logR = Math.log(receivedValue / sentValue);
-  // Sigmoid: 100 / (1 + exp(-3*(logR + 0.5)))
   const score = 100 / (1 + Math.exp(-3 * (logR + 0.5)));
   return Math.max(0, Math.min(100, score));
 }
@@ -87,7 +73,7 @@ function scoreFairValueAsymmetric(receivedValue: number, sentValue: number): num
 function scorePositionNeed(
   received: StudioAsset[],
   sent: StudioAsset[],
-  profile: StudioStrategyProfile | null
+  profile: StudioStrategyProfile | null,
 ): number {
   if (!profile) return 70;
   const marketFor = (pos: string): string => {
@@ -114,7 +100,7 @@ function scorePositionNeed(
 function scoreWantsMore(
   received: StudioAsset[],
   sent: StudioAsset[],
-  profile: StudioStrategyProfile | null
+  profile: StudioStrategyProfile | null,
 ): number {
   if (!profile) return 70;
   const wants = new Set(profile.wants_more ?? []);
@@ -134,20 +120,28 @@ function scoreWantsMore(
   return Math.max(0, Math.min(100, score));
 }
 
+function studioToRoster(a: StudioAsset): RosterAsset {
+  return {
+    key: a.key, name: a.name, position: a.position, posGroup: a.posGroup,
+    value: a.value, tier: a.tier, type: a.type,
+    isStud: a.isStud, isYouth: a.isYouth, meta: a.meta, rosterMeta: a.rosterMeta,
+  };
+}
+
 function scoreRosterShape(
   myRoster: StudioAsset[],
   send: StudioAsset[],
   receive: StudioAsset[],
   myTeamId: string,
-  partnerTeamId: string
+  partnerTeamId: string,
 ): number {
   const dealAssets: DealAsset[] = [
     ...send.map(a => ({ key: a.key, name: a.name, fromTeamId: myTeamId, toTeamId: partnerTeamId })),
     ...receive.map(a => ({ key: a.key, name: a.name, fromTeamId: partnerTeamId, toTeamId: myTeamId })),
   ];
   const rosters: Record<string, RosterAsset[]> = {
-    [myTeamId]: myRoster.map(studioAssetToRosterAsset),
-    [partnerTeamId]: receive.map(studioAssetToRosterAsset),
+    [myTeamId]: myRoster.map(studioToRoster),
+    [partnerTeamId]: receive.map(studioToRoster),
   };
   const warnings = computePostTradeWarnings(dealAssets, rosters, myTeamId);
   let score = 100;
@@ -171,7 +165,7 @@ function computeFit(
   profile: StudioStrategyProfile | null,
   rosterForShape: StudioAsset[],
   myId: string,
-  partnerId: string
+  partnerId: string,
 ): FitScore {
   const fairValue = scoreFairValueAsymmetric(receivedValue, sentValue);
   const positionNeed = scorePositionNeed(received, sent, profile);
@@ -194,202 +188,207 @@ function computeFit(
   };
 }
 
-// ─── Candidate generation (ratio-driven) ────────────────────────────────
+// ─── Asset conversion ────────────────────────────────────────────────────
 
-function generateCandidatesForPartner(
-  shopList: StudioAsset[],
-  partnerRoster: StudioAsset[],
-  persona: PersonaConfig
-): StudioAsset[][] {
-  const sendValue = shopList.reduce((s, a) => s + a.value, 0);
-  if (sendValue <= 0) return [];
+function toOfferAsset(a: StudioAsset): OfferAssetSimple {
+  const parts = (a.meta ?? "").split(" \u00b7 ");
+  return {
+    key: a.key,
+    name: a.name,
+    type: a.type,
+    position: a.type === "player" ? parts[0] : undefined,
+    team: a.type === "player" ? parts[1] : undefined,
+    ageLabel: a.type === "player" ? parts[2] : undefined,
+    value: a.value,
+  };
+}
 
-  // Exclude untouchables from partner pool — they wouldn't move them
-  const pool = partnerRoster
-    .filter(a => a.value > 0 && a.tier !== "untouchable")
-    .sort((a, b) => b.value - a.value);
-  if (pool.length === 0) return [];
+// ─── Scoring & ranking ───────────────────────────────────────────────────
 
-  // Spread targets across the persona's ratio band
-  const { min, max, prefer } = persona.ratioBand;
-  const targetRatios = [
-    min + (prefer - min) * 0.5,    // halfway from min to prefer
-    prefer,
-    prefer + (max - prefer) * 0.5,  // halfway from prefer to max
-    min,
-    max,
-  ];
+type ScoredCandidate = {
+  offer: StudioOffer;
+  wantsMatches: number;
+  complementarity: number;
+  fitTotal: number;
+  raw: CandidateOffer;
+};
 
-  const candidates: StudioAsset[][] = [];
-  const seen = new Set<string>();
-  const addIfNew = (combo: StudioAsset[]) => {
-    if (combo.length === 0) return;
-    const total = combo.reduce((s, a) => s + a.value, 0);
-    const ratio = total / sendValue;
-    if (ratio < min - RATIO_TOLERANCE || ratio > max + RATIO_TOLERANCE) return;
-    const key = combo.map(c => c.key).sort().join("|");
-    if (seen.has(key)) return;
-    seen.add(key);
-    candidates.push(combo);
+function scoreCandidate(
+  c: CandidateOffer,
+  ctx: StudioEngineContext,
+  partnersById: Map<string, StudioPartner>,
+  personaKey: PersonaKey,
+): ScoredCandidate | null {
+  const partner = partnersById.get(c.partnerId);
+  if (!partner) return null;
+
+  const sendV = sumValue(c.send);
+  const receiveV = sumValue(c.receive);
+
+  const worksForYou = computeFit(
+    receiveV, sendV,
+    c.receive, c.send,
+    ctx.myProfile, ctx.myRoster, ctx.myTeamId, partner.teamId,
+  );
+  const worksForThem = computeFit(
+    sendV, receiveV,
+    c.send, c.receive,
+    partner.profile, partner.roster, partner.teamId, ctx.myTeamId,
+  );
+
+  const wantsMatches = ctx.myProfile
+    ? countWantsMoreMatches(c.receive, ctx.myProfile.wants_more)
+    : 0;
+  const complementarity = countComplementarity(ctx.myProfile, partner.profile);
+
+  const offer: StudioOffer = {
+    id: `studio-${partner.teamId}-${c.receive.map(a => a.key).join("-")}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    partnerTeamId: partner.teamId,
+    partnerTeamName: partner.teamName,
+    persona: personaKey,
+    send: c.send.map(toOfferAsset),
+    receive: c.receive.map(toOfferAsset),
+    worksForYou,
+    worksForThem,
+    sendValue: sendV,
+    receiveValue: receiveV,
   };
 
-  for (const ratio of targetRatios) {
-    const target = sendValue * ratio;
-    const tol = target * 0.18;
+  return {
+    offer,
+    wantsMatches,
+    complementarity,
+    fitTotal: worksForYou.total + worksForThem.total,
+    raw: c,
+  };
+}
 
-    // Single-asset candidates
-    for (const a of pool) {
-      if (a.value >= target - tol && a.value <= target + tol) addIfNew([a]);
-    }
-    // 2-asset candidates
-    const top = pool.slice(0, Math.min(25, pool.length));
-    for (let i = 0; i < top.length && candidates.length < 80; i++) {
-      for (let j = i + 1; j < top.length; j++) {
-        const sum = top[i].value + top[j].value;
-        if (sum >= target - tol && sum <= target + tol) addIfNew([top[i], top[j]]);
-      }
-    }
-    // 3-asset candidates only for Architect (exotic structures)
-    if (persona.allowExoticStructure) {
-      for (let i = 0; i < Math.min(10, top.length) && candidates.length < 120; i++) {
-        for (let j = i + 1; j < Math.min(12, top.length); j++) {
-          for (let k = j + 1; k < Math.min(14, top.length); k++) {
-            const sum = top[i].value + top[j].value + top[k].value;
-            if (sum >= target - tol && sum <= target + tol) addIfNew([top[i], top[j], top[k]]);
-          }
-        }
-      }
+function applyShapeSignature(
+  scored: ScoredCandidate[],
+  sig?: GenerateOptions["shapeSignature"],
+): ScoredCandidate[] {
+  if (!sig) return scored;
+  return scored.filter(s =>
+    s.raw.send.length === sig.sendCount &&
+    s.raw.receive.length === sig.receiveCount &&
+    sumValue(s.raw.receive) >= sig.receiveValueMin &&
+    sumValue(s.raw.receive) <= sig.receiveValueMax,
+  );
+}
+
+function rank(a: ScoredCandidate, b: ScoredCandidate): number {
+  if (a.wantsMatches !== b.wantsMatches) return b.wantsMatches - a.wantsMatches;
+  if (a.complementarity !== b.complementarity) return b.complementarity - a.complementarity;
+  return b.fitTotal - a.fitTotal;
+}
+
+function buildSlate(
+  primary: ScoredCandidate[],
+  fallback: ScoredCandidate[],
+): { offers: StudioOffer[]; isFallback: boolean } {
+  const slate: StudioOffer[] = [];
+  const seenIds = new Set<string>();
+  const seenPartners = new Set<string>();
+
+  // Pass 1: primary, partner-unique
+  for (const s of primary) {
+    if (slate.length >= SLATE_SIZE) break;
+    if (seenPartners.has(s.offer.partnerTeamId)) continue;
+    slate.push(s.offer);
+    seenIds.add(s.offer.id);
+    seenPartners.add(s.offer.partnerTeamId);
+  }
+  // Pass 2: primary, allow partner repeats
+  if (slate.length < SLATE_SIZE) {
+    for (const s of primary) {
+      if (slate.length >= SLATE_SIZE) break;
+      if (seenIds.has(s.offer.id)) continue;
+      slate.push(s.offer);
+      seenIds.add(s.offer.id);
     }
   }
-  return candidates;
+
+  // Pass 3: fallback, marked isFallback
+  let usedFallback = false;
+  if (slate.length < SLATE_SIZE) {
+    for (const s of fallback) {
+      if (slate.length >= SLATE_SIZE) break;
+      if (seenIds.has(s.offer.id)) continue;
+      slate.push({ ...s.offer, isFallback: true });
+      seenIds.add(s.offer.id);
+      usedFallback = true;
+    }
+  }
+  return { offers: slate, isFallback: usedFallback };
 }
 
-// ─── Architect structure check ──────────────────────────────────────────
-
-function passesArchitectStructure(send: StudioAsset[], receive: StudioAsset[]): boolean {
-  const total = send.length + receive.length;
-  if (total >= 4) return true;  // multi-piece package
-  // Asymmetric: 1-for-2 or 2-for-1
-  if ((send.length === 1 && receive.length >= 2) || (send.length >= 2 && receive.length === 1)) return true;
-  // Far-future pick involved
-  const allKeys = [...send, ...receive];
-  const currentYear = new Date().getFullYear();
-  const hasFuturePick = allKeys.some(a => {
-    if (a.type !== "pick") return false;
-    const yearMatch = a.name.match(/\b(20\d{2})\b/);
-    if (!yearMatch) return false;
-    return parseInt(yearMatch[1], 10) >= currentYear + 1;
-  });
-  return hasFuturePick;
-}
-
-// ─── Main entry ─────────────────────────────────────────────────────────
+// ─── Public entry ────────────────────────────────────────────────────────
 
 export type GenerateOptions = {
   personaOverride?: PersonaKey;
   anchorPartnerId?: string;
-  // For "more like this" — match candidates with similar shape
   shapeSignature?: { sendCount: number; receiveCount: number; receiveValueMin: number; receiveValueMax: number };
 };
 
 export function generateStudioOffers(
   ctx: StudioEngineContext,
-  options?: GenerateOptions
-): { offers: StudioOffer[]; totalCandidatesEvaluated: number } {
-  if (ctx.shopList.length === 0) return { offers: [], totalCandidatesEvaluated: 0 };
+  options?: GenerateOptions,
+): GenerationResult {
+  if (ctx.shopList.length === 0) {
+    return { offers: [], totalCandidatesEvaluated: 0, isFallback: false };
+  }
+  if (sumValue(ctx.shopList) <= 0) {
+    return { offers: [], totalCandidatesEvaluated: 0, isFallback: false };
+  }
 
   const persona = getPersona(options?.personaOverride ?? ctx.myPersona);
-  const sendValue = ctx.shopList.reduce((s, a) => s + a.value, 0);
-  if (sendValue <= 0) return { offers: [], totalCandidatesEvaluated: 0 };
 
-  type ScoredOffer = StudioOffer & { qualityScore: number };
-  const allScored: ScoredOffer[] = [];
-  let totalCandidates = 0;
-
+  // Optionally restrict to a single partner (used for "more like this" anchor)
   const partnerList = options?.anchorPartnerId
     ? ctx.partners.filter(p => p.teamId === options.anchorPartnerId)
     : ctx.partners;
+  const ctxFiltered: StudioEngineContext = { ...ctx, partners: partnerList };
+  const partnersById = new Map(partnerList.map(p => [p.teamId, p]));
 
-  for (const partner of partnerList) {
-    const candidates = generateCandidatesForPartner(ctx.shopList, partner.roster, persona);
-    totalCandidates += candidates.length;
+  // Step 1: candidates
+  const candidates = generateCandidates(ctxFiltered, persona.key);
 
-    for (const receiveBundle of candidates) {
-      // Architect: must be exotic structure
-      if (persona.requireExoticStructure && !passesArchitectStructure(ctx.shopList, receiveBundle)) continue;
+  // Step 2: score
+  let scored: ScoredCandidate[] = [];
+  for (const c of candidates) {
+    const s = scoreCandidate(c, ctxFiltered, partnersById, persona.key);
+    if (s) scored.push(s);
+  }
+  scored = applyShapeSignature(scored, options?.shapeSignature);
 
-      // Shape signature filter (for "more like this")
-      if (options?.shapeSignature) {
-        const sig = options.shapeSignature;
-        if (ctx.shopList.length !== sig.sendCount) continue;
-        if (receiveBundle.length !== sig.receiveCount) continue;
-        const recvVal = receiveBundle.reduce((s, a) => s + a.value, 0);
-        if (recvVal < sig.receiveValueMin || recvVal > sig.receiveValueMax) continue;
-      }
+  // Step 3: persona color-signature gates
+  const passing = scored.filter(s =>
+    s.offer.worksForYou.total >= persona.yourFitMin &&
+    s.offer.worksForYou.total <= persona.yourFitMax &&
+    s.offer.worksForThem.total >= persona.theirFitMin &&
+    s.offer.worksForThem.total <= persona.theirFitMax,
+  );
 
-      const receiveValue = receiveBundle.reduce((s, a) => s + a.value, 0);
+  // Step 4: rank
+  passing.sort(rank);
 
-      const worksForYou = computeFit(
-        receiveValue, sendValue,
-        receiveBundle, ctx.shopList,
-        ctx.myProfile, ctx.myRoster, ctx.myTeamId, partner.teamId
-      );
-      // Their perspective: their received = our sent, their sent = our received
-      const worksForThem = computeFit(
-        sendValue, receiveValue,
-        ctx.shopList, receiveBundle,
-        partner.profile, partner.roster, partner.teamId, ctx.myTeamId
-      );
-
-      // Soft fit signature filter
-      const t = persona.fitTarget;
-      if (worksForYou.total < t.yourFitMin || worksForYou.total > t.yourFitMax) continue;
-      if (worksForThem.total < t.theirFitMin || worksForThem.total > t.theirFitMax) continue;
-
-      const offer: StudioOffer = {
-        id: `studio-${partner.teamId}-${receiveBundle.map(a => a.key).join("-")}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        partnerTeamId: partner.teamId,
-        partnerTeamName: partner.teamName,
-        persona: persona.key,
-        send: ctx.shopList.map(toOfferAsset),
-        receive: receiveBundle.map(toOfferAsset),
-        worksForYou,
-        worksForThem,
-        sendValue,
-        receiveValue,
-      };
-
-      // Quality: prioritize offers near the persona's prefer ratio AND with both fits decent
-      const ratio = receiveValue / sendValue;
-      const ratioCloseness = 100 - Math.min(100, Math.abs(ratio - persona.ratioBand.prefer) * 200);
-      const balanceBonus = (worksForYou.total >= 70 && worksForThem.total >= 60) ? 8 : 0;
-      const qualityScore = (worksForYou.total + worksForThem.total) / 2 + ratioCloseness * 0.3 + balanceBonus;
-
-      allScored.push({ ...offer, qualityScore });
+  // Step 5/6: build slate, fall back if short
+  let fallbackScored: ScoredCandidate[] = [];
+  if (passing.length < SLATE_SIZE) {
+    const fb = generateFallbackCandidates(ctxFiltered);
+    for (const c of fb) {
+      const s = scoreCandidate(c, ctxFiltered, partnersById, persona.key);
+      if (s) fallbackScored.push(s);
     }
+    fallbackScored = applyShapeSignature(fallbackScored, options?.shapeSignature);
+    fallbackScored.sort(rank);
   }
 
-  // Sort by quality, dedupe partners across the slate for variety
-  allScored.sort((a, b) => b.qualityScore - a.qualityScore);
-  const seenPartners = new Set<string>();
-  const slate: StudioOffer[] = [];
-  for (const offer of allScored) {
-    if (slate.length >= SLATE_SIZE) break;
-    if (seenPartners.has(offer.partnerTeamId)) continue;
-    seenPartners.add(offer.partnerTeamId);
-    const { qualityScore: _q, ...rest } = offer;
-    void _q;
-    slate.push(rest);
-  }
-  // Fill remainder allowing partner repeats if we don't have 5
-  if (slate.length < SLATE_SIZE) {
-    for (const offer of allScored) {
-      if (slate.length >= SLATE_SIZE) break;
-      if (slate.some(s => s.id === offer.id)) continue;
-      const { qualityScore: _q, ...rest } = offer;
-      void _q;
-      slate.push(rest);
-    }
-  }
-  return { offers: slate, totalCandidatesEvaluated: totalCandidates };
+  const { offers, isFallback } = buildSlate(passing, fallbackScored);
+
+  return {
+    offers,
+    totalCandidatesEvaluated: candidates.length + fallbackScored.length,
+    isFallback,
+  };
 }
