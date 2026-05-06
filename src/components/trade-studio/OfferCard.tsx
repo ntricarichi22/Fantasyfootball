@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import FitBar from "./FitBar";
+import TradeBalanceChip from "../trade/shared/TradeBalanceChip";
 import PersonaPopover from "./PersonaPopover";
 import { getPersona, type PersonaKey } from "../../lib/trade/studio/persona";
 import type { StudioOffer } from "../../lib/trade/studio/types";
@@ -16,7 +16,6 @@ type Props = {
   onNext: () => void;
   onPersonaChange: (persona: PersonaKey) => void;
   onPass: () => void;
-  onMoreLikeThis: () => void;
   onEdit: () => void;
   onMakeOffer: () => void;
   sendingOffer: boolean;
@@ -28,7 +27,7 @@ const FH = "var(--font-headline, 'Syne', sans-serif)";
 
 export default function OfferCard({
   offer, index, total, advisorProse, advisorLoading,
-  onPrev, onNext, onPersonaChange, onPass, onMoreLikeThis, onEdit, onMakeOffer, sendingOffer,
+  onPrev, onNext, onPersonaChange, onPass, onEdit, onMakeOffer, sendingOffer,
 }: Props) {
   const [personaOpen, setPersonaOpen] = useState(false);
   const persona = getPersona(offer.persona);
@@ -73,15 +72,12 @@ export default function OfferCard({
         </div>
       </div>
 
-      {/* Team name */}
-      <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 18, color: "#1A1A1A", marginBottom: 12, flexShrink: 0 }}>
-        {offer.partnerTeamName}
-      </div>
-
-      {/* Fit bars */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 14, flexShrink: 0 }}>
-        <FitBar label="Works for you" value={offer.worksForYou.total} />
-        <FitBar label="Works for them" value={offer.worksForThem.total} />
+      {/* Team name + balance chip */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexShrink: 0 }}>
+        <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 18, color: "#1A1A1A" }}>
+          {offer.partnerTeamName}
+        </div>
+        <TradeBalanceChip label={offer.gradeLabel} color={offer.gradeColor} />
       </div>
 
       {/* Offer card */}
@@ -117,15 +113,11 @@ export default function OfferCard({
           </div>
         </div>
 
-        {/* Three secondary buttons */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6, marginBottom: 10, flexShrink: 0 }}>
+        {/* Two secondary buttons */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6, marginBottom: 10, flexShrink: 0 }}>
           <div onClick={onPass} style={{ background: "#FEFCF9", color: "#1A1A1A", border: "2px solid #E8503A", padding: "8px 0", textAlign: "center", fontWeight: 700, fontSize: 10, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: F }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="3" strokeLinecap="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
             <span>Pass</span>
-          </div>
-          <div onClick={onMoreLikeThis} style={{ background: "#FEFCF9", color: "#1A1A1A", border: "2px solid #F5C230", padding: "8px 0", textAlign: "center", fontWeight: 700, fontSize: 10, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: F }}>
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path d="M3 12h.01M21 12h-.01M12 3v.01M12 21v-.01" /></svg>
-            <span>More like this</span>
           </div>
           <div onClick={onEdit} style={{ background: "#FEFCF9", color: "#1A1A1A", border: "2px solid #1A1A1A", padding: "8px 0", textAlign: "center", fontWeight: 700, fontSize: 10, cursor: "pointer", letterSpacing: "0.04em", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: F }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#1A1A1A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9M16.5 3.5a2.121 2.121 0 113 3L7 19l-4 1 1-4L16.5 3.5z" /></svg>
