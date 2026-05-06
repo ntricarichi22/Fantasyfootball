@@ -197,18 +197,20 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     setRosterSearch("");
   }, []);
 
+  // Per-asset direction routing — handles same-direction (all send / all
+  // receive) and bidirectional swap suggestions uniformly.
   const handleSuggestionTap = useCallback((suggestion: AdvisorSuggestion) => {
     const otherTeam = otherTeams[0];
     if (!otherTeam) return;
-    const fromTeamId = suggestion.direction === "send" ? myTeamId : otherTeam.id;
-    const toTeamId = suggestion.direction === "send" ? otherTeam.id : myTeamId;
-    const fromTeam = teams.find(t => t.id === fromTeamId);
-    const toTeam = teams.find(t => t.id === toTeamId);
     setDealAssets(prev => {
       const existing = new Set(prev.map(a => a.key));
       const additions: DealAsset[] = [];
       for (const asset of suggestion.assets) {
         if (existing.has(asset.key)) continue;
+        const fromTeamId = asset.direction === "send" ? myTeamId : otherTeam.id;
+        const toTeamId = asset.direction === "send" ? otherTeam.id : myTeamId;
+        const fromTeam = teams.find(t => t.id === fromTeamId);
+        const toTeam = teams.find(t => t.id === toTeamId);
         additions.push({
           key: asset.key, name: asset.name,
           fromTeamId, toTeamId,
