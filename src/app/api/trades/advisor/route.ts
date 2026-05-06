@@ -3,7 +3,7 @@ import { getSupabaseAdminClient } from "../../../../lib/supabaseAdmin";
 import { LEAGUE_ID } from "../../../../lib/config";
 import {
   computeGap,
-  gradeFromVerdict,
+  personaAwareGrade,
   generateSuggestions,
   computePostTradeWarnings,
   detectShapeMismatch,
@@ -11,6 +11,7 @@ import {
   type DealAsset,
   type StrategyProfile,
   type Suggestion,
+  type PersonaKey,
 } from "../../../../lib/trade/advisor/engine";
 import { getPersonality } from "../../../../lib/trade/advisor/personality";
 import { SYSTEM_PROMPT, buildUserPrompt } from "../../../../lib/trade/advisor/prompt";
@@ -44,12 +45,16 @@ function inferTeamMode(roster: RosterAsset[]): "contend" | "retool" | "rebuild" 
   const totalValue = players.reduce((sum, p) => sum + p.value, 0);
   const avgValue = totalValue / players.length;
 
-  // Heuristic: lots of studs + high avg value = contender
-  // Lots of youth + lower avg value = rebuild
-  // Mixed = retool
   if (studCount >= 3 && avgValue >= 90) return "contend";
   if (youthCount >= 5 && studCount <= 1) return "rebuild";
   return "retool";
+}
+
+const VALID_PERSONAS: PersonaKey[] = ["closer", "straight_shooter", "architect", "hustler"];
+function coercePersona(v: unknown): PersonaKey | null {
+  return typeof v === "string" && (VALID_PERSONAS as string[]).includes(v)
+    ? (v as PersonaKey)
+    : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -81,7 +86,7 @@ export async function POST(request: NextRequest) {
   // Fetch supporting data in parallel
   const [stratRes, teamRes, offersRes] = await Promise.all([
     client.from("cfc_team_strategy_profiles")
-      .select("team_id, wants_more, qb_market, rb_market, wr_market, te_market, picks_market")
+      .select("team_id, wants_more, qb_market, rb_market, wr_market, te_market, picks_market, gm_persona")
       .eq("league_id", league_id).in("team_id", allTeamIds),
     client.from("team_email_map").select("roster_id, team_name"),
     client.from("trade_offers")
@@ -99,6 +104,7 @@ export async function POST(request: NextRequest) {
 
   const myProfile = strategies.find(s => s.team_id === my_team_id) ?? null;
   const otherProfile = strategies.find(s => s.team_id === otherTeamId) ?? null;
+  const partnerPersona = coercePersona(otherProfile?.gm_persona);
 
   const myRoster = rosters[my_team_id] ?? [];
   const otherRoster = rosters[otherTeamId] ?? [];
@@ -120,10 +126,13 @@ export async function POST(request: NextRequest) {
 
   // ── PURE LOGIC (single source of truth) ────────────────────────────────
   const gap = computeGap(dealAssets, rosters, my_team_id);
-  const grade = gradeFromVerdict(gap.verdict);
+  // Persona-aware grading: a +12% deal grades green with a Closer partner,
+  // yellow with a Straight Shooter. Falls back to neutral grading when the
+  // partner persona is unknown or the deal is incomplete.
+  const grade = personaAwareGrade(gap, partnerPersona);
   const suggestions = generateSuggestions({
     dealAssets, rosters, myTeamId: my_team_id, otherTeamId,
-    myProfile, otherProfile, gap,
+    myProfile, otherProfile, partnerPersona, gap,
   });
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
@@ -202,7 +211,7 @@ export async function POST(request: NextRequest) {
   // The UI no longer computes grade or suggestions. It renders what we return.
   const responseSuggestions = suggestions.map((s: Suggestion) => ({
     assets: s.assets,
-    direction: s.direction,
+    kind: s.kind,
     closesGap: s.closesGap,
   }));
 
