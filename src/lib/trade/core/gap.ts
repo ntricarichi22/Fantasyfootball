@@ -78,17 +78,20 @@ export function gradeFromVerdict(v: GapVerdict): Grade {
 
 // Per-persona ratio bands. These match studio/persona.ts but live here too
 // so personaAwareGrade is self-contained for Builder use without importing
-// from studio/.
+// from studio/. KEEP IN SYNC with studio/persona.ts.
+//
+// Hustler band sits ABOVE 1.0 — "come in low" means underpaying the partner,
+// so user-perspective ratio (receive/send) ends up > 1.0.
 const PERSONA_RATIO_MIN: Record<PersonaKey, number> = {
   straight_shooter: 0.90,
   closer: 0.90,
-  hustler: 0.85,
+  hustler: 1.00,
   architect: 0.90,
 };
 const PERSONA_RATIO_MAX: Record<PersonaKey, number> = {
   straight_shooter: 1.10,
   closer: 1.15,
-  hustler: 1.00,
+  hustler: 1.15,
   architect: 1.10,
 };
 
