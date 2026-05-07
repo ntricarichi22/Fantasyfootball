@@ -4,6 +4,15 @@
 // inference, and predicates (isStud / isYouth / isAging / isStarterLevel /
 // isUntouchable / isAgingBenchGuy). All shared between Builder (advisor)
 // and Studio.
+//
+// v3.10: parsePickKey now accepts both pick-key shapes:
+//   - 3-part future-year:   pick:YYYY-R-RID  (slot unknown until draft order)
+//   - 4-part current-year:  pick:YYYY-R-SS-RID
+// Previously only the 3-part shape parsed, so current-year picks never had
+// pickYear/pickRound/pickSlot set during enrichment. That broke any code
+// that filtered picks by round — most visibly the Hustler candidate
+// generator, which couldn't find partner 3rds/2nds when the partner's
+// only picks of those rounds were current-year.
 
 import type { RosterAsset, StrategyProfile, TeamMode } from "./types";
 
@@ -15,12 +24,20 @@ export function parsePickKey(
   if (!key.startsWith("pick:")) return null;
   const body = key.slice(5);
   const parts = body.split("-");
-  if (parts.length !== 3) return null;
+  if (parts.length !== 3 && parts.length !== 4) return null;
   const year = parseInt(parts[0], 10);
   const round = parseInt(parts[1], 10);
-  const slot = parseInt(parts[2], 10);
-  if (Number.isNaN(year) || Number.isNaN(round) || Number.isNaN(slot)) {
-    return null;
+  if (Number.isNaN(year) || Number.isNaN(round)) return null;
+
+  // 4-part keys carry slot at parts[2]. 3-part keys (future picks) have
+  // no slot info — draft order isn't set yet — so we return 0 as a
+  // placeholder. Callers that care about slot should also check whether
+  // pickYear > currentYear before using it.
+  let slot = 0;
+  if (parts.length === 4) {
+    const parsedSlot = parseInt(parts[2], 10);
+    if (Number.isNaN(parsedSlot)) return null;
+    slot = parsedSlot;
   }
   return { year, round, slot };
 }
