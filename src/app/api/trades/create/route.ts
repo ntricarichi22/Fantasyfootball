@@ -4,6 +4,26 @@ import { LEAGUE_ID } from "../../../../lib/config";
 
 export const dynamic = "force-dynamic";
 
+// Threading model (v2):
+//
+//   ONE thread per deal proposal. A deal = the original offer + any
+//   counter-offers chained via parent_offer_id. Two separate proposals
+//   between the same teams = two separate threads = two separate cards
+//   in the inbox.
+//
+//   Resolution:
+//     - parent_offer_id present  → use parent offer's thread_id
+//                                  (counter stays in the same chain)
+//     - parent_offer_id absent   → always create a new thread
+//
+//   The previous behavior — find-or-create one open thread per team-pair —
+//   is gone. No find-existing-by-pair query. The body's `thread_id` field
+//   (if any caller still passes it) is ignored; thread is fully derived
+//   from parent_offer_id.
+//
+//   Existing multi-offer threads in the DB remain as legacy data and
+//   continue to read/write correctly through the other routes.
+
 type IncomingAsset = { key: string; label?: string; type?: string; value?: number };
 type AssetSummary = { studs: number; youth: number; picks_1st: number; picks_2nd: number; picks_3rd: number; depth: number };
 
@@ -116,12 +136,11 @@ export async function POST(request: NextRequest) {
   const {
     from_team_id, to_team_id, assets_from, assets_to,
     from_value, to_value, grade_label, parent_offer_id,
-    thread_id: bodyThreadId,
   } = body as {
     from_team_id?: string; to_team_id?: string;
     assets_from?: IncomingAsset[]; assets_to?: IncomingAsset[];
     from_value?: number; to_value?: number;
-    grade_label?: string; parent_offer_id?: string; thread_id?: string;
+    grade_label?: string; parent_offer_id?: string;
   };
 
   if (!from_team_id || !to_team_id) {
@@ -149,43 +168,57 @@ export async function POST(request: NextRequest) {
   const from_base_value = Math.round(fromBreakdown.totalValue);
   const to_base_value = Math.round(toBreakdown.totalValue);
 
-  // Resolve thread: use provided thread_id, or find/create one
-  let threadId: string | null = bodyThreadId ?? null;
+  // ── Thread resolution ─────────────────────────────────────────────────
+  // Counter (parent_offer_id set) → reuse parent's thread.
+  // New deal (no parent_offer_id)  → always create a new thread.
+  let threadId: string | null = null;
 
-  if (!threadId) {
-    const { data: existing } = await client
-      .from("trade_threads")
-      .select("id")
-      .eq("league_id", league_id)
-      .eq("status", "open")
-      .or(`and(team_a_id.eq.${from_team_id},team_b_id.eq.${to_team_id}),and(team_a_id.eq.${to_team_id},team_b_id.eq.${from_team_id})`)
-      .maybeSingle();
-
-    if (existing?.id) {
-      threadId = existing.id;
-    } else {
-      const { data: newThread, error: threadError } = await client
-        .from("trade_threads")
-        .insert({
-          league_id, team_a_id: from_team_id, team_b_id: to_team_id,
-          created_by_team_id: from_team_id, status: "open",
-          last_activity_at: now, last_offer_at: now,
-          created_at: now, updated_at: now,
-        })
-        .select("id").single();
-      if (!threadError && newThread?.id) threadId = newThread.id;
-    }
-  }
-
-  // If counter, mark original as countered
   if (parent_offer_id) {
+    const { data: parent, error: parentError } = await client
+      .from("trade_offers")
+      .select("thread_id")
+      .eq("id", parent_offer_id)
+      .eq("league_id", league_id)
+      .single();
+    if (parentError || !parent) {
+      return NextResponse.json({ error: "Parent offer not found" }, { status: 404 });
+    }
+    threadId = parent.thread_id ?? null;
+
+    // Mark the parent as countered. Only changes status if it's still pending —
+    // accepting/declining a parent that was already terminal stays terminal.
     const { error: counterError } = await client
       .from("trade_offers")
       .update({ status: "countered", updated_at: now })
-      .eq("id", parent_offer_id).eq("league_id", league_id).eq("status", "pending");
+      .eq("id", parent_offer_id)
+      .eq("league_id", league_id)
+      .eq("status", "pending");
     if (counterError) {
       return NextResponse.json({ error: "Failed to update parent offer: " + counterError.message }, { status: 500 });
     }
+  }
+
+  // Either no parent (new deal) or parent had no thread (legacy data) → new thread
+  if (!threadId) {
+    const { data: newThread, error: threadError } = await client
+      .from("trade_threads")
+      .insert({
+        league_id,
+        team_a_id: from_team_id,
+        team_b_id: to_team_id,
+        created_by_team_id: from_team_id,
+        status: "open",
+        last_activity_at: now,
+        last_offer_at: now,
+        created_at: now,
+        updated_at: now,
+      })
+      .select("id")
+      .single();
+    if (threadError || !newThread?.id) {
+      return NextResponse.json({ error: "Failed to create thread" }, { status: 500 });
+    }
+    threadId = newThread.id;
   }
 
   const { data, error } = await client
@@ -207,12 +240,10 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  if (threadId) {
-    await client
-      .from("trade_threads")
-      .update({ last_offer_at: now, last_activity_at: now, updated_at: now })
-      .eq("id", threadId).eq("league_id", league_id);
-  }
+  await client
+    .from("trade_threads")
+    .update({ last_offer_at: now, last_activity_at: now, updated_at: now })
+    .eq("id", threadId).eq("league_id", league_id);
 
   return NextResponse.json({ ok: true, id: data?.id, thread_id: threadId });
 }
