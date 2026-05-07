@@ -286,6 +286,7 @@ export default function StrategyTab() {
         gap: 12,
         flex: 1,
         minHeight: 0,
+        overflowY: "auto",
       }}
     >
       {profile && (
@@ -297,11 +298,9 @@ export default function StrategyTab() {
           display: "grid",
           gridTemplateColumns: "1fr 1.5fr",
           gap: 12,
-          flex: 1,
-          minHeight: 0,
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <Card label="Position Stance" title="Team Needs">
             <div style={{ padding: "12px 16px" }}>
               {loading || !profile ? (
@@ -457,11 +456,10 @@ export default function StrategyTab() {
           </div>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
           <Card
             label="Player Availability"
             title="Taking Calls"
-            style={{ flex: 1, minHeight: 0 }}
             right={
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
                 {ATTACHMENT_VALUES.map((v) => (
@@ -527,7 +525,7 @@ export default function StrategyTab() {
               ))}
             </div>
 
-            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+            <div>
               {rosterLoading ? (
                 <p style={{ padding: "24px 16px", fontSize: 12, color: "#8C7E6A", textAlign: "center" }}>
                   Loading roster…
