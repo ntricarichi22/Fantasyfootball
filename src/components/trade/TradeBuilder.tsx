@@ -11,7 +11,14 @@ import TeamPickerModal from "./TeamPickerModal";
 import type { CartItem } from "./CartSidebar";
 
 type Team = { id: string; name: string };
-type Props = { initialCart: CartItem[]; initialTeams: Team[]; onBack: () => void };
+type Props = {
+  initialCart: CartItem[];
+  initialTeams: Team[];
+  // When provided and non-empty, takes precedence over initialCart.
+  // Used by the Studio Edit handoff to seed both sides of a deal at once.
+  initialDealAssets?: DealAsset[];
+  onBack: () => void;
+};
 type RosterPlayer = {
   key: string; name: string; meta: string; rosterMeta: string;
   tier: string; value: number; position: string; posGroup: string;
@@ -34,7 +41,7 @@ function teamNick(name: string): string {
   return p.length > 1 ? p.slice(1).join(" ") : name;
 }
 
-export default function TradeBuilder({ initialCart, initialTeams, onBack }: Props) {
+export default function TradeBuilder({ initialCart, initialTeams, initialDealAssets, onBack }: Props) {
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
   const myTeamId = rosterId;
 
@@ -43,13 +50,16 @@ export default function TradeBuilder({ initialCart, initialTeams, onBack }: Prop
     return [me, ...initialTeams.filter(t => t.id !== myTeamId)];
   });
 
-  const [dealAssets, setDealAssets] = useState<DealAsset[]>(() =>
-    initialCart.map(c => ({
+  const [dealAssets, setDealAssets] = useState<DealAsset[]>(() => {
+    if (initialDealAssets && initialDealAssets.length > 0) {
+      return initialDealAssets;
+    }
+    return initialCart.map(c => ({
       key: c.key, name: c.name,
       fromTeamId: c.teamId, toTeamId: myTeamId,
       fromTeamName: c.teamName, toTeamName: myTeamName || `Team ${myTeamId}`,
-    }))
-  );
+    }));
+  });
   const [activeTab, setActiveTab] = useState(myTeamId);
   const [rosters, setRosters] = useState<Record<string, RosterPlayer[]>>({});
   const [allTeamsList, setAllTeamsList] = useState<Team[]>([]);
