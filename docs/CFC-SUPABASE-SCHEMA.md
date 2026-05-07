@@ -1,13 +1,13 @@
 # CFC Front Office — Supabase Schema Reference
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 7, 2026
 
 ---
 
 ## Trade System
 
 ### trade_threads
-Thread grouping for trade negotiations between two teams.
+Thread grouping for trade negotiations. **As of May 7, 2026: one thread per deal proposal** (original offer + counter chain). Two distinct proposals between the same teams = two threads. Pre-May 7 threads with multiple parallel chains remain as legacy data and continue to read/write correctly.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -19,8 +19,12 @@ Thread grouping for trade negotiations between two teams.
 | created_at | timestamp | |
 | updated_at | timestamp | |
 
+**Resolution logic in `/api/trades/create`:**
+- `parent_offer_id` present → counter, use parent offer's `thread_id`
+- `parent_offer_id` absent → new deal, always create new thread
+
 ### trade_offers
-Individual offers within a trade thread.
+Individual offers within a trade thread. With the May 7 threading change, a thread typically has one offer (the original) plus zero or more counter-offers chained via `parent_offer_id`.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -33,9 +37,15 @@ Individual offers within a trade thread.
 | assets_to | jsonb | Array of {key, label, type, value} |
 | from_value | numeric | |
 | to_value | numeric | |
-| status | text | pending / accepted / declined / countered |
+| from_base_value | numeric | Computed at creation from CFC values |
+| to_base_value | numeric | Computed at creation from CFC values |
+| asset_summary | jsonb | {from: {studs, youth, picks_1st, picks_2nd, picks_3rd, depth}, to: {...}} |
+| grade_label | text | |
+| status | text | pending / accepted / declined / countered / withdrawn |
+| parent_offer_id | uuid | FK → self. Set on counter-offers. |
 | ai_quip | text | JSON string with {to, from} perspective-aware quips |
 | created_at | timestamp | |
+| updated_at | timestamp | |
 
 ### trade_messages
 Chat messages within a trade thread.
@@ -99,7 +109,7 @@ Canonical CFC base values with multiplier data. This is the universal baseline �
 **Key usage:** Pick values are looked up via `display_name` (e.g. "1.06" matches draft_log's `pick_number` format). Stud identification: `elite_multiplier_applied > 1.0`. Youth identification: `age_multiplier_applied > 1.0` (rookie or young).
 
 ### cfc_team_trade_values_current
-Team-specific adjusted values. This is what the AI uses for gap calculations — each team values assets differently based on their strategy profile and per-player attachments.
+Team-specific adjusted values. **This is the source of truth for player values in trade gap math** — each team values assets differently based on their strategy profile and per-player attachments.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -122,7 +132,7 @@ Team-specific adjusted values. This is what the AI uses for gap calculations —
 | created_at | timestamp | |
 | updated_at | timestamp | |
 
-**Key usage:** Player values in trade builder use `final_value` from the team that owns the player. Picks are NOT in this table — use `cfc_trade_values_current` for pick values.
+**Key usage:** Player values in trade builder + studio + advisor use `final_value` from the team that owns the player. Picks are NOT in this table — use `cfc_trade_values_current` for pick values.
 
 ### cfc_asset_calculations
 Output of `cfc_rebuild_value_layers()` — league-level final values with all multipliers applied.
@@ -241,7 +251,7 @@ Team values with preference multipliers. Similar to cfc_team_trade_values_curren
 ## Team Strategy & Profiles
 
 ### cfc_team_strategy_profiles
-Team strategy set during onboarding. Drives AI recommendations, trade partner rankings, roster organization, **and persona-aware grading + Studio offer generation as of May 2026**.
+Team strategy set during onboarding. Drives AI recommendations, trade partner rankings, roster organization, persona-aware grading, **and Studio offer generation**.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -253,7 +263,7 @@ Team strategy set during onboarding. Drives AI recommendations, trade partner ra
 | wr_market | text | "buy" / "hold" / "sell" |
 | te_market | text | "buy" / "hold" / "sell" |
 | picks_market | text | "buy" / "hold" / "sell" |
-| **gm_persona** | **text** | **One of "closer" / "straight_shooter" / "architect" / "hustler". Drives Studio offer generation (sets ratio band + shape rule) and Builder grade chip via `personaAwareGrade`. NULL falls back to neutral grading and a default of "straight_shooter" for Studio.** |
+| **gm_persona** | **text** | **One of "closer" / "straight_shooter" / "architect" / "hustler". Drives Studio offer generation (sets ratio band + shape rule) and Builder grade chip via `personaAwareGrade`. NULL falls back to neutral grading and a default of "straight_shooter" for Studio. Currently set during onboarding only — Owner's Box editing is a deferred item.** |
 | own_guys_preference | text | Legacy — no longer used in modifier math (replaced by per-player attachment) |
 | created_at | timestamp | |
 | updated_at | timestamp | |
@@ -261,7 +271,7 @@ Team strategy set during onboarding. Drives AI recommendations, trade partner ra
 **Persona ratio bands** (canonical definition lives in `src/lib/trade/studio/persona.ts` and is mirrored in `src/lib/trade/core/gap.ts`):
 - straight_shooter: 0.90–1.10 (simple shapes only — no future picks, no pick swaps)
 - closer: 0.90–1.15 (any shape — adds sweetener pick on user's send side)
-- hustler: 0.85–1.00 (any shape — adds sweetener pick on partner's receive side)
+- hustler: **1.00–99** (any shape — adds sweetener pick on partner's receive side; no upper cap, "always come out ahead")
 - architect: 0.90–1.10 (exotic shapes only — 4+ assets, pick swaps, future picks)
 
 **Key usage:**
@@ -269,6 +279,7 @@ Team strategy set during onboarding. Drives AI recommendations, trade partner ra
 - Studio's `/api/trade-studio/generate` route uses the user's own `gm_persona` as the default offer-generation persona (overridable via UI toggle)
 - Position markets (qb/rb/wr/te/picks) map to onboarding's Low/Med/High via: sell=Low, hold=Med, buy=High
 - Position markets are kept for the LLM advisor's strategic reasoning, but **the market modifier no longer affects player values** — it was removed May 2026
+- **Buy markets also gate which youth-depth partner players can appear in Studio offers / Builder advisor receive suggestions** (see `src/lib/trade/studio/candidates.ts` and `src/lib/trade/advisor/engine.ts`)
 
 ### cfc_team_player_attachment
 Per-player availability tags. **The primary driver of team-level value adjustments as of May 2026.**
@@ -304,7 +315,7 @@ Manual value overrides per player per team. Absolute dollar amounts that don't c
 **Important:** When set, this value becomes the `final_value` directly, bypassing `auto_value`. Cron does NOT touch these — they represent the user's stable signal.
 
 ### cfc_team_value_preferences
-Existed but currently unused (no rows). May be removed.
+Existed but currently unused (no rows). Slated for drop — see `docs/deferred-projects.md`.
 
 ### cfc_team_roster_players
 Team roster player registry.
@@ -433,6 +444,7 @@ Will be revisited during historian troubleshooting session.
 - ❌ `definitive_values` — dropped May 2026 (old pipeline, replaced by `cfc_asset_calculations`)
 - ❌ `cfc_value_upload_staging` — dropped during pipeline rebuild
 - ⚠️ `tgif_pick_anchors` — orphaned, slated for drop
+- ⚠️ `cfc_team_value_preferences` — currently unused, slated for drop
 
 ---
 
@@ -449,5 +461,7 @@ The CFC year is determined by the March 1 boundary: if today is on or after Marc
 - `draft_state` uses the Sleeper league ID directly, not the canonical UUID from `llm_seasons`.
 - Pick values in `cfc_trade_values_current` use `display_name` format "1.06" (matches `draft_log.pick_number`). Do NOT use `asset_key` format "pick 1.06".
 - Future draft picks (years beyond CFC year) use the middle slot value: 1sts = value of "1.06", 2nds = value of "2.06", 3rds = value of "3.06".
+- Pick keys come in two formats: future-year picks use 3-part (`pick:YYYY-R-RID`), current-year picks use 4-part (`pick:YYYY-R-SS-RID`) where SS is the slot. `parsePickKey` in `core/classification.ts` handles both — never re-implement inline.
 - The value pipeline rebuild (May 2026) means `cfc_asset_source_values` rows from before that date use a different multiple_101 formula (raw / source_max instead of raw / source_1.01). Old rows from disabled sources have been cleared. The "fix7-preview" import_batch tag on any remaining rows indicates pre-rebuild data.
-- The trade engine refactor (May 6, 2026) added no new schema; it only began reading the existing `gm_persona` column on `cfc_team_strategy_profiles`. If any team has NULL gm_persona, Builder falls back to neutral grading and Studio defaults to "straight_shooter".
+- The trade engine refactor (May 6-7, 2026) added no new schema; it only began reading the existing `gm_persona` column on `cfc_team_strategy_profiles`. If any team has NULL gm_persona, Builder falls back to neutral grading and Studio defaults to "straight_shooter".
+- The threading model rewrite (May 7, 2026) also added no new schema. It changed the find-or-create behavior in `/api/trades/create` to always create a new thread for new deal proposals (counters still reuse parent's thread). Pre-May 7 multi-offer threads remain in the DB as legacy data.
