@@ -10,20 +10,19 @@
 //   HUSTLER          — Straight Shooter base + smallest partner 3rd (or
 //                      2nd if no 3rd lifts enough) added to receive side
 //                      to push final ratio above 1.0. No upper cap on
-//                      final ratio — the math is whatever the math is.
+//                      final ratio. Persona shapeRule is "any" — future
+//                      picks as sweeteners are explicitly allowed.
 //   ARCHITECT        — exotic structure only: 4+ assets, pick swap (different
 //                      round or year), or future pick. Receive within
 //                      0.85–1.20 of send (looser to enable creative shapes).
 //                      Includes augmented-send variant where the user adds
 //                      a pick to enable pick-swap structures.
 //
-// v3.9: Hustler simplified. Walks partner's 3rds (smallest first) then
-// 2nds, picks the first one whose addition pushes ratio > 1.0. If no
-// 3rd or 2nd lifts the base above 1.0, skips that base — partner can't
-// be hustled with picks they have. The persona band's upper cap is also
-// removed (set to 99 in persona.ts and gap.ts) so the engine's ratio
-// filter doesn't reject the natural high-ratio cases (small shop value
-// with a meaningful 2nd-round pick attached).
+// v3.10: Hustler dropped the isSimpleShape check — it rejected future
+// picks via the `pickYear >= currentYear + 1` rule, which broke Hustler
+// for any partner whose 3rd/2nd round picks were future-year. The only
+// retained shape gate is a hard cap of 3 receive assets (matches the
+// other simple personas without leaking the future-pick prohibition).
 
 import type { RosterAsset, PersonaKey } from "../core/types";
 import type { StudioEngineContext, StudioPartner } from "./types";
@@ -177,7 +176,6 @@ function generateHustlerCandidates(ctx: StudioEngineContext): CandidateOffer[] {
   if (base.length === 0) return [];
 
   const partnersById = new Map(ctx.partners.map(p => [p.teamId, p]));
-  const cy = getCFCYear();
   const out: CandidateOffer[] = [];
   const seen = new Set<string>();
 
@@ -204,9 +202,7 @@ function generateHustlerCandidates(ctx: StudioEngineContext): CandidateOffer[] {
         return a.value - b.value;
       });
 
-    // Walk the list — smallest 3rd that lifts ratio above 1.0 wins.
-    // If no 3rd lifts, the loop falls through to 2nds. If no pick lifts
-    // at all, skip this base.
+    // Walk smallest-first; first pick that lifts ratio above 1.0 wins.
     let sweetener: RosterAsset | null = null;
     for (const pick of partnerPicks) {
       if ((baseReceiveVal + pick.value) / sendVal > 1.0) {
@@ -217,7 +213,11 @@ function generateHustlerCandidates(ctx: StudioEngineContext): CandidateOffer[] {
     if (!sweetener) continue;
 
     const finalReceive = [...c.receive, sweetener];
-    if (!isSimpleShape(c.send, finalReceive, cy)) continue;
+
+    // Hard cap on receive count — keeps offers visually scannable.
+    // No other shape constraint: future picks are valid Hustler sweeteners,
+    // and pick-swap concerns don't apply (send is the user's shop list).
+    if (finalReceive.length > 3) continue;
 
     const k = dedupeKey(c.send, finalReceive, partner.teamId);
     if (seen.has(k)) continue;
