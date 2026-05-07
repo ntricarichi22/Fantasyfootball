@@ -2,10 +2,12 @@ import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import { fetchLeagueRosters, type SleeperRoster } from "@/lib/sleeperApi";
 
 import {
+  GM_PERSONA_VALUES,
   TEAM_HQ_MARKET_VALUES,
   TEAM_HQ_OWN_GUYS_VALUES,
   TEAM_HQ_WANTS_MORE_VALUES,
   TEAM_STRATEGY_DEFAULTS,
+  type GmPersona,
   type TeamHqMarket,
   type TeamHqOwnGuysPreference,
   type TeamHqWantsMore,
@@ -33,6 +35,7 @@ type AttachmentLevel = "untouchable" | "core_piece" | "listening" | "moveable";
 const WANTS_SET = new Set<string>(TEAM_HQ_WANTS_MORE_VALUES);
 const MARKET_SET = new Set<string>(TEAM_HQ_MARKET_VALUES);
 const OWN_GUYS_SET = new Set<string>(TEAM_HQ_OWN_GUYS_VALUES);
+const PERSONA_SET = new Set<string>(GM_PERSONA_VALUES);
 const ATTACHMENT_SET = new Set<AttachmentLevel>([
   "untouchable",
   "core_piece",
@@ -89,6 +92,15 @@ const normalizeOwnGuys = (
   return OWN_GUYS_SET.has(normalized) ? (normalized as TeamHqOwnGuysPreference) : fallback;
 };
 
+const normalizePersona = (
+  value: unknown,
+  fallback: GmPersona = "straight_shooter",
+): GmPersona => {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.toLowerCase().trim();
+  return PERSONA_SET.has(normalized) ? (normalized as GmPersona) : fallback;
+};
+
 const normalizeStrategyPayload = (payload?: TeamStrategyProfileInput) => ({
   wants_more: normalizeWantsMore(payload?.wants_more),
   qb_market: normalizeMarket(payload?.qb_market),
@@ -97,6 +109,7 @@ const normalizeStrategyPayload = (payload?: TeamStrategyProfileInput) => ({
   te_market: normalizeMarket(payload?.te_market),
   picks_market: normalizeMarket(payload?.picks_market),
   own_guys_preference: normalizeOwnGuys(payload?.own_guys_preference),
+  gm_persona: normalizePersona(payload?.gm_persona),
 });
 
 const getClientOrThrow = () => {
@@ -274,7 +287,7 @@ export async function getTeamStrategyProfile(
 
   const { data, error } = await client
     .from("cfc_team_strategy_profiles")
-    .select("league_id,team_id,wants_more,qb_market,rb_market,wr_market,te_market,picks_market,own_guys_preference")
+    .select("league_id,team_id,wants_more,qb_market,rb_market,wr_market,te_market,picks_market,own_guys_preference,gm_persona")
     .eq("league_id", leagueId)
     .eq("team_id", teamId)
     .maybeSingle();
@@ -301,6 +314,7 @@ export async function getTeamStrategyProfile(
     te_market: normalizeMarket(data.te_market),
     picks_market: normalizeMarket(data.picks_market),
     own_guys_preference: normalizeOwnGuys(data.own_guys_preference),
+    gm_persona: normalizePersona(data.gm_persona),
   };
 }
 
@@ -476,6 +490,7 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
     te_market: strategyProfile.te_market,
     picks_market: strategyProfile.picks_market,
     own_guys_preference: strategyProfile.own_guys_preference,
+    gm_persona: strategyProfile.gm_persona,
   };
 
   const ownedPlayerIds = await getOwnedPlayerIds(leagueId, teamId);
@@ -560,6 +575,7 @@ export async function rebuildTeamTradeValueForPlayer(
     te_market: strategyProfile.te_market,
     picks_market: strategyProfile.picks_market,
     own_guys_preference: strategyProfile.own_guys_preference,
+    gm_persona: strategyProfile.gm_persona,
   });
 
   return { rebuilt: true };
