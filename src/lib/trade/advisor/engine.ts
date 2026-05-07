@@ -2,6 +2,15 @@
 //
 // Builder-specific advisor logic.
 //
+// v3.6 (FAIR sweetener fix):
+//   - Within 5% of fair (|ratio - 1| ≤ 0.05) → no suggestions. The chip
+//     prose handles "send as is" — engine adds nothing.
+//   - 5–10% off fair → only late picks (round 3, or current-year 2.09+),
+//     scaled to gap size. Prefer current-year picks, fall back to future.
+//   - Direction routing now handles FAIR + negative delta correctly:
+//     user giving more than receiving → suggest receive-side pick from
+//     partner instead of (incorrectly) routing to send.
+//
 // v3.5 (Stage 5): persona-aware suggestions.
 //   - Suggestion's `direction` moved from top-level to per-asset; new
 //     top-level `kind` field summarises ("send" / "receive" / "swap").
@@ -182,6 +191,31 @@ function isFuturePick(a: RosterAsset, currentYear: number): boolean {
   return a.type === "pick" && (a.pickYear ?? 0) > currentYear;
 }
 
+// "Late pick" predicate for the FAIR-deal sweetener path.
+// Late = round 3 (any year) OR round 2 with slot ≥ 9 (current year only —
+// future picks don't carry slot info). Parses the key directly because
+// parsePickKey in core/ doesn't handle the 4-part current-year format.
+function isLatePick(a: RosterAsset): boolean {
+  if (a.type !== "pick") return false;
+  if (!a.key.startsWith("pick:")) return false;
+  const parts = a.key.slice(5).split("-");
+  if (parts.length < 2) return false;
+  const round = parseInt(parts[1], 10);
+  if (round === 3) return true;
+  // Current-year picks are formatted pick:YYYY-R-SS-RID (4 parts).
+  if (round === 2 && parts.length === 4) {
+    const slot = parseInt(parts[2], 10);
+    if (!Number.isNaN(slot) && slot >= 9) return true;
+  }
+  return false;
+}
+
+function isCurrentYearPick(a: RosterAsset): boolean {
+  if (a.type !== "pick") return false;
+  if (!a.key.startsWith("pick:")) return false;
+  return a.key.slice(5).split("-").length === 4;
+}
+
 function findSingleClosers(
   pool: ScoredAsset[],
   targetValue: number,
@@ -344,6 +378,12 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
 
   if (gap.verdict === "EMPTY") return [];
 
+  // ── FAIR-deal short circuit ───────────────────────────────────────────
+  // Within 5% of fair → deal sends as-is, no sweetener needed.
+  const isFair = gap.verdict === "FAIR";
+  const fairOffBy = isFair ? Math.abs(gap.ratio - 1) : 0;
+  if (isFair && fairOffBy <= 0.05) return [];
+
   const isArchitect = partnerPersona === "architect";
 
   const buildSendPool = (): ScoredAsset[] =>
@@ -370,6 +410,10 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
   const sendPool = buildSendPool();
   const receivePool = buildReceivePool();
 
+  // ── Direction + target selection ──────────────────────────────────────
+  // Refactored: handles delta < 0 in FAIR explicitly (was previously routed
+  // to send incorrectly, asking the user to add when they were already
+  // giving up more value).
   let direction: "send" | "receive" = "send";
   let targetValue = 0;
   let pool: ScoredAsset[] = [];
@@ -382,20 +426,53 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     direction = "receive";
     targetValue = gap.sendValue;
     pool = receivePool;
-  } else if (gap.delta > 0 || gap.verdict === "FAIR") {
+  } else if (gap.delta > 0) {
     direction = "send";
-    targetValue = gap.delta > 0 ? gap.delta : gap.sendValue * 0.05;
+    targetValue = gap.delta;
     pool = sendPool;
-  } else {
+  } else if (gap.delta < 0) {
     direction = "receive";
     targetValue = Math.abs(gap.delta);
     pool = receivePool;
+  } else {
+    // delta exactly 0 with both sides populated — no need to suggest
+    return [];
   }
 
   if (pool.length === 0 || targetValue <= 0) return [];
 
-  // Premium-floor: when partner ships a stud out and isn't getting one back,
-  // suggestions need at least one premium (S/A liquidity) asset.
+  // ── FAIR + 5–10% off → late-pick-only sweetener ───────────────────────
+  // Restrict to 3rds (any year) or current-year 2.09+. Pick the one whose
+  // value is closest to the gap. Prefer current-year over future-year.
+  // Skips Pass 1–4 entirely so we never dump a high-value asset on an
+  // already-fair deal.
+  if (isFair) {
+    const latePicks = pool.filter(isLatePick);
+    if (latePicks.length === 0) return [];
+    const currentYear = latePicks.filter(isCurrentYearPick);
+    const futureYear = latePicks.filter((p) => !isCurrentYearPick(p));
+    const candidates = currentYear.length > 0 ? currentYear : futureYear;
+    candidates.sort(
+      (a, b) => Math.abs(a.value - targetValue) - Math.abs(b.value - targetValue),
+    );
+    const top = candidates[0];
+    return [
+      {
+        assets: [
+          { key: top.key, name: top.name, meta: top.rosterMeta, value: top.value, direction },
+        ],
+        kind: direction,
+        totalValue: top.value,
+        closesGap: true,
+        liquidityTiers: [top.tier_liq],
+        tradeoff: top.tradeoff,
+      },
+    ];
+  }
+
+  // ── Premium-floor rule (non-FAIR only) ────────────────────────────────
+  // When partner ships a stud out and isn't getting one back, suggestions
+  // need at least one premium (S/A liquidity) asset.
   let requirePremium = false;
   if (direction === "send") {
     const otherStudGoingOut = dealHasStudInDirection(dealAssets, rosters, otherTeamId);
