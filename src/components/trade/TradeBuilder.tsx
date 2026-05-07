@@ -36,7 +36,15 @@ const POS_SECTIONS = [
   { key: "PICK", label: "Draft Picks" },
 ];
 
+// Team name shortening for the header and tab labels.
+// Default rule: drop the first word (city). Overrides handle multi-word
+// city prefixes that the default rule mishandles.
+const TEAM_NAME_OVERRIDES: Record<string, string> = {
+  "Windy City Crossfitters": "Crossfitters",
+};
+
 function teamNick(name: string): string {
+  if (TEAM_NAME_OVERRIDES[name]) return TEAM_NAME_OVERRIDES[name];
   const p = name.split(" ");
   return p.length > 1 ? p.slice(1).join(" ") : name;
 }
