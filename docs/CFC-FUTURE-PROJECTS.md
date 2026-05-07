@@ -21,8 +21,8 @@ Nightly job summarizing each team's negotiating personality from accepted offers
 ### Overall UI and copy review
 Top-to-bottom pass on the entire app — visual consistency, microcopy, error states, empty states, button labels, hover states, animations. Once feature work settles, this becomes the next focus. Likely a multi-session effort.
 
-### GM personas in Owner's Box
-Currently `gm_persona` lives on `cfc_team_strategy_profiles` but there's no UI for the user to set or change it. Add it as a setting in the Owner's Box Strategy tab. Once set, it becomes the default for the Studio persona toggle (Studio already reads from this column — the toggle just becomes a re-roll override on top of the persisted default). Builder's `personaAwareGrade` reads the partner team's persona from the same column, so the new setting also affects how chips render when other users target the team.
+### Depth Chart tab buildout
+Owner's Box has a Depth Chart tab placeholder that needs to be built out. Goal: roster organized by position with clear depth at each spot so the user can see roster construction at a glance — and pair the view with strategy/persona context for trade planning.
 
 ### Manual override drift surfacing
 Manual override values in `cfc_team_player_value_overrides` are absolute dollars and don't update when league values change. By design — the override is the user's stable signal. Open: the UI doesn't surface when an override has drifted significantly from the auto-calculated value, so the user can decide whether to revisit. UI work, no backend changes.
@@ -73,22 +73,6 @@ Nick noticed issues with the historian section. Tackle in a separate session. Ke
 
 ---
 
-## Cleanup / Housekeeping
-
-### Delete no-op stub files
-`FitBar.tsx` and `MoreLikeThisModal.tsx` are empty stubs left after Studio's FitScore + "More Like This" features were removed. Delete when convenient — verify nothing imports them first.
-
-### Drop `tgif_pick_anchors` table
-Orphaned table from a prior pipeline. Slated for drop.
-
-### Drop `cfc_team_value_preferences` table
-Schema doc notes "currently unused (no rows). May be removed."
-
-### Clear stale `cfc_asset_source_values`
-Pre-rebuild rows tagged `fix7-preview` use the old multiple_101 formula (raw / source_max) instead of the current (raw / source_1.01). Disabled-source rows have been cleared. Remaining old rows can be cleaned up when convenient.
-
----
-
 ## Infra
 
 ### Error monitoring / logging
@@ -106,6 +90,11 @@ Out of scope for the app's current phase. The `cfc_trade_studio_feedback` table 
 
 Recent items kept here for context, not active work.
 
+- ~~Delete no-op stub files~~ — done May 7. `FitBar.tsx` and `MoreLikeThisModal.tsx` removed; verified no remaining imports.
+- ~~Drop `tgif_pick_anchors` table~~ — done May 7. 36 orphaned rows, no FK references.
+- ~~Drop `cfc_team_value_preferences` table~~ — done May 7. CASCADE'd the dead `cfc_team_asset_values_current` view too (cross-joined the empty table → always returned 0 rows; pre-dated per-team value materialization into `cfc_team_trade_values_current`).
+- ~~Clear stale `cfc_asset_source_values`~~ — verified May 7. No `fix7-preview` rows remained; only batch is `auto-2026-05-07`.
+- ~~GM personas in Owner's Box~~ — shipped May 7. Strategy tab persona picker (Closer / Straight Shooter / Architect / Hustler) writes to `cfc_team_strategy_profiles.gm_persona`. Builder's `personaAwareGrade` and Studio's offer-gen default already read this column, so the picker feeds the existing wiring without any engine changes.
 - ~~AI Advisor smoke test~~ — completed May 7. Iterated through 11 fixes across the trade engine, persona definitions, threading model, and player-quality filters.
 - ~~Studio prose not firing~~ — fixed via TradeStudioView refactor (in-flight Set ref instead of AbortController dance).
 - ~~Studio Edit routing~~ — fixed via `?seed=studio` URL param + sessionStorage handoff.
