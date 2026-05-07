@@ -2,6 +2,15 @@
 //
 // Builder-specific advisor logic.
 //
+// v3.7 (player-quality filters mirrored from Studio):
+//   - Receive pool excludes scrubs (non-stud, non-starter, non-youth)
+//   - Youth-depth players (isYouth=true AND not starter AND not stud)
+//     included only if their position is in user's buy markets
+//   - Max 1 youth-depth per multi-asset suggestion
+//   These match the rules in studio/candidates.ts so Builder suggestions
+//   and Studio offers stay consistent — Builder's manual flow shouldn't
+//   suggest assets Studio's automated flow would have filtered out.
+//
 // v3.6 (FAIR sweetener fix):
 //   - Within 5% of fair (|ratio - 1| ≤ 0.05) → no suggestions. The chip
 //     prose handles "send as is" — engine adds nothing.
@@ -39,7 +48,7 @@ import { computeGap, gradeFromVerdict, personaAwareGrade } from "../core/gap";
 import { getLiquidityTier, isPremiumAsset } from "../core/liquidity";
 import { computePostTradeWarnings } from "../core/warnings";
 import { detectShapeMismatch } from "../core/shape";
-import { getCFCYear } from "../core/classification";
+import { getCFCYear, parsePickKey } from "../core/classification";
 
 // ─── Re-exports (backwards compat) ─────────────────────────────────────
 
@@ -86,6 +95,28 @@ type ScoredAsset = RosterAsset & {
   tier_liq: LiquidityTier;
   tradeoff: string | null;
 };
+
+// ─── Player-quality helpers (mirror studio/candidates.ts) ──────────────
+
+function getBuyPositions(profile: StrategyProfile | null): Set<string> {
+  const out = new Set<string>();
+  if (!profile) return out;
+  if (profile.qb_market === "buy") out.add("QB");
+  if (profile.rb_market === "buy") out.add("RB");
+  if (profile.wr_market === "buy") out.add("WR");
+  if (profile.te_market === "buy") out.add("TE");
+  return out;
+}
+
+function isYouthDepth(a: RosterAsset): boolean {
+  return a.type === "player" && !!a.isYouth && !a.isStarterLevel && !a.isStud;
+}
+
+function countYouthDepth(assets: RosterAsset[]): number {
+  let n = 0;
+  for (const a of assets) if (isYouthDepth(a)) n++;
+  return n;
+}
 
 function listFromMarkets(
   p: StrategyProfile | null,
@@ -161,6 +192,26 @@ function filterMyAsset(asset: RosterAsset, dealKeys: Set<string>): boolean {
   return true;
 }
 
+// Partner asset filter: drops scrubs entirely, gates youth-depth on user's
+// buy markets. Used to build the receive pool. Mirrors Studio.
+function filterPartnerAsset(
+  asset: RosterAsset,
+  dealKeys: Set<string>,
+  myBuyPositions: Set<string>,
+): boolean {
+  if (dealKeys.has(asset.key)) return false;
+  if (asset.tier === "untouchable") return false;
+  if (asset.value <= 0) return false;
+  if (asset.type === "pick") return true;
+  // player branch
+  if (asset.isStud || asset.isStarterLevel) return true;
+  if (asset.isYouth) {
+    const pos = (asset.position ?? "").toUpperCase();
+    return myBuyPositions.has(pos);
+  }
+  return false;
+}
+
 function dealHasStudInDirection(
   dealAssets: DealAsset[],
   rosters: Record<string, RosterAsset[]>,
@@ -192,28 +243,21 @@ function isFuturePick(a: RosterAsset, currentYear: number): boolean {
 }
 
 // "Late pick" predicate for the FAIR-deal sweetener path.
-// Late = round 3 (any year) OR round 2 with slot ≥ 9 (current year only —
-// future picks don't carry slot info). Parses the key directly because
-// parsePickKey in core/ doesn't handle the 4-part current-year format.
-function isLatePick(a: RosterAsset): boolean {
+// Late = round 3 (any year) OR round 2 with slot ≥ 9 (current year only).
+function isLatePick(a: RosterAsset, currentYear: number): boolean {
   if (a.type !== "pick") return false;
-  if (!a.key.startsWith("pick:")) return false;
-  const parts = a.key.slice(5).split("-");
-  if (parts.length < 2) return false;
-  const round = parseInt(parts[1], 10);
-  if (round === 3) return true;
-  // Current-year picks are formatted pick:YYYY-R-SS-RID (4 parts).
-  if (round === 2 && parts.length === 4) {
-    const slot = parseInt(parts[2], 10);
-    if (!Number.isNaN(slot) && slot >= 9) return true;
-  }
+  const parsed = parsePickKey(a.key);
+  if (!parsed) return false;
+  if (parsed.round === 3) return true;
+  // Round 2 late picks are slot 9+. Slot is only known for current-year
+  // picks; future picks have no draft order yet (slot defaults to 0).
+  if (parsed.round === 2 && parsed.year === currentYear && parsed.slot >= 9) return true;
   return false;
 }
 
-function isCurrentYearPick(a: RosterAsset): boolean {
+function isCurrentYearPick(a: RosterAsset, currentYear: number): boolean {
   if (a.type !== "pick") return false;
-  if (!a.key.startsWith("pick:")) return false;
-  return a.key.slice(5).split("-").length === 4;
+  return (a.pickYear ?? 0) === currentYear;
 }
 
 function findSingleClosers(
@@ -259,6 +303,8 @@ function findCombos(
     for (let j = i + 1; j < top.length; j++) {
       const total = top[i].value + top[j].value;
       if (total < min || total > max) continue;
+      // Cap youth-depth at 1 per combo
+      if (countYouthDepth([top[i], top[j]]) > 1) continue;
       const pickCount =
         (top[i].type === "pick" ? 1 : 0) + (top[j].type === "pick" ? 1 : 0);
       const hasFuture = isFuturePick(top[i], cy) || isFuturePick(top[j], cy);
@@ -375,6 +421,7 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     gap,
   } = ctx;
   const dealKeys = new Set(dealAssets.map((a) => a.key));
+  const cy = getCFCYear();
 
   if (gap.verdict === "EMPTY") return [];
 
@@ -385,6 +432,7 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
   if (isFair && fairOffBy <= 0.05) return [];
 
   const isArchitect = partnerPersona === "architect";
+  const myBuyPositions = getBuyPositions(myProfile);
 
   const buildSendPool = (): ScoredAsset[] =>
     (rosters[myTeamId] ?? [])
@@ -398,7 +446,7 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
 
   const buildReceivePool = (): ScoredAsset[] =>
     (rosters[otherTeamId] ?? [])
-      .filter((p) => !dealKeys.has(p.key) && p.value > 0 && p.tier !== "untouchable")
+      .filter((p) => filterPartnerAsset(p, dealKeys, myBuyPositions))
       .map((p) => ({
         ...p,
         fitScore: 0,
@@ -447,10 +495,10 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
   // Skips Pass 1–4 entirely so we never dump a high-value asset on an
   // already-fair deal.
   if (isFair) {
-    const latePicks = pool.filter(isLatePick);
+    const latePicks = pool.filter((p) => isLatePick(p, cy));
     if (latePicks.length === 0) return [];
-    const currentYear = latePicks.filter(isCurrentYearPick);
-    const futureYear = latePicks.filter((p) => !isCurrentYearPick(p));
+    const currentYear = latePicks.filter((p) => isCurrentYearPick(p, cy));
+    const futureYear = latePicks.filter((p) => !isCurrentYearPick(p, cy));
     const candidates = currentYear.length > 0 ? currentYear : futureYear;
     candidates.sort(
       (a, b) => Math.abs(a.value - targetValue) - Math.abs(b.value - targetValue),
@@ -536,7 +584,8 @@ export function generateSuggestions(ctx: SuggestionContext): Suggestion[] {
     }
   }
 
-  // Pass 3: 2-asset same-direction combos within ±10%
+  // Pass 3: 2-asset same-direction combos within ±10%.
+  // findCombos already enforces the youth-depth cap.
   if (suggestions.length < 3) {
     for (const c of findCombos(pool, targetValue, 0.10, isArchitect)) {
       if (suggestions.length >= 3) break;
