@@ -18,6 +18,42 @@ type OfferAsset = {
   value?: number;
 };
 
+type ThreadOffer = {
+  id: string;
+  thread_id: string | null;
+  parent_offer_id: string | null;
+  from_team_id: string;
+  assets_from: OfferAsset[];
+  assets_to: OfferAsset[];
+  created_at: string;
+  status: string;
+};
+
+type ChainSummary = {
+  threadId: string;
+  senders: Set<string>;
+  latestOffer: ThreadOffer;
+};
+
+// Walk parent_offer_id pointers up to the chain's root.
+// Each chain represents a single deal proposal + its counter sequence.
+// Two distinct deals in the same thread = two chains.
+function findRootId(
+  offerId: string,
+  byId: Map<string, ThreadOffer>,
+): string {
+  let cur = byId.get(offerId);
+  if (!cur) return offerId;
+  // Cap at 50 hops as a defensive guard against any cyclic data
+  for (let i = 0; i < 50; i++) {
+    if (!cur.parent_offer_id) return cur.id;
+    const parent = byId.get(cur.parent_offer_id);
+    if (!parent) return cur.id;
+    cur = parent;
+  }
+  return cur.id;
+}
+
 export async function GET() {
   const league_id = LEAGUE_ID;
   if (!league_id) {
@@ -70,31 +106,44 @@ export async function GET() {
 
   if (openThreads?.length) {
     const threadIds = openThreads.map((t) => t.id);
+    const threadById = new Map(openThreads.map((t) => [t.id, t]));
 
     const { data: threadOffers } = await client
       .from("trade_offers")
-      .select("thread_id, assets_from, assets_to, created_at")
+      .select("id, thread_id, parent_offer_id, from_team_id, assets_from, assets_to, created_at, status")
       .eq("league_id", league_id)
       .in("thread_id", threadIds)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
 
-    const offersByThread: Record<string, Array<{ assets_from: OfferAsset[]; assets_to: OfferAsset[]; created_at: string }>> = {};
-    for (const offer of threadOffers ?? []) {
-      if (!offer.thread_id) continue;
-      if (!offersByThread[offer.thread_id]) offersByThread[offer.thread_id] = [];
-      offersByThread[offer.thread_id].push({
-        assets_from: (offer.assets_from ?? []) as OfferAsset[],
-        assets_to: (offer.assets_to ?? []) as OfferAsset[],
-        created_at: offer.created_at,
-      });
+    const offers = (threadOffers ?? []) as ThreadOffer[];
+    const byId = new Map<string, ThreadOffer>();
+    for (const o of offers) byId.set(o.id, o);
+
+    // Group offers into chains via parent_offer_id roots
+    const chains = new Map<string, ChainSummary>();
+    for (const o of offers) {
+      if (!o.thread_id) continue;
+      const root = findRootId(o.id, byId);
+      let chain = chains.get(root);
+      if (!chain) {
+        chain = { threadId: o.thread_id, senders: new Set(), latestOffer: o };
+        chains.set(root, chain);
+      }
+      chain.senders.add(o.from_team_id);
+      if (new Date(o.created_at).getTime() > new Date(chain.latestOffer.created_at).getTime()) {
+        chain.latestOffer = o;
+      }
     }
 
-    for (const thread of openThreads) {
-      const offers = offersByThread[thread.id];
-      if (!offers || offers.length < 2) continue;
+    // Emit one "active_talks" per chain that has counters (offers from both
+    // teams). Two distinct deals in the same thread = two separate items.
+    for (const chain of chains.values()) {
+      if (chain.senders.size < 2) continue;
+      const thread = threadById.get(chain.threadId);
+      if (!thread) continue;
 
-      const latestOffer = offers[0];
-      const allAssets = [...latestOffer.assets_from, ...latestOffer.assets_to];
+      const latest = chain.latestOffer;
+      const allAssets = [...(latest.assets_from ?? []), ...(latest.assets_to ?? [])];
       const players = allAssets
         .filter((a) => a.type === "player")
         .sort((a, b) => (b.value ?? 0) - (a.value ?? 0));
@@ -104,20 +153,21 @@ export async function GET() {
       items.push({
         type: "active_talks",
         headline: `${getTeamName(thread.team_a_id)} and ${getTeamName(thread.team_b_id)} are in active negotiations regarding ${playerName}.`,
-        timestamp: thread.last_activity_at,
+        timestamp: latest.created_at,
       });
 
+      // "Multiple calls" tracking — count distinct active threads per player
       for (const asset of allAssets) {
         if (asset.type !== "player") continue;
         const key = asset.key || asset.id || "";
         if (!key) continue;
         const name = asset.label?.split(" (")[0] || "Unknown";
         if (!playerThreadMap[key]) {
-          playerThreadMap[key] = { name, threadIds: new Set(), latestTimestamp: thread.last_activity_at };
+          playerThreadMap[key] = { name, threadIds: new Set(), latestTimestamp: latest.created_at };
         }
-        playerThreadMap[key].threadIds.add(thread.id);
-        if (thread.last_activity_at > playerThreadMap[key].latestTimestamp) {
-          playerThreadMap[key].latestTimestamp = thread.last_activity_at;
+        playerThreadMap[key].threadIds.add(chain.threadId);
+        if (latest.created_at > playerThreadMap[key].latestTimestamp) {
+          playerThreadMap[key].latestTimestamp = latest.created_at;
         }
       }
     }
