@@ -52,7 +52,13 @@ export default function TradeStudioView() {
   const [showPassModal, setShowPassModal] = useState(false);
   const [sendingOffer, setSendingOffer] = useState(false);
   const [toast, setToast] = useState("");
-  const advisorAbortRefs = useRef<Map<string, AbortController>>(new Map());
+
+  // Tracks advisor fetches currently in flight so the effect can re-run on
+  // state updates without firing duplicate requests. Replaces the earlier
+  // AbortController dance that aborted its own in-flight requests on every
+  // setState (the prose-empty guard never short-circuited because empty
+  // string is falsy → re-entry → abort → fallback prose stomp).
+  const inFlightRefs = useRef<Set<string>>(new Set());
 
   const flash = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(""), 3000); }, []);
 
@@ -166,17 +172,18 @@ export default function TradeStudioView() {
     return payload;
   }, [allRosters]);
 
-  // Fetch advisor prose for active offer when it changes
+  // Fetch advisor prose for active offer when it changes.
+  // Re-entry safe: inFlightRefs prevents duplicate fetches while one is
+  // already pending for this offer. .finally() removes the marker so the
+  // user can re-trigger after navigating away and back if needed.
   useEffect(() => {
     if (!drawerOpen || offers.length === 0) return;
     const offer = offers[activeIndex];
     if (!offer) return;
     if (advisorByOffer[offer.id]?.prose) return;
+    if (inFlightRefs.current.has(offer.id)) return;
 
-    const existing = advisorAbortRefs.current.get(offer.id);
-    if (existing) existing.abort();
-    const ctrl = new AbortController();
-    advisorAbortRefs.current.set(offer.id, ctrl);
+    inFlightRefs.current.add(offer.id);
     setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: prev[offer.id]?.prose ?? "", loading: true } }));
 
     const dealAssets = [
@@ -193,7 +200,6 @@ export default function TradeStudioView() {
         deal_assets: dealAssets,
         rosters: advisorRosterPayload,
       }),
-      signal: ctrl.signal,
     })
       .then(r => r.json())
       .then(j => {
@@ -201,6 +207,9 @@ export default function TradeStudioView() {
       })
       .catch(() => {
         setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: prev[offer.id]?.prose ?? "Couldn't generate analysis for this one.", loading: false } }));
+      })
+      .finally(() => {
+        inFlightRefs.current.delete(offer.id);
       });
   }, [drawerOpen, offers, activeIndex, advisorByOffer, rosterId, advisorRosterPayload]);
 
