@@ -10,7 +10,9 @@
 //   STRAIGHT SHOOTER — fair value, simple shapes (1-for-1 / 1-for-2 / etc.),
 //                      ratio 0.90–1.10
 //   CLOSER           — extends UP to 1.15 (sweetener-friendly), any shape
-//   HUSTLER          — extends DOWN to 0.85 (lowball lift), any shape
+//   HUSTLER          — sits ABOVE fair at 1.00–1.15 (lowball — you receive
+//                      more than you send), any shape. The "lift" is a
+//                      partner pick added to the receive side.
 //   ARCHITECT        — exotic shapes only (4+ assets / pick swap / future pick),
 //                      ratio 0.90–1.10
 
@@ -63,8 +65,8 @@ export const PERSONAS: Record<PersonaKey, PersonaConfig> = {
     label: "The Hustler",
     shortLabel: "Hustler",
     description: "Come in low. Get them on the phone.",
-    ratioMin: 0.85,
-    ratioMax: 1.00,
+    ratioMin: 1.00,
+    ratioMax: 1.15,
     shapeRule: "any",
   },
 };
