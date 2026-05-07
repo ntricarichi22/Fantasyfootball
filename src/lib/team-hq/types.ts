@@ -6,10 +6,17 @@ export const TEAM_HQ_OWN_GUYS_VALUES = [
   "neutral",
   "ready_to_shake_it_up",
 ] as const;
+export const GM_PERSONA_VALUES = [
+  "closer",
+  "straight_shooter",
+  "architect",
+  "hustler",
+] as const;
 
 export type TeamHqWantsMore = (typeof TEAM_HQ_WANTS_MORE_VALUES)[number];
 export type TeamHqMarket = (typeof TEAM_HQ_MARKET_VALUES)[number];
 export type TeamHqOwnGuysPreference = (typeof TEAM_HQ_OWN_GUYS_VALUES)[number];
+export type GmPersona = (typeof GM_PERSONA_VALUES)[number];
 
 export type TeamStrategyProfile = {
   league_id: string;
@@ -21,6 +28,7 @@ export type TeamStrategyProfile = {
   te_market: TeamHqMarket;
   picks_market: TeamHqMarket;
   own_guys_preference: TeamHqOwnGuysPreference;
+  gm_persona: GmPersona;
 };
 
 export type TeamStrategyProfileInput = Partial<
@@ -53,4 +61,5 @@ export const TEAM_STRATEGY_DEFAULTS: Omit<TeamStrategyProfile, "league_id" | "te
   te_market: "hold",
   picks_market: "hold",
   own_guys_preference: "neutral",
+  gm_persona: "straight_shooter",
 };
