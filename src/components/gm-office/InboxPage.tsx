@@ -38,10 +38,20 @@ type TradeOffer = {
   updated_at: string;
 };
 
-type ThreadWithOffer = {
+type ThreadWithOffers = {
   thread: TradeThread;
-  latestOffer: TradeOffer | null;
-  offerCount: number;
+  offers: TradeOffer[];
+};
+
+// One card item per pending offer in open threads; one card per closed
+// thread (the terminal offer). Lets the inbox surface multiple distinct
+// deal proposals to the same partner without collapsing them.
+type CardItem = {
+  cardKey: string;
+  thread: TradeThread;
+  offer: TradeOffer;
+  totalOfferCount: number;
+  isClosedTerminal: boolean;
 };
 
 const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
@@ -71,12 +81,12 @@ async function fetchRosterNames(): Promise<Record<string, string>> {
   }
 }
 
-function closedLabel(thread: TradeThread, latestOffer: TradeOffer | null, myRosterId: string): string {
+function closedLabel(thread: TradeThread, terminalOffer: TradeOffer | null, myRosterId: string): string {
   const status = thread.status;
   if (status === "accepted") return "Accepted";
   if (status === "withdrawn") return "Withdrawn";
   if (status === "declined") {
-    if (latestOffer?.to_team_id === myRosterId) return "Declined by you";
+    if (terminalOffer?.to_team_id === myRosterId) return "Declined by you";
     return "Declined by them";
   }
   return status;
@@ -86,7 +96,7 @@ export default function InboxPage() {
   const { rosterId = "", teamName = "" } = readStoredTeam();
 
   const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
-  const [threadData, setThreadData] = useState<ThreadWithOffer[]>([]);
+  const [threadData, setThreadData] = useState<ThreadWithOffers[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [toast, setToast] = useState("");
@@ -119,15 +129,12 @@ export default function InboxPage() {
             const res = await fetch(
               `/api/trades/threads/${encodeURIComponent(thread.id)}`
             );
-            if (!res.ok) return { thread, latestOffer: null, offerCount: 0 };
+            if (!res.ok) return { thread, offers: [] as TradeOffer[] };
             const json = await res.json();
             const offers: TradeOffer[] = json.offers ?? [];
-            const latest = [...offers].reverse().find((o) => o.status === "pending")
-              || offers[offers.length - 1]
-              || null;
-            return { thread, latestOffer: latest, offerCount: offers.length };
+            return { thread, offers };
           } catch {
-            return { thread, latestOffer: null, offerCount: 0 };
+            return { thread, offers: [] as TradeOffer[] };
           }
         })
       );
@@ -146,11 +153,47 @@ export default function InboxPage() {
     return () => clearInterval(interval);
   }, [fetchThreads]);
 
+  // One card per pending offer in open threads.
+  // Closed threads collapse to a single terminal card.
+  const cardItems = useMemo<CardItem[]>(() => {
+    const items: CardItem[] = [];
+    for (const td of threadData) {
+      if (td.thread.status === "open") {
+        const pending = td.offers.filter((o) => o.status === "pending");
+        for (const offer of pending) {
+          items.push({
+            cardKey: offer.id,
+            thread: td.thread,
+            offer,
+            totalOfferCount: td.offers.length,
+            isClosedTerminal: false,
+          });
+        }
+      } else {
+        const terminal =
+          [...td.offers].reverse().find((o) => o.status !== "pending") ??
+          td.offers[td.offers.length - 1] ??
+          null;
+        if (terminal) {
+          items.push({
+            cardKey: td.thread.id,
+            thread: td.thread,
+            offer: terminal,
+            totalOfferCount: td.offers.length,
+            isClosedTerminal: true,
+          });
+        }
+      }
+    }
+    return items;
+  }, [threadData]);
+
+  // Lazy-fetch AI quips for any visible card whose offer doesn't have one
   useEffect(() => {
-    if (!threadData.length) return;
-    const missing = threadData
-      .filter((td) => td.latestOffer && !td.latestOffer.ai_quip)
-      .map((td) => td.latestOffer!.id);
+    if (!cardItems.length) return;
+    const missing = cardItems
+      .filter((c) => !c.offer.ai_quip)
+      .map((c) => c.offer.id);
 
     if (!missing.length) return;
 
@@ -165,22 +208,18 @@ export default function InboxPage() {
           .then((json) => {
             if (json.quip) {
               setThreadData((prev) =>
-                prev.map((td) => {
-                  if (td.latestOffer?.id !== offerId) return td;
-                  return {
-                    ...td,
-                    latestOffer: {
-                      ...td.latestOffer!,
-                      ai_quip: JSON.stringify(json.quip),
-                    },
-                  };
-                })
+                prev.map((td) => ({
+                  ...td,
+                  offers: td.offers.map((o) =>
+                    o.id === offerId ? { ...o, ai_quip: JSON.stringify(json.quip) } : o
+                  ),
+                }))
               );
             }
           })
       )
     );
-  }, [threadData]);
+  }, [cardItems]);
 
   const getCounterpartName = useCallback(
     (thread: TradeThread) => {
@@ -260,13 +299,11 @@ export default function InboxPage() {
   const searchLower = searchTerm.toLowerCase();
 
   const matchesSearch = useCallback(
-    (td: ThreadWithOffer) => {
+    (card: CardItem) => {
       if (!searchLower) return true;
-      const counterpartName = getCounterpartName(td.thread).toLowerCase();
+      const counterpartName = getCounterpartName(card.thread).toLowerCase();
       if (counterpartName.includes(searchLower)) return true;
-      const offer = td.latestOffer;
-      if (!offer) return false;
-      const allAssets = [...(offer.assets_from ?? []), ...(offer.assets_to ?? [])];
+      const allAssets = [...(card.offer.assets_from ?? []), ...(card.offer.assets_to ?? [])];
       return allAssets.some((a) =>
         (a.label || "").toLowerCase().includes(searchLower)
       );
@@ -274,34 +311,34 @@ export default function InboxPage() {
     [searchLower, getCounterpartName]
   );
 
-  const activeThreads = useMemo(
+  const activeCards = useMemo(
     () =>
-      threadData
-        .filter((td) => td.thread.status === "open")
+      cardItems
+        .filter((c) => !c.isClosedTerminal)
+        .filter(matchesSearch)
+        .sort(
+          (a, b) =>
+            new Date(b.offer.created_at).getTime() -
+            new Date(a.offer.created_at).getTime()
+        ),
+    [cardItems, matchesSearch]
+  );
+
+  const closedCards = useMemo(
+    () =>
+      cardItems
+        .filter((c) => c.isClosedTerminal)
         .filter(matchesSearch)
         .sort(
           (a, b) =>
             new Date(b.thread.last_activity_at).getTime() -
             new Date(a.thread.last_activity_at).getTime()
         ),
-    [threadData, matchesSearch]
+    [cardItems, matchesSearch]
   );
 
-  const closedThreads = useMemo(
-    () =>
-      threadData
-        .filter((td) => td.thread.status !== "open")
-        .filter(matchesSearch)
-        .sort(
-          (a, b) =>
-            new Date(b.thread.last_activity_at).getTime() -
-            new Date(a.thread.last_activity_at).getTime()
-        ),
-    [threadData, matchesSearch]
-  );
-
-  const visibleActive = filter === "closed" ? [] : activeThreads;
-  const visibleClosed = filter === "open" ? [] : closedThreads;
+  const visibleActive = filter === "closed" ? [] : activeCards;
+  const visibleClosed = filter === "open" ? [] : closedCards;
 
   const displayName = teamName || `Team ${rosterId}`;
 
@@ -753,20 +790,20 @@ export default function InboxPage() {
                         }}
                       />
                     </div>
-                    {visibleActive.map((td) => (
+                    {visibleActive.map((card) => (
                       <TradeCard
-                        key={td.thread.id}
-                        threadId={td.thread.id}
-                        counterpartName={getCounterpartName(td.thread)}
-                        threadStatus={td.thread.status}
-                        latestOffer={td.latestOffer}
+                        key={card.cardKey}
+                        threadId={card.thread.id}
+                        counterpartName={getCounterpartName(card.thread)}
+                        threadStatus={card.thread.status}
+                        latestOffer={card.offer}
                         myRosterId={rosterId}
                         onAccept={handleAccept}
                         onReject={handleReject}
                         onCounter={handleCounter}
                         onView={handleView}
                         actionLoading={actionLoading}
-                        offerCount={td.offerCount}
+                        offerCount={card.totalOfferCount}
                       />
                     ))}
                   </>
@@ -811,21 +848,21 @@ export default function InboxPage() {
                         }}
                       />
                     </div>
-                    {visibleClosed.map((td) => (
+                    {visibleClosed.map((card) => (
                       <TradeCard
-                        key={td.thread.id}
-                        threadId={td.thread.id}
-                        counterpartName={getCounterpartName(td.thread)}
-                        threadStatus={td.thread.status}
-                        latestOffer={td.latestOffer}
+                        key={card.cardKey}
+                        threadId={card.thread.id}
+                        counterpartName={getCounterpartName(card.thread)}
+                        threadStatus={card.thread.status}
+                        latestOffer={card.offer}
                         myRosterId={rosterId}
                         onAccept={handleAccept}
                         onReject={handleReject}
                         onCounter={handleCounter}
                         onView={handleView}
                         actionLoading={actionLoading}
-                        closedLabel={closedLabel(td.thread, td.latestOffer, rosterId)}
-                        offerCount={td.offerCount}
+                        closedLabel={closedLabel(card.thread, card.offer, rosterId)}
+                        offerCount={card.totalOfferCount}
                       />
                     ))}
                   </>
