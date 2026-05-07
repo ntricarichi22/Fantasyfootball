@@ -1,9 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "../../lib/storedTeam";
 import { useMyRoster, type RosterPlayer } from "../../lib/hooks/useMyRoster";
+import type { GmPersona } from "../../lib/team-hq/types";
 import Card from "./Card";
+import { PersonaPicker } from "./PersonaPicker";
 
 type NeedLevel = "low" | "medium" | "high";
 type PriorityTarget = "picks" | "studs" | "youth" | "depth";
@@ -19,6 +21,7 @@ type TeamStrategyProfile = {
   te_market: NeedLevel;
   picks_market: NeedLevel;
   own_guys_preference: string;
+  gm_persona: GmPersona;
 };
 
 const POSITION_BUCKETS = ["QB", "RB", "WR", "TE", "Picks"] as const;
@@ -75,6 +78,7 @@ const mapProfileFromApi = (data: Record<string, unknown>): TeamStrategyProfile =
   te_market: MARKET_TO_NEED[data.te_market as string] ?? "medium",
   picks_market: MARKET_TO_NEED[data.picks_market as string] ?? "medium",
   own_guys_preference: (data.own_guys_preference as string) ?? "neutral",
+  gm_persona: ((data.gm_persona as string) ?? "straight_shooter") as GmPersona,
 });
 
 const posClass = (pos: string | null) => {
@@ -158,6 +162,10 @@ export default function StrategyTab() {
     });
   };
 
+  const setPersona = (persona: GmPersona) => {
+    setProfile((prev) => (prev ? { ...prev, gm_persona: persona } : prev));
+  };
+
   const saveProfile = async () => {
     if (!profile || !rosterId) return;
     setSaving(true);
@@ -176,6 +184,7 @@ export default function StrategyTab() {
             te_market: NEED_TO_MARKET[profile.te_market],
             picks_market: NEED_TO_MARKET[profile.picks_market],
             own_guys_preference: profile.own_guys_preference,
+            gm_persona: profile.gm_persona,
           },
         }),
       });
@@ -272,224 +281,223 @@ export default function StrategyTab() {
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1.5fr",
+        display: "flex",
+        flexDirection: "column",
         gap: 12,
         flex: 1,
         minHeight: 0,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
-        <Card label="Position Stance" title="Team Needs">
-          <div style={{ padding: "12px 16px" }}>
-            {loading || !profile ? (
-              <p style={{ fontSize: 12, color: "#8C7E6A" }}>Loading…</p>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
-                {POSITION_BUCKETS.map((bucket) => (
-                  <div
-                    key={bucket}
-                    style={{ border: "2px solid #1A1A1A", overflow: "hidden" }}
-                  >
-                    <div
-                      style={{
-                        padding: "6px 4px",
-                        borderBottom: "1.5px solid #1A1A1A",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        background: "#1A1A1A",
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontFamily: "'JetBrains Mono', monospace",
-                          fontWeight: 700,
-                          fontSize: 9,
-                          color: "#FEFCF9",
-                          textTransform: "uppercase",
-                          letterSpacing: 0.5,
-                        }}
-                      >
-                        {bucket}
-                      </span>
-                    </div>
-                    <div style={{ display: "flex", flexDirection: "column", padding: 4, gap: 3 }}>
-                      {NEED_LEVELS.map((level) => (
-                        <button
-                          key={level}
-                          type="button"
-                          onClick={() => setNeed(bucket, level)}
-                          style={needStyle(bucket, level)}
-                        >
-                          {NEED_LABELS[level]}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </Card>
+      {profile && (
+        <PersonaPicker value={profile.gm_persona} onChange={setPersona} />
+      )}
 
-        <Card label="Asset Priority" title="Priority Targets">
-          <div style={{ padding: "12px 16px" }}>
-            {loading || !profile ? (
-              <p style={{ fontSize: 12, color: "#8C7E6A" }}>Loading…</p>
-            ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                {PRIORITY_TARGETS.map((t) => {
-                  const active = profile.wants_more.includes(t);
-                  return (
-                    <button
-                      key={t}
-                      type="button"
-                      onClick={() => toggleTarget(t)}
-                      style={{
-                        border: "2px solid #1A1A1A",
-                        padding: "10px 12px",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        background: active ? "#1A1A1A" : "#F5F0E6",
-                        textAlign: "left",
-                      }}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1.5fr",
+          gap: 12,
+          flex: 1,
+          minHeight: 0,
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, minHeight: 0 }}>
+          <Card label="Position Stance" title="Team Needs">
+            <div style={{ padding: "12px 16px" }}>
+              {loading || !profile ? (
+                <p style={{ fontSize: 12, color: "#8C7E6A" }}>Loading…</p>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
+                  {POSITION_BUCKETS.map((bucket) => (
+                    <div
+                      key={bucket}
+                      style={{ border: "2px solid #1A1A1A", overflow: "hidden" }}
                     >
                       <div
                         style={{
-                          width: 13,
-                          height: 13,
-                          border: `2px solid ${active ? "#FEFCF9" : "#1A1A1A"}`,
-                          flexShrink: 0,
+                          padding: "6px 4px",
+                          borderBottom: "1.5px solid #1A1A1A",
                           display: "flex",
                           alignItems: "center",
                           justifyContent: "center",
+                          background: "#1A1A1A",
                         }}
                       >
-                        {active && (
-                          <div style={{ width: 6, height: 6, background: "#FEFCF9" }} />
-                        )}
-                      </div>
-                      <div>
-                        <div
+                        <span
                           style={{
-                            fontFamily: "'Syne', sans-serif",
-                            fontWeight: 800,
-                            fontSize: 12,
-                            color: active ? "#FEFCF9" : "#1A1A1A",
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontWeight: 700,
+                            fontSize: 9,
+                            color: "#FEFCF9",
                             textTransform: "uppercase",
                             letterSpacing: 0.5,
                           }}
                         >
-                          {TARGET_LABELS[t].label}
-                        </div>
+                          {bucket}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", padding: 4, gap: 3 }}>
+                        {NEED_LEVELS.map((level) => (
+                          <button
+                            key={level}
+                            type="button"
+                            onClick={() => setNeed(bucket, level)}
+                            style={needStyle(bucket, level)}
+                          >
+                            {NEED_LABELS[level]}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Card>
+
+          <Card label="Asset Priority" title="Priority Targets">
+            <div style={{ padding: "12px 16px" }}>
+              {loading || !profile ? (
+                <p style={{ fontSize: 12, color: "#8C7E6A" }}>Loading…</p>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  {PRIORITY_TARGETS.map((t) => {
+                    const active = profile.wants_more.includes(t);
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => toggleTarget(t)}
+                        style={{
+                          border: "2px solid #1A1A1A",
+                          padding: "10px 12px",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          background: active ? "#1A1A1A" : "#F5F0E6",
+                          textAlign: "left",
+                        }}
+                      >
                         <div
                           style={{
-                            fontFamily: "'JetBrains Mono', monospace",
-                            fontSize: 8,
-                            color: active ? "rgba(255,255,255,0.4)" : "#8C7E6A",
-                            textTransform: "uppercase",
-                            letterSpacing: 1,
-                            marginTop: 2,
+                            width: 13,
+                            height: 13,
+                            border: `2px solid ${active ? "#FEFCF9" : "#1A1A1A"}`,
+                            flexShrink: 0,
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                           }}
                         >
-                          {TARGET_LABELS[t].sub}
+                          {active && (
+                            <div style={{ width: 6, height: 6, background: "#FEFCF9" }} />
+                          )}
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </Card>
-
-        <div style={{ flexShrink: 0 }}>
-          {error && (
-            <p style={{ fontSize: 12, color: "#E8503A", marginBottom: 8 }}>{error}</p>
-          )}
-          <button
-            type="button"
-            onClick={saveProfile}
-            disabled={!profile || saving || loading}
-            style={{
-              width: "100%",
-              background: "#1A1A1A",
-              color: "#FEFCF9",
-              border: "2.5px solid #1A1A1A",
-              boxShadow: "3px 3px 0 #8C7E6A",
-              fontFamily: "'Syne', sans-serif",
-              fontWeight: 800,
-              fontSize: 12,
-              textTransform: "uppercase",
-              letterSpacing: 1,
-              padding: "12px 20px",
-              cursor: saving ? "not-allowed" : "pointer",
-              opacity: saving ? 0.7 : 1,
-            }}
-          >
-            {saving ? "Saving…" : "Save Profile"}
-          </button>
-        </div>
-      </div>
-
-      <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-        <Card
-          label="Player Availability"
-          title="Taking Calls"
-          style={{ flex: 1, minHeight: 0 }}
-          right={
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-              {ATTACHMENT_VALUES.map((v) => (
-                <div
-                  key={v}
-                  style={{
-                    fontFamily: "'JetBrains Mono', monospace",
-                    fontSize: 8,
-                    fontWeight: 700,
-                    textTransform: "uppercase",
-                    letterSpacing: 1,
-                    padding: "3px 8px",
-                    border: "1.5px solid #1A1A1A",
-                    background: v === "untouchable" ? "#1A1A1A" : "#F5F0E6",
-                    color: v === "untouchable" ? "#FEFCF9" : "#1A1A1A",
-                  }}
-                >
-                  {attachSummary[v]} {ATTACHMENT_LABELS[v].toLowerCase()}
+                        <div>
+                          <div
+                            style={{
+                              fontFamily: "'Syne', sans-serif",
+                              fontWeight: 800,
+                              fontSize: 12,
+                              color: active ? "#FEFCF9" : "#1A1A1A",
+                              textTransform: "uppercase",
+                              letterSpacing: 0.5,
+                            }}
+                          >
+                            {TARGET_LABELS[t].label}
+                          </div>
+                          <div
+                            style={{
+                              fontFamily: "'JetBrains Mono', monospace",
+                              fontSize: 8,
+                              color: active ? "rgba(255,255,255,0.4)" : "#8C7E6A",
+                              textTransform: "uppercase",
+                              letterSpacing: 1,
+                              marginTop: 2,
+                            }}
+                          >
+                            {TARGET_LABELS[t].sub}
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
                 </div>
-              ))}
+              )}
             </div>
-          }
-        >
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "22px 1fr repeat(4, 80px)",
-              gap: 6,
-              padding: "6px 16px",
-              background: "#F5F0E6",
-              borderBottom: "2px solid #1A1A1A",
-              flexShrink: 0,
-            }}
-          >
-            <span />
-            <span
+          </Card>
+
+          <div style={{ flexShrink: 0 }}>
+            {error && (
+              <p style={{ fontSize: 12, color: "#E8503A", marginBottom: 8 }}>{error}</p>
+            )}
+            <button
+              type="button"
+              onClick={saveProfile}
+              disabled={!profile || saving || loading}
               style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 7,
-                color: "#8C7E6A",
+                width: "100%",
+                background: "#1A1A1A",
+                color: "#FEFCF9",
+                border: "2.5px solid #1A1A1A",
+                boxShadow: "3px 3px 0 #8C7E6A",
+                fontFamily: "'Syne', sans-serif",
+                fontWeight: 800,
+                fontSize: 12,
                 textTransform: "uppercase",
                 letterSpacing: 1,
-                fontWeight: 700,
+                padding: "12px 20px",
+                cursor: saving ? "not-allowed" : "pointer",
+                opacity: saving ? 0.7 : 1,
               }}
             >
-              Player
-            </span>
-            {ATTACHMENT_VALUES.map((v) => (
+              {saving ? "Saving…" : "Save Profile"}
+            </button>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <Card
+            label="Player Availability"
+            title="Taking Calls"
+            style={{ flex: 1, minHeight: 0 }}
+            right={
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {ATTACHMENT_VALUES.map((v) => (
+                  <div
+                    key={v}
+                    style={{
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 8,
+                      fontWeight: 700,
+                      textTransform: "uppercase",
+                      letterSpacing: 1,
+                      padding: "3px 8px",
+                      border: "1.5px solid #1A1A1A",
+                      background: v === "untouchable" ? "#1A1A1A" : "#F5F0E6",
+                      color: v === "untouchable" ? "#FEFCF9" : "#1A1A1A",
+                    }}
+                  >
+                    {attachSummary[v]} {ATTACHMENT_LABELS[v].toLowerCase()}
+                  </div>
+                ))}
+              </div>
+            }
+          >
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "22px 1fr repeat(4, 80px)",
+                gap: 6,
+                padding: "6px 16px",
+                background: "#F5F0E6",
+                borderBottom: "2px solid #1A1A1A",
+                flexShrink: 0,
+              }}
+            >
+              <span />
               <span
-                key={v}
                 style={{
                   fontFamily: "'JetBrains Mono', monospace",
                   fontSize: 7,
@@ -497,104 +505,119 @@ export default function StrategyTab() {
                   textTransform: "uppercase",
                   letterSpacing: 1,
                   fontWeight: 700,
-                  textAlign: "center",
                 }}
               >
-                {ATTACHMENT_LABELS[v]}
+                Player
               </span>
-            ))}
-          </div>
+              {ATTACHMENT_VALUES.map((v) => (
+                <span
+                  key={v}
+                  style={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 7,
+                    color: "#8C7E6A",
+                    textTransform: "uppercase",
+                    letterSpacing: 1,
+                    fontWeight: 700,
+                    textAlign: "center",
+                  }}
+                >
+                  {ATTACHMENT_LABELS[v]}
+                </span>
+              ))}
+            </div>
 
-          <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
-            {rosterLoading ? (
-              <p style={{ padding: "24px 16px", fontSize: 12, color: "#8C7E6A", textAlign: "center" }}>
-                Loading roster…
-              </p>
-            ) : players.length === 0 ? (
-              <p style={{ padding: "24px 16px", fontSize: 12, color: "#8C7E6A", textAlign: "center" }}>
-                No players found.
-              </p>
-            ) : (
-              players.map((player) => {
-                const current = attachments[player.id] ?? "core_piece";
-                const isSaving = savingAttachId === player.id;
-                return (
-                  <div
-                    key={player.id}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "22px 1fr repeat(4, 80px)",
-                      gap: 6,
-                      padding: "7px 16px",
-                      borderBottom: "1px solid rgba(0,0,0,0.06)",
-                      alignItems: "center",
-                      opacity: isSaving ? 0.6 : 1,
-                    }}
-                  >
-                    <span
-                      className={posClass(player.position)}
-                      style={{ fontSize: 7, padding: "2px 3px" }}
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 0 }}>
+              {rosterLoading ? (
+                <p style={{ padding: "24px 16px", fontSize: 12, color: "#8C7E6A", textAlign: "center" }}>
+                  Loading roster…
+                </p>
+              ) : players.length === 0 ? (
+                <p style={{ padding: "24px 16px", fontSize: 12, color: "#8C7E6A", textAlign: "center" }}>
+                  No players found.
+                </p>
+              ) : (
+                players.map((player) => {
+                  const current = attachments[player.id] ?? "core_piece";
+                  const isSaving = savingAttachId === player.id;
+                  return (
+                    <div
+                      key={player.id}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "22px 1fr repeat(4, 80px)",
+                        gap: 6,
+                        padding: "7px 16px",
+                        borderBottom: "1px solid rgba(0,0,0,0.06)",
+                        alignItems: "center",
+                        opacity: isSaving ? 0.6 : 1,
+                      }}
                     >
-                      {player.position}
-                    </span>
-                    <div>
-                      <div
-                        style={{
-                          fontFamily: "'DM Sans', sans-serif",
-                          fontSize: 11,
-                          fontWeight: 700,
-                          color: "#1A1A1A",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
+                      <span
+                        className={posClass(player.position)}
+                        style={{ fontSize: 7, padding: "2px 3px" }}
                       >
-                        {player.name}
-                      </div>
-                      <div
-                        style={{
-                          fontFamily: "'JetBrains Mono', monospace",
-                          fontSize: 8,
-                          color: "#8C7E6A",
-                        }}
-                      >
-                        {player.nflTeam}
-                      </div>
-                    </div>
-                    {ATTACHMENT_VALUES.map((v) => {
-                      const isActive = current === v;
-                      return (
-                        <button
-                          key={v}
-                          type="button"
-                          disabled={isSaving}
-                          onClick={() => void saveAttachment(player, v)}
+                        {player.position}
+                      </span>
+                      <div>
+                        <div
                           style={{
-                            fontFamily: "'Syne', sans-serif",
+                            fontFamily: "'DM Sans', sans-serif",
+                            fontSize: 11,
                             fontWeight: 700,
-                            fontSize: 8,
-                            textTransform: "uppercase",
-                            padding: "5px 2px",
-                            border: isActive
-                              ? "1.5px solid #1A1A1A"
-                              : "1.5px solid #C8C3B8",
-                            background: isActive ? "#1A1A1A" : "#F5F0E6",
-                            cursor: isSaving ? "not-allowed" : "pointer",
-                            textAlign: "center",
-                            color: isActive ? "#FEFCF9" : "#8C7E6A",
+                            color: "#1A1A1A",
                             whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
                           }}
                         >
-                          {ATTACHMENT_LABELS[v]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Card>
+                          {player.name}
+                        </div>
+                        <div
+                          style={{
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontSize: 8,
+                            color: "#8C7E6A",
+                          }}
+                        >
+                          {player.nflTeam}
+                        </div>
+                      </div>
+                      {ATTACHMENT_VALUES.map((v) => {
+                        const isActive = current === v;
+                        return (
+                          <button
+                            key={v}
+                            type="button"
+                            disabled={isSaving}
+                            onClick={() => void saveAttachment(player, v)}
+                            style={{
+                              fontFamily: "'Syne', sans-serif",
+                              fontWeight: 700,
+                              fontSize: 8,
+                              textTransform: "uppercase",
+                              padding: "5px 2px",
+                              border: isActive
+                                ? "1.5px solid #1A1A1A"
+                                : "1.5px solid #C8C3B8",
+                              background: isActive ? "#1A1A1A" : "#F5F0E6",
+                              cursor: isSaving ? "not-allowed" : "pointer",
+                              textAlign: "center",
+                              color: isActive ? "#FEFCF9" : "#8C7E6A",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {ATTACHMENT_LABELS[v]}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </Card>
+        </div>
       </div>
     </div>
   );
