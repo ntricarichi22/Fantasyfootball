@@ -19,53 +19,32 @@ export function PersonaPicker({ value, onChange }: Props) {
         padding: "20px 20px 24px",
       }}
     >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-end",
-          justifyContent: "space-between",
-          gap: 16,
-          marginBottom: 16,
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 10,
-              fontWeight: 700,
-              color: "#8C7E6A",
-              textTransform: "uppercase",
-              letterSpacing: 2,
-              marginBottom: 4,
-            }}
-          >
-            Negotiation Style
-          </div>
-          <div
-            style={{
-              fontFamily: "Syne, -apple-system, sans-serif",
-              fontWeight: 900,
-              fontSize: 22,
-              textTransform: "uppercase",
-              letterSpacing: "0.5px",
-              color: "#1A1A1A",
-              lineHeight: 1.1,
-            }}
-          >
-            Choose Your Persona
-          </div>
+      <div style={{ marginBottom: 16 }}>
+        <div
+          style={{
+            fontFamily: "'JetBrains Mono', monospace",
+            fontSize: 10,
+            fontWeight: 700,
+            color: "#8C7E6A",
+            textTransform: "uppercase",
+            letterSpacing: 2,
+            marginBottom: 4,
+          }}
+        >
+          Negotiation Style
         </div>
         <div
           style={{
-            fontFamily: "'DM Sans', -apple-system, sans-serif",
-            fontSize: 11,
-            color: "#8C7E6A",
-            fontStyle: "italic",
-            flexShrink: 0,
+            fontFamily: "Syne, -apple-system, sans-serif",
+            fontWeight: 900,
+            fontSize: 22,
+            textTransform: "uppercase",
+            letterSpacing: "0.5px",
+            color: "#1A1A1A",
+            lineHeight: 1.1,
           }}
         >
-          Default for Trade Studio
+          Choose Your Persona
         </div>
       </div>
 
