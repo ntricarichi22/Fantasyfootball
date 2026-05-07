@@ -21,8 +21,21 @@
 // v3.10: Hustler dropped the isSimpleShape check — it rejected future
 // picks via the `pickYear >= currentYear + 1` rule, which broke Hustler
 // for any partner whose 3rd/2nd round picks were future-year. The only
-// retained shape gate is a hard cap of 3 receive assets (matches the
-// other simple personas without leaking the future-pick prohibition).
+// retained shape gate is a hard cap of 3 receive assets.
+//
+// v3.11: Player-quality filters applied to the partner pool to stop
+// scrub-padded combos. Three rules:
+//   1. Scrubs excluded entirely. A scrub is a player who is none of
+//      isStud, isStarterLevel, or isYouth — depth/journeyman/aging-bench.
+//   2. Youth-depth players (isYouth=true AND isStarterLevel=false AND
+//      isStud=false — typically rookies or 2nd-year filler) included
+//      ONLY if their position is in the user's `buy` markets. If the
+//      user has no buy markets, no youth-depth players appear at all
+//      and picks fill the value gap instead.
+//   3. Max 1 youth-depth player per receive set. Anchors (studs +
+//      starters) and picks are unrestricted.
+// Applies uniformly to SS, Closer (via SS base), Hustler (via SS base),
+// and Architect.
 
 import type { RosterAsset, PersonaKey } from "../core/types";
 import type { StudioEngineContext, StudioPartner } from "./types";
@@ -45,13 +58,55 @@ function inRange(value: number, target: number, low: number, high: number): bool
   return ratio >= low && ratio <= high;
 }
 
-function buildPartnerPool(partner: StudioPartner): RosterAsset[] {
+// Positions where the user's market direction is "buy" — used to gate
+// which youth-depth partner players are eligible for receive sets.
+function getBuyPositions(profile: StudioEngineContext["myProfile"]): Set<string> {
+  const out = new Set<string>();
+  if (!profile) return out;
+  if (profile.qb_market === "buy") out.add("QB");
+  if (profile.rb_market === "buy") out.add("RB");
+  if (profile.wr_market === "buy") out.add("WR");
+  if (profile.te_market === "buy") out.add("TE");
+  return out;
+}
+
+// Youth-depth = young player who hasn't proven starter-level yet.
+// Bench rookies, 2nd-year filler. Capped at 1 per receive.
+function isYouthDepth(a: RosterAsset): boolean {
+  return a.type === "player" && !!a.isYouth && !a.isStarterLevel && !a.isStud;
+}
+
+function tooManyYouth(receive: RosterAsset[]): boolean {
+  let count = 0;
+  for (const a of receive) {
+    if (isYouthDepth(a)) {
+      count++;
+      if (count > 1) return true;
+    }
+  }
+  return false;
+}
+
+function buildPartnerPool(
+  partner: StudioPartner,
+  myBuyPositions: Set<string>,
+): RosterAsset[] {
   const all = partner.roster.filter(a => a.value > 0 && !isUntouchable(a));
   if (all.length === 0) return [];
-  // Always include ALL picks; cap players to top 25 by value
   const picks = all.filter(a => a.type === "pick");
   const players = all
     .filter(a => a.type === "player")
+    .filter(a => {
+      // Anchors (studs + starter-level players) always allowed
+      if (a.isStud || a.isStarterLevel) return true;
+      // Youth-depth: only if their position is in user's buy markets
+      if (a.isYouth) {
+        const pos = (a.position ?? "").toUpperCase();
+        return myBuyPositions.has(pos);
+      }
+      // Everything else (scrubs) excluded
+      return false;
+    })
     .sort((a, b) => b.value - a.value)
     .slice(0, MAX_PLAYER_POOL);
   return [...picks, ...players].sort((a, b) => b.value - a.value);
@@ -103,10 +158,12 @@ function generateStraightShooterBase(ctx: StudioEngineContext): CandidateOffer[]
   if (sendVal <= 0) return [];
 
   const cy = getCFCYear();
+  const myBuyPositions = getBuyPositions(ctx.myProfile);
   const out: CandidateOffer[] = [];
   const seen = new Set<string>();
   const add = (partnerId: string, receive: RosterAsset[]) => {
     if (!isSimpleShape(sendList, receive, cy)) return;
+    if (tooManyYouth(receive)) return;
     const k = dedupeKey(sendList, receive, partnerId);
     if (seen.has(k)) return;
     seen.add(k);
@@ -114,7 +171,7 @@ function generateStraightShooterBase(ctx: StudioEngineContext): CandidateOffer[]
   };
 
   for (const partner of ctx.partners) {
-    const pool = buildPartnerPool(partner);
+    const pool = buildPartnerPool(partner, myBuyPositions);
     if (pool.length === 0) continue;
 
     // 1-asset receive
@@ -215,8 +272,7 @@ function generateHustlerCandidates(ctx: StudioEngineContext): CandidateOffer[] {
     const finalReceive = [...c.receive, sweetener];
 
     // Hard cap on receive count — keeps offers visually scannable.
-    // No other shape constraint: future picks are valid Hustler sweeteners,
-    // and pick-swap concerns don't apply (send is the user's shop list).
+    // Sweetener is always a pick so youth-cap is unaffected by it.
     if (finalReceive.length > 3) continue;
 
     const k = dedupeKey(c.send, finalReceive, partner.teamId);
@@ -235,6 +291,7 @@ function generateArchitectCandidates(ctx: StudioEngineContext): CandidateOffer[]
   if (sendVal <= 0) return [];
 
   const cy = getCFCYear();
+  const myBuyPositions = getBuyPositions(ctx.myProfile);
   const out: CandidateOffer[] = [];
   const seen = new Set<string>();
 
@@ -243,6 +300,7 @@ function generateArchitectCandidates(ctx: StudioEngineContext): CandidateOffer[]
     const totalReceive = sumValue(receive);
     if (!inRange(totalReceive, totalSend, 0.85, 1.20)) return;
     if (!passesArchitectStructure(send, receive, cy)) return;
+    if (tooManyYouth(receive)) return;
     const k = dedupeKey(send, receive, partnerId);
     if (seen.has(k)) return;
     seen.add(k);
@@ -250,7 +308,7 @@ function generateArchitectCandidates(ctx: StudioEngineContext): CandidateOffer[]
   };
 
   for (const partner of ctx.partners) {
-    const pool = buildPartnerPool(partner);
+    const pool = buildPartnerPool(partner, myBuyPositions);
     if (pool.length === 0) continue;
 
     // 1, 2, 3-asset receives — only pass if the structure check fires
