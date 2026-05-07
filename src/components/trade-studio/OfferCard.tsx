@@ -31,6 +31,7 @@ export default function OfferCard({
 }: Props) {
   const [personaOpen, setPersonaOpen] = useState(false);
   const persona = getPersona(offer.persona);
+  const cardShadowColor = offer.gradeColor || "#1A1A1A";
 
   return (
     <div style={{ flex: 1, padding: "16px 20px 0", display: "flex", flexDirection: "column", minHeight: 0 }}>
@@ -72,16 +73,16 @@ export default function OfferCard({
         </div>
       </div>
 
-      {/* Team name + balance chip */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 14, flexShrink: 0 }}>
+      {/* Team name (chip moved out — now lives in the AI section below) */}
+      <div style={{ marginBottom: 14, flexShrink: 0 }}>
         <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 18, color: "#1A1A1A" }}>
           {offer.partnerTeamName}
         </div>
-        <TradeBalanceChip label={offer.gradeLabel} color={offer.gradeColor} />
       </div>
 
-      {/* Offer card */}
-      <div style={{ border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", background: "#FEFCF9", padding: "14px 16px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+      {/* Offer card — colored shadow tracks the chip color so the verdict
+          reads from the corner of your eye even when scanning fast. */}
+      <div style={{ border: "2.5px solid #1A1A1A", boxShadow: `5px 5px 0 ${cardShadowColor}`, background: "#FEFCF9", padding: "14px 16px", display: "flex", flexDirection: "column", flexShrink: 0 }}>
 
         {/* Send / receive */}
         <div style={{ background: "#185FA5", padding: "14px 14px", marginBottom: 12 }}>
@@ -105,9 +106,12 @@ export default function OfferCard({
           </div>
         </div>
 
-        {/* AI advisor */}
-        <div style={{ background: "#F5F0E6", padding: "12px 14px", marginBottom: 12, display: "flex", gap: 10, alignItems: "flex-start" }}>
-          <div style={{ width: 18, height: 18, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 7, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
+        {/* AI advisor — chip lives here as the headline, prose below */}
+        <div style={{ background: "#F5F0E6", padding: "12px 14px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
+            <div style={{ width: 26, height: 26, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
+            {offer.gradeLabel && <TradeBalanceChip label={offer.gradeLabel} color={offer.gradeColor} />}
+          </div>
           <div style={{ fontSize: 12, lineHeight: 1.5, color: "#1A1A1A", fontFamily: F }}>
             {advisorLoading ? "Reading the matchup…" : advisorProse}
           </div>
