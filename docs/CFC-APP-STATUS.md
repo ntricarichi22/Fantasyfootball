@@ -1,6 +1,6 @@
 # CFC Front Office — App Status
 
-**Last Updated:** May 6, 2026
+**Last Updated:** May 7, 2026
 **Live URL:** https://fantasyfootball-six.vercel.app
 
 ---
@@ -49,7 +49,7 @@ CFC Front Office is a bespoke dynasty fantasy football web app for a 12-team Sle
 
 ---
 
-## Trade Engine — Unified Architecture (May 6, 2026)
+## Trade Engine — Unified Architecture (May 7, 2026)
 
 A 25-commit refactor across 6 stages consolidated Builder and Studio under a single shared brain. Before: each feature had its own gap math, grading, and warnings logic that could disagree about the same deal. After: pure-math primitives in `core/` are the single source of truth — both features call them.
 
@@ -59,19 +59,19 @@ A 25-commit refactor across 6 stages consolidated Builder and Studio under a sin
 - `liquidity.ts` — S/A/B/C tradeability tiers (drives premium-floor rule)
 - `warnings.ts` — post-trade roster simulation, alarm/warning/info severities
 - `shape.ts` — structural mismatch detector (depth pieces for studs, etc.)
-- `classification.ts` — predicates (isStud, isYouth, isAging, isStarterLevel, etc.) + getCFCYear
+- `classification.ts` — predicates (isStud, isYouth, isAging, isStarterLevel, etc.) + getCFCYear + parsePickKey (handles both 3-part future-year and 4-part current-year pick keys as of May 7)
 - `ranking.ts` — wants-match counter + market-complementarity counter
 
 **Builder side (`src/lib/trade/advisor/`)** — uses core for everything:
-- `engine.ts` — Suggestion engine. Per-asset direction, three shapes (single, same-direction combo, swap). Architect partners get swap combos + future-pick weighting + a single-asset cap so the slate skews creative.
+- `engine.ts` (v3.7) — Suggestion engine. Per-asset direction, three shapes (single, same-direction combo, swap). Architect partners get swap combos + future-pick weighting + a single-asset cap so the slate skews creative. Player-quality filters mirror Studio: receive pool excludes scrubs, gates youth-depth on user's buy markets, max 1 youth-depth per multi-asset suggestion.
 - `context.ts` — translates raw fields to AI-prompt prose (`qb_market: "buy"` → "you're shopping for QBs"). Formats suggestions including swap shapes ("send X AND receive Y").
 - `route.ts` — `/api/trades/advisor` endpoint. Loads profiles (including `gm_persona`), runs gap math, calls `personaAwareGrade`, generates suggestions, asks Sonnet for prose.
 
 **Studio side (`src/lib/trade/studio/`)** — also uses core:
 - `types.ts` — Studio's offer shape (carries valueGap + gradeLabel + gradeColor; FitScore dropped)
-- `persona.ts` — four personas with ratio bounds + shape rules (SS 0.90–1.10 simple, Closer 0.90–1.15 any, Hustler 0.85–1.00 any, Architect 0.90–1.10 exotic)
+- `persona.ts` — four personas with ratio bounds + shape rules (SS 0.90–1.10 simple, Closer 0.90–1.15 any, Hustler 1.00–99 any, Architect 0.90–1.10 exotic)
 - `classification.ts` — re-export shim from core/
-- `candidates.ts` — per-persona candidate generator (SS clean shapes, Closer/Hustler add sweetener picks, Architect builds 4+ asset packages / pick swaps / future-pick deals)
+- `candidates.ts` (v3.11) — per-persona candidate generator (SS clean shapes, Closer/Hustler add sweetener picks, Architect builds 4+ asset packages / pick swaps / future-pick deals). Player-quality filters: scrubs (non-stud, non-starter, non-youth) excluded entirely from the partner pool; youth-depth players (isYouth + not starter + not stud) included only if their position is in the user's buy markets; max 1 youth-depth per receive set.
 - `engine.ts` — scores via `computeGap`, filters dealbreakers (untouchables, alarms, AGING BENCH GUY), enforces persona ratio band, ranks by wants-match → complementarity → ratio-closeness, returns top 5
 - `route.ts` — `/api/trade-studio/generate` endpoint
 
@@ -85,6 +85,20 @@ A 25-commit refactor across 6 stages consolidated Builder and Studio under a sin
 - Studio's "More Like This" feature (added complexity, low signal)
 - Studio's fallback Pass-3 in slate building (empty slate is now the right answer when nothing fits)
 - Two component files emptied to no-op stubs: `FitBar.tsx`, `MoreLikeThisModal.tsx` (deletable when convenient)
+
+---
+
+## Threading Model (May 7, 2026)
+
+**One thread per deal proposal.** A "deal" = the original offer + any counter-offers chained via `parent_offer_id`. Two separate proposals between the same teams = two separate threads = two separate cards in the inbox. Each can be accepted, declined, withdrawn, or countered independently of the others.
+
+Resolution logic in `/api/trades/create`:
+- `parent_offer_id` present → use parent offer's `thread_id` (counter stays in the same chain)
+- `parent_offer_id` absent → always create a new thread
+
+The previous behavior — find-or-create one open thread per team-pair — is gone. Eliminated the orphan-pending-offer problem by construction (terminal status on one thread doesn't affect siblings because there are no siblings inside a thread).
+
+Schema unchanged. Pre-May 7 multi-offer threads remain in the DB as legacy and continue to read/write correctly through the other routes; they close out naturally over time.
 
 ---
 
@@ -115,6 +129,7 @@ A 25-commit refactor across 6 stages consolidated Builder and Studio under a sin
 - Refactored from monolith into: OwnersBoxView, StrategyTab, DepthChartTab, TradeChartTab, Card
 - Strategy editing with buy/hold/sell ↔ Low/Med/High mapping fix
 - Player attachment editing (untouchable/core_piece/listening/moveable)
+- **Open:** GM persona is not yet a user-editable setting in the Strategy tab
 
 ### GM Office — Trade Inbox
 - Three-column sticky marquee: CFC Insider (black) + Make an Offer (blue) + Shop Around (yellow)
@@ -122,6 +137,7 @@ A 25-commit refactor across 6 stages consolidated Builder and Studio under a sin
 - Right column: filter pills (All/Open/Closed) + search, trade cards
 - Trade cards with perspective-aware AI quips, action buttons (Accept/Reject/Counter/View)
 - Active/closed deal separators
+- One card per pending offer in open threads; one card per closed thread
 
 ### Trade Thread Detail Page
 Two modes, both fully built and deployed:
@@ -130,21 +146,21 @@ Two modes, both fully built and deployed:
 
 **Counter mode:** Timeline slides to 40% width at 40% opacity. Counter drawer takes 60% on right. Flow: pinned current offer → AI negotiation brief → aggression slider ("How do you want to play this counter?" with "Get it done" ↔ "Test their floor") → 3 numbered AI counter suggestions (Syne 800 numerals, selected = ink fill) → "Build it yourself" (outline blue). Send flow: tap suggestion → goes black → "Send counter" → modal with optional message.
 
-### Trade Builder — Persona-Aware (Updated May 6, 2026)
+### Trade Builder — Persona-Aware
 Two-screen flow.
 
-**Landing Page ("Who are you targeting?"):** unchanged from prior — search bar, "On the block" top 10 driven by MY needs, "Trade partners" 11-team ranked list, cart sidebar.
+**Landing Page ("Who are you targeting?"):** search bar, "On the block" top 10 driven by MY needs, "Trade partners" 11-team ranked list, cart sidebar.
 
 **Trade Builder:**
 - Left 58%: Dark blue deal card → AI advisor card → Pinned send button
 - Right 42%: Team name tabs → Search → Roster by position with filled chips
-- AI advisor: persona-aware chip (uses partner's `gm_persona` when known) + Sonnet prose (debounced 2s) + suggestion rows. Suggestions now carry per-asset direction with three rendering modes: same-direction collapsed (existing UX), or stacked two-row layout for swap suggestions with "↔ Swap" pill.
+- AI advisor: persona-aware chip (uses partner's `gm_persona` when known) + Sonnet prose (debounced 2s) + suggestion rows. Suggestions carry per-asset direction with three rendering modes: same-direction collapsed, or stacked two-row layout for swap suggestions with "↔ Swap" pill.
 - Architect partners trigger swap suggestions in pass 2 of the engine, ahead of same-direction combos. Architect partners also cap singles at 1 so the slate has room for creative shapes.
 - Tapping a suggestion routes each asset to its specified direction — swap suggestions populate both sides of the deal at once.
-- 2-team: per-side +Add buttons in deal card, auto-routing
-- 3-team: universal +Add at bottom, routing popup for every tap
+- 2-team: per-side +Add buttons in deal card, auto-routing. **Row interactions:** clicking anywhere on a deal-card row removes the asset; small × icon shows visual affordance.
+- 3-team: universal +Add at bottom, routing popup for every tap. Row interactions: popover with reroute options + remove.
 
-### Trade Studio — Rebuilt (May 6, 2026)
+### Trade Studio
 Single-page flow with persona-driven offer generation.
 
 **Layout:**
@@ -160,15 +176,15 @@ Single-page flow with persona-driven offer generation.
 **Persona behavior:**
 - **Straight Shooter** (0.90–1.10, simple shapes): clean 1-for-1 / 1-for-2 / 2-for-1 / 1-for-3 bundles, no future picks, no pick swaps
 - **Closer** (0.90–1.15, any shape): SS base + adds your 3rd or 2nd round pick to send side as sweetener
-- **Hustler** (0.85–1.00, any shape): SS base + adds partner's 3rd or 2nd round pick to receive side as the lift
+- **Hustler** (1.00–99, any shape): SS base + adds partner's 3rd or 2nd round pick to receive side as the lift; no upper cap on the final ratio (the persona is "always come out ahead")
 - **Architect** (0.90–1.10, exotic only): 4+ asset packages, pick swaps (different round/year), future picks, and augmented-send variants where you add a pick to enable swap shapes
 
 **Offer card UI:** persona toggle + prev/next + counter at top, partner team name with balance chip on the right, send/receive grid, AI advisor prose, two secondary buttons (Pass + Edit), primary CTA (Make this offer). Swipe-style carousel with `1 / 5` indicator.
 
-**Pass action:** Posts feedback to `/api/trade-studio/feedback`. The endpoint still accepts `works_for_you` / `works_for_them` for ML-training continuity — TradeStudioView synthesizes those from `valueGap.ratio` (formula: `85 + (ratio - 1) × 50`, clamped 0-100).
+**Pass action:** Posts feedback to `/api/trade-studio/feedback`. The endpoint accepts `works_for_you` / `works_for_them` for ML-training continuity — TradeStudioView synthesizes those from `valueGap.ratio` (formula: `85 + (ratio - 1) × 50`, clamped 0-100).
 
 ### Value Pipeline
-Unchanged from May 3 rebuild. Three sources (FantasyCalc, KeepTradeCut, DynastyProcess) feed `cfc_asset_source_values` → `cfc_rebuild_value_layers()` Postgres function → `cfc_asset_calculations` → `cfc_trade_values_current` (VIEW) → `rebuildTeamTradeValuesForTeam` per team → `cfc_team_trade_values_current`. Daily cron at 4am ET.
+Three sources (FantasyCalc, KeepTradeCut, DynastyProcess) feed `cfc_asset_source_values` → `cfc_rebuild_value_layers()` Postgres function → `cfc_asset_calculations` → `cfc_trade_values_current` (VIEW) → `rebuildTeamTradeValuesForTeam` per team → `cfc_team_trade_values_current`. Daily cron at 4am ET.
 
 ---
 
@@ -176,16 +192,6 @@ Unchanged from May 3 rebuild. Three sources (FantasyCalc, KeepTradeCut, DynastyP
 
 ### League Historian
 Nick noticed issues with the historian section. Will be tackled in a separate session. Keeping the slp/flea/mfl admin ingestion routes around until then in case re-ingestion is needed.
-
-### AI Advisor — Pending Smoke Test
-The May 6 refactor changes how the advisor builds context: persona-aware grading now drives the chip color, and suggestions can include swap shapes for Architect partners. The Sonnet prose hasn't been spot-checked at scale against the new shape. Smoke testing is the next priority.
-
-Historical issues to watch for during smoke test (most should be addressed structurally now):
-- Prose contradicting the chip verdict
-- Suggesting wrong-team players (mine vs theirs)
-- Conflating position markets with `wants_more`
-- Filler language ("you're absolutely right")
-- Referencing already-completed picks
 
 ### Manual Override Drift
 Manual override values stored in `cfc_team_player_value_overrides` are absolute dollar amounts that don't update when league values change. By design — overrides represent the user's stable signal ("what would I trade this player for"). However, the UI does not currently surface when an override has drifted significantly from the auto-calculated value. Slated for future session.
@@ -201,15 +207,15 @@ Manual override values stored in `cfc_team_player_value_overrides` are absolute 
 | `/api/draft/submit-pick` | POST | Submit draft pick | ✅ Working |
 | `/api/draft/rookie-prospects` | GET | Rookie prospect data | ✅ Working |
 | `/api/player-values` | GET | CFC base player values | ✅ Working |
-| `/api/trades/create` | POST | Create trade offer | ✅ Working |
+| `/api/trades/create` | POST | Create trade offer (1 thread per deal) | ✅ Working |
 | `/api/trades/list` | GET | List trade offers | ✅ Working |
 | `/api/trades/threads/[id]` | GET | Trade thread detail | ✅ Working |
 | `/api/trades/ai-quip` | POST | AI quips for trade cards | ✅ Working |
-| `/api/trades/insider` | GET | CFC Insider feed | ✅ Working |
+| `/api/trades/insider` | GET | CFC Insider feed (chain-aware) | ✅ Working |
 | `/api/trades/ai-counter` | POST | Counter suggestions for thread page | ✅ Working |
 | `/api/trades/targets` | GET | Landing page targets + rankings | ✅ Working |
-| `/api/trades/advisor` | POST | Builder AI advisor (persona-aware) | ⚠️ Smoke test pending |
-| `/api/trade-studio/generate` | POST | Studio offer generation (persona-driven) | ⚠️ Smoke test pending |
+| `/api/trades/advisor` | POST | Builder AI advisor (persona-aware, scrub/youth filtered) | ✅ Working |
+| `/api/trade-studio/generate` | POST | Studio offer generation (persona-driven, scrub/youth filtered) | ✅ Working |
 | `/api/trade-studio/feedback` | POST | Studio offer Pass feedback | ✅ Working |
 | `/api/internal/refresh-values` | GET/POST | Daily value refresh (cron) | ✅ Working |
 | `/api/onboarding/player-attachment` | POST | Save attachments | ✅ Working |
@@ -246,13 +252,13 @@ Manual override values stored in `cfc_team_player_value_overrides` are absolute 
 | `core/liquidity.ts` | getLiquidityTier (S/A/B/C), isPremiumAsset |
 | `core/warnings.ts` | computePostTradeWarnings — alarm/warning/info severities |
 | `core/shape.ts` | detectShapeMismatch — structural mismatches (depth-for-studs, etc.) |
-| `core/classification.ts` | parsePickKey, getCFCYear, predicates (isStud, isYouth, isStarterLevel, isAgingBenchGuy, etc.), enrichRosters, inferTeamMode |
+| `core/classification.ts` | parsePickKey (handles both 3-part and 4-part keys), getCFCYear, predicates (isStud, isYouth, isStarterLevel, isAgingBenchGuy, etc.), enrichRosters, inferTeamMode |
 | `core/ranking.ts` | scoreWantsMatch, countComplementarity |
 
 ### Trade engine — Builder (`src/lib/trade/advisor/`)
 | File | Purpose |
 |------|---------|
-| `advisor/engine.ts` | generateSuggestions (per-asset direction, swap support, Architect bias). Re-exports from core for backward compat. |
+| `advisor/engine.ts` | generateSuggestions (per-asset direction, swap support, Architect bias, scrub/youth filters). Re-exports from core for backward compat. |
 | `advisor/context.ts` | translateStrategy, summarizeRoster, translateGap, describeSuggestions, describeWarnings, describeShapeMismatch — AI prompt translation layer |
 | `advisor/prompt.ts` | SYSTEM_PROMPT + buildUserPrompt — final prompt assembly |
 | `advisor/personality.ts` | Static team-personality map (negotiation style, dealer type) |
@@ -263,7 +269,7 @@ Manual override values stored in `cfc_team_player_value_overrides` are absolute 
 | `studio/types.ts` | StudioOffer (carries valueGap + gradeLabel + gradeColor); aliases of core types |
 | `studio/persona.ts` | PERSONAS map with ratio bounds + shape rules; getPersona, isValidPersona |
 | `studio/classification.ts` | Re-export shim from core/ (kept for backward compat) |
-| `studio/candidates.ts` | Per-persona candidate generators (SS / Closer / Hustler / Architect) |
+| `studio/candidates.ts` | Per-persona candidate generators (SS / Closer / Hustler / Architect) with scrub/youth filters |
 | `studio/engine.ts` | generateStudioOffers — candidates → score → filter → rank → slate |
 
 ### Other
@@ -284,33 +290,26 @@ Manual override values stored in `cfc_team_player_value_overrides` are absolute 
 
 ## What's Next
 
-### Priority 1: Smoke Test New Trade Logic
-Walk through the 6 test scenarios in `SMOKE-TEST-KICKOFF.md`. Verify Studio produces expected shapes per persona, Builder grades respect partner persona, Architect partners surface swap suggestions, prose stays aligned with chip verdicts.
+### Priority 1: GM personas in Owner's Box
+Add `gm_persona` as a user-editable setting in the Strategy tab. Once set, becomes the default for the Studio persona toggle (which serves as a re-roll override on top of the persisted default). Builder's `personaAwareGrade` already reads partner persona from the same column, so the new setting also affects how chips render when other users target the team.
 
 ### Priority 2: Manual Override UI Enhancement
 Surface auto_value vs override delta in the UI. Show user when their override has drifted significantly from current auto_value so they can decide whether to revisit. UI work, no backend changes.
 
-### Priority 3: League Historian Troubleshooting
-Nick noticed issues with the historian section. Tackle in a separate session.
+### Priority 3: Overall UI and Copy Review
+Top-to-bottom pass on the entire app — visual consistency, microcopy, error states, empty states, button labels, hover states, animations. Likely a multi-session effort.
 
-### Priority 4: Mobile Layouts
+### Priority 4: League Historian Troubleshooting
+Tackle in a separate session.
+
+### Priority 5: Mobile Layouts
 Mobile inbox, thread detail, trade builder, counter drawer. All desktop features need mobile equivalents.
 
-### Priority 5: Day 2 Draft
+### Priority 6: Day 2 Draft
 Build draft room for Rounds 2-3. Add league_id + season columns to draft_log.
 
 ### Deferred / Parking Lot
-- Wire `isAging` flag through client payload so the AGING BENCH GUY dealbreaker actually filters (currently inert)
-- Delete `FitBar.tsx` and `MoreLikeThisModal.tsx` files entirely (currently no-op stubs)
-- Layer 2 personality learner (nightly job summarizing each team's negotiating personality from accepted offers + chat)
-- "Shop Around" screen with AI-generated offers
-- Watchlist management UI
-- "Shop This Deal" mechanic (24-hour competing offer window)
-- Email notifications / Sleeper push integration
-- Historian section (historical trades, draft history, league records)
-- Drop now-orphaned table: `tgif_pick_anchors`
-- Error monitoring / logging
-- Phase 5 alias seeding for any new unmapped names that appear over time
+See `docs/deferred-projects.md` for the full inventory.
 
 ---
 
@@ -394,6 +393,15 @@ FROM cfc_unmapped_log
 WHERE created_at > NOW() - INTERVAL '24 hours'
 GROUP BY source_key, source_player_name
 ORDER BY raw_value DESC NULLS LAST;
+```
+
+```sql
+-- Trade threads with offer counts (post-May 7: 1 thread = 1 deal)
+SELECT t.id, t.team_a_id, t.team_b_id, t.status, COUNT(o.id) as offer_count
+FROM trade_threads t
+LEFT JOIN trade_offers o ON o.thread_id = t.id
+WHERE t.league_id = '1328902558617473024'
+GROUP BY t.id ORDER BY t.created_at DESC;
 ```
 
 ```sql
