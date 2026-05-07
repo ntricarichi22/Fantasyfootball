@@ -54,27 +54,42 @@ type RowProps = {
   myTeamId: string;
   onRemove: (key: string) => void;
   onReroute: (key: string, newToTeamId: string) => void;
+  // 2-team mode: clicking the row removes immediately, no popover (reroute
+  // is meaningless with only two teams). A small × icon provides visual
+  // affordance. 3-team mode keeps the popover so users can reroute to the
+  // third team instead of removing.
+  twoTeamMode: boolean;
 };
 
-function DealRow({ asset, bg, textColor, metaText, teams, myTeamId, onRemove, onReroute }: RowProps) {
+function DealRow({ asset, bg, textColor, metaText, teams, myTeamId, onRemove, onReroute, twoTeamMode }: RowProps) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement | null>(null);
   const reroutes = computeOptions(asset, teams, myTeamId);
 
-  // Close on outside click
+  // Close on outside click (3-team only)
   useEffect(() => {
-    if (!open) return;
+    if (twoTeamMode || !open) return;
     const handler = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
+  }, [open, twoTeamMode]);
+
+  // 2-team: clicking anywhere on the row removes the asset immediately.
+  // 3-team: clicking opens the popover with reroute + remove options.
+  const handleRowClick = () => {
+    if (twoTeamMode) {
+      onRemove(asset.key);
+    } else {
+      setOpen(o => !o);
+    }
+  };
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <div
-        onClick={() => setOpen(o => !o)}
+        onClick={handleRowClick}
         style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "6px 8px", background: bg, marginBottom: 4,
@@ -84,9 +99,26 @@ function DealRow({ asset, bg, textColor, metaText, teams, myTeamId, onRemove, on
       >
         <span style={{ fontWeight: 700, fontSize: 12, color: textColor, flex: 1, fontFamily: F, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{asset.name}</span>
         {metaText && <span style={{ fontFamily: FM, fontSize: 7, color: textColor, opacity: 0.7 }}>{metaText}</span>}
+        {twoTeamMode && (
+          <span
+            aria-hidden="true"
+            style={{
+              fontFamily: FM,
+              fontSize: 14,
+              fontWeight: 700,
+              color: textColor,
+              opacity: 0.55,
+              lineHeight: 1,
+              marginLeft: 4,
+              userSelect: "none",
+            }}
+          >
+            ×
+          </span>
+        )}
       </div>
 
-      {open && (
+      {open && !twoTeamMode && (
         <div
           style={{
             position: "absolute",
@@ -165,6 +197,7 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
                     myTeamId={myTeamId}
                     onRemove={handleRemove}
                     onReroute={handleReroute}
+                    twoTeamMode={false}
                   />
                 ))}
                 {td.sends.length === 0 && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: FM, padding: "4px 0" }}>—</div>}
@@ -182,6 +215,7 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
                     myTeamId={myTeamId}
                     onRemove={handleRemove}
                     onReroute={handleReroute}
+                    twoTeamMode={false}
                   />
                 ))}
                 {td.receives.length === 0 && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: FM, padding: "4px 0" }}>—</div>}
@@ -214,6 +248,7 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
               myTeamId={myTeamId}
               onRemove={handleRemove}
               onReroute={handleReroute}
+              twoTeamMode={true}
             />
           ))}
           <div onClick={() => onAddFromTeam(myTeamId)} style={{ border: "1.5px dashed rgba(255,255,255,0.25)", padding: "7px", textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: F, marginTop: mySends.length > 0 ? 4 : 0 }}>+ Add from your roster</div>
@@ -230,6 +265,7 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
               myTeamId={myTeamId}
               onRemove={handleRemove}
               onReroute={handleReroute}
+              twoTeamMode={true}
             />
           ))}
           <div onClick={() => onAddFromTeam(otherTeam?.id ?? "")} style={{ border: "1.5px dashed rgba(255,255,255,0.25)", padding: "7px", textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: F, marginTop: myReceives.length > 0 ? 4 : 0 }}>+ Add from their roster</div>
