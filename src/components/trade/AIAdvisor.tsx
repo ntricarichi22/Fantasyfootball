@@ -52,14 +52,19 @@ function SwapBadge() {
 }
 
 export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTapSuggestion, loading }: Props) {
+  // Card shadow tracks chip color when a verdict is set; falls back to
+  // ink for the empty/incomplete state (matches default neobrutalist).
+  const shadowColor = grade ? gradeColor : "#1A1A1A";
+
   return (
-    <div style={{ border: "2.5px solid #1A1A1A", background: "#FEFCF9", padding: "14px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div style={{ width: 18, height: 18, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 7, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
-          <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>Trade advisor</div>
-        </div>
-        {grade && <TradeBalanceChip label={grade} color={gradeColor} />}
+    <div style={{ border: "2.5px solid #1A1A1A", boxShadow: `5px 5px 0 ${shadowColor}`, background: "#FEFCF9", padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+        <div style={{ width: 26, height: 26, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
+        {grade ? (
+          <TradeBalanceChip label={grade} color={gradeColor} />
+        ) : (
+          <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#8C7E6A" }}>Trade advisor</div>
+        )}
       </div>
       <div style={{ fontSize: 12, lineHeight: 1.6, color: "#1A1A1A", fontFamily: F, marginBottom: suggestions.length > 0 ? 12 : 0 }}>
         {loading ? "Analyzing this deal…" : prose}
