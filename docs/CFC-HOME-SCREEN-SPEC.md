@@ -1,8 +1,10 @@
 # CFC Front Office — Home Screen Design Spec
 
-**Version:** 1.0
-**Date:** May 7, 2026
+**Version:** 2.0 (revised)
+**Date:** May 8, 2026
 **Status:** Design locked — ready for mockup → code
+
+> **Revision note:** v2.0 supersedes v1.0. The "Analytics" door is replaced by **Research & Strategy** (Browns-inspired, modeled after their VP, Research & Strategy role). All content related to setting roster strategy and inputs (wants_more, position markets, attachment, trade chart) now lives in Research & Strategy alongside the historian/research function. Pro Personnel becomes purely external scouting.
 
 ---
 
@@ -24,12 +26,22 @@ The four boxes represent:
 
 1. **General Manager** (the user, top of the chart, full-width)
 2. **Director of Scouting** (reports to GM, runs the draft)
-3. **Director of Pro Personnel** (reports to GM, sets roster strategy + scouts the league)
-4. **Director of Analytics** (reports to GM, surfaces insight from data)
+3. **Director of Pro Personnel** (reports to GM, scouts other teams' rosters and trade targets)
+4. **Director of Research & Strategy** (reports to GM, owns roster strategy, player evaluation, and the data/research function that informs them)
 
 This metaphor governs everything: copy voice, layout, the connecting lines, the briefings the directors give to the GM, the topbar treatment. **Every implementation choice should reinforce that the user is a GM walking into their front office and being briefed by their directors.**
 
-The product is called "CFC Front Office." The home screen is the front office, made literal.
+The product is called "CFC Front Office." The home screen is the front office, made literal. The org structure is loosely modeled on the Cleveland Browns' analytics-forward front office — most notably their VP, Research & Strategy role, which inspired our third director.
+
+**Each director has a distinct lens:**
+
+| Director | Lens |
+|---|---|
+| Scouting | Looking forward (the future via the draft) |
+| Pro Personnel | Looking outward (other teams' rosters and trade activity) |
+| Research & Strategy | Looking inward (our team, our preferences, our data-informed plan) |
+
+Three lenses, no overlap.
 
 ---
 
@@ -60,8 +72,8 @@ The product is called "CFC Front Office." The home screen is the front office, m
 │        │                │                │                   │
 │  ┌─────┴─────┐    ┌─────┴─────┐    ┌─────┴─────┐             │
 │  │ DIR. OF   │    │ DIR. OF   │    │ DIR. OF   │             │
-│  │ SCOUTING  │ ●  │ PRO       │ ●  │ ANALYTICS │             │
-│  │           │    │ PERSONNEL │    │           │             │
+│  │ SCOUTING  │ ●  │ PRO       │ ●  │ RESEARCH  │             │
+│  │           │    │ PERSONNEL │    │ & STRATEGY│             │
 │  │ [icon]    │    │ [icon]    │    │ [icon]    │             │
 │  │           │    │           │    │           │             │
 │  │ Copy...   │    │ Copy...   │    │ Copy...   │             │
@@ -121,7 +133,7 @@ The product is called "CFC Front Office." The home screen is the front office, m
 
 - Both cards (GM and active director) are **equal width and height**
 - Cards sized so that at maximum scroll, both are visible together with the connecting line landing between them
-- Director card is swipeable left/right to cycle through Scouting → Pro Personnel → Analytics
+- Director card is swipeable left/right to cycle through Scouting → Pro Personnel → Research & Strategy
 - Pagination dots below the director card (e.g., `• • •` with the active dot filled)
 - Slight peek of next card on right edge as a swipe affordance (iOS-native pattern)
 - The connecting line stays anchored to the GM card; the director card slides under the line's landing point
@@ -144,7 +156,7 @@ The product is called "CFC Front Office." The home screen is the front office, m
 | Briefing | None — GM doesn't brief themselves |
 | Urgency | None |
 | Click target | Entire box → navigates to GM Office (currently `/trades`) |
-| Houses (inside the room) | Inbox, trade threads, Trade Builder, Trade Studio, persona, CFC Insider |
+| Houses (inside the room) | Inbox, trade threads, Trade Builder shortcut, Trade Studio shortcut, persona, CFC Insider |
 
 **Important:** the GM box is intentionally clean. No briefing line, no urgency chip. This is the user's identity at the top of the chart; directors brief upward to them.
 
@@ -155,6 +167,7 @@ The product is called "CFC Front Office." The home screen is the front office, m
 | Title | `DIRECTOR OF SCOUTING` |
 | Icon | Clipboard |
 | Copy | `Build your board, run the draft.` |
+| Frame | Looking forward (rookies / draft) |
 | Background | Paper (#FEFCF9) |
 | Text color | Ink (#1A1A1A) |
 | Border | Blue (#3366CC), 2.5px solid (continuation of connecting line from GM box) |
@@ -170,33 +183,37 @@ The product is called "CFC Front Office." The home screen is the front office, m
 |---|---|
 | Title | `DIRECTOR OF PRO PERSONNEL` |
 | Icon | Trading card (Topps-style player card silhouette) |
-| Copy | `Set your strategy, scout the league.` |
+| Copy | `Scout the league, find our targets.` |
+| Frame | Looking outward (other teams) |
 | Background | Paper (#FEFCF9) |
 | Text color | Ink (#1A1A1A) |
 | Border | Blue (#3366CC), 2.5px solid |
 | Box shadow | 4px offset, Ink |
 | Briefing | First-person, "we" voice |
-| Urgency | Yellow chip (offer pending 24–72h) / Red chip (offer past 72h or untouchable being actively shopped) |
+| Urgency | Yellow chip (pending offer 24–72h, an untouchable getting league interest) / Red chip (pending offer past 72h, an untouchable being actively shopped by multiple teams) |
 | Click target | Entire box → navigates to Pro Personnel landing |
-| Houses | Roster strategy (`wants_more`, position markets), player attachment (untouchable/core/listening/moveable), scout-the-league view (top targets + best trading partners + search — formerly the Trade Builder landing) |
+| Houses | **Scout Players** (top player matches — formerly part of the Trade Builder landing) and **Scout Teams** (best trading partners — formerly part of the Trade Builder landing). Pro Personnel is now purely external scouting. |
 
-**STRUCTURAL CHANGE:** The Trade Builder "landing page" (current "shop around" view with top targets and best trading partners) **moves into Pro Personnel**. The "Build a trade" button on the GM Office landing remains as a shortcut into Pro Personnel's targets view. Both paths converge on the same target picker, then the same deal-building UI. This change happens as part of this redesign — not a future deferral.
+**STRUCTURAL NOTE:** The Trade Builder "landing page" (current "shop around" view with top targets and best trading partners) is split into **Scout Players** and **Scout Teams** screens, both housed under Pro Personnel. The "Build a trade" button on the GM Office landing remains as a shortcut — it opens a popover asking "Scout Players or Scout Teams?" and routes to the chosen mode. Pro Personnel no longer houses roster strategy, attachment, or trade chart — those have all moved to Research & Strategy.
 
-### 3.4 Director of Analytics
+### 3.4 Director of Research & Strategy
 
 | Property | Value |
 |---|---|
-| Title | `DIRECTOR OF ANALYTICS` |
-| Icon | Lightbulb |
-| Copy | `Mine the data, find the edge.` |
+| Title | `DIRECTOR OF RESEARCH & STRATEGY` |
+| Icon | Blueprint |
+| Copy | `Mine the data, set the plan.` |
+| Frame | Looking inward (our team) + the research that informs strategy |
 | Background | Paper (#FEFCF9) |
 | Text color | Ink (#1A1A1A) |
 | Border | Blue (#3366CC), 2.5px solid |
 | Box shadow | 4px offset, Ink |
-| Briefing | First-person, "we" voice. **Never urgent.** |
-| Urgency | None — Analytics never carries urgency under any condition |
-| Click target | Entire box → navigates to Analytics landing |
-| Houses | Records, history, ask-anything (the historian) |
+| Briefing | First-person, "we" voice. Mostly data-informed strategic recommendations. |
+| Urgency | **None** in the urgent (red) tier under any condition. Rare attention (yellow) tier — e.g., strategy hasn't been updated in 30+ days or before a major league window (draft, deadline). Default state most of the time. |
+| Click target | Entire box → navigates to Research & Strategy landing |
+| Houses | **Strategy** (wants_more + position markets), **Roster** (player attachment + trade chart), **Research** (the historian / ask-anything tool, plus league records and history). Three sub-screens, internal navigation TBD when this door is designed. |
+
+**STRUCTURAL NOTE:** This door consolidates what was previously split between the old Owner's Box (roster strategy, wants_more, position markets, attachment) and the old Analytics door (records, history, historian) plus the trade chart that lived in Owner's Box. The integration is intentional: in real-world organizations (and on the Browns' actual front office), research and strategy work together — data informs strategy. The director's voice on this door is the strategist who uses data, not a pure researcher.
 
 ---
 
@@ -242,7 +259,7 @@ The framing is intentional: report-outs from the directors are "memos that lande
 
 ## Section 6: Director Briefings (Report-Outs)
 
-Each director's box (Scouting, Pro Personnel, Analytics) includes a **briefing** at the bottom — a first-person message from the director to the GM.
+Each director's box (Scouting, Pro Personnel, Research & Strategy) includes a **briefing** at the bottom — a first-person message from the director to the GM.
 
 ### 6.1 Voice & Style
 
@@ -252,7 +269,7 @@ Each director's box (Scouting, Pro Personnel, Analytics) includes a **briefing**
 - **Vintage front-office voice.** "Boss" addressing is allowed sparingly. Otherwise neutral and professional.
 - **Render in quotes** to make it clear this is a verbatim quote from the director.
 
-### 6.2 Examples
+### 6.2 Examples by Director
 
 These are illustrative. Final content map deferred to build phase (Section 6.3).
 
@@ -262,25 +279,30 @@ These are illustrative. Final content map deferred to build phase (Section 6.3).
 - Draft live (urgent): *"We're on the clock."*
 - Post-draft: *"Draft's wrapped. Board's on your desk."*
 
-**Director of Pro Personnel:**
+**Director of Pro Personnel** (purely external — league activity, trade flow, who's available):
 - Sell signal (default): *"WR market's heating up — three teams buying. Lamb's value is peaking."*
 - Buy signal (default): *"Founders just put their WR1 on the block. Good chance to fill our biggest need."*
 - Pending offer (attention): *"Founders have been waiting two days. We owe them a response."*
 - Untouchable hunted (urgent): *"Two teams have called about Daniels this week. They're persistent."*
 - Quiet week (default): *"Wire's quiet. Nothing moving that fits our build."*
 
-**Director of Analytics:**
-- *"Last year's champ stacked WRs and ran two RBs. Pulled the breakdown."*
-- *"Twelve new league records since your last visit."*
-- *"Most successful offseason trades involved 1st-rounders. Worth a look."*
+**Director of Research & Strategy** (data-informed strategic recommendations):
+- Default: *"Champ teams stack WRs and run two RBs. Pulled the breakdown."*
+- Default: *"Last decade's title teams averaged three untouchables at WR. We've got one."*
+- Default: *"Most successful offseason trades involve 1st-rounders. Worth a look at our chart."*
+- Default: *"Teams with our age profile won 23% of titles last decade."*
+- Curiosity / lighter (default): *"Twelve new league records since your last visit."*
+- Attention (rare): *"Our strategy hasn't been updated in 30 days. Worth a refresh."*
+
+The Research & Strategy director's voice is the strategist who uses data. Most briefings pair an insight with an implied action ("champ teams stack WRs" → "worth bumping our WR market"). Pure-trivia briefings ("12 new records") are valid but should be the minority — they don't move the needle the way actionable strategic briefings do.
 
 ### 6.3 Briefing Triggers (DEFERRED)
 
 Briefings are dynamic and depend on app state. The full trigger map (which briefing surfaces in which state) is **deferred to content/build phase**. At minimum, the build will need to support these state inputs:
 
 - **Scouting:** draft state (off-season / pre-draft window / draft live / post-draft), days-to-draft countdown, set-board status
-- **Pro Personnel:** pending offer count + age (in hours), league-wide WR/RB/QB market activity, untouchable hunt status (other teams asking about user's untouchables), `wants_more` and `position_markets` state
-- **Analytics:** new records since last visit, new analytical findings, default insights
+- **Pro Personnel:** pending offer count + age (in hours), league-wide market activity per position, untouchable hunt status (other teams asking about user's untouchables), recent league moves
+- **Research & Strategy:** time since last strategy update, current `wants_more` / `position_markets` state, championship-team comparison data, league history events, new records
 
 When implementing, lock these briefings against actual state variables in the database. Don't hard-code more than a default fallback. Build a small content engine that selects the right briefing based on state.
 
@@ -314,20 +336,22 @@ When implementing, lock these briefings against actual state variables in the da
 - Attention (yellow): at least one pending offer aged 24–72 hours; OR an untouchable has 1 team showing interest
 - Urgent (red): at least one pending offer aged > 72 hours; OR an untouchable being actively shopped (≥2 teams asking)
 
-**Director of Analytics:**
-- Always default. Never urgent under any condition.
+**Director of Research & Strategy:**
+- Attention (yellow): rare. Possible triggers: strategy hasn't been updated in 30+ days; the league is approaching a major event window (e.g., 14 days before draft) and `wants_more` / `position_markets` haven't been touched recently.
+- Urgent (red): **never.** This director never escalates to red. The voice is the calm strategist; making them urgent breaks character.
+- Default most of the time.
 
 If multiple conditions apply, the highest tier wins (urgent beats attention).
 
 ### 7.4 Cross-Box Routing (FLAGGED FOR LATER)
 
-Some Pro Personnel briefings reference content that lives in the GM Office (e.g., *"Founders have been waiting two days"* → the actual offer is in the GM's inbox). The **eventual** correct behavior is for clicking the briefing to deeplink to the relevant content (the actual thread). This is **deferred** — the home screen build can ship with all clicks routing to the parent box (Pro Personnel landing). Deeplinking from briefings can be added in a later pass.
+Some Pro Personnel briefings reference content that lives in the GM Office (e.g., *"Founders have been waiting two days"* → the actual offer is in the GM's inbox). The **eventual** correct behavior is for clicking the briefing to deeplink to the relevant content (the actual thread). This is **deferred** — the home screen build can ship with all clicks routing to the parent box. Deeplinking from briefings can be added in a later pass.
 
 ---
 
 ## Section 8: Topbar
 
-The topbar on the **home screen** is intentionally distinct from the topbar on inner pages. The home topbar is the lobby/welcome treatment. Inner page topbars are working-room treatments and will be specified separately when we walk into each room.
+The topbar on the **home screen** is intentionally distinct from the topbar on inner pages. The home topbar is the lobby/welcome treatment. Inner page topbars are working-room treatments and are specified in the GM Office spec (and inherited by other inner pages).
 
 ### 8.1 Home Screen Topbar Composition
 
@@ -434,7 +458,7 @@ Final proportions to be tuned at mockup. The above is the design intent.
 - **Box clicks:** Each box's entire surface is clickable, navigating to that section's landing screen
 - **CFC league logo click (left of topbar):** No navigation needed on home (you're already home). Behavior can be inert or could open a "league info" overlay (defer the choice — inert is fine for V1)
 - **Team logo click (right of topbar):** Opens settings/profile page
-- **Mobile swipe:** Director card swipes left/right to cycle through Scouting → Pro Personnel → Analytics. Wraps around (last card swipe-right goes to first card)
+- **Mobile swipe:** Director card swipes left/right to cycle through Scouting → Pro Personnel → Research & Strategy. Wraps around (last card swipe-right goes to first card)
 - **Loading states:** Disabled. The current "Entering…" overlay during team claim is **removed** in this redesign
 - **Empty/onboarding states:** Deferred. First-time users with no rings, no briefings, etc. — handle at build time
 
@@ -460,7 +484,7 @@ Final proportions to be tuned at mockup. The above is the design intent.
 - User's team name + team logo URL (likely already in scope from current `HomeScreen.tsx`)
 - User's persona (from `cfc_team_strategy_profiles.gm_persona`)
 - Championship count (data source TBD — likely from a history/seasons table; default to 0 if not modeled yet)
-- Briefing inputs (pending offer counts, draft state, etc. — see Section 6.3)
+- Briefing inputs (pending offer counts, draft state, days since strategy update, championship-team comparison data, etc. — see Section 6.3)
 - Urgency tier (computed from briefing inputs — see Section 7.3)
 
 ---
@@ -490,7 +514,7 @@ Suggested sequence to ship cleanly without broken intermediate states. Each step
 
 These are NOT blockers for the home screen build. They are flagged for later work:
 
-1. **Inner page topbar** — different from home topbar; will be specified when we walk into the GM Office and other rooms in subsequent design sessions
+1. **Inner page topbar** — different from home topbar; specified in `CFC-GM-OFFICE-SPEC.md` and inherited by other inner pages built later (Pro Personnel, Scouting, Research & Strategy)
 2. **Cross-box deeplinking** — Pro Personnel briefings that reference inbox content should eventually deeplink to specific threads (Section 7.4)
 3. **Briefing copy variants by state** — full content map for what each director says under each app state (Section 6.3). Enough of a framework is locked here to start; the full content library lands at build
 4. **Persona icon mapping** — which icon (chess knight, etc.) represents which persona. User will provide at build
@@ -498,7 +522,7 @@ These are NOT blockers for the home screen build. They are flagged for later wor
 6. **Onboarding/empty states** — first-time GM with no rings, no offers, no briefing data. Default fallbacks needed
 7. **Animation/transitions** — desktop hover effects, mobile swipe physics, etc. Punted until base layout works
 8. **Accessibility** — keyboard navigation, screen reader labels, focus states. Punted
-9. **The trade builder landing migration** — moving Trade Builder's "shop around" landing page from the GM Office into Pro Personnel. This is part of the home screen redesign scope but will require touching the trades flow. Coordinate the migration when implementing the Pro Personnel landing
+9. **The Trade Builder landing migration** — the current Trade Builder landing splits into Scout Players + Scout Teams under Pro Personnel, and roster strategy / attachment / trade chart move to Research & Strategy. Coordinate this migration when implementing those two doors. The home screen build itself doesn't depend on those migrations being complete — director boxes can route to placeholder pages until the doors are built.
 
 ---
 
@@ -526,9 +550,9 @@ When implementing, ensure these non-negotiables are honored:
 | **Layout** | Org chart: GM full-width on top, 3 directors below |
 | **GM box copy** | *Get plugged in, work the phones, and make deals.* |
 | **Scouting copy** | *Build your board, run the draft.* |
-| **Pro Personnel copy** | *Set your strategy, scout the league.* |
-| **Analytics copy** | *Mine the data, find the edge.* |
-| **Icons** | Rotary phone (GM) · Clipboard (Scouting) · Trading card (Pro Personnel) · Lightbulb (Analytics) |
+| **Pro Personnel copy** | *Scout the league, find our targets.* |
+| **Research & Strategy copy** | *Mine the data, set the plan.* |
+| **Icons** | Rotary phone (GM) · Clipboard (Scouting) · Trading card (Pro Personnel) · Blueprint (Research & Strategy) |
 | **GM box style** | Blue fill (#3366CC), white text, no briefing, no urgency |
 | **Director box style** | Paper fill, ink text, blue (#3366CC) border, briefing + urgency chip |
 | **Connecting lines** | Blue (#3366CC), 2.5px, continuous flow into director borders |
@@ -538,9 +562,17 @@ When implementing, ensure these non-negotiables are honored:
 | **Topbar (right)** | Persona icon + championship rings + team name + team logo (inline) |
 | **Mobile** | Two-card stack, equal size, swipeable directors, dots + peek |
 | **Loading states** | Disabled / removed |
-| **Urgency** | Yellow/red chip next to director title (Scouting + Pro Personnel only — Analytics never urgent) |
+| **Urgency** | Yellow/red chip next to director title (Scouting + Pro Personnel only — Research & Strategy never urgent, rare attention only) |
 | **Briefings** | First-person, "we" voice, in quotes, 1–2 sentences with a point of view |
 | **Notification dot** | Removed from topbar |
+
+**Director frame summary:**
+
+| Director | Lens | Houses |
+|---|---|---|
+| Scouting | Looking forward | War Room (draft prep, draft live, results), redraft rankings |
+| Pro Personnel | Looking outward | Scout Players, Scout Teams |
+| Research & Strategy | Looking inward + the data that informs strategy | wants_more, position markets, attachment, trade chart, historian / research tool |
 
 ---
 
@@ -564,6 +596,6 @@ The briefing is visually separated from the copy — it's a different "voice" (t
 
 ## End of Spec — Ready for Build
 
-Final note: the home screen design is fully locked. Every copy string, every color, every behavioral rule is decided. The only items intentionally deferred are content-data-dependent (briefing variants, urgency triggers, persona/ring data wiring) and will be locked at the build phase against actual data sources.
+Final note: the home screen design is fully locked. Every copy string, every color, every behavioral rule is decided. The only items intentionally deferred are content-data-dependent (briefing variants, urgency triggers, persona/ring data wiring) and adjacent build work (the Pro Personnel and Research & Strategy doors themselves) — all logged in Section 16.
 
 Pick this up in a new chat by attaching this document along with `/docs/CFC-APP-STATUS.md`. The new chat should not need any conversation history beyond these two files to execute the build cleanly.
