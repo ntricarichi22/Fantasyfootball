@@ -1,22 +1,25 @@
 # CFC Front Office — Research & Strategy Design Spec
 
-**Version:** 1.0
-**Date:** May 9, 2026
+**Version:** 2.0 (revised)
+**Date:** May 13, 2026
 **Status:** Design locked — ready for mockup → code
+
+> **Revision note (v2.0, May 13, 2026):** Major redesign from v1.0 following the May 12, 2026 master design session. The landing is now a **trading card binder grid** of individual cards (matching Pro Personnel and Scouting) instead of the prior 2-up wall queue. **Lens set updated to 6 lenses** with **Settings staleness killed as a standalone lens** (staleness = the buildup of other unaddressed cards) and **Wants More suggestion added as a new lens**. R&S is now **purely settings** — no trade cards. Aging signals flow to Pro Personnel Shop cards, not R&S. **4 update types** on flip-backs: availability tier, value (price), position market, wants more. **Set Strategy cards become Selector Cards** with the universal flip + confirmation stamp pattern. **Set Availability availability popover is killed** — tier picker now lives on the back of the Player Card. **Set Availability Pick Card preserved as a List Card** (the only management surface still using the List Card template). **Research Analyst chat panel** locked with 3 opener chips, no header label, identity in placeholder. Universal green color #019942 (replaces prior #007370).
 
 ---
 
 ## Purpose of This Document
 
-This document captures every design decision for the **Research & Strategy door** — the strategist's war room, its sub-surfaces, and the card system that lives within. It is the handoff spec for implementation. A new chat or developer should be able to read this document and execute the build without referring to prior conversation.
+This document captures every design decision for the **Research & Strategy door** — the strategist's war room landing, its Set Strategy and Set Availability sub-pages, and the card system that lives within. It is the handoff spec for implementation. A new chat or developer should be able to read this document and execute the build without referring to prior conversation.
 
-This document is **forward-looking**. It describes what Research & Strategy becomes, not what it currently is. The current implementation lives in `src/components/owners-box/StrategyTab.tsx`, `src/components/owners-box/TradeChartTab.tsx`, and `src/components/historian/*` and is being replaced.
+This document is **forward-looking**. It describes what Research & Strategy becomes, not what it currently is.
 
 This spec must be read alongside:
 - `/docs/CFC-APP-STATUS.md` (project-wide design system and non-negotiables)
-- `CFC-HOME-SCREEN-SPEC.md` v2.0 (locked home screen — R&S is one of three director doors)
+- `CFC-HOME-SCREEN-SPEC.md` v2.1 (locked home screen — R&S is one of three director doors)
 - `CFC-GM-OFFICE-SPEC.md` (locked GM Office)
-- `CFC-PRO-PERSONNEL-SPEC.md` (locked Pro Personnel)
+- `CFC-PRO-PERSONNEL-SPEC.md` v2.0 (locked PP — Pro Personnel consumes R&S signals; aging, value drift, position market, wants more)
+- `CFC-SCOUTING-SPEC.md` (locked Scouting — Scouting reads R&S wants_more for trade-intel relevance)
 
 Research & Strategy is the third of three director doors reporting to the GM. Its lens is **looking inward** — our team, our preferences, the data that informs our plan.
 
@@ -24,16 +27,16 @@ Research & Strategy is the third of three director doors reporting to the GM. It
 
 ## Section 1: Concept & Metaphor
 
-The R&S door IS the **strategist's war room**. The user walks in and the work is already on the wall: data-driven findings the strategist has prepared, stacked as cards. Each card is an insight + an implied action. The user works through them — acts on them or sets them aside — until the wall is clear.
+The R&S door IS the **strategist's war room**. The user walks in and the work is already on the wall — settings updates the strategist has prepared, stacked as cards in a binder. Each card is one specific tweak to how the team is configured: a tier change for a player, a price update, a position market shift, a wants-more toggle. The user works through them — taps to update, picks the right setting, the card slides off the wall — until the binder is clear.
 
-The room has two voices in it:
+Two voices in the room:
 
-- **The Director of Research & Strategy** — speaks on the cards. Strategic, curated, sees-the-big-picture. *"Champ teams stack WRs. We have one. Worth bumping our market."* The director prepared the wall before you walked in.
-- **The Research Analyst** — staff, not the director. Lives in the chat. Pulls data, answers questions, runs lookups. *"Who has the most championships?"* / *"What's our weak spot at WR?"* The analyst is at the keyboard while the director is at the whiteboard.
+- **The Director of Research & Strategy** — speaks on the cards. Strategic, curated, sees-the-big-picture. *"We have Mahomes marked moveable but he's critical to us. Worth a look."* The director prepared the wall before you walked in.
+- **The Research Analyst** — staff, not the director. Lives in the chat. Pulls data, answers questions, runs league lookups. *"How does my roster compare to last year's title teams?"* / *"What's my biggest roster weakness?"* The analyst is at the keyboard while the director is at the whiteboard.
 
-The split is honest about how a real front office works: the director presents conclusions; staff pulls the data. Two surfaces in one room, two distinct voices.
+R&S is **purely settings**. The director surfaces cards that fix settings (tier, value, market, wants); those settings then ripple out to the rest of the app as signals (Pro Personnel reads aging + value drift + position market → produces Shop cards; Scouting reads wants_more → weighs trade-up/down intel). R&S is the source of strategic truth; the other doors consume from it.
 
-The metaphor governs everything that follows: card design (insights as pinned papers), voice rules (each surface speaks in its own register), the chat's permanent presence (the analyst is always there), the door's character (calm strategist, never urgent fire-drill).
+This is different from v1.0, which considered surfacing trade cards on the wall. Trade cards live in Pro Personnel. R&S stays focused — settings updates only.
 
 ---
 
@@ -44,94 +47,91 @@ The metaphor governs everything that follows: card design (insights as pinned pa
 | Route | Surface | Entry points |
 |---|---|---|
 | `/research-strategy` | The Wall (door landing — primary surface) | Home screen R&S director box |
-| `/research-strategy/set-strategy` | Set Strategy sub-page | "Set Strategy" button in the wall's header |
-| `/research-strategy/set-availability` | Set Availability sub-page | "Set Availability" button in the wall's header |
+| `/research-strategy/set-strategy` | Set Strategy sub-page | *"Set Strategy"* button in the wall's header |
+| `/research-strategy/set-availability` | Set Availability sub-page | *"Set Availability"* button in the wall's header |
 
 ### Mental model
 
 Three surfaces inside one door:
 
-1. **The Wall** — door's landing. Two-up queue of insight cards (the strategist's findings) + persistent right-rail chat (the Research Analyst). Default surface — what the user lands on when they walk into the door.
-2. **Set Strategy** — sub-page for editing wants_more + position markets. Two horizontal-rail sections of cards.
-3. **Set Availability** — sub-page for editing per-player attachment + per-asset values. Four position-grouped rails of cards.
+1. **The Wall (binder grid)** — door's landing. Trading card binder grid of settings-update cards (the strategist's findings) + persistent right-rail chat (the Research Analyst). Default surface — what the user lands on when they walk into the door.
+2. **Set Strategy** — sub-page for editing wants_more + position markets. Selector Cards for both card sets.
+3. **Set Availability** — sub-page for editing per-player attachment + per-asset values. Position-grouped layout with Player Cards (per player) and Pick Cards (per round).
 
 The chat panel is **only present on the Wall**. Sub-pages are full-width work surfaces; the analyst is not visible there.
 
 Sub-pages are full-screen takeovers reached via header buttons on the Wall. Back arrow on the InnerTopbar returns to the Wall.
 
-### What this replaces
-
-The old "Owner's Box" door (`OwnersBoxView.tsx`) housed three tabs — Strategy / Depth Chart / Trade Chart. Depth Chart was already killed. Strategy + Trade Chart are reborn here as Set Strategy + Set Availability with new structure and the war room metaphor wrapping them. The old standalone Historian (`HistorianChat.tsx`) gets folded into the Wall as the persistent chat panel and is no longer its own destination.
-
 ### Why the door has sub-pages (when other doors don't)
 
-GM Office and Pro Personnel don't use sub-pages — they have a single landing surface with peripheral elements (drawers, popovers). R&S earns sub-pages because the Wall is *briefing mode* (the strategist surfaces findings) while the editing of strategy and availability is *work mode* (the user makes detailed calls per option or per player). Trying to do all three jobs on one surface would compromise each one. Sub-pages keep each surface honest about its purpose.
+GM Office, Pro Personnel, and Scouting don't use sub-pages — they have a single landing surface with peripheral elements (drawers, popovers, the binder grid). R&S earns sub-pages because the Wall is *briefing mode* (the strategist surfaces specific findings) while the editing of all strategy and availability across the whole roster is *work mode* (the user makes every call per option or per player). Trying to do all three jobs on one surface would compromise each one. Sub-pages keep each surface honest about its purpose.
+
+### What this replaces
+
+- The old "Owner's Box" door (`OwnersBoxView.tsx`) and its three tabs — Strategy / Depth Chart / Trade Chart. Depth Chart was already killed pre-spec. Strategy + Trade Chart are reborn as Set Strategy + Set Availability sub-pages.
+- The old standalone Historian (`HistorianChat.tsx`) is folded into the Wall as the persistent chat panel; standalone route to the Historian is killed.
+- The v1.0 R&S 2-up wall queue layout is **replaced by the binder grid pattern** (matches PP and Scouting).
+- The v1.0 settings staleness lens is **killed** (staleness is now an emergent property of unaddressed cards, not a card itself).
+- The v1.0 Set Availability availability popover is **killed** (tier picker moves to the back of the Player Card).
 
 ---
 
-## Section 3: Architecture — The Wall (Desktop, ≥768px)
+## Section 3: The Wall — Layout (Desktop, ≥768px)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  [InnerTopbar: ← back · league logo · settings]                       │
 │  [Header bar: "Research & Strategy" · Set Strategy · Set Availability]│
 ├──────────────────────────────────────────┬───────────────────────────┤
-│                                           │                           │
-│  ┌─────────────────────────────────┐     │  RESEARCH ANALYST          │
-│  │ Re: WR alignment                │     │  ┌──────┬──────┐           │
-│  │                                  │     │  │Active│Hist. │           │
-│  │ "Our WR room is bottom-3 in     │     │  └──────┴──────┘           │
-│  │  the league. Worth bumping."    │     │                            │
-│  │                                  │     │  [conversation thread]    │
-│  │ [Bump WR to buy] [Not now]      │     │                            │
-│  └─────────────────────────────────┘     │                            │
 │                                           │                            │
-│  ┌─────────────────────────────────┐     │                            │
-│  │ Re: Aging assets at WR          │     │                            │
-│  │                                  │     │                            │
-│  │ "Three of our WRs hit aging..."  │     │                            │
-│  │                                  │     │                            │
-│  │ [Move them] [Not now]            │     │                            │
-│  └─────────────────────────────────┘     │  [Ask the Research Analyst…]│
+│  ┌─────┐  ┌─────┐  ┌─────┐                │  ┌────────┬─────────────┐ │
+│  │card1│  │card2│  │card3│                │  │ Active │  History    │ │
+│  └─────┘  └─────┘  └─────┘                │  └────────┴─────────────┘ │
 │                                           │                            │
-│  ─── 3 more below ─────                   │                            │
+│  ┌─────┐  ┌─────┐  ┌─────┐                │  ┌──────────────────────┐ │
+│  │card4│  │card5│  │card6│                │  │ [opener chip 1]      │ │
+│  └─────┘  └─────┘  └─────┘                │  └──────────────────────┘ │
+│                                           │  ┌──────────────────────┐ │
+│  ← scroll for more ──                     │  │ [opener chip 2]      │ │
+│                                           │  └──────────────────────┘ │
+│                                           │  ┌──────────────────────┐ │
+│                                           │  │ [opener chip 3]      │ │
+│                                           │  └──────────────────────┘ │
 │                                           │                            │
+│                                           │  [Ask the Research Analyst…]│
 └──────────────────────────────────────────┴───────────────────────────┘
-   ← ~70% (wall) →                            ← ~30% (chat) →
+   ← ~70% binder grid →                       ← ~30% chat panel →
 ```
 
 - **InnerTopbar:** standard inner-page topbar (back arrow / league logo / settings). Inherits from GM Office spec.
 - **Header bar:** page title left (*"Research & Strategy"*); two action buttons right (*"Set Strategy"*, *"Set Availability"*).
-- **Main content area (~70%):** vertical wall of insight cards. Two cards visible at once (top + bottom). Scrollable panel — additional cards below the fold. Hard line + chevron + *"X more below"* indicator at the bottom of the visible area when there are more cards below. Indicator disappears when scrolled to the bottom or when the wall is empty.
-- **Right rail (~30%):** persistent chat panel. Header label *"RESEARCH ANALYST"* (JetBrains Mono uppercase), two tabs (*Active chat* / *History*), full chat UI below.
+- **Main content area (~70%):** trading card binder grid, 3 columns, multiple rows visible. Each card ~280×392 (5:7 playing card ratio). 6–9 cards visible at a glance. Cards sort by tier (red → yellow → green) and within tier by recency.
+- **Right rail (~30%):** persistent chat panel. Two tabs (Active / History) at the top. Empty Active state shows the 3 locked opener chips (see Section 8). Input pinned at the bottom with placeholder *"Ask the Research Analyst…"* in muted italic DM Sans (#8C7E6A).
+- **Click a card** → flips in place to reveal the settings update mechanism. No reflow, no modal.
 
-### The queue mechanic
-
-Wall is a queue, not a grid. Cards sort by urgency (red → yellow → default), then by recency within tier. The lead card sits at the top of the visible area. When user acts on a card or dismisses it, the card slides off the top, the next card promotes up, a new card (if any) appears in the bottom slot.
-
-User can scroll vertically to see cards below the fold. Cards above the visible area (scrolled past, not acted on) remain on the wall — natural scroll-up brings them back.
+### Tap-to-update affordance
+Every R&S wall card carries a universal action label at the bottom — *"Tap to update"* — signaling the flip into the update mechanism. This is consistent across all 6 lens types because R&S is purely settings updates.
 
 ---
 
-## Section 4: Mobile Layout (<768px)
+## Section 4: The Wall — Mobile Layout (<768px)
 
 ```
 ┌─────────────────────────────────┐
 │  [topbar: hamburger / logo / ⚙] │
 ├─────────────────────────────────┤
-│  [Set Strategy] [Set Availability] │  ← pinned top
+│  [Set Strategy] [Set Availability]│  ← pinned action buttons
 ├─────────────────────────────────┤
 │                                  │
 │                                  │
 │   ┌──────────────────────┐      │
-│   │ Re: WR alignment     │      │  ← swipeable card deck
 │   │                       │      │
-│   │ "Our WR room is..."   │      │
+│   │ [single card front]   │      │  ← horizontal swipe deck
 │   │                       │      │
-│   │ [Bump] [Not now]      │      │
+│   │ "Tap to update"       │      │
 │   └──────────────────────┘      │
 │                                  │
-│           • • • • •              │  ← deck position dots
+│           • • • • •              │  ← dots indicator (peek killed)
 │                                  │
 ├─────────────────────────────────┤
 │  [Ask the Research Analyst…]    │  ← pinned chat input
@@ -140,209 +140,194 @@ User can scroll vertically to see cards below the fold. Cards above the visible 
 
 - **Top bar:** InnerTopbar mobile pattern (hamburger / logo / settings).
 - **Pinned action buttons** (immediately below topbar): *"Set Strategy"* and *"Set Availability"*. Always visible during card swiping.
-- **Main content:** swipeable card deck. One card visible at a time. Horizontal swipe cycles through the cards. Position dots below the card show progress through the deck.
-- **Pinned chat input** (bottom): single-line *"Ask the Research Analyst…"*. Tap or start typing → expands to full-screen chat takeover. Close → returns to wall.
+- **Main content:** swipeable card deck. One card visible at a time. Horizontal swipe cycles through the cards. **Peek of next card is killed.** Dots are the only swipe signal.
+- **Pinned chat input** (bottom): single-line *"Ask the Research Analyst…"*. Tap or start typing → expands to full-screen chat takeover. Close → returns to the Wall.
+- **Scroll lock:** while a card is flipped, page-level scroll locks.
 
-When the wall has zero cards, the swipeable deck is replaced by the empty state copy (centered, no card).
+When the wall has zero cards, the swipeable deck is replaced by the empty state copy (Section 7), centered, no card.
 
 ---
 
-## Section 5: The Wall — Card Lens Types
+## Section 5: The Wall — Lens Set & Update Types
 
-The strategist runs **6 lenses** against the user's roster + strategy + league data. Each lens can produce a card if its trigger fires. The engine selects the top 3-7 cards by urgency and recency, ordered red → yellow → default.
+The strategist runs **6 lenses** against the user's roster + strategy + league data. Each lens can produce a card if its trigger fires. Cards live on the Wall until the user taps to update (slides off after confirmation) or dismisses them (28-day cooldown). All cards funnel into one of **4 update types** on the flip-back.
 
-Six lenses:
+### 5.1 Lenses (6)
 
-1. **Settings staleness** — strategy hasn't been refreshed recently
-2. **Aging roster scan** — players in or entering position-specific aging buckets (incorporates the *"shop before value drops"* age curve framing)
-3. **Position alignment** — current position market doesn't match roster reality
-4. **Championship insights** — comparison against title-team patterns
-5. **Value calibration** — team-specific player value drifted significantly from CFC consensus
-6. **Attachment drift** — availability tag mismatched with current value
+1. **Aging player** (Player Card) — *"Mahomes hit aging at QB. His curve's headed down."*
+   → **Flip-back:** availability tier picker (the recommended setting is the next tier down — e.g., from Core to Listening)
 
-Cap on cards: 3-7 visible. Below 3 = empty state.
+2. **Value drift** (Player Card) — *"Lamb's CFC value moved 15% in two weeks."*
+   → **Flip-back:** price adjuster (manual override editor)
 
-### Urgency triggers per lens
+3. **Attachment mismatch** (Player Card) — *"We've got him moveable, but his value puts him top-3 on our roster."*
+   → **Flip-back:** availability tier picker
+
+4. **Position misalignment** (Memo Card) — *"Our WR room ranks bottom-3 — should we be buying?"*
+   → **Flip-back:** position market editor (Buying / Holding / Selling)
+
+5. **Wants More suggestion** (Memo Card, NEW) — *"We're light on picks — let's signal that we want more."*
+   → **Flip-back:** wants more toggle (on/off)
+
+6. **Championship comparison** (Player or Memo Card) — *"Title teams stack WRs — we should mark Lamb untouchable."*
+   → **Flip-back:** whichever update fits (tier picker, market editor, or wants toggle depending on the specific comparison)
+
+### 5.2 Update Types (4) on flip-backs
+
+Every card front routes to one of these 4 update mechanisms:
+
+| Update type | UI | Effect |
+|-------------|----|----|
+| **Availability tier** | 4-button tier picker (Untouchable / Core / Listening / Moveable) | Writes to `cfc_team_player_attachment.tier` |
+| **Value (price)** | Inline price editor with +/− buttons or text input | Writes to `cfc_team_player_value_overrides.value_override` |
+| **Position market** | 3-button picker (Buying / Holding / Selling) | Writes to position market field on `cfc_team_strategy_profiles` |
+| **Wants More** | On/off toggle for the suggested wants_more category (picks / studs / youth / depth) | Adds or removes the category from `wants_more` array |
+
+### 5.3 Settings staleness — killed as a standalone lens
+
+The v1.0 spec included Settings staleness as a 7th lens (firing when strategy hadn't been refreshed in 28+ days). **Killed in v2.0.** Staleness is now an emergent property of unaddressed cards — if the user ignores the binder for weeks, the buildup of lens-fired cards becomes the staleness signal. Fix the cards, staleness solves itself.
+
+### 5.4 R&S is purely settings — no trade cards
+
+The v1.0 spec briefly considered surfacing trade-related cards on the Wall (e.g., aging player → shop suggestion routing to Trade Studio). **Killed in v2.0.** R&S stays focused on settings updates only.
+
+When a signal could imply both a settings update AND a trade action (e.g., Mahomes hit aging), R&S surfaces the settings update card (*"Drop him to Listening?"*); Pro Personnel separately surfaces a Shop opportunity card on its own landing (*"Mahomes' value is peaking — sell high while we can"*). Two cards on two surfaces, each in the right domain. Build-time consideration: cooldown logic to avoid both firing redundantly is logged in `CFC-APP-STATUS.md` cross-director signal concerns.
+
+### 5.5 Urgency triggers per lens
 
 | Lens | Yellow trigger | Red trigger |
 |---|---|---|
-| Settings staleness | 28-59 days since last update | 60+ days |
-| Aging roster scan | Aging asset detected | Never red — internal data alone isn't strong enough signal |
-| Position alignment | Mismatch detected | Severe mismatch (bottom-3 league rank) AND market not adjusted in 28+ days |
-| Championship insights | Always informational | Never red — aspirational, no time pressure |
-| Value calibration | Drift detected | Manual override stale 60+ days AND drift ≥20% from auto value |
-| Attachment drift | Tag/value mismatch | Top-3 player tagged moveable for 28+ days |
+| Aging player | Aging asset detected with attachment ≠ Listening / Moveable | Top-3 roster player aging + attachment Untouchable / Core |
+| Value drift | Drift ≥10% from CFC consensus | Drift ≥20% AND override stale 60+ days |
+| Attachment mismatch | Tag/value mismatch | Top-3 player tagged Moveable for 28+ days |
+| Position misalignment | Position ranks bottom-half league | Bottom-3 league rank AND market not adjusted in 28+ days |
+| Wants More suggestion | Suggestion detected (matching roster condition + unset wants_more) | Never red — wants_more is aspirational, not time-pressed |
+| Championship comparison | Always informational | Never red — strategic, no urgent action |
 
-Four lenses can hit red: staleness, position alignment, value calibration, attachment drift. Two cap at yellow: aging scan, championship.
-
-Door's overall status on the home screen = highest tier from any card on the wall. Empty wall + only staleness reminder → status driven by staleness threshold (under 28 days = green, 28-59 = yellow, 60+ = red).
+Door's overall tier on the home screen = highest tier of any wall card (per master urgency rules from `CFC-APP-STATUS.md`).
 
 ---
 
-## Section 6: The Wall — Card Structure
+## Section 6: Card Structure & Mechanics
 
-Every wall card has the same anatomy:
+Cards on the Wall follow the universal card system locked in `CFC-APP-STATUS.md` (Card System section). Two templates used:
 
-```
-┌───────────────────────────────┐
-│ Re: WR alignment              │  ← chrome (subject line)
-├───────────────────────────────┤
-│                                │
-│ "Our WR room is bottom-3 in   │  ← headline (director's voice in quotes)
-│  the league. Worth bumping."   │
-│                                │
-│ [supporting data line]         │  ← optional one-line context
-│                                │
-│ [Primary action]    [Not now] │  ← actions, right-aligned
-└───────────────────────────────┘
-```
+### Player Card (Aging, Value drift, Attachment mismatch, Championship when player-anchored)
+- **Front:** Topps-style identity (photo, name, position/team/age chrome) + marker chips (STUD / YOUTH / AGING) + optional memo corner + director's quip in quotes + universal action button (*"Tap to update"*).
+- **Back:** the appropriate update mechanism (tier picker / price adjuster).
+- **Memo corner:** optional, present when director has a longer note attached. Travels with the player across surfaces (same memo corner appears on the player's Set Availability Player Card).
 
-- **Chrome (top band):** thin header band containing *"Re: [topic]"*. JetBrains Mono, uppercase, muted. Hairline divider below it. The chrome serves as the card's label — what kind of finding this is.
-- **Headline:** director's voice, in quotes. Syne 700, prominent. The strategist speaking.
-- **Supporting data line:** optional one-line context (DM Sans). Some lenses need supporting data; some don't.
-- **Actions:** primary action button (filled, blue, the suggested edit) + dismiss button (outlined ink, *"Not now"*). Bottom-right of the card.
+### Memo Card (Position misalignment, Wants More suggestion, Championship when not player-anchored)
+- **Front:** subject chrome (*"Re: WR alignment"* / *"Re: Wants more — picks"* / *"Re: Title teams at WR"*) + director's headline in quotes + optional supporting line + universal action button.
+- **Back:** the appropriate update mechanism (market editor / wants toggle / whichever update fits the championship comparison).
+- **Memo corner:** N/A — the whole card IS a memo.
 
-### Subject line examples (per lens)
-
-- *Re: WR alignment* (position alignment)
-- *Re: Aging assets at WR* (aging scan)
-- *Re: Strategy refresh* (settings staleness)
-- *Re: Lamb's value drift* (value calibration)
-- *Re: Lamb's availability* (attachment drift)
-- *Re: Title teams at WR* (championship)
-
-Subject lines are **specific and conversational**, not categorical. Each card's subject identifies the topic of *that finding*, not just the lens type.
-
-### Action mechanics
-
-The primary action varies by lens. Two patterns:
-
-**Inline edit (silent):** primary action fires the underlying setting change directly. Card flips to back, *"DONE"* stamp lands in Syne 900 rotated ~10° (the rubber-stamp moment), card slides off the top of the wall. New card promotes up.
-
-**Route-out:** primary action navigates to another surface. Card flips to back, *"FILED"* stamp lands, slides off, then navigation fires. (Consider whether stamp + nav timing is right at build — could be that route-out cards just flip-and-slide without staying on the back.)
-
-| Lens | Action type | Destination / Effect |
-|---|---|---|
-| Settings staleness | Route-out | `/research-strategy/set-strategy` |
-| Aging roster scan | Route-out | Trade Studio with player pre-selected on the block, drawer pre-generated, roster panel still visible on the left for adding more |
-| Position alignment | Inline edit | Bumps the relevant position market |
-| Championship insights | Varies | Some inline (e.g., bump market), some route-out (e.g., to Pro Personnel landing for "go acquire" cards) — engine determines per card |
-| Value calibration | Route-out | `/research-strategy/set-availability` with that player anchored |
-| Attachment drift | Inline edit | Changes the tag (e.g., to Untouchable) |
-
-For "go acquire" cards (championship lens recommending we grab a position type): route to Pro Personnel landing. Optional position filter via deep link (`/pro-personnel?position=WR`) — flagged as build-time consideration.
+### Universal flip mechanic
+Per master card system:
+- Tap *"Tap to update"* → 3D rotateY flip, ~300ms ease-out
+- Make the update on the back → DONE stamp lands (~200ms), brief pause, card slides off the wall (~300ms)
+- Next card promotes up
+- **Mobile:** small X top-right of the back closes the flip without committing; page-level scroll locks while flipped
 
 ### Dismiss mechanic
+Each card has a *"Not now"* dismiss action on the front (or as a secondary back option, TBD at mockup — lean front for visibility).
+- Tap *"Not now"* → card slides off without flipping, no stamp
+- **28-day cooldown.** The lens won't re-surface that card for 28 days. After cooldown, if the underlying condition still holds, the card can return.
 
-Dismiss button is always present. Tap *"Not now"* → card slides off the top **without flipping or stamping**. Different motion vocabulary than primary action — deferral is not a celebration.
-
-Dismissed cards enter a **28-day cooldown**. The lens won't re-surface that card for 28 days. After cooldown, if the underlying condition still holds, the card can return.
-
-Acted-on cards have **no cooldown** — the action presumably resolved the condition. The card only resurfaces if the condition recurs naturally later.
-
----
-
-## Section 7: The Wall — Refresh, Empty State, Behavior
-
-### Refresh mechanics
-
-Wall computes **on page entry only**. User opens R&S → engine runs all 6 lenses → picks top 3-7 cards → renders. User acts on cards / dismisses them, wall shrinks. User leaves and returns later → fresh recompute.
-
-**No manual refresh button.** Wall is curated insights, not an endlessly-scrollable feed. Users come back later if they want a fresh take.
-
-### Empty state
-
-When the wall has 0 cards, the wall area shows centered empty-state copy:
-
-> *"Nothing pressing this week, but it's been X days since our strategy was updated."*
-
-The X-days reference is the always-on persistent floor reminder. Even in empty state, the staleness check is the strategist's baseline pulse.
-
-No empty-state card, no illustrations — just copy + the visible chat input as the obvious next move. The wall is genuinely empty because there's nothing to brief; placeholder content would contradict that.
+### Acted-on cards
+No cooldown. The card only resurfaces if the underlying condition recurs naturally later (e.g., the user moves Lamb back to Listening after marking him Untouchable, and the championship lens fires again).
 
 ### Card priority sort
-
-Cards on the wall sort top-to-bottom:
+Cards sort top-to-bottom on desktop (grid reading order) and through the mobile deck:
 1. Red cards first
 2. Yellow cards next
-3. Default (no urgency tier) cards last
+3. Green cards last
 4. Within each tier, sort by recency / freshness
 
-The home screen briefing previews the **top card on the wall** (lead card, slot #1). Pattern A from the home screen briefing decision — home brief = preview of what's on top inside the room.
-
-### Wall scroll affordance
-
-When more cards exist below the visible 2-card area:
-
-- 2.5px hard Ink line at the bottom of the visible panel
-- Below the line: small chevron-down (Ink, ~12px) + JetBrains Mono label *"X more below"*
-- Indicator only renders when there are cards below the fold
-- Disappears when user scrolls to the bottom or empties the wall
-
-When user scrolls past cards (without acting on them), they remain on the wall above the viewport. Natural scroll-up brings them back. No top indicator needed.
+The home screen briefing previews the **top card on the wall** (Pattern A from the home screen spec).
 
 ---
 
-## Section 8: Chat Surface — The Research Analyst
+## Section 7: Refresh, Empty State, Behavior
+
+### Refresh mechanics
+Wall computes **on page entry only**. User opens R&S → engine runs all 6 lenses → picks cards by urgency and recency → renders. User acts on cards / dismisses them, wall shrinks. User leaves and returns later → fresh recompute.
+
+**No manual refresh button.** Wall is curated settings updates, not an endlessly-scrollable feed.
+
+### Empty state
+When the Wall has 0 cards, show the director's-voice empty state centered:
+
+> *"Roster's set, signals are clean. I'll flag anything that shifts."*
+
+No empty-state card, no illustrations — just copy + the visible chat input as the obvious next move. The director's-voice empty state is the locked pattern across all three director landings (per APP-STATUS Empty State Voice Rules).
+
+---
+
+## Section 8: Chat Panel — The Research Analyst
 
 ### Desktop (persistent right rail, ~30%)
-
-Always visible while on the Wall. Rail width: ~360px on a 1200px content area (roughly 30%).
+Always visible while on the Wall.
 
 ```
 ┌──────────────────────────┐
-│ RESEARCH ANALYST         │  ← header label, JetBrains Mono uppercase
-├──────────────────────────┤
-│ ┌────────┬─────────────┐ │
-│ │ Active │  History    │ │  ← two tabs
+│ ┌────────┬─────────────┐ │  ← tabs at the very top (no header label)
+│ │ Active │  History    │ │
 │ └────────┴─────────────┘ │
 ├──────────────────────────┤
+│ ┌──────────────────────┐ │  ← 3 opener chips when conversation empty
+│ │ How does my roster   │ │     fade out when conversation starts
+│ │ compare to last      │ │
+│ │ year's title teams?  │ │
+│ └──────────────────────┘ │
+│ ┌──────────────────────┐ │
+│ │ What's my biggest    │ │
+│ │ roster weakness?     │ │
+│ └──────────────────────┘ │
+│ ┌──────────────────────┐ │
+│ │ Who's won the most   │ │
+│ │ CFC championships?   │ │
+│ └──────────────────────┘ │
 │                           │
-│  [conversation thread]    │  ← message thread, scrollable
-│                           │
-│                           │
+│   [conversation thread]   │
 │                           │
 ├──────────────────────────┤
-│ [Ask anything…       ➤]  │  ← input
+│ [Ask the Research Analyst…]│  ← pinned input, muted italic placeholder
 └──────────────────────────┘
 ```
 
-- **Header:** *"RESEARCH ANALYST"* — JetBrains Mono 700, uppercase, small. Light identity, no extra branding.
-- **Tabs:** Active chat (default) + History. Active shows current conversation; History shows list of past conversations, click one to load it back into Active.
-- **Full chat UI** — message thread visible by default. Persistent panel means user wants to see prior context, not a collapsed input.
-- **Input pinned at bottom** of the panel.
-- **No suggested prompts.** Killed.
+- **No header label** (the v1.0 *"RESEARCH ANALYST"* label is killed). The input placeholder carries the role identity.
+- **Tabs (Active / History) at the very top.**
+- **Opener chips (3 locked):**
+  - *"How does my roster compare to last year's title teams?"*
+  - *"What's my biggest roster weakness?"*
+  - *"Who's won the most CFC championships?"*
+- **Chip behavior:** tap a chip → autofills the input (does not auto-send). User can edit before submitting.
+- **Chip visibility:** shown in the empty Active state. Fade out when a conversation starts. Return when the user clears or starts a new conversation. History tab never shows chips.
+- **Input placeholder:** *"Ask the Research Analyst…"* — muted italic DM Sans (#8C7E6A). Same treatment in both desktop and mobile.
 
-### Mobile (pinned input → full-screen chat)
+### Mobile (pinned input → full-screen takeover)
+Tap or start typing in the pinned input → full-screen chat takeover. Same Active / History tabs, same opener chips in the empty Active state. Close affordance (top-right) returns to the Wall.
 
-```
-[Ask the Research Analyst…]   ← pinned bottom input on the wall
-```
-
-Tap or start typing → full-screen chat takeover. Same Active / History tabs, same content, just full-viewport. Close affordance (top-right) returns to the wall.
-
-### Default state (first-ever visit, no conversations)
-
-Active tab shows just the input + a one-line introduction: *"Ask me anything about the league."* No fun-fact card, no welcome screen, no suggestion chips.
+### Default state (no conversation yet)
+Active tab shows the 3 opener chips + the input. No welcome screen, no fun facts, no extra copy.
 
 ### Conversation persistence
-
 V1: localStorage (existing pattern from `HistorianChat`). Move to backend deferred — not blocking.
 
 ### Reuse vs. rebuild
-
-The existing `HistorianChat` component handles conversation logic, message rendering, markdown parsing, and the API call. Rebuild would be wasteful. Adapt:
+The existing `HistorianChat` component handles conversation logic, message rendering, markdown parsing, and the API call. Adapt:
 - Strip the existing left-side conversation sidebar (won't fit at 360px wide)
 - Add the two-tab structure (Active / History)
-- Update header label to *"RESEARCH ANALYST"*
-- Rip out suggested prompts and welcome screen
+- Kill the existing header label
+- Kill the welcome screen and suggested prompt cards (replaced by 3 locked opener chips with autofill behavior)
 - Plug into the wall's right rail or mobile pinned-input pattern
 
 ---
 
 ## Section 9: Set Strategy Sub-Surface
 
-Sub-page for editing wants_more (Wants More) and position markets (Position Markets). Reached via *"Set Strategy"* button in the wall's header.
+Sub-page for editing wants_more (Wants More) and position markets (Position Markets). Reached via *"Set Strategy"* button in the Wall's header. **All cards are now Selector Cards** with the universal flip + confirmation stamp pattern from the master card system.
 
 ### Layout (Desktop, ≥768px)
 
@@ -355,13 +340,13 @@ Sub-page for editing wants_more (Wants More) and position markets (Position Mark
 │  ───── WHERE WE'RE GOING ─────────────         │
 │                                                │
 │  ┌──────┐  ┌──────┐  ┌──────┐  ┌──────┐       │
-│  │PICKS │  │STUDS │  │YOUTH │  │DEPTH │       │  ← 4 cards
+│  │PICKS │  │STUDS │  │YOUTH │  │DEPTH │       │  ← 4 Selector Cards
 │  └──────┘  └──────┘  └──────┘  └──────┘       │
 │                                                │
 │  ───── WHERE WE STAND ─────────────            │
 │                                                │
 │  ┌──────┐  ┌──────┐  ┌──────────┐  ┌──────┐   │
-│  │ QB   │  │ RB   │  │PASS CATCH│  │PICKS │   │  ← 4 cards
+│  │ QB   │  │ RB   │  │PASS CATCH│  │PICKS │   │  ← 4 Selector Cards
 │  └──────┘  └──────┘  └──────────┘  └──────┘   │
 │                                                │
 └──────────────────────────────────────────────┘
@@ -369,50 +354,35 @@ Sub-page for editing wants_more (Wants More) and position markets (Position Mark
 
 - **InnerTopbar:** back / logo / settings. Page title *"Set Strategy"* in the content area below the topbar (not in the topbar itself).
 - **No header action buttons** — already on a sub-page; button repetition would be redundant.
-- **No chat panel.** Sub-pages are full-width work mode. Director's advice is baked into the per-card prose.
+- **No chat panel.** Sub-pages are full-width work mode. Director's quip baked into the per-card prose (where applicable).
 - **Two horizontal-rail sections:** *Where we're going* (Wants More) + *Where we stand* (Position Markets). Both rails fit the viewport simultaneously without page scroll on a typical 800px+ viewport.
-- **Section bars:** existing SectionBar pattern (black rectangle bookend + horizontal rule).
+- **Section bars:** existing SectionBar pattern (black rectangle bookend + horizontal rule). Section dividers KEEP on management screens per `CFC-APP-STATUS.md`.
 
 ### Section copy (locked)
-
 - Wants More section header: ***"Where we're going"***
 - Position Markets section header: ***"Where we stand"***
 
-Parallel construction. Forward-looking + current-state framing.
-
-### Wants More cards (4)
-
+### Wants More cards (4) — Selector Card template
 Cards: **Picks**, **Studs**, **Youth**, **Depth**.
 
-Each card:
-- Chrome header: category label (*"PICKS"* / *"STUDS"* / *"YOUTH"* / *"DEPTH"*)
-- Director prose (state-aware): the strategist makes the case for or describes the option, referencing user's actual roster reality. *"Our roster is averaging 27.5 at WR. Worth prioritizing youth."* (when youth is unselected) → *"Youth's on the agenda. We're targeting young assets."* (when selected).
-- Toggle action: tap card → toggles selected/unselected state. Multi-select.
-- Selected state: Ink-fill background, Paper text. Unselected: Paper background, Ink text.
+Per master card system:
+- **Front:** identity stamp (*"PICKS"* / *"STUDS"* / *"YOUTH"* / *"DEPTH"*), current on/off state, optional director quip referencing the user's roster reality (*"Our roster is averaging 27.5 at WR. Worth prioritizing youth."*), universal action button (*"Toggle"*).
+- **Back:** the toggle mechanism — single on/off selector. Tap to confirm.
+- After confirmation: DONE stamp lands (variant: *"Selected"* or *"Deselected"*), auto-flips back to front showing the new state.
 
-### Position Markets cards (4)
-
+### Position Market cards (4) — Selector Card template
 Cards: **QB**, **RB**, **Pass Catchers**, **Picks**.
 
 Pass Catchers consolidates WR + TE into a single bucket (see Section 17 for data-model implications).
 
-Each card:
-- Chrome header: position label (*"QB"* / *"RB"* / *"PASS CATCHERS"* / *"PICKS"*)
-- Director prose (state-aware)
-- Roster preview:
-  - QB: top 3 players at QB on user's roster
-  - RB: top 3 players at RB
-  - Pass Catchers: top 5 (WR + TE combined, sorted by value desc)
-  - Picks: round breakdown (*"Firsts: 1 in 26, 2 in 27, 1 in 28 / Seconds: ... / Thirds: ..."*)
-- Three action buttons inline at the bottom: **Buying** / **Holding** / **Selling**
-- Active button: Ink-fill, Paper text. Inactive buttons: outlined Ink, Ink text.
+Per master card system:
+- **Front:** position label (*"QB"* / *"RB"* / *"PASS CATCHERS"* / *"PICKS"*), roster preview (top 3 QB / top 3 RB / top 5 pass catchers / pick round breakdown), current state stamp (*"BUYING"* / *"HOLDING"* / *"SELLING"*), optional director quip, universal action button (*"Edit"*).
+- **Back:** 3 buttons (*Buying* / *Holding* / *Selling*). Tap one → flip back showing the new state with a DONE stamp.
 
 ### Vocabulary
-
-**"Buying / Holding / Selling"** — gerund form, matches Pro Personnel's existing chip language ("BUYING WR"). Replaces the implementation-leaking "High / Med / Low" vocabulary in the current StrategyTab.
+**"Buying / Holding / Selling"** — gerund form, matches Pro Personnel's existing chip language ("BUYING WR"). Replaces the implementation-leaking "High / Med / Low" vocabulary in the old StrategyTab.
 
 ### Mobile pattern
-
 Snap-snap:
 - Vertical snap between the two sections (swipe up to move from *Where we're going* to *Where we stand*)
 - Horizontal snap within each section (one card at a time, peek of next on the right)
@@ -420,14 +390,13 @@ Snap-snap:
 Section bars stay at the top of each snapped section.
 
 ### Autosave
-
-Every tap saves immediately. Toast confirmation top-center (existing pattern). No save button. Consistent with how trade chart and attachment already work.
+Confirmation on the back of each Selector Card is the save event. DONE stamp = save confirmation. No save button. Consistent with how trade chart and attachment already work.
 
 ---
 
 ## Section 10: Set Availability Sub-Surface
 
-Sub-page for per-player attachment + per-asset value editing. The card collection — your team's tradeable assets as Topps cards. Reached via *"Set Availability"* button in the wall's header.
+Sub-page for per-player attachment + per-asset value editing. Each player IS a Topps card. Reached via *"Set Availability"* button in the Wall's header.
 
 ### Concept
 
@@ -441,8 +410,8 @@ Each player IS a Topps card. The user is the GM holding their team's collection.
 │  [Set Availability]                            │
 ├──────────────────────────────────────────────┤
 │  ───── QB ───────────────────────────         │
-│  ┌───┐ ┌───┐ ┌───┐                            │  ← cards sorted by value desc
-│  │ ▒ │ │ ▒ │ │ ▒ │                             │
+│  ┌───┐ ┌───┐ ┌───┐                            │  ← Player Cards
+│  │ ▒ │ │ ▒ │ │ ▒ │                             │     sorted by value desc
 │  └───┘ └───┘ └───┘                             │
 │                                                │
 │  ───── RB ───────────────────────────         │
@@ -451,212 +420,170 @@ Each player IS a Topps card. The user is the GM holding their team's collection.
 │  └───┘ └───┘ └───┘ └───┘ └───┘                │
 │                                                │
 │  ───── PASS CATCHERS ────────────────         │
-│  [horizontal scroll rail of player cards]      │
+│  [horizontal scroll rail of Player Cards]      │
 │                                                │
 │  ───── PICKS ────────────────────────         │
 │  ┌────┐ ┌────┐ ┌────┐                         │
-│  │1RDR│ │2RDR│ │3RDR│                          │  ← per-round pick cards
+│  │1RDR│ │2RDR│ │3RDR│                          │  ← Pick Cards (List Card template)
 │  └────┘ └────┘ └────┘                          │
 └──────────────────────────────────────────────┘
 ```
 
-- **Four position-grouped rails:** QB / RB / Pass Catchers / Picks.
-- **Position rails contain player cards.** Cards sorted by value descending (top = top guy).
-- **Picks rail contains per-round pick cards** (First Rounders / Second Rounders / Third Rounders).
+- **Four position-grouped rails:** QB / RB / Pass Catchers / Picks. Section dividers KEEP (management screen).
+- **Position rails contain Player Cards** (Player Card template). Cards sorted by value descending (top = top guy).
+- **Picks rail contains per-round Pick Cards** (List Card template — the only management surface still using List Card after the master design pass).
 - **2 rails fully visible** at once on a typical 800px+ desktop viewport. User scrolls vertically to see Pass Catchers and Picks.
-- **No director's voice** on this surface. The wall already carries strategic commentary; this is the work surface where the user makes the calls. Cards' visual design (color treatments, marker chips) communicates state.
+- **No director's voice** on this surface. The wall already carries strategic commentary; this is the work surface where the user makes the calls. Cards' visual design (marker chips, color treatments) communicates state.
 
 ### Mobile pattern
-
 Snap-snap:
 - Vertical snap between rails (swipe up to move from QB to RB to Pass Catchers to Picks)
 - Horizontal snap within each rail (one card at a time, peek of next on the right)
 
-**Build note:** revisit the peek pattern at mockup time — confirm it lands right with the larger pick cards.
+**Build note:** revisit the peek pattern at mockup time — confirm it lands right with the larger Pick Cards.
 
 ### Why position-grouped (not tier-grouped)
-
-Tier-grouping (Untouchable / Core / Listening / Moveable) was the alternative. Position-grouping wins for three reasons:
-
 - **Depth chart absorbs.** The old Depth Chart tab was killed; position-grouped rails functionally replace it (top of each rail = your starters, bottom = depth).
 - **Tier decisions need position context.** Deciding if a guy is "core" or "listening" requires comparing him to your other players at that position.
-- **Mirrors Set Strategy.** Position Markets uses QB / RB / Pass Catchers / Picks — same four buckets. The two sub-pages share structure.
+- **Mirrors Set Strategy.** Position Markets uses QB / RB / Pass Catchers / Picks — same four buckets.
 
 Tier still surfaces per-card via the availability chip — just not the organizing axis.
 
 ---
 
-## Section 11: Player Card Anatomy
+## Section 11: Player Card Anatomy (Set Availability)
 
-Used in Set Availability's QB / RB / Pass Catchers rails. ~200px wide × ~280-300px tall. Slightly bigger than Pro Personnel's player cards (which are ~180×220) due to the inline interactive rows.
+Used in Set Availability's QB / RB / Pass Catchers rails. ~200px wide × ~280-300px tall. Universal Player Card template per the master card system, with the master flip pattern (front → back via universal action button).
 
 ### Front
 
 ```
 ┌────────────────────────────┐
-│ [pic]  LAMAR JACKSON       │  ← chrome: portrait + name
+│ [pic]  LAMAR JACKSON  [📎] │  ← chrome: portrait + name + memo corner
 ├────────────────────────────┤
 │ QB · BAL · 27               │  ← meta line
 │ [STUD] [YOUTH]              │  ← marker chips
 │                              │  ← breathing space
-├────────────────────────────┤
-│ Availability: [Moveable ✏️] │  ← bicolor row, blue
-├────────────────────────────┤
-│ Price: [$300 ✏️]            │  ← bicolor row, green/red dynamic
+│ Availability: [Moveable]    │  ← current tier (display, not interactive)
+│ Price: $300 (green/red)     │  ← current price (display, not interactive)
+│                              │
+│         [Edit]              │  ← universal action button
 └────────────────────────────┘
 ```
 
-### Card body (background frame)
-
+### Card body
 - Background: Paper (#FEFCF9)
 - Border: 2.5px solid Ink (#1A1A1A)
 - Box shadow: 4px offset Ink
 - No rounded corners
 
 ### Chrome (top band)
-
-- Background: **Ink (#1A1A1A)**
-- Height: ~50-56px to fit portrait + name
+- Background: Ink (#1A1A1A)
+- Height: ~50-56px to fit portrait + name + memo corner
 - 2px Ink divider below it
-- Layout: portrait left, name right of portrait
+- Layout: portrait left, name right of portrait, memo corner top-right (when present)
 
-**Portrait:** ~36-40px square cut (no rounded corners). Sourced from Sleeper's public CDN (`sleepercdn.com/content/nfl/players/thumb/{sleeper_player_id}.jpg`). Fallback when portrait unavailable: position-color block with player initials in Syne 800 Paper. Build-side detail.
+**Portrait:** ~36-40px square cut (no rounded corners). Sourced from Sleeper's public CDN. Fallback when portrait unavailable: position-color block with player initials in Syne 800 Paper.
 
-**Name:** Syne 800, ~16-18px, Paper (#FEFCF9), one line, autoshrinks for long names (e.g., *"Marquise Brown"* shrinks until it fits).
+**Name:** Syne 800, ~16-18px, Paper (#FEFCF9), one line, autoshrinks for long names.
+
+**Memo corner:** small folded-paper icon (no *"Re:"* text inside). Present only when the director has an attached note on this player. Tap → popover with the full note. Travels with the player across the Wall and this surface.
 
 ### Body
+**Meta line:** *"QB · BAL · 27"* — plain DM Sans, Ink, ~10-11px.
 
-**Meta line:** *"QB · BAL · 27"* — plain DM Sans or JetBrains Mono, Ink, ~10-11px. **No position chip** — just plain text. Position color signaling is dropped from this card type.
+**Marker chips:** outlined chips (1.5px Ink border, Paper bg, Ink text), JetBrains Mono 700, ~9-10px, uppercase. Examples: *STUD*, *YOUTH*, *AGING*. Show all that apply. Info-only — not interactive.
 
-**Marker chips:** outlined chips (1.5px Ink border, Paper bg, Ink text), JetBrains Mono 700, ~9-10px, uppercase. Examples: *STUD*, *YOUTH*, *AGING*. Show all that apply (a player can have multiple — e.g., young stud). Info-only — not interactive, no edit affordance, visually distinct from the bicolor interactive rows below.
+**Availability display:** plain text + filled chip showing current tier (Moveable / Listening / Core / Untouchable). Chip uses the locked color treatment from `CFC-APP-STATUS.md` Availability Chips section (green Moveable = #019942, yellow Listening, ink Core, red Untouchable). Display-only on the front.
 
-### Bottom interactive rows (bicolor)
+**Price display:** plain text + price value. Color cue (green at-or-above CFC, red below CFC). Display-only on the front.
 
-Two rows: Availability (blue) and Price (green/red dynamic). Both rows have **equal height**. ~16-20px breathing space between marker chips and these rows. ~12px between availability row and price row.
+**Universal action button:** *"Edit"* at the bottom center. Tap → flips to back.
 
-#### Two-tone bicolor pattern
-
-Each row is a **connected bicolor unit** — two halves sharing an edge, reading as one bicolor pill.
-
-- **Left half (label):** outlined rectangle. Paper bg + colored outline + colored text. The label name (*"Availability"* / *"Price"*).
-- **Right half (interactive value):** filled rectangle. Color-filled bg + Paper text + Paper pencil icon. The current value + edit affordance.
-
-**Filled = interactive. Outlined = label.** Standard UX principle: the part you tap is the visually heavier one.
-
-#### Availability row (blue)
-
-- Left: outlined blue (#3366CC) — Paper bg, blue outline, blue text *"Availability"*
-- Right: filled blue — blue bg, Paper text (the tier name: *"Moveable"* / *"Untouchable"* / *"Core"* / *"Listening"*) + Paper pencil icon
-- Tap → opens **popover** with 4 tier options. Tap one → chip changes, popover closes. If tier changes the player's overall ranking within the rail, card animates to its new position.
-
-**Tier color signaling is dropped on this card type.** All availability rows are blue regardless of which tier the player is in. The tier name text (in the filled rectangle) carries the tier signal. Pro Personnel cards still use the 4-color tier chip pattern — different sets, different visual languages.
-
-#### Price row (green/red dynamic)
-
-- Color is dynamic based on user's value vs CFC consensus:
-  - **At or above CFC:** green (#007370)
-  - **Below CFC:** red (#E8503A)
-- Left: outlined in the dynamic color — Paper bg, colored outline, colored text *"Price"*
-- Right: filled in the dynamic color — colored bg, Paper text *"$300"* + Paper pencil icon
-- Tap → flips card to the back
-
-Both halves of the price row tint to the same color — strong unified signal that the price is at-or-above (green) or below (red) CFC. Default to green at CFC; binary above/below, no tolerance band.
-
-### Back of card
+### Back
 
 ```
 ┌────────────────────────────┐
-│ [pic]  LAMAR JACKSON       │  ← chrome (same as front)
+│ [pic]  LAMAR JACKSON       │  ← chrome (same as front, no memo corner)
 ├────────────────────────────┤
-│ Price: $300                │  ← live value, updates as toggles fire
+│ Availability                │  ← section label
+│ [Untouch.][Core][List.][Mov.]│  ← 4-button tier picker
 ├────────────────────────────┤
-│ vs CFC: ▲8% │ vs last wk: ▲2% │  ← comparisons, divider in middle
-│                              │
+│ Price: $300 [−][+]          │  ← price adjuster
+│ vs CFC: ▲8% │ vs last wk: ▲2%│
 ├────────────────────────────┤
-│  −   1sts   +              │  ← pick anchor toggles
+│ Pick Anchors                │
+│  −   1sts   +              │
 │  −   2nds   +              │
 │  −   3rds   +              │
 └────────────────────────────┘
 ```
 
-- **Chrome:** identical to front (portrait + name). Identity continuity across both sides.
-- **Price row:** same two-tone pattern as front. Live value — updates in real-time as user adjusts toggles. Color also updates live (green/red shifts as the user's value crosses CFC).
-- **Comparison row:** divider down the middle. Left half *"vs CFC: ▲8%"*. Right half *"vs last wk: ▲2%"*. Triangle + percentage in the existing color treatment (green up, red down).
+- **Chrome:** identical to front (portrait + name). Identity continuity.
+- **Availability section:** 4-button picker (Untouchable / Core / Listening / Moveable). Active button: filled with the tier's color, Paper text. Inactive buttons: outlined, Ink text. **Tap a button → that becomes the new tier, DONE stamp lands, card flips back to front showing the new state.** Single tap = commit (no separate save).
+  - **v1.0 availability popover is killed.** The popover concept (4 tier options floating from the front-of-card chip tap) is replaced by this back-of-card picker. Cleaner: editing state lives behind the flip.
+- **Price section:** current price with +/− buttons. Tap to adjust. Live updates: comparison row (vs CFC, vs last week) recomputes as user adjusts. Updates auto-save.
   - **vs CFC** updates live as user adjusts (delta moves with their override)
   - **vs last week** is **CFC-vs-CFC** — independent of user's manual override, captures league-wide value movement
-- **Breathing space** (~16-20px) before the toggles.
-- **Toggles:** 1sts / 2nds / 3rds, each with `−` / value / `+`. JetBrains Mono numerals between the +/- buttons. Existing TradeChartTab pattern.
+- **Pick Anchors section:** 1sts / 2nds / 3rds toggles with +/− buttons. JetBrains Mono numerals between the buttons. Existing TradeChartTab pattern. Auto-save.
 
 ### Flip mechanics
+- Tap *"Edit"* (front) → flips to back (~300ms)
+- Tap any tier button → commits, DONE stamp lands, auto-flips back to front
+- Tap +/− on price or pick anchors → auto-saves silently (no flip, no stamp — these are continuous adjustments)
+- Mobile: small X top-right of the back closes the flip without committing the tier picker
 
-- Tap value (front) → flips to back. ~200-300ms flip animation.
-- Tap **anywhere on the back except the toggle buttons** → flips back to front.
-- The +/- toggles are the only carved-out tap zone; everything else flips back.
-
-Saves are automatic — no save button. Trade chart's existing override save pattern.
+If the new tier changes the player's overall ranking within the rail, card animates to its new position after the flip-back.
 
 ---
 
-## Section 12: Pick Card Anatomy
+## Section 12: Pick Card Anatomy (Set Availability)
 
-Used in Set Availability's Picks rail. ~280-300px wide × ~300-320px tall. Bigger than player cards because pick cards are containers (multiple picks per round) with wider inline content.
+Used in Set Availability's Picks rail. **List Card template** per the master card system — the only management surface still using List Card. ~280-300px wide × ~300-320px tall.
 
 ### Front
 
 ```
 ┌─────────────────────────────┐
-│   First Rounders            │  ← chrome: round name, no portrait
+│   First Rounders            │  ← chrome: round name (List Card identity)
 ├─────────────────────────────┤
-│ '26 1.04 [Moveable] [$325]  │  ← row per pick
-│ '27 1st  [Moveable] [$300]  │
-│ '28 1st  [Untouch.] [$280]  │
+│ '26 1.04 [Moveable] [$325] ✏│ ← row per pick
+│ '27 1st  [Moveable] [$300] ✏│
+│ '28 1st  [Untouch.] [$280] ✏│
 └─────────────────────────────┘
 ```
 
 ### Card body
-
-Same neobrutalist treatment as player cards (2.5px Ink border, 4px offset shadow, Paper bg, no rounded corners).
+Same neobrutalist treatment as Player Cards (2.5px Ink border, 4px offset shadow, Paper bg, no rounded corners).
 
 ### Chrome
-
-- Background: **Ink (#1A1A1A)**
+- Background: Ink (#1A1A1A)
 - Content: round name centered (*"First Rounders"* / *"Second Rounders"* / *"Third Rounders"*). Syne 800, Paper, prominent.
-- **No portrait** (no player to portray). No additional meta — just the round name.
+- No portrait (no player to portray). No additional meta — just the round name.
 
 ### Body — pick rows
-
 Each pick owned in this round renders as a row:
 - Pick label: year + slot, abbreviated (e.g., *"'26 1.04"*, *"'27 1st"*, *"'28 1st"*). DM Sans or JetBrains Mono, Ink.
-- Availability chip (filled-only treatment — see below)
-- Price chip (filled-only treatment)
+- Availability chip (filled, using locked color treatment per `CFC-APP-STATUS.md`)
+- Price chip (filled, green at-or-above CFC, red below CFC)
+- Edit affordance (small pencil icon on the right of each row)
 
-Inline horizontally — three elements per row.
-
-#### Inline chip treatment (compact bicolor — filled side only)
-
-Pick rows can't fit the full bicolor labeled treatment used on player cards. Compact version drops the outlined "AVAILABILITY:" / "PRICE:" label halves.
-
-- **Availability chip:** filled blue (#3366CC), Paper text *"Moveable"* / *"Untouchable"* / etc. Compact ~70-80px wide.
-- **Price chip:** filled green (above-or-at CFC) or red (below CFC), Paper text *"$300"*. Compact ~60-65px wide.
-
-Same color language as player cards (blue for availability, green/red dynamic for price), just stripped of the outlined label half. Different "card sub-type" within the same set.
-
-### Tap behavior
-
+### Row tap behavior — universal flip
 **Tap any pick row** (not just the chips — the whole row is the tap target) → card flips to the back, showing the editor for **that specific pick**.
 
-### Back of card (per-pick editor)
+### Back (per-pick editor)
 
 ```
 ┌─────────────────────────────┐
 │   2026 1.04                 │  ← chrome: pick id (replaces round name)
 ├─────────────────────────────┤
-│ Price: $325                 │
+│ Availability                │
+│ [Untouch.][Core][List.][Mov.]│  ← 4-button tier picker
 ├─────────────────────────────┤
-│ vs CFC: ▲8% │ vs last wk: ▲2% │
+│ Price: $325 [−][+]          │
+│ vs CFC: ▲8% │ vs last wk: ▲2%│
 ├─────────────────────────────┤
-│ Availability: [Moveable ✏️] │
-├─────────────────────────────┤
+│ Pick Anchors                │
 │  −   1sts   +              │
 │  −   2nds   +              │
 │  −   3rds   +              │
@@ -664,205 +591,221 @@ Same color language as player cards (blue for availability, green/red dynamic fo
 ```
 
 - **Chrome:** the specific pick's identifier (*"2026 1.04"*) replaces the round name. User knows which pick they're editing.
-- **Body:** essentially identical to player card back — Price row + Comparison row + Availability row + Toggles.
-- **Per-pick availability tags use the 4-tier system** (Untouchable / Core / Listening / Moveable). Same as players.
+- **Body:** essentially identical to Player Card back — Availability tier picker + Price adjuster + Pick anchor toggles.
+- **Per-pick availability uses the 4-tier system** (Untouchable / Core / Listening / Moveable). Same as players.
 
 ### Flip back
-
-Tap anywhere except toggles → flips back to the round-card front.
+- Tap a tier button → commits, DONE stamp, flips back to round-card front
+- Tap price +/− or pick anchor +/− → auto-saves silently
+- Mobile: small X top-right closes the flip without committing
 
 ### Internal scroll for overflow
-
-Pick cards have a fixed height. When a user has 5+ picks in a round (rare — typical is 3-4), the body engages **internal vertical scroll**.
-
-- Same hard-line + chevron + *"X more"* pattern used on the wall, applied inside the card body when picks extend below the visible area
+When a user has 5+ picks in a round (rare — typical is 3-4), the body engages **internal vertical scroll**.
+- Hard-line + chevron + *"X more"* pattern inside the card body
 - Vertical scroll inside the card; horizontal swipe still navigates the rail. Different axes, no gesture conflict.
 
 ### Pick value flexibility (system-level note)
-
 Pick values become flexible (parallel to player values):
 1. **Layer 1 (team strategy modifier, auto):** picks_market and wants_more drive team-specific multipliers on pick values. Rebuilders see picks higher; all-in teams see them lower. Parallel to studs/youth modifiers on players.
-2. **Layer 2 (per-pick manual override, user):** the back-of-card pick anchor adjuster sets manual values per pick. Captures class-quality intuitions (loaded 2027 class, etc.).
+2. **Layer 2 (per-pick manual override, user):** the back-of-card pick anchor adjuster sets manual values per pick.
 
-The auction anchor (e.g., 1.01 = $300) stays as the league-level CFC reference. Team-level modifiers don't break the anchor — they just give each team's *trade view* its own multiplied value. Same architecture as players.
-
-Build note: Layer 1 (team modifier on picks) is parallel logic to existing player modifiers — moderate add. Layer 2 (manual override) already works in the trade chart codebase for picks.
+The auction anchor (e.g., 1.01 = $300) stays as the league-level CFC reference. Team-level modifiers don't break the anchor.
 
 ---
 
-## Section 13: Topbar Treatment
+## Section 13: Topbar
 
 Inherits from `CFC-GM-OFFICE-SPEC.md` — same `InnerTopbar` component on all R&S surfaces.
 
 ### Desktop
-
 | Slot | Content | Behavior |
 |---|---|---|
-| Left | ← back arrow | Returns to home (org chart) — from Wall. From sub-pages, returns to Wall. |
+| Left | ← back arrow | Returns to home (org chart) from Wall. From sub-pages, returns to Wall. |
 | Center | CFC league logo (clickable) | Returns to home (org chart) |
 | Right | Settings icon | Opens settings menu |
 
 ### Mobile
-
 | Slot | Content | Behavior |
 |---|---|---|
 | Left | Hamburger menu | Opens global navigation drawer |
 | Center | CFC league logo (clickable) | Returns to home (org chart) |
 | Right | Settings icon | Opens settings menu |
 
-R&S does **not** use Pro Personnel's dynamic-section-title topbar pattern on mobile. The wall is one surface (no sections to label), and sub-pages have their own page titles in the content area. Center stays the league logo.
+R&S does **not** use Pro Personnel's old dynamic-section-title topbar pattern (which is also being killed in the PP redesign). Center stays the league logo.
 
 ---
 
-## Section 14: Cross-Spec Notes (For Master Design Session)
+## Section 14: Cross-Director Signal Flow (R&S as Source)
 
-Items flagged during R&S design that need decisions or updates beyond this spec. These belong in the future master design session that will run after all four door specs are complete:
+R&S generates settings signals; the other doors consume them. Recap from `CFC-APP-STATUS.md`:
 
-1. **Cross-door consistency on briefing-to-room continuity.** R&S locked Pattern A — home screen director's briefing previews the top card on the wall inside the room. Should every door follow the same rule (briefing = preview of what's on top inside the room)? Pro Personnel's Director's Pick offer card and GM Office's inbox don't yet have this rule explicitly applied to their home briefings. Decide once, apply everywhere.
+- **R&S → Pro Personnel:**
+  - Aging signal → PP Shop opportunity cards (*"Mahomes' value is peaking — sell high"*)
+  - Value drift signal → PP Shop opportunity cards (when the drift implies it's time to move)
+  - Position market (selling) → PP Shop cards
+  - Wants more + position market (buying) → PP Acquire opportunity cards (*"Founders have a WR2 who fits our hole"*)
+- **R&S → Scouting:**
+  - Wants more (especially studs / picks) → Scouting Trade up/down intel relevance (*"We said we want studs — worth seeing what a trade up costs"*)
+  - Position market influences the directionality of trade intel
+- **PP and Scouting** do NOT feed signals back into R&S. R&S is the source, not a consumer.
 
-2. **Three-tier urgency system per door.** Green / yellow / red as universal status. R&S can now go red, which **reverses what the home screen spec v2.0 says about R&S never going red** (Section 3.4). The home screen spec needs updating in the master pass.
-
-3. **Card system survey.** Different "sets" of cards across the app — Pro Personnel player cards (~180×220), Pro Personnel team cards (~280×140), GM Office persona cards, Set Strategy cards, Set Availability player cards (~200×280), Set Availability pick cards (~280×300). All share the design system (2.5px Ink borders, 4px offset shadows, no rounded corners, Paper bg, Topps-style chrome) but each set has its own dimensions and content shape. Master session should codify the system.
-
-4. **Mobile peek pattern revisit for Set Availability.** Set Availability uses pick cards bigger than the typical player card peek pattern was designed for. Revisit at mockup time to confirm peek lands right with the larger cards.
-
-5. **GM Office spec needs updating.** GM Office Section 8's Propose popover was killed by Pro Personnel spec (Section 14, item 5). The GM Office spec should be updated to reflect Propose routing directly to `/trade-builder`. Already noted.
-
-6. **Card-flip animation specifics.** Set Availability cards (player + pick) use card-flip for value editing. The wall also uses card-flip + slide-off. Animation timing, easing, reverse-flip behavior should be spec'd as a shared pattern in the master session.
-
-7. **Stamp aesthetic for action confirmation.** Wall cards use *"DONE"* stamp for inline edits and *"FILED"* stamp for route-out actions (or just flip-and-slide for route-out — TBD at build). Visual specifics of the stamp (font, rotation, color) aren't fully designed.
+Build-time concerns (deferred to build):
+1. **Signal volume** — aging fires on many players continuously. Need prioritization so R&S doesn't flood the wall.
+2. **Cooldowns / thresholds** per signal — when does a signal cross from "interesting" to "surface a card"?
+3. **Multi-card from one signal** — aging Mahomes might trigger an R&S tier-update card AND a PP Shop card. Decide if both fire or only one, and which takes priority.
 
 ---
 
 ## Section 15: Items Killed in This Redesign
 
-These exist in the current codebase and are removed:
+### Already killed in v1.0 (remain killed in v2.0)
+1. `src/components/owners-box/OwnersBoxView.tsx` and the "Owner's Box" door concept
+2. `src/components/owners-box/StrategyTab.tsx`
+3. `src/components/owners-box/TradeChartTab.tsx`
+4. `src/components/owners-box/DepthChartTab.tsx`
+5. `src/components/owners-box/PersonaPicker.tsx` and `PersonaCard.tsx` (persona migrated to GM Office nameplate)
+6. `src/components/historian/HistorianChat.tsx` standalone usage / route
+7. `src/components/historian/WelcomeScreen.tsx`
+8. `src/components/historian/ConversationSidebar.tsx`
+9. The "Save Profile" button (replaced by autosave)
+10. High / Med / Low vocabulary (replaced by Buying / Holding / Selling)
+11. Per-position WR and TE markets in the UI (consolidated into Pass Catchers)
+12. The 4-color availability chip pattern on Set Availability cards (the v1.0 bicolor blue-only treatment) — **but reversed in v2.0** (see new kill below)
 
-1. **`src/components/owners-box/OwnersBoxView.tsx` and the "Owner's Box" door concept** — the door is gone. Its content is split between Set Strategy (wants_more + position markets), Set Availability (attachment + trade values), and the wall (where strategic findings now surface).
-2. **`src/components/owners-box/StrategyTab.tsx`** — replaced by the Set Strategy sub-page with the war room aesthetic.
-3. **`src/components/owners-box/TradeChartTab.tsx`** — replaced by the Set Availability sub-page with per-player cards.
-4. **`src/components/owners-box/DepthChartTab.tsx`** — already killed pre-spec; functionally absorbed by Set Availability's position-grouped rails.
-5. **`src/components/owners-box/PersonaPicker.tsx` and `PersonaCard.tsx`** — persona is migrated to the GM Office nameplate (per GM Office spec Section 4). Dead code on this surface.
-6. **`src/components/historian/HistorianChat.tsx` standalone usage** — the historian becomes the Wall's persistent right-rail chat panel. Standalone route to the Historian (if any) is killed.
-7. **`src/components/historian/WelcomeScreen.tsx`** — welcome screen, fun fact, suggested prompt cards all killed. Default state is just the input + one-line intro.
-8. **`src/components/historian/ConversationSidebar.tsx`** — left-side conversation sidebar replaced by the two-tab pattern (Active / History) within the chat panel.
-9. **The "Save Profile" button** in current StrategyTab — replaced by autosave on every tap. Strategy was the only inconsistent surface; now matches trade chart and attachment.
-10. **High / Med / Low vocabulary** in current StrategyTab UI — replaced by Buying / Holding / Selling.
-11. **Per-position WR and TE markets in the UI** — consolidated into Pass Catchers (aggregate display).
-12. **The 4-color availability chip pattern on Set Availability cards** — these cards drop tier color signaling in favor of the blue+green/red two-tone treatment. (Pro Personnel and other surfaces still use the 4-color pattern; this is a Set Availability-specific change.)
+### Newly killed in v2.0
+13. **v1.0 R&S 2-up wall queue layout.** Replaced by trading card binder grid (3 columns desktop, single-card swipe deck mobile) — matches PP and Scouting landing pattern.
+14. **v1.0 settings staleness lens** (was lens #1 in v1.0). Killed — staleness = buildup of other unaddressed cards. Fix the cards, staleness solves itself.
+15. **v1.0 Set Availability availability popover** (the floating 4-tier picker that appeared when tapping the front-of-card availability chip). Killed — tier picker now lives on the back of the Player Card, accessed via the universal flip pattern.
+16. **v1.0 bicolor blue/green-red availability+price row pattern on Set Availability Player Cards.** Replaced by the standard 4-color availability chips (per `CFC-APP-STATUS.md` Availability Chips section) on the front (display only) and a 4-button tier picker on the back. Price chip still uses green/red dynamic for at-or-above-CFC vs below-CFC.
+17. **v1.0 trade-related action types on the Wall** (the "shop suggestion" route-out for aging players). R&S is purely settings; aging signal flows to PP Shop instead.
+18. **v1.0 *"RESEARCH ANALYST"* header label on the chat panel.** Killed — the input placeholder *"Ask the Research Analyst…"* carries the identity. Tabs go directly to the top.
+19. **v1.0 *"DONE"* vs *"FILED"* stamp variants** depending on action type (inline edit vs route-out). Since R&S is now purely settings (all inline edits), only the *"DONE"* stamp is needed. (The *"FILED"* variant is logged as a future possibility for other surfaces if needed.)
+20. **v1.0 wall scroll affordance** (the hard-line + chevron + *"X more below"* indicator). Replaced by native vertical scroll on the binder grid (no custom indicator — per `CFC-APP-STATUS.md` Scroll & Swipe Indicator Pattern).
 
 ---
 
 ## Section 16: Files Affected
 
-### Replace / Retire
+### Retire (already deleted or to be deleted)
+- `src/components/owners-box/OwnersBoxView.tsx`
+- `src/components/owners-box/StrategyTab.tsx`
+- `src/components/owners-box/TradeChartTab.tsx`
+- `src/components/owners-box/DepthChartTab.tsx`
+- `src/components/owners-box/PersonaPicker.tsx`
+- `src/components/owners-box/PersonaCard.tsx`
+- `src/components/owners-box/Card.tsx`
+- `src/components/historian/WelcomeScreen.tsx`
+- `src/components/historian/ConversationSidebar.tsx`
 
-- `src/components/owners-box/OwnersBoxView.tsx` — retire
-- `src/components/owners-box/StrategyTab.tsx` — retire
-- `src/components/owners-box/TradeChartTab.tsx` — retire
-- `src/components/owners-box/DepthChartTab.tsx` — retire (already inactive)
-- `src/components/owners-box/PersonaPicker.tsx` — retire
-- `src/components/owners-box/PersonaCard.tsx` — retire
-- `src/components/owners-box/Card.tsx` — retire (specific to old Owner's Box layout)
-- `src/components/historian/WelcomeScreen.tsx` — retire
-- `src/components/historian/ConversationSidebar.tsx` — retire
+### Replace / update if v1.0 already built
+If any v1.0 R&S landing files were built, refactor or replace per v2.0:
+- `src/components/research-strategy/Wall.tsx` — restructure from 2-up vertical queue to binder grid
+- `src/components/research-strategy/InsightCard.tsx` — confirm Player Card / Memo Card variants per master template
+- `src/components/research-strategy/AvailabilityPopover.tsx` — **delete** (popover killed; tier picker moves to card back)
 
-### Adapt / Update
+### Adapt / update
+- `src/components/historian/HistorianChat.tsx` — adapt for the persistent right-rail chat. Strip sidebar, add two-tab pattern, kill header label, kill welcome screen + suggestion cards, wire 3 locked opener chips with autofill behavior.
+- `src/components/historian/ChatInput.tsx` — likely reusable; may need styling tweaks for the new placeholder pattern.
+- `src/components/historian/ChatMessage.tsx` — reusable.
+- `src/components/historian/markdown.tsx` — reusable.
 
-- `src/components/historian/HistorianChat.tsx` — adapt for the persistent right-rail chat surface. Strip sidebar, add two-tab pattern, update header label, kill suggested prompts.
-- `src/components/historian/ChatInput.tsx` — likely reusable as-is, may need styling tweaks.
-- `src/components/historian/ChatMessage.tsx` — likely reusable as-is.
-- `src/components/historian/markdown.tsx` — reusable as-is.
-- `src/components/historian/types.ts` — reusable as-is.
-
-### New components
-
-- `src/components/research-strategy/RSLanding.tsx` — top-level page composing topbar + header bar + wall + chat panel (desktop) / pinned-input (mobile). Mounts at `/research-strategy`.
-- `src/components/research-strategy/Wall.tsx` — wall queue rendering (2-up cards stacked, scroll affordance, urgency sort, empty state).
-- `src/components/research-strategy/InsightCard.tsx` — single wall card (chrome + headline + supporting line + actions).
-- `src/components/research-strategy/CardActions.tsx` — primary action button + dismiss button + flip/stamp/slide-off animations.
-- `src/components/research-strategy/DoneStamp.tsx` — the rubber-stamp moment shown on the back of acted-on cards.
-- `src/components/research-strategy/RSChatPanel.tsx` — the persistent right-rail chat. Two tabs (Active / History). Wraps the adapted HistorianChat content.
-- `src/components/research-strategy/RSHeaderBar.tsx` — wall's header bar (page title + Set Strategy / Set Availability buttons on desktop; mobile pinned-top).
-- `src/components/research-strategy/EmptyWall.tsx` — empty-state copy.
+### New components (v2.0)
+- `src/components/research-strategy/RSLanding.tsx` — top-level page composing topbar + header bar + binder grid + chat panel (desktop) / pinned-input (mobile). Mounts at `/research-strategy`.
+- `src/components/research-strategy/CardGrid.tsx` — binder grid / swipe deck. May be shared with PP and Scouting — coordinate at build.
+- `src/components/research-strategy/AgingPlayerCard.tsx` — Player Card variant for the Aging lens.
+- `src/components/research-strategy/ValueDriftCard.tsx` — Player Card variant for the Value drift lens.
+- `src/components/research-strategy/AttachmentMismatchCard.tsx` — Player Card variant for the Attachment mismatch lens.
+- `src/components/research-strategy/PositionMisalignmentCard.tsx` — Memo Card variant for the Position misalignment lens.
+- `src/components/research-strategy/WantsMoreSuggestionCard.tsx` — Memo Card variant for the Wants More suggestion lens.
+- `src/components/research-strategy/ChampionshipComparisonCard.tsx` — Player or Memo Card variant for the Championship comparison lens.
+- `src/components/research-strategy/TierPicker.tsx` — 4-button tier picker for card backs (Untouchable / Core / Listening / Moveable). Reusable on Player Card back (Set Availability + Wall cards) and Pick Card back.
+- `src/components/research-strategy/PriceAdjuster.tsx` — +/− price editor for card backs.
+- `src/components/research-strategy/MarketEditor.tsx` — 3-button Buying / Holding / Selling editor for Memo Card backs (Wall) and Position Market Selector Card backs (Set Strategy).
+- `src/components/research-strategy/WantsToggle.tsx` — on/off toggle for Memo Card backs (Wall) and Wants More Selector Card backs (Set Strategy).
+- `src/components/research-strategy/PickAnchorAdjuster.tsx` — +/− toggles for 1sts/2nds/3rds. Used on the back of Player Cards and Pick Card per-pick editors.
+- `src/components/research-strategy/DoneStamp.tsx` — the rubber-stamp confirmation overlay.
+- `src/components/research-strategy/RSChatPanel.tsx` — persistent right-rail chat (desktop) / pinned-input + takeover (mobile). Wraps adapted HistorianChat with Research Analyst identity + 3 opener chips.
+- `src/components/research-strategy/RSHeaderBar.tsx` — wall's header bar (page title + Set Strategy / Set Availability buttons).
+- `src/components/research-strategy/EmptyWall.tsx` — director's-voice empty state.
 - `src/components/research-strategy/SetStrategyPage.tsx` — top-level Set Strategy page. Mounts at `/research-strategy/set-strategy`.
-- `src/components/research-strategy/StrategyCard.tsx` — single card on Set Strategy (used for both Wants More and Position Markets variants).
+- `src/components/research-strategy/WantsMoreSelectorCard.tsx` — Selector Card variant for Set Strategy (Picks / Studs / Youth / Depth).
+- `src/components/research-strategy/PositionMarketSelectorCard.tsx` — Selector Card variant for Set Strategy (QB / RB / Pass Catchers / Picks). Roster preview on front.
 - `src/components/research-strategy/SetAvailabilityPage.tsx` — top-level Set Availability page. Mounts at `/research-strategy/set-availability`.
-- `src/components/research-strategy/PlayerCard.tsx` — Set Availability player card (front + back, flip mechanics).
-- `src/components/research-strategy/PickCard.tsx` — Set Availability pick card (front + back, internal scroll for overflow).
-- `src/components/research-strategy/AvailabilityPopover.tsx` — small popover with 4 tier options for the player card's availability chip.
-- `src/components/research-strategy/PickAnchorAdjuster.tsx` — the +/- toggles for 1sts/2nds/3rds, used on the back of player cards and pick-editor backs of pick cards.
+- `src/components/research-strategy/RosterPlayerCard.tsx` — Set Availability Player Card (front + back, flip mechanics).
+- `src/components/research-strategy/PickCard.tsx` — Set Availability Pick Card (List Card template, front + back, internal scroll for overflow).
+- `src/components/research-strategy/MemoCorner.tsx` — reusable memo corner indicator + popover.
 
 ### New / extended APIs
-
-- `/api/research-strategy/wall` — generates the wall (runs all 6 lenses, returns top 3-7 cards by urgency)
-- `/api/research-strategy/dismiss` — records dismissal for cooldown
+- `/api/research-strategy/wall` — generates the wall (runs all 6 lenses, returns cards sorted by urgency)
+- `/api/research-strategy/dismiss` — records dismissal for 28-day cooldown
 - `/api/research-strategy/act` — records that a card's action was taken (for cooldown / no resurfacing)
 - Extension to existing strategy / attachment / trade-chart endpoints for the inline-edit lens actions
 
 ### Reuse untouched
-
-- `src/components/historian/types.ts` and supporting utility files
-- `src/lib/storedTeam.ts`, `src/lib/hooks/useMyRoster.ts` — used by Set Availability for roster data
-- `src/lib/team-hq/types.ts` — strategy profile types used by Set Strategy
+- `src/lib/storedTeam.ts`, `src/lib/hooks/useMyRoster.ts` — roster data
+- `src/lib/team-hq/types.ts` — strategy profile types
 
 ---
 
 ## Section 17: Build Order Recommendation
 
-Suggested sequence to ship cleanly without broken intermediate states. Each step should produce a buildable commit (one file at a time via GitHub web editor).
+Suggested sequence to ship cleanly. Each step should produce a buildable commit (one file at a time via GitHub web editor).
 
-### Phase 1 — Card primitives
+### Phase 1 — Cleanup
+1. **Delete** `AvailabilityPopover.tsx` (if it was built in a v1.0 build).
+2. **Confirm retired** Owner's Box files and standalone Historian files.
 
-1. **`InsightCard.tsx`** — wall card with chrome + headline + supporting line + action buttons. Stub data initially.
-2. **`DoneStamp.tsx`** — the rubber-stamp confirmation overlay. Standalone component.
-3. **`CardActions.tsx`** — primary + dismiss buttons with flip-stamp-slide animation hooks. Standalone.
-4. **`PickAnchorAdjuster.tsx`** — +/- toggle component for pick anchors. Standalone.
-5. **`AvailabilityPopover.tsx`** — popover with 4 tier options. Standalone.
+### Phase 2 — Shared back-of-card components
+3. **`TierPicker.tsx`** — 4-button picker. Standalone, used by Wall cards + Set Availability Player Card + Pick Card.
+4. **`PriceAdjuster.tsx`** — price editor with vs CFC / vs last week deltas. Standalone.
+5. **`MarketEditor.tsx`** — 3-button picker. Standalone.
+6. **`WantsToggle.tsx`** — on/off toggle. Standalone.
+7. **`PickAnchorAdjuster.tsx`** — +/- toggle component for pick anchors. Standalone.
+8. **`MemoCorner.tsx`** — memo corner icon + popover. Standalone.
+9. **`DoneStamp.tsx`** — rubber-stamp confirmation overlay. Standalone.
 
-### Phase 2 — Wall
-
-6. **`EmptyWall.tsx`** — empty state copy.
-7. **`Wall.tsx`** — wall queue rendering (2-up stack, scroll affordance, sort logic). Stub card data initially.
-8. **`/api/research-strategy/wall`** — endpoint generating the wall. Implement the lenses one at a time:
-   - 8a. Settings staleness (simplest, internal data only)
-   - 8b. Aging roster scan
-   - 8c. Value calibration
-   - 8d. Attachment drift
-   - 8e. Position alignment (needs league-wide aggregation — see open items)
-   - 8f. Championship insights (needs structured data wiring — see open items)
-9. **`/api/research-strategy/dismiss` and `/api/research-strategy/act`** — cooldown tracking endpoints.
-
-### Phase 3 — Chat surface
-
-10. **Adapt `HistorianChat.tsx`** — strip sidebar, add two-tab structure, update header to *"RESEARCH ANALYST"*, kill suggestions/welcome.
-11. **`RSChatPanel.tsx`** — wraps adapted historian for right-rail (desktop) and pinned-input (mobile) presentation.
+### Phase 3 — Wall card primitives
+10. **`AgingPlayerCard.tsx`** — Player Card variant + TierPicker on back. Stub data.
+11. **`ValueDriftCard.tsx`** — Player Card variant + PriceAdjuster on back.
+12. **`AttachmentMismatchCard.tsx`** — Player Card variant + TierPicker on back.
+13. **`PositionMisalignmentCard.tsx`** — Memo Card variant + MarketEditor on back.
+14. **`WantsMoreSuggestionCard.tsx`** — Memo Card variant + WantsToggle on back.
+15. **`ChampionshipComparisonCard.tsx`** — Player or Memo Card variant + (TierPicker | MarketEditor | WantsToggle) on back.
 
 ### Phase 4 — Wall page composition
+16. **`EmptyWall.tsx`** — director's-voice empty state.
+17. **`CardGrid.tsx`** — binder grid / swipe deck. May be shared with PP and Scouting.
+18. **`/api/research-strategy/wall`** — endpoint. Implement lenses one at a time:
+    - 18a. Aging player
+    - 18b. Value drift
+    - 18c. Attachment mismatch
+    - 18d. Position misalignment (needs league-wide aggregation — see open items)
+    - 18e. Wants More suggestion
+    - 18f. Championship comparison (needs structured data wiring — see open items)
+19. **`/api/research-strategy/dismiss` and `/api/research-strategy/act`** — cooldown tracking endpoints.
 
-12. **`RSHeaderBar.tsx`** — header bar with page title + Set Strategy / Set Availability buttons.
-13. **`RSLanding.tsx`** — composes topbar + header bar + wall + chat panel. Mount at `/research-strategy`.
+### Phase 5 — Chat panel
+20. **Adapt `HistorianChat.tsx`** — strip sidebar, add two-tab structure, kill header label + welcome + suggestions, wire 3 locked opener chips with autofill.
+21. **`RSChatPanel.tsx`** — wraps adapted historian for right-rail (desktop) and pinned-input (mobile).
 
-### Phase 5 — Set Strategy
+### Phase 6 — Landing composition
+22. **`RSHeaderBar.tsx`** — header bar with page title + Set Strategy / Set Availability buttons.
+23. **`RSLanding.tsx`** — composes topbar + header bar + binder grid + chat panel. Mount at `/research-strategy`.
 
-14. **`StrategyCard.tsx`** — single card. Variant for Wants More (toggle), variant for Position Markets (Buying/Holding/Selling buttons + roster preview).
-15. **`SetStrategyPage.tsx`** — composes the two horizontal-rail sections. Mount at `/research-strategy/set-strategy`.
+### Phase 7 — Set Strategy
+24. **`WantsMoreSelectorCard.tsx`** — 4 Selector Cards (Picks / Studs / Youth / Depth) with flip + DONE stamp.
+25. **`PositionMarketSelectorCard.tsx`** — 4 Selector Cards (QB / RB / Pass Catchers / Picks) with roster preview front + MarketEditor back + DONE stamp.
+26. **`SetStrategyPage.tsx`** — composes the two horizontal-rail sections. Mount at `/research-strategy/set-strategy`.
 
-### Phase 6 — Set Availability
+### Phase 8 — Set Availability
+27. **`RosterPlayerCard.tsx`** — Player Card front (display) + back (TierPicker + PriceAdjuster + PickAnchorAdjuster). Flip mechanics.
+28. **`PickCard.tsx`** — List Card front (round chrome + rows) + back (per-pick editor with TierPicker + PriceAdjuster + PickAnchorAdjuster). Internal scroll for overflow.
+29. **`SetAvailabilityPage.tsx`** — composes the four position-grouped rails. Mount at `/research-strategy/set-availability`.
 
-16. **`PlayerCard.tsx`** — front + back, flip mechanics, two-tone bicolor rows. Standalone with stub data.
-17. **`PickCard.tsx`** — front + back, per-pick row layout, flip mechanics, internal scroll. Standalone.
-18. **`SetAvailabilityPage.tsx`** — composes the four position-grouped rails. Mount at `/research-strategy/set-availability`.
-
-### Phase 7 — Polish
-
-19. **Dynamic position filter on Pro Personnel** — `/pro-personnel?position=WR` deep-link support for "go acquire" cards. Optional V1, can ship without.
-20. **Pick value flexibility** — extend the team-modifier pipeline to include picks (Layer 1 from Section 12).
-21. **Animation tuning** — flip timing, slide-off easing, stamp landing.
-
-### Phase 8 — Cleanup
-
-22. **Retire old Owner's Box files** — once everything works, delete `OwnersBoxView.tsx`, `StrategyTab.tsx`, `TradeChartTab.tsx`, `DepthChartTab.tsx`, `PersonaPicker.tsx`, `PersonaCard.tsx`, `Card.tsx`, `WelcomeScreen.tsx`, `ConversationSidebar.tsx`. Remove old route.
+### Phase 9 — Polish & cleanup
+30. **Pick value flexibility** — extend team-modifier pipeline to picks (Layer 1 from Section 12).
+31. **Animation tuning** — flip timing, slide-off easing, stamp landing.
+32. **Retire** old Owner's Box files. Remove old route.
 
 ---
 
@@ -870,35 +813,33 @@ Suggested sequence to ship cleanly without broken intermediate states. Each step
 
 These are NOT blockers for the R&S design. They are flagged for build phase or later work:
 
-1. **Championship lens data wiring.** Lens 4 needs structured access to title-team patterns (year-by-year analysis of championship rosters' position composition, age, etc.). Today the historian can answer free-text questions about league history but doesn't expose structured comparison data as a queryable signal. If unwired at build, this lens ships disabled or capped at a simple stat pull.
+1. **Championship lens data wiring.** Lens 6 needs structured access to title-team patterns (year-by-year analysis of championship rosters' position composition, age, etc.). Today the historian can answer free-text questions about league history but doesn't expose structured comparison data as a queryable signal. If unwired at build, this lens ships disabled or capped at a simple stat pull.
 
-2. **Position alignment league-wide aggregation.** Lens 3 needs *"bottom-3 in the league"* style comparisons — every team's position values aggregated and ranked. May need new aggregation queries / views.
+2. **Position misalignment league-wide aggregation.** Lens 4 needs *"bottom-3 in the league"* style comparisons — every team's position values aggregated and ranked. May need new aggregation queries / views.
 
-3. **Cross-team activity tracking.** Future signal that would let aging-scan and attachment-drift hit red triggers (e.g., *"player has active interest from other teams"*). Today this data isn't tracked. If/when added, the spec already assumes the lens would level up to red.
+3. **Wants More suggestion lens trigger logic.** When should the lens fire? Possible triggers: roster condition (averaged age at position, depth at position) crosses a threshold + the relevant wants_more category is off. Defer specific thresholds to build.
 
-4. **Pass Catchers data-model migration.** UI consolidates WR + TE into one "Pass Catchers" market card. V1 implementation: aggregate display only — same setting writes to both `wr_market` and `te_market`. Long-term: consider migrating to a single `pass_catchers_market` column with the existing wr/te columns dropped. Defer to data-migration discussion.
+4. **Cross-team activity tracking.** Future signal that would let the Aging-player lens hit red triggers based on outside interest. Today this data isn't tracked. If/when added, the spec already assumes the lens would level up to red.
 
-5. **Pick value flexibility build.** Layer 1 (team-modifier on picks) is new logic parallel to existing player modifiers. Moderate build add. Layer 2 (manual override) already works — just needs to surface in the new card UI.
+5. **Pass Catchers data-model migration.** UI consolidates WR + TE into one *"Pass Catchers"* market card. V1 implementation: aggregate display only — same setting writes to both `wr_market` and `te_market`. Long-term: consider migrating to a single `pass_catchers_market` column. Defer to data-migration discussion.
 
-6. **Director's-voice content engine for Set Strategy cards.** State-aware prose per card (*"Our roster is averaging 27.5 at WR..."*). Decide between LLM-generated at request time or rule-based templating from team data. Parallel decision to the Pro Personnel director-quip engine.
+6. **Pick value flexibility build.** Layer 1 (team-modifier on picks) is new logic parallel to existing player modifiers. Moderate add. Layer 2 (manual override) already works.
 
-7. **Wall card content engine — director's-voice headlines.** Each lens's card headline (the in-quotes director prose) is generated content. Same decision: LLM vs. templated.
+7. **Director's-voice content engine** for Wall cards + Set Strategy cards. State-aware prose per card. LLM-generated at request time vs. rule-based templating from team data. Defer to build.
 
-8. **Position filter deep-link on Pro Personnel.** "Go acquire" cards route to `/pro-personnel?position=WR` to filter Section 2 of Pro Personnel. Pro Personnel currently doesn't support this URL parameter — needs build work to add.
+8. **Card-flip animation timing and easing.** Specific durations: flip-to-back (~250-300ms), stamp-hold (~200ms), slide-off (~300ms), reflow-up (~250ms). Tune at mockup.
 
-9. **Card-flip animation timing and easing.** Specific durations for: flip-to-back (~250ms?), stamp-hold (~800ms?), slide-off-top (~300ms?), reflow-up (~250ms?). Tune at mockup.
+9. **Per-pick availability tag granularity.** Picks use the same 4-tier system as players. Whether all 4 tiers are useful for picks (or mostly Moveable / Listening with rare Core / Untouchable) is a UX question that surfaces in real use.
 
-10. **Per-pick availability tag granularity.** Picks use the same 4-tier system (Untouchable / Core / Listening / Moveable) as players. Whether all 4 tiers are useful for picks (or whether picks usually default to Moveable / Listening with rare Core / Untouchable) is a UX question that surfaces in real use. Spec keeps the full 4-tier system; can simplify if data shows only 1-2 tiers ever get used.
+10. **Mobile peek pattern revisit on Set Availability.** Pick cards larger than typical player cards. Confirm peek lands right at the larger size.
 
-11. **Mobile peek pattern revisit on Set Availability.** Pick cards are larger than typical player cards. Confirm peek-of-next-card affordance works at the larger size. Mobile mockup decision.
+11. **Backend persistence for chat conversations.** V1: localStorage. V2: backend.
 
-12. **Backend persistence for chat conversations.** V1: localStorage. V2: backend persistence so conversations survive across devices.
+12. **Wall card per-tier sort tiebreakers.** Within yellow (multiple yellow cards), what's the secondary sort? By recency of underlying state change? By lens type priority? Defer to build.
 
-13. **Wall card per-tier sort tiebreakers.** Within yellow tier (multiple yellow cards), what's the secondary sort? By recency of underlying state change? By lens type priority? Defer to build.
+13. **Vs-last-week comparison data wiring.** The back-of-card comparison row shows *"vs last week"* — CFC consensus value movement over the past week. Requires historical CFC value snapshots. Confirm whether snapshot data exists or needs new wiring.
 
-14. **Stamp variants per action type.** *"DONE"* for inline edits vs. *"FILED"* for route-outs. Or unify all to one stamp. Decide at mockup.
-
-15. **Vs-last-week comparison data wiring.** The back-of-card comparison row shows *"vs last week"* — CFC consensus value movement over the past week. Requires historical CFC value snapshots. Confirm whether snapshot data exists or needs new wiring.
+14. **Memo corner content engine.** When the director has a longer note attached to a player, the memo corner popover shows the full note. Content engine same as quips — defer.
 
 ---
 
@@ -910,18 +851,17 @@ These are NOT blockers for the R&S design. They are flagged for build phase or l
 - **Back arrow on Set Strategy / Set Availability:** returns to the Wall.
 - **Hamburger (mobile):** opens global navigation drawer with all four doors + settings.
 - **Header buttons on Wall** (*Set Strategy* / *Set Availability*): direct route to the respective sub-page. Always visible (desktop header bar; mobile pinned top).
-- **Wall card primary action:** depending on lens, either inline edit (silent + DONE stamp + slide-off) or route-out (flip + navigate). See Section 6.
-- **Wall card dismiss:** card slides off without flipping, no stamp. 28-day cooldown before re-surfacing.
-- **Wall scroll:** vertical scroll within the wall panel (not page scroll). Cards above the viewport remain on the wall.
+- **Wall card primary action:** universal flip → make the update on the back → DONE stamp → slide-off. New card promotes up.
+- **Wall card dismiss:** *"Not now"* → card slides off without flipping. 28-day cooldown.
 - **Chat panel (desktop):** persistent right rail. Always visible while on the Wall.
-- **Chat panel (mobile):** pinned single-line input. Tap or start typing → full-screen chat takeover. Close → returns to Wall.
-- **Set Strategy autosave:** every tap saves immediately. Toast confirmation top-center.
-- **Set Strategy navigation between sections:** desktop scrolls vertically (both rails visible at once typically); mobile snap-snap (vertical between sections, horizontal within).
-- **Set Availability navigation between rails:** desktop vertical scroll (2 rails visible at once); mobile snap-snap (vertical between rails, horizontal within rails).
-- **Set Availability player card — availability tap:** opens popover with 4 tier options.
-- **Set Availability player card — value tap:** flips card to back. Tap anywhere except toggles → flips back.
-- **Set Availability pick card — pick row tap:** flips card to back showing that specific pick's editor. Tap anywhere except toggles → flips back to round-card front.
-- **Pick card overflow:** internal vertical scroll within the card body when 5+ picks.
+- **Chat panel (mobile):** pinned single-line input. Tap → full-screen takeover.
+- **Set Strategy autosave:** confirmation on the back of each Selector Card is the save event. DONE stamp = save confirmation.
+- **Set Strategy navigation between sections:** desktop scrolls vertically (both rails visible at once typically); mobile snap-snap.
+- **Set Availability navigation between rails:** desktop vertical scroll (2 rails visible at once); mobile snap-snap.
+- **Set Availability Player Card — Edit tap:** flips to back. Tap tier → commits + DONE stamp + flip back. Tap +/− on price or anchors → auto-saves silently.
+- **Set Availability Pick Card — pick row tap:** flips to back showing that specific pick's editor. Same controls as Player Card back.
+- **Memo corner tap:** popover with full director note. Travels with player across surfaces.
+- **Toast:** existing pattern preserved (top-center, 3s auto-dismiss). Used for save confirmations on Set Availability auto-save events.
 
 ---
 
@@ -929,14 +869,14 @@ These are NOT blockers for the R&S design. They are flagged for build phase or l
 
 | Name | Hex | Usage on R&S |
 |---|---|---|
-| Ink | #1A1A1A | Borders, primary text, chrome backgrounds, action buttons (filled state) |
+| Ink | #1A1A1A | Borders, primary text, chrome backgrounds, Core availability chip, action buttons (filled state) |
 | Paper | #FEFCF9 | Card backgrounds, chat panel content bg, chrome text on Ink |
 | Cream | #F5F0E6 | Page background, hover states |
-| Blue | #3366CC | Availability bicolor (label outline + text + filled chip), primary action buttons (Bump, Set, Open) |
-| Yellow | #F5C230 | Yellow urgency chip on cards |
-| Red | #E8503A | Red urgency chip on cards, Price bicolor when below CFC, error states |
-| Green | #007370 | Price bicolor when at-or-above CFC, green deltas in comparison rows |
-| Muted | #8C7E6A | Secondary text, timestamps, subject line text in chrome, JetBrains Mono labels |
+| Blue | #3366CC | Selector Card filled state, primary action buttons (when not using ink fill) |
+| Yellow | #F5C230 | Listening availability chip, yellow-tier card urgency |
+| Red | #E8503A | Untouchable availability chip, red-tier card urgency, Price chip when below CFC |
+| Green | **#019942** | Moveable availability chip, Price chip when at-or-above CFC, green-tier card urgency, green deltas in comparison rows. Universal green across the app — replaces prior #007370. |
+| Muted | #8C7E6A | Secondary text, timestamps, subject line text in Memo Card chrome, chat placeholder italic |
 
 Full palette in `/docs/CFC-APP-STATUS.md`.
 
@@ -947,8 +887,8 @@ Full palette in `/docs/CFC-APP-STATUS.md`.
 | Font | Weight | Usage on R&S |
 |---|---|---|
 | Syne | 800–900 | Page titles, card chrome (player name, round name), section headers, action button labels, *"DONE"* stamp |
-| DM Sans | 400–700 | Director's-voice headlines (in quotes on wall cards and Set Strategy cards), body prose, meta line text, comparison row text |
-| JetBrains Mono | 700 | Subject lines (*Re: ...*) on wall cards, marker chip text (*STUD* / *YOUTH* / *AGING*), value display ($XXX), pick row metadata, *"AVAILABILITY"* / *"PRICE"* labels, *"X more below"* indicator, chat panel header (*RESEARCH ANALYST*), tab labels |
+| DM Sans | 400–700 | Director's-voice headlines (in quotes on Wall cards and Set Strategy cards), body prose, meta line text, comparison row text, chat input placeholder (italic) |
+| JetBrains Mono | 700 | Subject lines (*Re: ...*) on Memo Cards, marker chip text (STUD / YOUTH / AGING), value display ($XXX), pick row metadata, tab labels |
 
 Full system in `/docs/CFC-APP-STATUS.md`.
 
@@ -959,32 +899,31 @@ Full system in `/docs/CFC-APP-STATUS.md`.
 | Element | Decision |
 |---|---|
 | **Routing** | `/research-strategy` (wall) · `/research-strategy/set-strategy` · `/research-strategy/set-availability` |
-| **Concept** | Strategist's war room. Director's voice on the wall + Research Analyst voice in the chat |
-| **Wall layout (desktop)** | 70% wall (queue, 2-up cards stacked) + 30% persistent chat panel right rail |
-| **Wall layout (mobile)** | Pinned-top action buttons + swipeable card deck + pinned-bottom chat input |
-| **Card lens types (6)** | Settings staleness · Aging roster scan · Position alignment · Championship insights · Value calibration · Attachment drift |
-| **Card capacity** | 3-7 dynamic cards, sorted red → yellow → default. Below 3 = empty state |
-| **Card structure** | *Re: subject* chrome + director headline (quotes) + supporting line + primary action + *"Not now"* dismiss |
-| **Action mechanics** | Primary edit: flip + DONE stamp + slide-off. Route-out: flip + navigate. Dismiss: slide-off no flip + 28-day cooldown |
-| **Wall recompute** | Page entry only. No manual refresh button |
-| **Wall scroll affordance** | Hard line + chevron + *"X more below"* JetBrains Mono label |
-| **Door urgency** | 3 tiers (green/yellow/red). Highest tier from any wall card sets door status. 4 lenses can hit red |
-| **Empty state** | *"Nothing pressing this week, but it's been X days since our strategy was updated."* |
-| **Chat surface** | Persistent right rail (~30% on desktop) · Two tabs (Active / History) · *Research Analyst* header · localStorage V1 · No suggestions |
-| **Set Strategy** | 2 horizontal-rail sections: *Where we're going* (Wants More: 4 cards) + *Where we stand* (Position Markets: 4 cards). Buying/Holding/Selling vocabulary. Pass Catchers consolidates WR+TE |
-| **Set Availability** | 4 position-grouped rails: QB / RB / Pass Catchers / Picks. Position rails contain player cards; Picks rail contains per-round pick cards. 2 rails visible on desktop, vertical scroll for more |
-| **Player card** | ~200×280-300px. Chrome (portrait + name) + meta + outlined marker chips + bicolor availability row (blue) + bicolor price row (green/red dynamic). Tap chip → popover. Tap value → flip |
-| **Pick card** | ~280×300-320px. Chrome (round name) + pick rows with inline filled chips. Tap row → flip to that pick's editor. Internal scroll if 5+ picks |
-| **Pick value system** | Becomes flexible — Layer 1 (team modifier) + Layer 2 (manual override). Auction anchor stays as league reference |
-| **Director's voice presence** | Wall: yes (per card). Set Strategy: yes (per card). Set Availability: no (work surface, cards communicate state visually) |
-| **Bicolor pattern** | Filled = interactive, outlined = label. Availability: blue. Price: green at-or-above CFC, red below. Default green at CFC |
-| **Tier color signaling on Set Availability cards** | Dropped. Tier name carries by text. Pro Personnel cards still use 4-color tier chips |
-| **Killed** | OwnersBoxView · StrategyTab · TradeChartTab · DepthChartTab · PersonaPicker · standalone HistorianChat · WelcomeScreen · ConversationSidebar · "Save Profile" button · High/Med/Low vocabulary · old separate WR/TE markets in UI |
+| **Concept** | Strategist's war room. Director on the cards + Research Analyst in the chat. R&S is purely settings |
+| **Wall layout (desktop)** | 70% trading card binder grid (3 columns) + 30% persistent chat panel right rail |
+| **Wall layout (mobile)** | Pinned-top action buttons + swipeable card deck (peek killed, dots only) + pinned-bottom chat input |
+| **Card lens types (6)** | Aging player (Player) · Value drift (Player) · Attachment mismatch (Player) · Position misalignment (Memo) · Wants More suggestion (Memo, NEW) · Championship comparison (Player or Memo) |
+| **Update types (4)** | Availability tier · Value (price) · Position market · Wants More |
+| **Universal flip pattern** | Every Wall card flips. Front = identity + director quip + *"Tap to update"*. Back = appropriate update mechanism. Commit → DONE stamp → slide-off |
+| **Card capacity** | Dynamic. Sorted red → yellow → green. Empty state shows director-voice copy *"Roster's set, signals are clean. I'll flag anything that shifts."* |
+| **Door urgency** | 3 tiers (green/yellow/red). Door tier = highest card tier on the Wall |
+| **Dismiss mechanic** | *"Not now"* → slide-off without flip → 28-day cooldown |
+| **Chat surface** | Persistent right rail (~30%) on desktop · Pinned-input + takeover on mobile · 3 opener chips (locked) · *"Ask the Research Analyst…"* placeholder · No header label |
+| **Opener chips (locked)** | *"How does my roster compare to last year's title teams?"* · *"What's my biggest roster weakness?"* · *"Who's won the most CFC championships?"* |
+| **Set Strategy** | 2 horizontal-rail sections: *Where we're going* (Wants More: 4 Selector Cards) + *Where we stand* (Position Markets: 4 Selector Cards). All cards use universal flip + DONE stamp. Buying/Holding/Selling vocabulary. Pass Catchers consolidates WR+TE |
+| **Set Availability** | 4 position-grouped rails: QB / RB / Pass Catchers / Picks. Position rails contain Player Cards; Picks rail contains Pick Cards (List Card — only management surface still using List Card) |
+| **Player Card (Set Availability)** | Front = display (chrome + meta + marker chips + availability chip + price chip + Edit button + optional memo corner). Back = TierPicker + PriceAdjuster + PickAnchorAdjuster. Universal flip pattern. Tier picker on back replaces v1.0 popover |
+| **Pick Card (Set Availability)** | List Card template. Front = round chrome + pick rows. Back = per-pick editor (TierPicker + PriceAdjuster + PickAnchorAdjuster) |
+| **Pick value system** | Becomes flexible — Layer 1 (team modifier on picks) + Layer 2 (manual override). Auction anchor stays as league reference |
+| **Director's voice presence** | Wall: yes (per card). Set Strategy: yes (per card). Set Availability: no (work surface; visual state communicates) |
+| **Availability chip colors (Set Availability)** | 4-color treatment per `CFC-APP-STATUS.md` — Moveable green #019942 · Listening yellow · Core ink · Untouchable red. Universal across the app, no Set-Availability-specific override |
+| **Cross-director signals (R&S → others)** | R&S → PP: aging, value drift, position market (selling), wants more, position market (buying). R&S → Scouting: wants more + position market for trade-intel relevance. R&S is the source — does not consume signals from PP or Scouting |
+| **Killed in v2.0** | Settings staleness lens · v1.0 2-up wall queue layout · Set Availability availability popover · v1.0 bicolor blue/green-red row pattern · Trade cards on the Wall (aging → PP) · v1.0 *"RESEARCH ANALYST"* chat header label · v1.0 *"FILED"* stamp variant · v1.0 wall scroll affordance |
 
 ---
 
 ## End of Spec — Ready for Build
 
-The Research & Strategy design is fully locked. Items intentionally deferred are content-engine choices (director's-voice generation), data-wiring questions (championship structured data, league-wide aggregations, cross-team activity tracking), and animation tuning. All locked items are buildable today against existing or naturally-extended APIs and components.
+The Research & Strategy v2.0 design is fully locked. Items intentionally deferred are content-engine choices (director's-voice generation, memo notes), data-wiring questions (championship structured data, league-wide aggregations, cross-team activity tracking, vs-last-week historical snapshots), and animation tuning. All locked items are buildable today against existing or naturally-extended APIs and components.
 
-Pick this up in a build chat by attaching this document along with `/docs/CFC-APP-STATUS.md`, `CFC-HOME-SCREEN-SPEC.md`, `CFC-GM-OFFICE-SPEC.md`, and `CFC-PRO-PERSONNEL-SPEC.md`. The build chat should not need any conversation history beyond these five files to execute the build cleanly.
+Pick this up in a build chat by attaching this document along with `/docs/CFC-APP-STATUS.md`, `CFC-HOME-SCREEN-SPEC.md`, `CFC-GM-OFFICE-SPEC.md`, `CFC-PRO-PERSONNEL-SPEC.md`, and `CFC-SCOUTING-SPEC.md`. The build chat should not need any conversation history beyond these six files to execute the build cleanly.
