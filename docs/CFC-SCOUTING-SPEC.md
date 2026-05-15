@@ -1,38 +1,35 @@
 # CFC Front Office — Scouting Design Spec
 
-**Version:** 1.0
-**Date:** May 13, 2026
+**Version:** 3.0
+**Date:** May 14, 2026
 **Status:** Design locked — ready for mockup → code
+
+> **Revision note (v3.0):** Major redesign. The Scouting landing binder grid (Rankings drift / Rankings reminders / Trade up-down intel cards) is killed. The director's office is now a **chat-driven workspace** — open the office, the Director of Scouting greets you with their top 3 POVs, the chat surfaces inline actions (proposed trades, deep links to workrooms, one-click commits). Staff voice (College Scout) killed — the director is the only voice. Workrooms (Big Board, Draft Room, Mock Draft) are reached via deep links from the home screen OR from inline actions in the office chat. LLM-powered current-news intel is deferred — V1 briefings use closed-league data only.
 
 ---
 
 ## Purpose of This Document
 
-This document captures every design decision for the **Scouting door** — the College Scout's briefing room landing, the live draft War Room, and the surfaces that connect them. It is the handoff spec for implementation. A new chat or developer should be able to read this document and execute the build without referring to prior conversation.
-
-This document is **forward-looking**. The current implementation has no Scouting landing (the home screen's Scouting box routes directly into the War Room). This spec describes what the Scouting door becomes once it has a proper landing.
+This document captures every design decision for the **Scouting door** — the Director of Scouting's office (chat-driven) and the workrooms reached from it (Big Board, Draft Room, Mock Draft). It is the handoff spec for implementation.
 
 This spec must be read alongside:
-- `/docs/CFC-APP-STATUS.md` (project-wide design system and non-negotiables)
-- `CFC-HOME-SCREEN-SPEC.md` v2.1 (locked home screen — Scouting is one of three director doors)
-- `CFC-GM-OFFICE-SPEC.md` (locked GM Office)
-- `CFC-PRO-PERSONNEL-SPEC.md` (locked Pro Personnel — Scouting shares the binder-grid landing pattern with it)
-- `CFC-RESEARCH-STRATEGY-SPEC.md` (locked R&S — Scouting reads R&S wants_more for trade-intel relevance)
+- `/docs/CFC-APP-STATUS.md` v3.0 (project-wide non-negotiables)
+- `CFC-HOME-SCREEN-SPEC.md` v3.0 (home screen routes here)
+- `CFC-GM-OFFICE-SPEC.md` v3.0 (inbox is the central "what's new" surface; Scouting director files memos there)
+- `CFC-PRO-PERSONNEL-SPEC.md` v3.0 (peer director)
+- `CFC-RESEARCH-STRATEGY-SPEC.md` v3.0 (peer director — Scouting reads R&S signals)
 
-The Scouting door is one of three directors reporting to the GM. Its lens is **looking forward** — the draft, the board, the rookies. The Scouting director's job is seasonal: quiet most of the year, busiest during draft prep and the live draft itself.
+The Scouting director's lens is **looking forward** — the draft, the board, the rookies.
 
 ---
 
 ## Section 1: Concept & Metaphor
 
-The Scouting door IS the **Director of Scouting's briefing room**. The user walks in and the director is already at the whiteboard with the board up. There are two voices in the room:
+The Scouting door is the **Director of Scouting's office**. The user walks in and the director is at the whiteboard, ready to talk. One voice in the room — the director themselves. No staff. The conversation is the surface.
 
-- **The Director of Scouting** — speaks on the cards. Has watched film, run the mocks, knows where the value sits in this class. *"Mendoza's sliding in the mocks — worth dropping him a few spots on our board."* The director prepared the board before you walked in.
-- **The College Scout** — staff, not the director. Lives in the chat. Pulls scouting reports, runs comparisons, answers prospect questions. *"Compare two prospects for me"* / *"Who's rising on draft boards?"* The scout is at the keyboard while the director is at the whiteboard.
+When the user opens the office, the director greets them with their top 3 POVs as the opening message — specific, sharp, conversation-starting. The user can click any of those POVs to dive in, or type their own question. The director responds with prose AND inline actions where appropriate — a proposed trade rendered as a mini trade card with "Open in Builder" button, a deep link to the Big Board focused on a specific player, a one-click commit to move someone on the board.
 
-When the draft is live, the metaphor compresses — the door routes directly into the War Room and the briefing room collapses to the home screen's red-tier *"Boss, we're on the clock"* signal. The landing is for prep work; the War Room is for execution.
-
-The metaphor governs everything that follows: card design (player-anchored cards visually anchored to real prospects), voice rules (director on the board, scout in the chat), the persistent chat panel, and the door's seasonal rhythm (mostly quiet, then suddenly the busiest department in the building).
+The director's job is seasonal: quiet most of the year, busy in draft prep, urgent on draft day. The home screen handles the "draft is live" signal directly (red briefing on the Scouting door's contextual entry). The office is where everything else happens.
 
 ---
 
@@ -42,527 +39,403 @@ The metaphor governs everything that follows: card design (player-anchored cards
 
 | Route | Surface | Entry points |
 |---|---|---|
-| `/scouting` | Scouting landing (primary surface, this spec) | Home screen Scouting director box |
-| `/scouting/war-room` | War Room (draft prep, draft live, draft results) | Scouting landing's "Set rankings" or "Enter draft" header actions; home screen Scouting box's contextual action button when draft is live |
+| `/scouting/office` | Director's office (chat) | Home screen Scouting box → Office |
+| `/scouting/big-board` | Big Board workroom | Home screen Scouting box → Big Board · Office chat inline action |
+| `/scouting/draft-room` | Draft Room workroom | Home screen Scouting box → Draft Room · Office chat inline action |
+| `/scouting/mock-draft` | Mock Draft workroom | Home screen Scouting box → Mock Draft · Office chat inline action |
 
 ### Mental model
 
-Scouting has **two surfaces** inside the door:
+Four surfaces inside the door:
 
-1. **The Landing** — the binder grid of director-prepared findings (cards). Default when the user enters the door (outside of live draft).
-2. **The War Room** — where draft work happens: setting rankings, the live draft itself, post-draft results. The landing routes here for any deeper draft work; the home screen's contextual action button skips the landing entirely when draft is live.
+1. **Office** — chat-driven workspace, the director's room. No landing grid, no cards laid out on a wall. The conversation IS the surface.
+2. **Big Board** — board prep workroom. User ranks rookies + vets in one unified board.
+3. **Draft Room** — the live draft surface (Round 1 and Rounds 2/3 unified — treated as one draft).
+4. **Mock Draft** — mock draft simulator.
 
-The chat panel (College Scout) is **only present on the landing**. The War Room is full-width execution mode; the scout is not visible there.
+All four are deep-linkable from the home screen. The office is the only one with the director's chat; the workrooms are pure execution surfaces.
 
 ### What this replaces
 
-The current Scouting implementation has no landing — `/scouting` either doesn't exist or routes straight to the War Room. This spec adds the landing as a proper surface and codifies the relationship between landing and War Room.
-
-The War Room itself (`src/components/draft/`) is preserved with minor refinements (see Section 12). The big architectural change is adding the landing in front of it.
+- The Scouting landing binder grid (3-column card grid on desktop, swipe deck on mobile) is killed.
+- The 3 lens engines (Rankings reminders, Rankings drift, Trade up/down intel) are killed as card-producing engines. The same intel categories survive as **conversation starters** in the office chat.
+- The College Scout staff voice is killed.
+- The opener chips on the chat panel are killed (replaced by the director's opening 3 POVs).
 
 ---
 
-## Section 3: The Landing — Layout (Desktop, ≥768px)
+## Section 3: The Office — Layout
+
+### Desktop (≥768px)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  [InnerTopbar: ← back · league logo · settings]                       │
-│  [Header bar: "Scouting" · Set rankings · Enter draft room]           │
-├──────────────────────────────────────────┬───────────────────────────┤
-│                                           │                            │
-│  ┌─────┐  ┌─────┐  ┌─────┐                │  ┌────────┬─────────────┐ │
-│  │card1│  │card2│  │card3│                │  │ Active │  History    │ │
-│  └─────┘  └─────┘  └─────┘                │  └────────┴─────────────┘ │
-│                                           │                            │
-│  ┌─────┐  ┌─────┐  ┌─────┐                │  ┌──────────────────────┐ │
-│  │card4│  │card5│  │card6│                │  │ [opener chip 1]      │ │
-│  └─────┘  └─────┘  └─────┘                │  └──────────────────────┘ │
-│                                           │  ┌──────────────────────┐ │
-│  ┌─────┐  ┌─────┐  ┌─────┐                │  │ [opener chip 2]      │ │
-│  │card7│  │card8│  │card9│                │  └──────────────────────┘ │
-│  └─────┘  └─────┘  └─────┘                │  ┌──────────────────────┐ │
-│                                           │  │ [opener chip 3]      │ │
-│  ← scroll for more if any ─               │  └──────────────────────┘ │
-│                                           │                            │
-│                                           │  [Ask the College Scout…] │
-└──────────────────────────────────────────┴───────────────────────────┘
-   ← ~70% binder grid →                       ← ~30% chat panel →
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  DIRECTOR OF SCOUTING                                                 │
+│                                                                       │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│   "Morning, boss. Three things on my mind:"                          │
+│                                                                       │
+│   ┌───────────────────────────────────────────────────────────────┐   │
+│   │ 1. We're picking 4th. Word is the three teams ahead are       │   │
+│   │    leaning QB, QB, RB. Both our top WR targets should be      │   │
+│   │    there at 4. I'd hold and let it come to us.                │   │
+│   └───────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│   ┌───────────────────────────────────────────────────────────────┐   │
+│   │ 2. Mendoza's CFC value is up 18% this month — we still        │   │
+│   │    have him at 22 on our board. Time to bump him.             │   │
+│   └───────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│   ┌───────────────────────────────────────────────────────────────┐   │
+│   │ 3. Founders and Kush are both light on picks and need WR      │   │
+│   │    help. We've got WR depth to trade. Worth opening a         │   │
+│   │    conversation.                                              │   │
+│   └───────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│   Which one do we tackle? Or is there something else on your mind?    │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐  │
+│  │ [Ask the Director of Scouting…]                          [Send] │  │
+│  └─────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-- **InnerTopbar:** standard inner-page topbar (back arrow / league logo / settings). Inherits from GM Office spec.
-- **Header bar:** page title left (*"Scouting"*); two action buttons right (*"Set rankings"*, *"Enter draft room"*).
-- **Main content area (~70%):** trading card binder grid, 3 columns, multiple rows visible. Each card ~280×392 (5:7 playing card ratio). 6–9 cards visible at a glance. Cards sort by tier (red → yellow → green) and within tier by recency.
-- **Right rail (~30%):** persistent chat panel. Two tabs (Active / History) at the top. Empty Active state shows the 3 locked opener chips (see Section 8). Input pinned at the bottom with placeholder *"Ask the College Scout…"* in muted italic DM Sans (#8C7E6A).
-- **Click a card** → flips in place to reveal options / back content. No reflow, no modal.
+- **InnerTopbar:** standard inner-page topbar.
+- **Page title:** *"Director of Scouting"* in Syne 800.
+- **Chat surface:** full-width, takes the whole content area. No sidebar, no right rail.
+- **Opening message:** director's three POVs rendered as clickable items. Each POV is a self-contained intel statement ending in a recommendation.
+- **Click a POV** → it becomes the user's next message ("Let's dig into #1") OR opens a follow-up conversation directly. Build-time decision (lean toward the latter — direct dive).
+- **Chat input:** pinned at the bottom. Placeholder *"Ask the Director of Scouting…"*. Send button on the right.
+- **Subsequent messages:** standard chat thread layout. Director's responses appear left-aligned with the director's identifier; user's messages right-aligned.
 
-### Tap-to-view affordance
-Every Scouting card carries a universal action label at the bottom — *"Tap to view"* / *"Tap to update"* / similar — signaling the flip.
+### Mobile (<768px)
+
+Same shape, full-screen. Topbar mobile pattern (hamburger / logo / settings). Page title in the content area. Chat takes the rest of the screen. Input pinned at the bottom.
 
 ---
 
-## Section 4: The Landing — Mobile Layout (<768px)
+## Section 4: The Director's Opening Message
 
-```
-┌─────────────────────────────────┐
-│  [topbar: hamburger / logo / ⚙] │
-├─────────────────────────────────┤
-│  [Set rankings] [Enter draft]   │  ← pinned action buttons
-├─────────────────────────────────┤
-│                                  │
-│                                  │
-│   ┌──────────────────────┐      │
-│   │                       │      │
-│   │ [single card front]   │      │  ← horizontal swipe deck
-│   │                       │      │
-│   │ "Tap to update"       │      │
-│   └──────────────────────┘      │
-│                                  │
-│           • • • • •              │  ← dots indicator (peek killed)
-│                                  │
-├─────────────────────────────────┤
-│  [Ask the College Scout…]       │  ← pinned chat input
-└─────────────────────────────────┘
-```
+When the user opens the office, the director's first message contains **exactly three POVs**, generated from current league + roster + draft state. Hard cap at three — more than that and it stops feeling like a curated briefing.
 
-- **Top bar:** InnerTopbar mobile pattern (hamburger / logo / settings).
-- **Pinned action buttons** below the topbar: *"Set rankings"* and *"Enter draft room"*. Always visible during card swiping.
-- **Main content:** swipeable card deck. One card visible at a time. Horizontal swipe cycles through cards. **Peek of next card is killed.** Dots are the only swipe signal.
-- **Pinned chat input** (bottom): single-line *"Ask the College Scout…"*. Tap or start typing → expands to full-screen chat takeover with the 3 opener chips in the empty Active state. Close → returns to the landing.
-- **Scroll lock:** while a card is flipped, page-level scroll locks.
+### Format
 
-When the landing has zero cards, the swipeable deck is replaced by the empty state copy (Section 7), centered, no card.
+Three numbered items, each one a self-contained statement following the pattern:
 
----
+**Signal → named target → director's recommendation → optional CTA**
 
-## Section 5: Lenses
+The director leads with a recommendation. Doesn't survey the user with open questions.
 
-The Scouting director runs **3 lenses** against the user's board + draft state + R&S signals. Each lens can produce cards if its trigger fires. The director-prepared queue surfaces 3–9 cards at any given time, ordered by tier (red → yellow → green) then recency.
+### Examples (Voice Reference)
 
-### 5.1 Rankings reminders (Memo Card)
+**Draft position intelligence:**
+> *"We're picking 4th. Word is the three teams ahead are leaning QB, QB, RB. Both our top WR targets should be there at 4 — I'd hold and let it come to us."*
 
-Surfaces when the user's board needs attention. Two sub-types differentiated by urgency:
+> *"If we want a starting WR with our 1st, we can't trade back past 6. Teams picking 5 and 6 are both buying at WR — they'll take the guys we want."*
 
-- **Initial** (yellow): *"Boss, time to set our board for this year. Let's get started."*
-- **Urgency** (red, when ≤7 days to draft and board < 80% locked): *"Draft's a week out. Let's finalize the board."*
+**Trade partner intelligence:**
+> *"Word is a couple teams behind us are high on Mendoza. If he's there at 4 we'll have buyers — Founders and Outlaws have the picks to make it work. Want me to put feelers out?"*
 
-**Action:** Memo Card with universal action button (*"Tap to view"*) → flip → confirmation → route to Set Rankings inside the War Room. (Or: tap to view shows a brief preview of board completion state; primary action button routes.)
+> *"We don't have a 3rd this year and we said we want more picks. Founders and Crossfitters have extras and need WR help. I'd start with Crossfitters — their needs line up better."*
 
-### 5.2 Rankings drift (Player Card)
+**Board hygiene:**
+> *"Our board's at 60% set. Draft's 3 weeks out and the consensus is moving fast — let's lock in our top 50 this week so I can flag drift early."*
 
-Surfaces when the user's ranking on a player diverges meaningfully from consensus, in either direction:
+> *"We've got Bowers at 18 but the rest of the league has him top 5. Either we know something they don't or we should take another look."*
 
-- *"We have Mendoza in our top 10, but consensus has him outside the top 20. Are we missing something?"*
-- *"Consensus has Bowers top 5; we have him at 18. Worth a re-look?"*
+**Value drift:**
+> *"Mendoza's value popped 18% this month. We've still got him at 22 — time to bump him up."*
 
-**Action:** Player Card with universal action button (*"Tap to update"*) → flip → inline rank adjuster. Make the change → DONE stamp → card slides off the landing.
+**Positional shape:**
+> *"There are 4 RBs in our starter tier and then a cliff. If we want one, we go at 4 — there won't be anything close by our 2nd."*
 
-This is the only Scouting lens that produces multiple cards at once (one per drifted player). Caps at ~5 simultaneous drift cards to keep the binder grid from overflowing on quiet draft-prep weeks; a "show more" affordance (or scroll into more rows) handles overflow.
+### What the Opening NEVER Does
 
-### 5.3 Trade up/down intel (Player or Memo Card)
-
-Surfaces when the director sees a draft-related trade opportunity. Two sub-types:
-
-- **Trade up** (Player Card, anchored to a target prospect): *"Bowers is our top target but won't be there at our pick. Worth seeing what a trade up would cost?"*
-- **Trade down** (Memo Card, when not anchored to one specific player): *"We're at #4. Three teams need a QB and would have to move up to get one. Worth seeing what they'd pay?"*
-
-**Action:** Player Card or Memo Card with universal action button (*"Tap to view"*) → flip → 3 pre-built deal options → pick one → routes to Trade Builder with the deal pre-populated. Same pattern as Pro Personnel Acquire/Shop cards.
-
-### 5.4 Class strength as input (NOT a standalone lens)
-
-Class strength is a **signal input** to the Trade up/down intel lens, not its own card type. It feeds the trade intel director's decision of whether to fire a trade-up or trade-down card, and shapes the director's quip on those cards.
-
-Example trade-up card with class strength baked in: *"Two studs in this class and they'll be gone by pick 4. We're at 7 and we said we want studs — worth seeing what a trade up costs?"*
-
-Example trade-down card: *"Studs go in the top 2, then it's a flat class. We're at 6 — multiple teams behind us are in our tier. Worth shopping our pick for extra capital?"*
-
-### 5.5 What was killed
-- **Class recap (post-draft).** Not insightful enough to be its own card. Class recap if needed lives in War Room post-draft results.
-- **On-the-clock card on the landing.** Once the draft is live, the home screen's Scouting box surfaces the *"Boss, we're on the clock. Let's go."* briefing with a contextual action button that routes directly to the War Room. The landing's role during live draft is moot — the user shouldn't be on the landing during live draft, they should be in the room. Old "On the clock" landing card concept killed.
-
-### 5.6 Future draft classes (DEFERRED)
-Surfacing rising prospects for next year's class is a great idea but requires a college football data layer we don't have today. **Deferred** as a future enhancement. Off-season Scouting will run quiet — door says *"Class is locked, settle in"*, landing has few or no cards.
-
-### 5.7 Cross-director signals
-
-Scouting reads from R&S's `wants_more` signal to shape its Trade up/down intel lens. *"We said we want studs"* → trade intel weighted toward grabbing studs early. This is one of the cross-director signal flows codified in `CFC-APP-STATUS.md` (Cross-Director Signal Flow section). Scouting → Pro Personnel has no direct flow — Scouting's draft trade intel stays in Scouting; its actions route to Trade Builder, but the surfacing happens here.
-
-### 5.8 Urgency triggers per lens
-
-| Lens | Yellow trigger | Red trigger |
-|------|----------------|-------------|
-| Rankings reminders | Initial sub-type when board < 80% set | Draft ≤ 7 days out + board < 80% set |
-| Rankings drift | Drift detected (per-card tier) | Severe drift on a top-30 board player |
-| Trade up/down intel | Opportunity detected | None — trade intel caps at yellow (not time-pressed enough for red) |
-
-Door's overall tier = highest tier of any card on the landing (per master urgency rules).
+- **Never names what another team has on their board.** *"Word is they're high on Mendoza"* is fine. *"Team X has Mendoza ranked #3"* is not. Never peeks behind the curtain.
+- **Never asks open questions instead of leading.** *"Who do you think we should call?"* is dead. *"I'd start with Founders — let me know if you agree."* is right.
+- **Never uses codespeak.** No "wants_more," no "consensus board," no dollar values. Translate to "we said we want picks," "the rest of the league," "his value popped."
+- **Never pads to fill the third slot.** If there are only two real things on the director's mind today, the opening has two POVs. Empty state pattern handles a truly quiet day (Section 6).
 
 ---
 
-## Section 6: Card Structure
+## Section 5: Inline Actions in the Chat
 
-Cards on the Scouting landing follow the universal card system locked in `CFC-APP-STATUS.md`. Two templates used here:
+The director's responses can surface structured inline actions — UI components rendered in the message stream. These are what make the chat feel native to the app rather than a chatbot bolted on.
 
-### Player Card (Rankings drift, Trade up/down intel when player-anchored)
-- **Front:** photo, name, position chip, prospect class chip (e.g., *2026*), Rookie Card chip (signals it's a draft prospect not a veteran), director's quip, universal action button (*"Tap to update"* / *"Tap to view"*).
-- **Back:** inline rank adjuster (drift) or 3 pre-built deal options (trade intel).
-- **Memo corner:** optional, present when director has a longer note attached.
+### Action Types
 
-### Memo Card (Rankings reminders, Trade up/down intel when not player-anchored)
-- **Front:** subject chrome (*"Re: Board prep"* / *"Re: Trading our 1.04"* / etc.), director's headline in quotes, optional supporting line, universal action button.
-- **Back:** confirmation + route action (rankings reminders) or 3 pre-built deal options (trade down intel).
-- **Memo corner:** N/A — the whole card IS a memo.
+| Action Type | Visual | Behavior |
+|---|---|---|
+| **Proposed trade** | Mini trade card embedded in the message — partner team name, brief asset list (send/receive), balance chip, "Open in Builder" button | Click → routes to Trade Builder with the deal pre-populated. The mini card stays in the conversation thread as a record. |
+| **Deep link to workroom** | Inline button below the director's prose (e.g., *"Open Big Board →"*, *"View Mendoza on the board →"*) | Click → routes to the specified workroom, scoped to the relevant player/round if applicable. |
+| **One-click commit** | Inline button that fires an API call (e.g., *"Bump Mendoza on the board"*) | Click → API fires, message updates in place with a confirmation state (*"Bumped Mendoza from 22 to 12 ✓"*). Stays in conversation. |
+| **Multi-option choice** | Two or three buttons inline (e.g., *"Talk to Founders"* / *"Talk to Outlaws"* / *"Pass"*) | Click one → director continues the conversation based on the choice. |
 
-### Universal flip mechanic
-Per master card system: tap action button → 3D rotateY flip ~300ms. Make change or pick option on the back → DONE stamp → card slides off. Route-out actions navigate after the flip (no need to stay on the back).
+### Example Flow
 
-### Mobile flip state
-Small X top-right of the back closes the flip without committing. Scroll locks while flipped.
+User clicks POV #1: *"We're picking 4th. Word is the three teams ahead are leaning QB, QB, RB..."*
 
----
+Director responds:
+> *"Right — three teams ahead, three different needs. Here's what I'd do for our 4th: if WR run starts at 1-2-3, we still get our guy. If they go QB-QB-RB like I'm hearing, we have first pick of the WRs. Either way we're sitting pretty. Want me to draft a trade-down proposal to one of the teams behind us as a backup plan?"*
+>
+> [Yes, draft a trade-down] [No, hold the pick] [Show me who'd be interested]
 
-## Section 7: Refresh, Empty State, Behavior
-
-### Refresh mechanics
-Landing computes **on page entry only**. User opens Scouting → engine runs the 3 lenses → picks cards by urgency and recency → renders. User acts on cards / dismisses them, deck shrinks. User leaves and returns later → fresh recompute.
-
-**No manual refresh button.** Curated insights, not an endlessly-scrollable feed.
-
-### Empty state
-When the landing has 0 cards (off-season, board is locked, no drift, no trade intel), show the director's-voice empty state centered:
-
-> *"Class is locked. We're ready."*
-
-Optional sub-line if appropriate to the state (e.g., post-draft: *"Draft's wrapped. Board's on your desk."*). No empty-state card, no illustrations — just copy + the chat input as the obvious next move.
-
-### Card priority sort
-Cards sort top-to-bottom (desktop grid reading order, mobile deck order):
-1. Red cards first
-2. Yellow cards next
-3. Green cards last
-4. Within each tier, sort by recency / freshness
-
-The home screen briefing previews the **top card on the landing** (Pattern A from the home screen spec).
+User clicks "Yes, draft a trade-down" → director generates and renders a mini trade card inline with "Open in Builder" button. User clicks that → routes to Trade Builder pre-populated.
 
 ---
 
-## Section 8: Chat Panel — The College Scout
+## Section 6: Empty State
 
-### Desktop (persistent right rail, ~30%)
-Always visible while on the landing.
+When the director has nothing pressing (deep offseason, board is set, no drift, no trade intel signals), the opening message is shorter and softer:
 
-```
-┌──────────────────────────┐
-│ ┌────────┬─────────────┐ │  ← tabs at the very top (no header label)
-│ │ Active │  History    │ │
-│ └────────┴─────────────┘ │
-├──────────────────────────┤
-│ ┌──────────────────────┐ │  ← 3 opener chips when conversation empty
-│ │ Compare two prospects│ │     fade out when conversation starts
-│ │ for me               │ │
-│ └──────────────────────┘ │
-│ ┌──────────────────────┐ │
-│ │ Who'll likely be     │ │
-│ │ there at my pick?    │ │
-│ └──────────────────────┘ │
-│ ┌──────────────────────┐ │
-│ │ Who's rising on      │ │
-│ │ draft boards?        │ │
-│ └──────────────────────┘ │
-│                           │
-│   [conversation thread]   │
-│                           │
-├──────────────────────────┤
-│ [Ask the College Scout…] │  ← pinned input, muted italic placeholder
-└──────────────────────────┘
-```
+> *"Class is locked, boss. We're ready. Anything you want to dig into?"*
 
-- **No header label** — the input placeholder carries the role identity.
-- **Tabs (Active / History) at the very top.**
-- **Opener chips (3 locked):**
-  - *"Compare two prospects for me"* (note: "prospects" not "players")
-  - *"Who'll likely be there at my pick?"*
-  - *"Who's rising on draft boards?"*
-- **Chip behavior:** tap a chip → autofills the input (does not auto-send). User can edit before submitting.
-- **Chip visibility:** shown in the empty Active state. Fade out when a conversation starts. Return when the user clears or starts a new conversation. History tab never shows chips.
-- **Input placeholder:** *"Ask the College Scout…"* — muted italic DM Sans (#8C7E6A). Same treatment in both desktop and mobile.
+No bullet POVs. No padded insights. Just the director's voice acknowledging the calm and the chat input ready for whatever the user wants to ask.
 
-### Mobile (pinned input → full-screen takeover)
-Tap or start typing in the pinned input → full-screen chat takeover. Same Active / History tabs, same opener chips in the empty Active state. Close affordance (top-right) returns to the landing.
+If even one POV exists, the opening shows that one POV plus an invitation:
 
-### Default state (no conversation yet)
-Active tab shows the 3 opener chips + the input. No welcome screen, no fun fact, no extra copy.
-
-### Conversation persistence
-V1: localStorage. Move to backend deferred — not blocking.
+> *"One thing on my mind, boss:"*
+>
+> *"Mendoza's value popped 18% this month — we've still got him at 22. Time to bump him up."*
+>
+> *"Otherwise we're in good shape. What do you want to look at?"*
 
 ---
 
-## Section 9: Header Bar — Action Buttons
+## Section 7: V1 Intel Categories (Closed-League Data Only)
 
-The Scouting landing has a persistent header bar between the topbar and the binder grid. **Desktop only** — on mobile, these buttons live in the pinned-top action row beneath the topbar.
+Building from the discussion: V1 ships with closed-league data only. LLM-powered current-news intel (combine results, pro day reports, injury updates) is deferred until the intel pipeline is built (separate workstream — see Section 12).
 
-### Composition (desktop)
-```
-[Scouting]                        [Set rankings]  [Enter draft room]
-```
-- **Left:** page title in Syne 800, ~18px
-- **Right:** two buttons in neobrutalist black-bordered button style
+### Categories That Ship in V1
 
-### Button styling
-- Background: Paper (#FEFCF9)
-- Border: 2.5px solid Ink
-- Box shadow: 3px offset, Ink
-- Font: Syne 800, ~12px, uppercase, letter-spacing 0.04em
-- Padding: ~10px 16px
-- No rounded corners
+**1. Draft position intelligence**
+- Who's likely on the board at our pick (aggregates rankings of teams ahead, surfaces probable available targets)
+- Trade-back floors (based on position markets + roster gaps of teams behind us)
+- Big positional dropoffs ("4 starter-tier RBs then a cliff — go now or wait long")
 
-### Behavior
-- **`Set rankings`** → routes to War Room's Set Rankings sub-surface
-- **`Enter draft room`** → routes to War Room's live draft surface (or pre-draft staging when draft hasn't started yet)
+**2. Trade partner intelligence**
+- Best trade-up partner ("Teams behind us are high on [Player] — Founders and Outlaws have the picks")
+- Best trade-down partner ("Teams Y and Z need WR and aren't getting one — they'd pay to move up")
+- Fire-sale and level-up mode detection from recent trade activity
+- Comparable trades ("Player like Wilson just netted a 2nd and a starter WR last week — we should be able to pull the same")
 
-These are co-equal entry points to the room, not escape hatches. The director's curated landing is the default surface, but the manual tools aren't a downgrade — power users skip the cards and go straight to the work.
+**3. Board hygiene**
+- Board completeness signals ("60% set, 3 weeks out")
+- Outlier check (user's rank vs. league consensus, anonymized)
+- Value drift (CFC value movement vs. user's board placement)
 
-### Mobile equivalent
-The header bar is removed on mobile. The two buttons live in the **pinned action row** beneath the topbar, mirroring the R&S mobile pattern.
+**4. Cross-director signals**
+- Reads R&S wants_more + position market to shape trade-up/down intel relevance
+
+### Categories Deferred to Phase 2
+
+- Current player news (rising/falling stocks from real-world events, combine results, pro day reports, injury updates)
+- Next year's class scouting (requires college football data layer)
+- Sleeper / red flag identification (requires structured scouting data)
+
+These are flagged in Section 12.
+
+---
+
+## Section 8: Conversation Persistence
+
+Each director's office maintains its own conversation thread. Leave and return → same thread. The director's opening message regenerates only when there's meaningful new state (new signals, new trade activity, board updates) or when the user explicitly clears the conversation.
+
+V1 storage: localStorage. Move to backend deferred — not blocking.
+
+### Conversation Controls
+- **Clear conversation** — option in a small menu (top right of chat, TBD at mockup). Wipes the thread and triggers a fresh opening.
+- **Conversation history** — scroll up to see prior messages. Standard chat affordances.
+
+---
+
+## Section 9: Workrooms
+
+### 9.1 Big Board (`/scouting/big-board`)
+
+The unified prospect ranking workroom. **Rookies and vets in one board.** Round 1 isn't a separate concept from Rounds 2/3 — it's one board with one ranking.
+
+Inherits the existing Set Rankings surface from the codebase. Key features (preserved):
+- Drag-to-reorder ranking interface
+- Player cards / rows showing key signals
+- "Their guys" / starred concept — user can mark prospects as targets (separate from ranking) to give the director better intel signal *(idea from chat — confirm at build whether already exists or needs to be added)*
+- QB strategy / superflex toggles (existing)
+
+### 9.2 Draft Room (`/scouting/draft-room`)
+
+The live draft surface. Existing implementation in `src/components/draft/`. Preserved. Treated as one continuous draft (Round 1 + Rounds 2/3 unified — no separate routes per draft day).
+
+The existing `AssistantGmPanel` in the draft room may be renamed or repurposed (build-time decision) since the College Scout staff role is killed. Options:
+- Rename to "Real-Time Draft Assistant" or similar (distinct from the director's office)
+- Fold its real-time advisory function into the same director voice (so the draft room's assistant IS the director)
+
+Recommend the second option — same voice everywhere makes the app feel like one consistent personality.
+
+### 9.3 Mock Draft (`/scouting/mock-draft`)
+
+Mock draft simulator. Existing or to-be-built. Out of scope for this spec — it's a workroom, not a chat surface. The office can deep-link into it ("Run a mock to test this strategy").
 
 ---
 
 ## Section 10: Topbar
 
-Inherits from `CFC-GM-OFFICE-SPEC.md` — same `InnerTopbar` component on the Scouting landing.
+Inherits `InnerTopbar` from GM Office spec.
 
 ### Desktop
 | Slot | Content | Behavior |
 |---|---|---|
-| Left | ← back arrow | Returns to home (org chart) |
-| Center | CFC league logo (clickable) | Returns to home (org chart) |
+| Left | ← back arrow | Returns to home |
+| Center | CFC league logo | Returns to home |
 | Right | Settings icon | Opens settings menu |
 
 ### Mobile
 | Slot | Content | Behavior |
 |---|---|---|
-| Left | Hamburger menu | Opens global navigation drawer |
-| Center | CFC league logo (clickable) | Returns to home (org chart) |
-| Right | Settings icon | Opens settings menu |
-
-Scouting does NOT use Pro Personnel's old dynamic-section-title topbar pattern (which is also being killed in the PP redesign). Center stays the league logo.
+| Left | Hamburger menu | Opens global nav |
+| Center | CFC league logo | Returns to home |
+| Right | Settings icon | Opens settings |
 
 ---
 
-## Section 11: The War Room
+## Section 11: Killed in v3.0
 
-The War Room is the existing draft surface (`src/components/draft/`). This spec doesn't redesign it — it codifies the relationship between the landing and the room, and locks one exception to the universal card system.
+These existed in v1.x / v2.x and are removed:
 
-### Sub-surfaces inside the War Room
-- **Set Rankings** — the board prep view. User ranks rookies, builds redshirt list, sets QB strategy, etc.
-- **Live Draft** — the active draft room, with current pick on the clock, ticker, scout's-take modals, etc.
-- **Draft Results** — post-draft summary, picks-made, grades.
-
-These already exist in the codebase (see `src/components/draft/`). The Scouting landing's action buttons route into them.
-
-### Scout's Take Card — exception to the universal flip pattern
-
-The Scout's Take Card (`ScoutingCardModal.tsx`) appears during live draft when the user taps a player on the board. It's a Player Card variant:
-
-- **Front:** photo + name + position chip + Rookie Card chip + *"Open scouting"* button
-- **Back:** bio bar (age / height / weight / position), school + position line, *"Scout's Take"* header, 3 grade rows (Capital / Situation / Opportunity), Value/Fit meters, *"Draft Player"* button (only enabled when on the clock)
-
-**Exception to universal flip:** during live draft, every second matters. Adding a flip animation costs the user a beat. The existing two-card desktop layout for Scout's Take stays as-is; single-card flip on mobile (the existing implementation already handles this). This is the one place in the app where we break the universal flip pattern, and we do it for a real reason.
-
-If at build time the desktop two-card layout feels off against the rest of the system, revisit — but speed beats consistency here.
-
-### Mobile bottom sheets
-War Room mobile uses the existing bottom-sheet pattern for tab content (Roster / Asst GM / Trade). These are existing implementations and fit the new system; no changes needed. (See `MobileBottomSheet.tsx` and `MobileTabBar.tsx`.)
-
-### Asst GM naming
-The existing draft room references an "Asst. GM" panel (`AssistantGmPanel.tsx`). Under the new cast-of-voices rules, the staff voice for Scouting is the **College Scout**, not the Asst. GM. The Asst. GM concept is a pre-cast-of-voices artifact. At build time:
-- Rename the AssistantGmPanel surface in the War Room to align with College Scout, OR
-- Keep the panel as an in-draft assistant (different role: real-time pick advisor during the live draft) but rename so it's distinct from the College Scout on the landing.
-
-Defer the naming call to build. The landing is the College Scout; the War Room's real-time draft assistant can be renamed if needed.
+1. **Scouting landing binder grid.** 3-column card grid on desktop, swipe deck on mobile. Gone.
+2. **Lens engine cards.** Rankings reminders, Rankings drift, Trade up/down intel as card-producing engines. Gone (the intel itself survives as conversation in the office).
+3. **College Scout staff voice.** The director is the only voice.
+4. **Opener chips on chat panel.** Replaced by the director's opening 3 POVs.
+5. **Persistent chat right rail.** No rail — chat is the entire surface.
+6. **Landing header bar with "Set rankings" + "Enter draft room" buttons.** Workrooms are reached from home screen deep links or office inline actions.
+7. **Mobile pinned action buttons below the topbar.** Same reason.
+8. **Director's-voice empty-state card.** Empty state lives in the chat opening message now.
+9. **"Memo card" subject chrome.** Memo card template is dead globally.
+10. **Card priority sort (red/yellow/green).** No cards, no sort.
+11. **28-day dismissal cooldown.** No cards to dismiss.
 
 ---
 
-## Section 12: Behavioral Notes
+## Section 12: Files Affected
 
-- **Default landing within the door:** the Scouting landing (`/scouting`). Outside of live draft, this is what the user sees on entering the door.
-- **Live draft routing:** home screen Scouting box's red-tier contextual action button (*"Enter the draft room"*) routes directly to `/scouting/war-room` — skipping the landing entirely. Click the door body instead → lands on the Scouting landing as normal.
-- **Logo click on topbar (any Scouting surface):** returns to home (org chart).
-- **Back arrow on landing:** returns to home.
-- **Back arrow inside War Room sub-surfaces:** returns to either the Scouting landing or directly home, depending on entry point and War Room's existing back-stack behavior. Defer routing detail to build.
-- **Hamburger (mobile):** opens global navigation drawer with all four doors + settings.
-- **Header buttons on landing** (*Set rankings* / *Enter draft room*): direct route to the respective sub-surface. Always visible (desktop header bar; mobile pinned-top action row).
-- **Landing card primary action:**
-  - Rankings drift → flip + inline rank adjuster + DONE stamp + slide-off (no route-out)
-  - Rankings reminders → flip + confirmation + route to Set Rankings inside the War Room
-  - Trade up/down intel → flip + pick a deal option + route to Trade Builder pre-populated
-- **Chat panel (desktop):** persistent right rail. Always visible while on the landing.
-- **Chat panel (mobile):** pinned single-line input. Tap → full-screen chat takeover.
+### Retire / replace
+- `src/components/scouting/ScoutingLanding.tsx` — kill (if built in v2.x)
+- `src/components/scouting/CardGrid.tsx` — kill
+- `src/components/scouting/RankingDriftCard.tsx` — kill
+- `src/components/scouting/RankingReminderCard.tsx` — kill
+- `src/components/scouting/TradeIntelCard.tsx` — kill
+- `src/components/scouting/ScoutingChatPanel.tsx` — replace with full office implementation (see below)
+- `src/components/scouting/ScoutingHeaderBar.tsx` — kill
+- `src/components/scouting/EmptyLanding.tsx` — kill
 
----
+### New (v3.0)
+- `src/components/scouting/ScoutingOffice.tsx` — top-level office page composing topbar + page title + chat surface. Mounts at `/scouting/office`.
+- `src/components/scouting/DirectorChat.tsx` — chat thread component (may be shared with PP and R&S — extract to `src/components/shared/DirectorChat.tsx`)
+- `src/components/scouting/DirectorOpening.tsx` — renders the opening message (1-3 POVs or empty state)
+- `src/components/scouting/InlineTradeCard.tsx` — mini trade card embedded in messages (may be shared with PP)
+- `src/components/scouting/InlineActionButton.tsx` — reusable button for deep links and commits
 
-## Section 13: Items Killed in This Design Pass
-
-These are concepts that surfaced during design and got cut:
-
-1. **On-the-clock card on the landing.** Handled by the home screen door's red-tier briefing instead. User shouldn't be on the landing during live draft.
-2. **Class recap card.** Not insightful. If post-draft summary is needed, it lives in War Room results.
-3. **Standalone class strength card.** Class strength is plumbing — a signal input to the Trade up/down intel lens, not its own surface.
-4. **Targets / target toggle lens.** During earlier design rounds, a "Target candidate" lens was proposed (mark players as targets via a toggle on the card). Killed: the board IS the target list. Top of the board = de facto targets. No separate target tag.
-5. **Sleeper find lens.** Folded into Rankings drift (same action, different reasons).
-6. **Pre-draft / time-sensitive / post-draft lens groupings.** Earlier drafts grouped lenses by season; the final 3 lenses span the full lifecycle and don't need explicit grouping in the spec.
-
----
-
-## Section 14: Files Affected
-
-### New components
-- `src/components/scouting/ScoutingLanding.tsx` — top-level page composing topbar + header bar + binder grid + chat panel (desktop) / pinned-input (mobile). Mounts at `/scouting`.
-- `src/components/scouting/CardGrid.tsx` — binder grid for desktop (3 columns); swipe deck for mobile. May be a shared component with R&S and Pro Personnel landings (see PP and R&S specs for cross-pollination opportunities).
-- `src/components/scouting/RankingDriftCard.tsx` — Player Card variant for the Rankings drift lens. Front + back, inline rank adjuster on back.
-- `src/components/scouting/RankingReminderCard.tsx` — Memo Card variant for the Rankings reminders lens.
-- `src/components/scouting/TradeIntelCard.tsx` — Player or Memo Card variant for the Trade up/down intel lens. Front + back, 3 deal options on back.
-- `src/components/scouting/ScoutingChatPanel.tsx` — persistent right-rail chat (desktop) / pinned-input + takeover (mobile). Wraps the historian-style chat with College Scout identity + 3 opener chips.
-- `src/components/scouting/ScoutingHeaderBar.tsx` — landing's header bar (page title + Set rankings / Enter draft room buttons on desktop; mobile pinned-top action row).
-- `src/components/scouting/EmptyLanding.tsx` — empty-state copy in director's voice.
-
-### Reuse / adapt
-- `src/components/draft/*` — War Room components, preserved with minor refinements:
-  - `AssistantGmPanel.tsx` — rename to align with College Scout naming, or keep as War Room real-time advisor with a different name. Defer to build.
-  - `ScoutingCardModal.tsx` — Scout's Take Card, preserved as the universal-flip-pattern exception during live draft.
-  - `WelcomeScreen.tsx` — review against new system; may need updates for the new cast-of-voices voice rules.
-- `src/components/draft/mobile/MobileDraftRoom.tsx` — War Room mobile entry, preserved.
-- `src/components/draft/mobile/MobileFlipCardModal.tsx` — preserved.
-- `src/components/draft/mobile/MobileHamburgerMenu.tsx` — preserved.
-- `src/components/draft/mobile/MobileTabBar.tsx` — preserved.
-- `src/components/draft/mobile/MobileTopBar.tsx` — preserved (matches InnerTopbar mobile pattern).
-- `src/components/draft/mobile/MobileBottomSheet.tsx` — preserved (existing tab content sheets).
+### Reuse
+- `src/components/draft/*` — Draft Room components, preserved
+- `src/components/draft/AssistantGmPanel.tsx` — preserved; rename or repurpose as the director's in-draft voice (build decision)
+- Big Board components — existing surface preserved
 
 ### New / extended APIs
-- `/api/scouting/landing` — generates the landing cards (runs the 3 lenses, returns sorted card list)
-- `/api/scouting/dismiss` — records dismissal (if dismiss is supported on Scouting cards; defer to build)
-- `/api/scouting/act` — records that a card's action was taken (for cooldown / no resurfacing)
-- Extension to existing rankings endpoints for the inline rank adjuster
+- `/api/scouting/office/opening` — generates the director's opening 3 POVs based on current state
+- `/api/scouting/office/respond` — director's response to a user message (LLM-backed)
+- `/api/scouting/intel/draft-position` — closed-league data: who's likely on the board, trade partner candidates, etc.
+- `/api/scouting/intel/board-hygiene` — board completeness, outliers, value drift signals
 
-### Data wiring
-- User's draft board state (rankings, set-status, drift signals vs. consensus boards)
-- Days-to-draft countdown
-- R&S `wants_more` signal (for Trade up/down intel relevance)
-- Mock draft signals (which players likely fall to user's pick) for Trade intel
-- Class strength data (per-position depth / stud count for the year) for Trade intel signals
+### Director memo pipeline (writes to inbox)
+- The Scouting director also files memos to the GM inbox (reminders, recaps). New: a memo-generation job that runs on a cadence (TBD — daily? on state change?) and writes director memos to the inbox. Out of scope for the office spec itself but flagged here as a related workstream.
 
 ---
 
-## Section 15: Build Order Recommendation
+## Section 13: Build Order Recommendation
 
-Suggested sequence to ship cleanly without broken intermediate states. Each step should produce a buildable commit.
+### Phase 1 — Shared chat infrastructure
+1. **`DirectorChat.tsx`** — shared chat thread component. May be extracted to `src/components/shared/` if PP and R&S use the same shape (likely).
+2. **`InlineActionButton.tsx`** — reusable button for deep links and commits.
+3. **`InlineTradeCard.tsx`** — mini trade card. Likely shared with PP.
 
-### Phase 1 — Card primitives
-1. **`RankingDriftCard.tsx`** — Player Card variant. Front + back, inline rank adjuster. Stub data initially.
-2. **`RankingReminderCard.tsx`** — Memo Card variant. Subject chrome + headline + action.
-3. **`TradeIntelCard.tsx`** — Player or Memo Card variant. Front + back, 3 deal options on back.
+### Phase 2 — Office shell
+4. **`DirectorOpening.tsx`** — opening message renderer. Handles the 3-POV, 1-POV, and empty cases.
+5. **`ScoutingOffice.tsx`** — top-level page. Composes topbar + page title + DirectorChat. Mount at `/scouting/office`.
 
-### Phase 2 — Landing surface
-4. **`EmptyLanding.tsx`** — director's-voice empty state.
-5. **`CardGrid.tsx`** — binder grid / swipe deck. May be shared with PP and R&S — check cross-pollination at build.
-6. **`/api/scouting/landing`** — endpoint generating cards. Implement lenses one at a time:
-   - 6a. Rankings reminders (state-driven, simplest)
-   - 6b. Rankings drift (needs consensus board comparison data)
-   - 6c. Trade up/down intel (needs mock draft data + R&S signal integration)
+### Phase 3 — Backend intel
+6. **`/api/scouting/intel/draft-position`** — closed-league data queries (rankings aggregation, team needs analysis).
+7. **`/api/scouting/intel/board-hygiene`** — board state + value drift queries.
+8. **`/api/scouting/office/opening`** — generates 3 POVs from intel signals. LLM-backed for prose; structured data from the intel endpoints.
+9. **`/api/scouting/office/respond`** — handles user messages; LLM responds with prose + structured action payloads where applicable.
 
-### Phase 3 — Chat panel
-7. **`ScoutingChatPanel.tsx`** — persistent right-rail (desktop) / pinned-input + takeover (mobile). Wire opener chips + College Scout placeholder.
+### Phase 4 — Inline actions
+10. **Wire proposed-trade action** — director emits a `proposed_trade` action; renders as InlineTradeCard with "Open in Builder" button.
+11. **Wire deep-link actions** — Big Board (scoped to player), Draft Room, Mock Draft.
+12. **Wire one-click commits** — bump player on board, etc.
 
-### Phase 4 — Composition
-8. **`ScoutingHeaderBar.tsx`** — page title + action buttons.
-9. **`ScoutingLanding.tsx`** — composes topbar + header bar + binder grid + chat panel. Mount at `/scouting`.
-
-### Phase 5 — War Room refinements
-10. **`AssistantGmPanel.tsx` rename / refactor** — align with College Scout naming or distinguish as live-draft real-time advisor.
-11. **`WelcomeScreen.tsx` voice pass** — update copy against the new cast-of-voices rules if needed.
-12. **Scout's Take Card review** — confirm the universal-flip-pattern exception is right; tune at mockup.
-
-### Phase 6 — Polish
-13. **Wire home screen Scouting door's contextual action button** — *"Enter the draft room"* skips the landing on red-tier (draft live).
-14. **Animation tuning** — flip timing, slide-off easing, stamp landing on Rankings drift inline edits.
+### Phase 5 — Polish
+13. **Conversation persistence** — localStorage V1.
+14. **Clear conversation** affordance.
+15. **Mobile responsive polish.**
+16. **Phase 2 intel pipeline (deferred)** — when ready, add current-news intel (combine results, pro day reports, injury updates) via separate data pipeline.
 
 ---
 
-## Section 16: Open Items / Deferred Decisions
+## Section 14: Open Items / Deferred Decisions
 
-These are NOT blockers for the Scouting build. They are flagged for build phase or later work:
+NOT blockers:
 
-1. **Future draft classes lens.** Surfacing rising prospects for next year's class. Requires college football data infrastructure we don't have. Deferred.
-2. **Rankings drift card volume management.** When does drift cross the threshold from "interesting" to "surface a card"? How many simultaneous drift cards is too many? Tune at build.
-3. **Asst. GM panel naming.** Rename to College Scout, or keep distinct as a live-draft real-time advisor. Decide at build.
-4. **Class strength data wiring.** Needs per-class per-position depth signals. Defer to build if data layer needs work.
-5. **Mock draft signal source.** "Who's likely to fall to our pick" needs a data source — internal mock simulator, external aggregated mocks, or both. Defer to build.
-6. **R&S signal integration.** Reading `wants_more` from R&S into Trade up/down intel scoring. Build-time wiring against existing R&S strategy profile data.
-7. **Director's voice content engine.** Per-card quip generation — LLM at request time vs. templated rules. Same decision as PP and R&S, applied to Scouting.
-8. **Dismiss mechanic.** Does dismissal exist on Scouting cards the way it does on R&S Wall cards? Defer — likely yes with a cooldown but not blocking.
-9. **Inline rank adjuster animation.** The +/– adjuster on Rankings drift card backs. Tune at mockup.
-10. **Backend persistence for chat conversations.** V1: localStorage. V2: backend.
+1. **Director's-voice content engine.** LLM at request time vs. templated rules with LLM polish. Probably hybrid (structured intel from queries, LLM for prose). Defer.
+2. **Phase 2 intel pipeline.** Current-news intel (combine, pro days, injuries). Separate build, separate cost model. Deferred from V1.
+3. **AssistantGmPanel renaming/repurposing in Draft Room.** Lean toward folding into the director voice. Confirm at build.
+4. **"Their guys" / starred prospects feature.** Confirm if this exists in current Big Board or needs to be added.
+5. **Conversation persistence backend.** V1 localStorage; backend deferred.
+6. **POV click behavior.** Does clicking a POV auto-send "Let's dig into #1" or open a direct dive? Recommend direct dive. Confirm at build.
+7. **Director memo generation pipeline.** Triggers + cadence for filing memos to the inbox. Separate workstream.
+8. **Mock Draft surface.** Out of scope for this spec; build separately.
 
 ---
 
-## Section 17: Color Palette (Excerpt from Design System)
+## Section 15: Behavioral Notes
 
-| Name | Hex | Usage on Scouting |
-|---|---|---|
-| Ink | #1A1A1A | Borders, primary text, chrome backgrounds, action buttons (filled state) |
-| Paper | #FEFCF9 | Card backgrounds, chat panel content bg |
-| Cream | #F5F0E6 | Page background |
-| Blue | #3366CC | Primary action buttons, Rookie Card chip accent (TBD at mockup) |
-| Green | #019942 | Green urgency states (card-level + door-level chip) |
-| Yellow | #F5C230 | Yellow urgency chip on cards, Rankings reminders attention sub-type |
-| Red | #E8503A | Red urgency chip on cards, Rankings reminders urgency sub-type, draft-live state |
-| Muted | #8C7E6A | Secondary text, timestamps, subject line text in Memo Card chrome, dot indicators, chat placeholder italic |
-
-Full palette in `/docs/CFC-APP-STATUS.md`.
+- **Default landing within the door:** `/scouting/office`.
+- **Logo click:** returns to home.
+- **Back arrow:** returns to home.
+- **Hamburger (mobile):** opens global nav.
+- **POV click in opening message:** dives into a follow-up conversation on that topic.
+- **Inline action click:** fires the action (deep link routes; commit fires API + updates message in place).
+- **Send button click:** submits user message; director responds in thread.
+- **Clear conversation:** wipes thread, regenerates opening.
 
 ---
 
-## Section 18: Typography (Excerpt from Design System)
-
-| Font | Weight | Usage on Scouting |
-|---|---|---|
-| Syne | 800–900 | Page title, card chrome (player name, round name), section headers, action button labels, *"DONE"* stamp |
-| DM Sans | 400–700 | Director's-voice headlines (in quotes on cards), body prose, meta line text, chat input placeholder (italic) |
-| JetBrains Mono | 700 | Subject lines (*Re: ...*) on Memo Cards, position / class / Rookie chips, tab labels, *"Tap to view"* / *"Tap to update"* labels |
-
-Full system in `/docs/CFC-APP-STATUS.md`.
-
----
-
-## Section 19: Summary — At-a-Glance
+## Section 16: Summary — At-a-Glance
 
 | Element | Decision |
 |---|---|
-| **Routing** | `/scouting` (landing) · `/scouting/war-room` (live draft + sub-surfaces) |
-| **Concept** | College Scout's briefing room. Director on the cards + College Scout in the chat |
-| **Landing layout (desktop)** | 70% trading card binder grid (3 columns, 6–9 cards) + 30% persistent chat panel right rail |
-| **Landing layout (mobile)** | Pinned-top action buttons + swipeable card deck (peek killed, dots only) + pinned-bottom chat input |
-| **Card lens types (3)** | Rankings reminders (Memo) · Rankings drift (Player) · Trade up/down intel (Player or Memo) |
-| **Class strength** | Signal INPUT to Trade intel lens, not its own card |
-| **Card capacity** | 3–9 cards dynamic, sorted red → yellow → green. Empty state shows director's voice copy |
-| **Universal flip pattern** | Every landing card flips. Front = identity + *"Tap to view"* / *"Tap to update"*. Back = action / editor / 3 deal options |
-| **Memo corner** | Optional on player-anchored cards when director has a longer note |
-| **Director urgency** | 3 tiers (green/yellow/red). Door tier = highest card tier on the landing |
-| **Empty state** | *"Class is locked. We're ready."* (director voice) |
-| **Chat surface** | Persistent right rail (~30%) on desktop · Pinned-input + takeover on mobile · 3 opener chips (locked) · *"Ask the College Scout…"* placeholder |
-| **Opener chips (locked)** | *"Compare two prospects for me"* · *"Who'll likely be there at my pick?"* · *"Who's rising on draft boards?"* |
-| **Header actions** | *Set rankings* · *Enter draft room* (always visible, desktop top / mobile pinned) |
-| **War Room** | Existing surface preserved (Set Rankings + Live Draft + Results). Scouting landing routes into it |
-| **Scout's Take Card** | Exception to universal flip pattern. Existing two-card desktop layout preserved; mobile flip already implemented |
-| **Live draft routing** | Home screen Scouting box red-tier action button routes directly to War Room, skipping landing |
-| **Asst. GM panel** | Rename / refactor at build to align with College Scout naming or distinguish as live-draft real-time advisor |
-| **Cross-director signals** | Reads R&S `wants_more` for Trade intel relevance. Scouting → PP no direct flow |
-| **Killed** | On-the-clock landing card · Class recap card · Standalone class strength card · Target toggle / Targets lens · Sleeper find lens (folded into drift) |
+| **Routing** | `/scouting/office` (chat) · `/scouting/big-board` · `/scouting/draft-room` · `/scouting/mock-draft` |
+| **Concept** | Director's office — chat-driven workspace, director is the only voice |
+| **Office layout** | Full-width chat surface, no sidebars, no rails. Topbar + page title + chat thread + pinned input |
+| **Opening message** | Director's top 3 POVs (or fewer in quiet states). Each POV is signal → named target → recommendation → optional CTA |
+| **Voice** | First person ("we / our"), conversational, anonymized intel, no codespeak, leads with POV not open questions |
+| **Inline actions** | Proposed trade (mini card) · Deep links · One-click commits · Multi-option choices |
+| **V1 intel** | Closed-league data only — draft position intelligence, trade partner intelligence, board hygiene |
+| **Deferred to Phase 2** | Current-news intel (combine, pro days, injuries), next-year class scouting |
+| **Workrooms** | Big Board (unified rookies + vets) · Draft Room (existing) · Mock Draft |
+| **Round 1 vs. 2/3** | Treated as one continuous draft, not split by day |
+| **Cross-director signals** | Reads R&S wants_more + position market for trade intel relevance |
+| **Killed in v3.0** | Landing binder grid · Lens engine cards · College Scout staff voice · Opener chips · Persistent chat rail · Landing header bar · Empty-state card · Memo card subject chrome · Card priority sort · 28-day dismissal cooldown |
 
 ---
 
 ## End of Spec — Ready for Build
 
-The Scouting design is fully locked. Items intentionally deferred are content-engine choices (director's-voice generation), data-wiring (class strength, mock signals, R&S integration), and naming polish (Asst. GM panel). All locked items are buildable today against existing draft components and naturally-extended APIs.
+The Scouting v3.0 design is fully locked. Items intentionally deferred are content-engine choices, Phase 2 intel pipeline, AssistantGmPanel renaming, "their guys" feature confirmation, and Mock Draft scoping.
 
-Pick this up in a build chat by attaching this document along with `/docs/CFC-APP-STATUS.md`, `CFC-HOME-SCREEN-SPEC.md`, `CFC-GM-OFFICE-SPEC.md`, `CFC-PRO-PERSONNEL-SPEC.md`, and `CFC-RESEARCH-STRATEGY-SPEC.md`. The build chat should not need any conversation history beyond these six files to execute the build cleanly.
+Pick this up in a build chat by attaching this document along with `/docs/CFC-APP-STATUS.md` v3.0, `CFC-HOME-SCREEN-SPEC.md` v3.0, `CFC-GM-OFFICE-SPEC.md` v3.0, `CFC-PRO-PERSONNEL-SPEC.md` v3.0, and `CFC-RESEARCH-STRATEGY-SPEC.md` v3.0.
