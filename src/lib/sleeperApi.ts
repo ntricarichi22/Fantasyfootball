@@ -169,6 +169,35 @@ export interface SleeperDraftPick {
   season: string;
 }
 
+export interface SleeperDraftTradedPick {
+  season: string;
+  round: number;
+  roster_id: number;
+  previous_owner_id: number | null;
+  original_owner_id: number | null;
+}
+
+export interface SleeperNflPlayer {
+  player_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  full_name: string | null;
+  position: string | null;
+  team: string | null;
+  status: string | null;
+  sport: string | null;
+  age: number | null;
+  number: number | null;
+  depth_chart_position: string | null;
+  depth_chart_order: number | null;
+  years_exp: number | null;
+  college: string | null;
+  injury_status: string | null;
+  fantasy_positions: string[] | null;
+  metadata: Record<string, unknown> | null;
+  [key: string]: unknown;
+}
+
 // ─── Fetch helpers ────────────────────────────────────────────────────────────
 
 export const fetchLeague = (leagueId: string) =>
@@ -203,6 +232,12 @@ export const fetchDraft = (draftId: string) =>
 
 export const fetchDraftPicks = (draftId: string) =>
   sleeperFetch<SleeperDraftPick[]>(`/draft/${draftId}/picks`);
+
+export const fetchDraftTradedPicks = (draftId: string) =>
+  sleeperFetch<SleeperDraftTradedPick[]>(`/draft/${draftId}/traded_picks`);
+
+export const fetchNflPlayers = () =>
+  sleeperFetch<Record<string, SleeperNflPlayer>>(`/players/nfl`);
 
 /**
  * Walk the `previous_league_id` chain starting from `currentLeagueId`.
