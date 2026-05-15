@@ -1,49 +1,35 @@
 # CFC Front Office — Pro Personnel Design Spec
 
-**Version:** 2.0 (revised)
-**Date:** May 13, 2026
+**Version:** 3.0
+**Date:** May 14, 2026
 **Status:** Design locked — ready for mockup → code
 
-> **Revision note (v2.0, May 13, 2026):** Major redesign from v1.0 following the May 12, 2026 master design session. The landing is now a **trading card binder grid** of individual opportunity cards (matching R&S and Scouting) instead of the prior 3-section briefing layout. **2 card types** (down from 3): Acquire opportunity + Shop opportunity. League insights moved to GM Office (pending offers → Inbox aged indicators; completed trades → CFC Insider feed). The "Director's Pick" Hero Card on the PP landing is killed — the Hero Card (Studio cycler) now lives only in Trade Studio Shop Around. The old Confirm Modal is killed — replaced by the universal card flip pattern. A persistent **Pro Scout chat panel** is added (right rail desktop / full-screen takeover mobile). Old `LandingPage.tsx`, `CartSidebar.tsx`, `RosterModal.tsx` remain killed.
+> **Revision note (v3.0):** Major redesign. The PP landing binder grid (Acquire / Shop opportunity cards) is killed. The director's office is now a **chat-driven workspace** — open the office, the Director of Pro Personnel greets you with their top 3 POVs, the chat surfaces inline actions (proposed trades, deep links, one-click commits). Staff voice (Pro Scout) killed. Trade Builder restructured: **top 10 players / top 10 teams landing is killed** — Trade Builder now opens with the Hero Card cycler showing 5 director-drafted acquisition trades (auto-driven by R&S signals), plus a "Build my own" button to drop into the blank builder. Trade Studio unchanged in structure — Hero Card cycler with 5 shop offers (driven by user-selected block). Both PP workrooms now share the Hero Card cycler pattern.
 
 ---
 
 ## Purpose of This Document
 
-This document captures every design decision for the **Pro Personnel door** — the director's briefing room landing, the manual trade-building surface, and the manual shopping surface. It is the handoff spec for implementation. A new chat or developer should be able to read this document and execute the build without referring to prior conversation.
-
-This document is **forward-looking**. It describes what Pro Personnel becomes, not what it currently is.
+This document captures every design decision for the **Pro Personnel door** — the Director of Pro Personnel's office (chat-driven) and the workrooms reached from it (Trade Builder, Trade Studio).
 
 This spec must be read alongside:
-- `/docs/CFC-APP-STATUS.md` (project-wide design system and non-negotiables)
-- `CFC-HOME-SCREEN-SPEC.md` v2.1 (locked home screen — Pro Personnel is one of three director doors)
-- `CFC-GM-OFFICE-SPEC.md` (locked GM Office — receives league insights moved out of PP)
-- `CFC-RESEARCH-STRATEGY-SPEC.md` (locked R&S — Pro Personnel reads R&S signals)
-- `CFC-SCOUTING-SPEC.md` (locked Scouting — shares the binder-grid landing pattern with Pro Personnel)
+- `/docs/CFC-APP-STATUS.md` v3.0 (project-wide non-negotiables)
+- `CFC-HOME-SCREEN-SPEC.md` v3.0 (home screen routes here)
+- `CFC-GM-OFFICE-SPEC.md` v3.0 (inbox is the central "what's new" surface; PP director files memos there)
+- `CFC-SCOUTING-SPEC.md` v3.0 (peer director — same office pattern)
+- `CFC-RESEARCH-STRATEGY-SPEC.md` v3.0 (peer director — R&S signals feed PP intel)
 
-The Pro Personnel door is one of three directors reporting to the GM. Its lens is **looking outward** — other teams' rosters, trade activity, and who's a fit for our build.
+The Pro Personnel director's lens is **looking outward** — other teams' rosters, trade activity, and who's a fit for our build.
 
 ---
 
 ## Section 1: Concept & Metaphor
 
-The Pro Personnel door IS the **Director of Pro Personnel's briefing room**. The user walks in and the director's been at the desk all morning — opportunity cards laid out, ready to walk through:
+The Pro Personnel door is the **Director of Pro Personnel's office**. The user walks in and the director's been working the phones. One voice in the room — the director themselves. No staff. The conversation is the surface.
 
-> *"Boss, I worked the phones. Here's what I've got."*
+When the user opens the office, the director greets them with their top 3 POVs as the opening message — specific deals to consider, league activity worth acting on, value movements that change the calculus. Each POV ends with a recommendation. The user can click any POV to dive in, or type their own question. The director responds with prose AND inline actions — most commonly, proposed trades rendered as mini trade cards with "Open in Builder" buttons.
 
-Each card on the desk is one of two things:
-
-1. **A target to acquire** — *"Founders' WR1 fits our hole. Here's how to start that conversation."*
-2. **One of our guys worth shopping** — *"I think we should move Player X. Three teams might be calling."*
-
-That's it. No team-of-the-day folder, no league wire summary. The director's job is to translate league signals into specific player-level opportunities; the cards on the desk are those opportunities.
-
-Two voices in the room:
-
-- **The Director of Pro Personnel** — speaks on the cards. Has worked the phones, has a point of view about each deal. *"I think we should move Player X — but package him with a 2nd to maximize what comes back."* The director prepared the desk before you walked in.
-- **The Pro Scout** — staff, not the director. Lives in the chat. Pulls intel, runs comparisons, answers league questions. *"Which teams might trade a first?"* / *"Who's hot in the trade market?"* The scout is at the keyboard while the director is at the whiteboard.
-
-The metaphor governs everything that follows: card design (each opportunity is a real Topps card of the player), voice rules (director on the cards, scout in the chat), the persistent chat panel, and the role boundary — Pro Personnel **hunts opportunities**; the GM Office handles **correspondence** (the inbox) and **news** (the CFC Insider feed).
+Pro Personnel hunts opportunities. The GM Office handles correspondence (the inbox) and league news (memos). The PP office is the **proactive hunting surface**.
 
 ---
 
@@ -53,627 +39,403 @@ The metaphor governs everything that follows: card design (each opportunity is a
 
 | Route | Surface | Entry points |
 |---|---|---|
-| `/pro-personnel` | Pro Personnel landing (primary surface, this spec) | Home screen Pro Personnel director box |
-| `/trade-builder` | Trade machine (manual deal building) | GM Office "Propose" button **AND** the PP landing's *"Build a trade"* header button **AND** any Acquire opportunity card's flip-back "pick a package" action |
-| `/trade-studio` | Trade Studio (Shop Around — Hero Card cycler) | GM Office "Shop" button **AND** the PP landing's *"Shop my guys"* header button **AND** any Shop opportunity card's flip-back "pick a package" action |
+| `/pro-personnel/office` | Director's office (chat) | Home screen PP box → Office |
+| `/trade-builder` | Trade Builder workroom (Hero Card cycler + blank builder) | Home screen PP box → Build a Trade · Office chat inline action |
+| `/trade-studio` | Trade Studio workroom (Hero Card cycler) | Home screen PP box → Shop My Guys · Office chat inline action |
 
 ### Mental model
 
-Pro Personnel has **one surface** inside the door: the binder-grid landing. There is no internal navigation — no sidebar, no tabs, no sub-pages. The director's chat panel sits on the right (desktop) or as a pinned-input takeover (mobile). Everything else routes out to the working surfaces (`/trade-builder` or `/trade-studio`).
+Three surfaces inside the door:
 
-This mirrors the pattern locked across all three director doors (PP, R&S, Scouting): single landing surface with the binder grid + persistent chat panel. Sidebars are reserved for the GM Office.
+1. **Office** — chat-driven workspace, the director's room. No landing grid, no cards laid out. The conversation IS the surface.
+2. **Trade Builder** — acquisition workroom. Opens with the Hero Card cycler (5 director-drafted acquisition trades). User can pick one to load into the builder, or click "Build my own" to drop into the blank builder.
+3. **Trade Studio** — shop workroom. User picks players to shop, director generates 5 offers in the Hero Card cycler.
+
+Both workrooms use the **same Hero Card cycler pattern**. Symmetrical, consistent.
 
 ### What this replaces
 
-- The old "GM's Office" door concept (different from the new GM Office spec) is gone.
-- The old `src/components/trade/LandingPage.tsx` (top-10-players + ranked-franchises + search) is **killed**.
-- The PP v1.0 three-section layout (Director's Pick / Players We're Tracking / Teams Worth a Call) is **killed**.
-- The PP v1.0 Confirm Modal is **killed** — replaced by the universal card flip pattern.
+- The PP landing binder grid (Acquire / Shop opportunity cards) is killed.
+- The top 10 players + top 10 teams landing on Trade Builder is killed.
+- The lens engines that produced Acquire / Shop cards survive as **conversation starters in the office chat** AND as drivers of the Trade Builder cycler's 5 acquisition drafts.
+- Pro Scout staff voice is killed.
 
 ---
 
-## Section 3: The Landing — Layout (Desktop, ≥768px)
+## Section 3: The Office — Layout
+
+### Desktop (≥768px)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │  [InnerTopbar: ← back · league logo · settings]                       │
-│  [Header bar: "Pro Personnel" · Build a trade · Shop my guys]         │
-├──────────────────────────────────────────┬───────────────────────────┤
-│                                           │                            │
-│  ┌─────┐  ┌─────┐  ┌─────┐                │  ┌────────┬─────────────┐ │
-│  │card1│  │card2│  │card3│                │  │ Active │  History    │ │
-│  └─────┘  └─────┘  └─────┘                │  └────────┴─────────────┘ │
-│                                           │                            │
-│  ┌─────┐  ┌─────┐  ┌─────┐                │  ┌──────────────────────┐ │
-│  │card4│  │card5│  │card6│                │  │ [opener chip 1]      │ │
-│  └─────┘  └─────┘  └─────┘                │  └──────────────────────┘ │
-│                                           │  ┌──────────────────────┐ │
-│  ┌─────┐  ┌─────┐  ┌─────┐                │  │ [opener chip 2]      │ │
-│  │card7│  │card8│  │card9│                │  └──────────────────────┘ │
-│  └─────┘  └─────┘  └─────┘                │  ┌──────────────────────┐ │
-│                                           │  │ [opener chip 3]      │ │
-│  ← scroll for more ──                     │  └──────────────────────┘ │
-│                                           │                            │
-│                                           │  [Ask the Pro Scout…]     │
-└──────────────────────────────────────────┴───────────────────────────┘
-   ← ~70% binder grid →                       ← ~30% chat panel →
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│  DIRECTOR OF PRO PERSONNEL                                            │
+│                                                                       │
+├──────────────────────────────────────────────────────────────────────┤
+│                                                                       │
+│   "Morning, boss. Three things on my mind:"                          │
+│                                                                       │
+│   ┌───────────────────────────────────────────────────────────────┐   │
+│   │ 1. Founders just shipped Allen and their 2026 1st for picks   │   │
+│   │    and youth — full fire sale. Their WR room is loaded with   │   │
+│   │    guys we'd love. I'd start with Lamb and offer our 1st      │   │
+│   │    plus a depth piece.                                        │   │
+│   └───────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│   ┌───────────────────────────────────────────────────────────────┐   │
+│   │ 2. Lamb's stock is rising fast and Founders, Outlaws, and     │   │
+│   │    Kush are all buying at WR. Outlaws are our best target —   │   │
+│   │    they've got the picks and the urgency.                     │   │
+│   └───────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│   ┌───────────────────────────────────────────────────────────────┐   │
+│   │ 3. Mahomes is at peak value but the age cliff is real. We     │   │
+│   │    should move him now and Outlaws are the buyer — all-in     │   │
+│   │    and need a QB. I'd ask for two 1sts and a stud.            │   │
+│   └───────────────────────────────────────────────────────────────┘   │
+│                                                                       │
+│   Which one do we tackle? Or is there something else on your mind?    │
+│                                                                       │
+│  ┌─────────────────────────────────────────────────────────────────┐  │
+│  │ [Ask the Director of Pro Personnel…]                     [Send] │  │
+│  └─────────────────────────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
-- **InnerTopbar:** standard inner-page topbar (back arrow / league logo / settings). Inherits from GM Office spec. **The old PP v1.0 dynamic-section-title mobile topbar pattern is killed** — no more section labels in the topbar, because there are no sections.
-- **Header bar:** page title left (*"Pro Personnel"*); two action buttons right (*"Build a trade"*, *"Shop my guys"*).
-- **Main content area (~70%):** trading card binder grid, 3 columns, multiple rows visible. Each card ~280×392 (5:7 playing card ratio). 6–9 cards visible at a glance. Cards sort by tier (red → yellow → green) and within tier by recency.
-- **Right rail (~30%):** persistent chat panel. Two tabs (Active / History) at the top. Empty Active state shows the 3 locked opener chips (see Section 8). Input pinned at the bottom with placeholder *"Ask the Pro Scout…"* in muted italic DM Sans (#8C7E6A).
-- **Click a card** → flips in place to reveal the 3 pre-built package options. No reflow, no modal.
+- **InnerTopbar:** standard inner-page topbar.
+- **Page title:** *"Director of Pro Personnel"* in Syne 800.
+- **Chat surface:** full-width. No sidebar, no right rail.
+- **Opening message:** director's three POVs as clickable items. Each POV is a self-contained intel statement ending in a recommendation.
+- **Click a POV** → dives into a follow-up conversation on that topic.
+- **Chat input:** pinned at the bottom. Placeholder *"Ask the Director of Pro Personnel…"*.
 
-### Tap-to-view affordance
-Every Pro Personnel card carries a universal action label at the bottom — *"Tap to view"* — signaling the flip.
+### Mobile (<768px)
+
+Same shape, full-screen. Topbar mobile pattern. Page title + chat thread + pinned input.
 
 ---
 
-## Section 4: The Landing — Mobile Layout (<768px)
+## Section 4: The Director's Opening Message
 
-```
-┌─────────────────────────────────┐
-│  [topbar: hamburger / logo / ⚙] │
-├─────────────────────────────────┤
-│  [Build a trade] [Shop my guys] │  ← pinned action buttons
-├─────────────────────────────────┤
-│                                  │
-│                                  │
-│   ┌──────────────────────┐      │
-│   │                       │      │
-│   │ [single card front]   │      │  ← horizontal swipe deck
-│   │                       │      │
-│   │ "Tap to view"         │      │
-│   └──────────────────────┘      │
-│                                  │
-│           • • • • •              │  ← dots indicator (peek killed)
-│                                  │
-├─────────────────────────────────┤
-│  [Ask the Pro Scout…]           │  ← pinned chat input
-└─────────────────────────────────┘
-```
+Identical pattern to Scouting (see SCOUTING spec Section 4). Three POVs max, leading with recommendation, anonymized when discussing other teams' private intel.
 
-- **Top bar:** InnerTopbar mobile pattern (hamburger / logo / settings). **No dynamic section title** — that pattern is killed.
-- **Pinned action buttons** below the topbar: *"Build a trade"* and *"Shop my guys"*. Always visible during card swiping.
-- **Main content:** swipeable card deck. One card visible at a time. Horizontal swipe cycles through cards. **Peek of next card is killed.** Dots are the only swipe signal.
-- **Pinned chat input** (bottom): single-line *"Ask the Pro Scout…"*. Tap or start typing → expands to full-screen chat takeover with the 3 opener chips in the empty Active state. Close → returns to the landing.
-- **Scroll lock:** while a card is flipped, page-level scroll locks.
+### Example POVs (Voice Reference)
 
-When the landing has zero cards, the swipeable deck is replaced by the empty state copy (Section 7), centered, no card.
+The 8-10 PP intel categories we built up in design:
 
----
+**Fire-sale / level-up detection:**
+> *"Founders just shipped Allen and their 2026 1st for picks and youth — full fire sale. Their WR room is loaded with guys we'd love. I'd start with Lamb and offer our 1st plus a depth piece."*
 
-## Section 5: Card Types
+> *"Outlaws picked up two starters this month — they're going for it. They'd take any vet we'd consider moving. Daniels is the right one to offer."*
 
-Pro Personnel surfaces **two card types** on the landing. Both are Player Card template (Topps-style for a player), both flip, both have the same flip-back shape (3 pre-built packages). The director's voice on the front identifies which type it is.
+**Multi-team market opportunities:**
+> *"Lamb's stock is rising fast and Founders, Outlaws, and Kush are all buying at WR. Outlaws are our best target — they've got the picks and the urgency."*
 
-### 5.1 Acquire opportunity
+**Sell-high windows:**
+> *"Mahomes is at peak value but the age cliff is real. We should move him now and Outlaws are the buyer — all-in and need a QB. I'd ask for two 1sts and a stud."*
 
-A target on another team we should pursue.
+**Comparable trades:**
+> *"Comparable to Wilson just netted a 2nd and a starter WR last week. We should be able to pull the same return. Crossfitters are the right fit."*
 
-**Front (Player Card of the target):**
-- Topps-style player portrait of the target (their player)
-- Name, position, team chrome
-- Marker chips (STUD / YOUTH / AGING) where applicable
-- Optional memo corner if the director has a longer note
-- Director's quip:
-  > *"Founders are selling at WR. Their WR2 fits our hole. Here's how to start the conversation."*
-- Universal action label at the bottom: *"Tap to view"*
+**Unresolved threads:**
+> *"Founders haven't moved on from Daniels. We turned them down two weeks ago but I think their offer was fair. Worth countering with a small bump."*
 
-**Back (3 pre-built send packages):**
-- Card-level director headline: *"I've thought up 3 ways to construct this — pick your starting angle."*
-- 3 send-side package options stacked vertically. Examples:
-  - *"1st-rounder + filler"*
-  - *"Mahomes for haul-balance"*
-  - *"Picks-only — three 2nds"*
-- Each option is tappable.
-- Small X top-right to close the flip without committing (mobile).
+**Strategy alignment:**
+> *"Crossfitters have extra picks and need WR depth. We've got WR to spare and we want picks. I'd offer Pittman for their 2nd and a 3rd."*
 
-**Tap an option** → routes to `/trade-builder` with:
-- Partner team loaded as the active tab in the right panel
-- Target player pre-populated on the receive side
-- Selected package's assets pre-populated on the send side
-- User can edit or send from there
+**Aged offers:**
+> *"Founders have been sitting on our counter for 4 days. Time to nudge them or move on."*
 
-### 5.2 Shop opportunity
+**Roster surplus → market match:**
+> *"Three teams need a starting RB and we're sitting on two. Could turn that into real assets."*
 
-One of our players the director thinks we should move.
+### Voice Rules (Same as Scouting)
 
-**Front (Player Card of YOUR player):**
-- Topps-style player portrait of our player
-- Name, position, team chrome
-- Marker chips (STUD / YOUTH / AGING) where applicable
-- Optional memo corner
-- Director's quip with optional package recommendation:
-  > *"I think we should move Player X — but package him with a 2nd to maximize the return."*
-  > Or: *"Mahomes' value is peaking before the age cliff. Sell high while we can."*
-- Universal action label at the bottom: *"Tap to view"*
-
-**Back (3 packaging options for our player):**
-- Card-level director headline: *"Three ways to package this — pick your angle."*
-- 3 packaging options stacked vertically. Examples:
-  - *"Move Player X alone"*
-  - *"Move Player X + a 2nd"* (sweetener)
-  - *"Move Player X + Lamb"* (bundle)
-- Each option is tappable.
-- Small X top-right to close the flip without committing (mobile).
-
-**Tap an option** → routes to `/trade-studio?seed=shop` with:
-- The selected package pre-selected on the block (Trade Studio's existing roster grid is pre-marked Y for those assets)
-- Offers automatically generated (Trade Studio's "Generate offers" flow has already run)
-- User lands on the Hero Card cycler with offers ready
-
-### 5.3 Signal inputs (cross-director flow)
-
-The director runs lenses that draw from multiple sources to surface these cards. Build-time wiring; spec'd here for completeness.
-
-| Card type | Signal sources |
-|-----------|----------------|
-| Acquire opportunity | R&S `wants_more` (buying signal) · R&S position market (buying) · league market signals (other teams' availability changes) · partner team fit analysis |
-| Shop opportunity | R&S aging signal · R&S value drift signal · R&S position market (selling) · league market signals (where the buyers are) |
-
-R&S generates the settings signals (aging, drift, market direction). Pro Personnel turns them into specific player-level trade cards. Same architecture as Scouting's Trade up/down intel lens — directors talk to each other, cards live in their own domain.
-
-### 5.4 What was killed
-
-- **Hero Card / Director's Pick on PP landing.** The 5-deal cycler (Studio OfferCard) is no longer on the PP landing. It now lives only in Trade Studio Shop Around as the natural drill-in destination for Shop opportunity cards. Same component, different surface.
-- **Top Targets List Card** (v1.0 — single card listing 5 player rows). Each tracked player is now its own Acquire opportunity card in the binder.
-- **Top Trade Partners List Card** (v1.0 — single card listing 5 team rows). Team-fit analysis still drives Acquire opportunities, but the team itself isn't a card. The director's job is to translate team-level signals into player-level opportunities; team-of-the-day folder is gone.
-- **League insights as a card type** (proposed in the redesign discussion). Pending offer reminders → handled by the GM Office Inbox itself (threads ARE the reminders, aged-indicator next to a thread shows urgency). Completed league trades → CFC Insider feed in the GM Office.
-- **Confirm Modal** (PP v1.0 *"While we have them on the phone..."* modal). Replaced entirely by the universal card flip pattern.
-- **Director's-voice quip cycler concept** that varied per offer on the Hero Card. Moot now that the Hero Card doesn't live here.
+- First person ("we / our"), conversational
+- Anonymized intel — "word is Founders are high on him" not "Team X has him ranked 3rd"
+- No codespeak — no dollar values, no "wants_more," no "tier"
+- Leads with recommendation, not open questions
+- Specific named teams as call-targets is fine; specific rankings inside their boards is not
 
 ---
 
-## Section 6: Card Structure & Mechanics
+## Section 5: Inline Actions in the Chat
 
-Cards on the Pro Personnel landing follow the universal card system locked in `CFC-APP-STATUS.md` (Card System section).
+Same pattern as Scouting (see SCOUTING spec Section 5).
 
-### Player Card template (both Acquire and Shop)
-- **Front:** Topps-style identity (photo, name, position chip, team chip) + marker chips + director's quip + optional memo corner + universal action button at the bottom (*"Tap to view"*).
-- **Back:** 3 pre-built package options stacked vertically. Tap one → route to the destination with the deal pre-populated.
+For PP specifically, the most common inline action is **proposed trade** — the director's POVs almost always include a specific trade idea, and the chat naturally generates trade cards to open in the Builder.
 
-### Memo corner
-Optional. Present when the director has a longer note attached to the player that goes beyond the front-of-card quip. Tap the memo corner → popover with the full note. Travels with the player across surfaces (e.g., same memo corner on the same player's R&S Set Availability card).
+### PP-Specific Action Examples
 
-### Universal flip mechanic
-Per master card system:
-- Tap *"Tap to view"* → 3D rotateY flip, ~300ms ease-out
-- Pick a package on the back → routes out (no DONE stamp needed — the route IS the action)
-- Mobile: small X top-right of the back closes the flip without committing; page-level scroll locks while flipped
+User clicks POV #1 (Founders fire sale):
 
-### Card priority sort
-Cards sort top-to-bottom (desktop grid reading order, mobile deck order):
-1. Red cards first
-2. Yellow cards next
-3. Green cards last
-4. Within each tier, sort by recency
+Director responds:
+> *"Right — they're rebuilding hard. Lamb is the value play. Here's what I'd open with:"*
+>
+> ┌─────────────────────────────────┐
+> │ TO FOUNDERS                      │
+> │ Send: 2026 1st, Pittman          │
+> │ Receive: Lamb                    │
+> │ [In the range ✓]                 │
+> │ [Open in Builder →]              │
+> └─────────────────────────────────┘
+>
+> *"They've been signaling they want a 1st and a starting WR — this hits both. Want to take it to the builder?"*
 
-The home screen briefing previews the **top card on the landing** (Pattern A from the home screen spec).
-
-### Urgency triggers (locked framework)
-
-| Card type | Yellow trigger | Red trigger |
-|-----------|----------------|-------------|
-| Acquire opportunity | Hot target detected (high-fit player, partner is selling, value math works) | Untouchable being actively shopped (≥2 teams asking) — surfaces as a Shop card with extra urgency |
-| Shop opportunity | Aging signal + value peak; or position-market-selling signal with buyer demand | Untouchable target on the other side becomes briefly available |
-
-Pending offer urgency lives in the GM Office Inbox (aged indicators on threads), not on PP cards. PP is for proactive hunting; pending offers are correspondence.
+User clicks "Open in Builder" → routes to `/trade-builder` with the deal pre-populated, partner already loaded.
 
 ---
 
-## Section 7: Refresh, Empty State, Behavior
+## Section 6: Empty State
 
-### Refresh mechanics
-Landing computes **on page entry only**. User opens PP → engine runs lenses → picks Acquire / Shop cards by urgency and recency → renders. User acts on cards (taps a package, routes out) → on next entry, those cards may not return if the action resolved them. User leaves and returns later → fresh recompute.
+When the director has nothing pressing:
 
-**No manual refresh button.** Curated opportunities, not an endlessly-scrollable feed.
+> *"Wire's quiet, boss. Nothing pressing right now. Anything you want to look at?"*
 
-### Empty state
-When the landing has 0 cards, show the director's-voice empty state centered:
-
-> *"Quiet out there. I'll keep watching."*
-
-Optional sub-line if relevant context exists. No empty-state card, no illustrations — just copy + the chat input as the obvious next move. The director's-voice empty state is the locked pattern across all three director landings (per APP-STATUS Empty State Voice Rules).
+No bullet POVs. Just the director's voice + chat input ready.
 
 ---
 
-## Section 8: Chat Panel — The Pro Scout
+## Section 7: Trade Builder Workroom (`/trade-builder`)
 
-### Desktop (persistent right rail, ~30%)
-Always visible while on the landing.
+### Concept Change in v3.0
+
+The old Trade Builder landing (top 10 players + top 10 teams) is killed. Trade Builder now opens with the **Hero Card cycler** showing 5 director-drafted acquisition trades, plus a "Build my own" button to drop into the blank builder.
+
+Symmetrical with Trade Studio:
+- **Trade Builder:** 5 acquisition drafts (auto-driven by R&S signals — wants_more + position_market_buying)
+- **Trade Studio:** 5 shop offers (driven by user-selected block)
+
+### Layout — Hero Card Cycler
+
+Same `OfferCard.tsx` component as Trade Studio. Single card visible at a time:
 
 ```
-┌──────────────────────────┐
-│ ┌────────┬─────────────┐ │  ← tabs at the very top (no header label)
-│ │ Active │  History    │ │
-│ └────────┴─────────────┘ │
-├──────────────────────────┤
-│ ┌──────────────────────┐ │  ← 3 opener chips when conversation empty
-│ │ Which teams might    │ │     fade out when conversation starts
-│ │ trade a first?       │ │
-│ └──────────────────────┘ │
-│ ┌──────────────────────┐ │
-│ │ Who's hot in the     │ │
-│ │ trade market?        │ │
-│ └──────────────────────┘ │
-│ ┌──────────────────────┐ │
-│ │ Which GMs are        │ │
-│ │ easiest to deal with?│ │
-│ └──────────────────────┘ │
-│                           │
-│   [conversation thread]   │
-│                           │
-├──────────────────────────┤
-│ [Ask the Pro Scout…]     │  ← pinned input, muted italic placeholder
-└──────────────────────────┘
+┌──────────────────────────────────────────┐
+│ Deal shape as [Closer ▾]   ◀ 1 / 5 ▶    │
+├──────────────────────────────────────────┤
+│ TO FOUNDERS              [In the range]  │
+├──────────────────────────────────────────┤
+│                                           │
+│   SEND               RECEIVE              │
+│   2026 1st           Lamb                 │
+│   Pittman                                 │
+│                                           │
+├──────────────────────────────────────────┤
+│ "Founders are buying at WR and have      │
+│  picks to spare. Lamb fits our hole and  │
+│  this hits their stated needs."          │
+├──────────────────────────────────────────┤
+│ [Pass]     [Edit]     [Make this offer]  │
+└──────────────────────────────────────────┘
+
+           [+ Build my own]
 ```
 
-- **No header label** — the input placeholder carries the role identity.
-- **Tabs (Active / History) at the very top.**
-- **Opener chips (3 locked):**
-  - *"Which teams might trade a first?"*
-  - *"Who's hot in the trade market?"*
-  - *"Which GMs are easiest to deal with?"*
-- **Chip behavior:** tap a chip → autofills the input (does not auto-send). User can edit before submitting.
-- **Chip visibility:** shown in the empty Active state. Fade out when a conversation starts. Return when the user clears or starts a new conversation. History tab never shows chips.
-- **Input placeholder:** *"Ask the Pro Scout…"* — muted italic DM Sans (#8C7E6A). Same treatment in both desktop and mobile.
+- **Persona toggle:** user can re-roll the same partner with a different persona assumption (existing functionality).
+- **Prev / next arrows + counter:** cycle through the 5 drafts.
+- **Send / receive grid:** dark blue panel (existing styling).
+- **AI advisor prose:** director's rationale for this specific draft.
+- **Balance chip:** neutral grading (Studio pattern — offers already filtered to user's persona).
+- **Three buttons:** Pass (red border) / Edit (black border) / Make this offer (blue filled).
+- **Build my own:** secondary button below the cycler. Drops to the blank builder.
 
-### Mobile (pinned input → full-screen takeover)
-Tap or start typing in the pinned input → full-screen chat takeover. Same Active / History tabs, same opener chips in the empty Active state. Close affordance (top-right) returns to the landing.
+### Empty State
 
-### Default state (no conversation yet)
-Active tab shows the 3 opener chips + the input. No welcome screen, no fun facts, no extra copy.
+When the user has no clear strategy signals (new league, hasn't set strategy yet, no buying signals):
 
-### Conversation persistence
-V1: localStorage. Move to backend deferred — not blocking.
+> *"Looks like we haven't set our strategy yet, boss. Once we know what we want and where we're buying, I can draft up real targets. Want to head over to Set Strategy?"*
+>
+> [Open Set Strategy →]   [Build my own anyway →]
 
----
+This adds real teeth to Set Strategy — users who skip it can't benefit from the director's drafts.
 
-## Section 9: Header Bar — Manual Tool Buttons
+### Blank Builder Surface
 
-The Pro Personnel landing has a persistent header bar between the topbar and the binder grid. **Desktop only** — on mobile, these buttons live in the pinned-top action row beneath the topbar.
+When the user clicks "Build my own" or routes from a chat inline action with a specific pre-population:
 
-### Composition (desktop)
-```
-[Pro Personnel]                       [Build a trade]  [Shop my guys]
-```
-- **Left:** page title in Syne 800, ~18px
-- **Right:** two buttons in neobrutalist black-bordered button style
-
-### Button styling
-- Background: Paper (#FEFCF9)
-- Border: 2.5px solid Ink
-- Box shadow: 3px offset, Ink
-- Font: Syne 800, ~12px, uppercase, letter-spacing 0.04em
-- Padding: ~10px 16px
-- No rounded corners
-
-### Behavior
-- **`Build a trade`** → `window.location.href = "/trade-builder"`. Lands in the trade machine empty (no cart, no partner). The trade machine's "+Add" buttons trigger the partner-picker modal from there (Section 12).
-- **`Shop my guys`** → `window.location.href = "/trade-studio"`. Lands in the manual Shop's existing roster-grid layout (Trade Studio's existing entry point).
-
-These are co-equal entry points to the room, not escape hatches. The director's curated binder is the default surface, but the manual tools aren't a downgrade — power users skip the cards and go straight to the work.
-
-### Mobile equivalent
-The header bar is removed on mobile. The two buttons live in the **pinned action row** beneath the topbar, mirroring R&S and Scouting mobile patterns.
-
----
-
-## Section 10: Topbar
-
-Inherits from `CFC-GM-OFFICE-SPEC.md` — same `InnerTopbar` component on the Pro Personnel landing.
-
-### Desktop
-| Slot | Content | Behavior |
-|---|---|---|
-| Left | ← back arrow | Returns to home (org chart) |
-| Center | CFC league logo (clickable) | Returns to home (org chart) |
-| Right | Settings icon | Opens settings menu |
+The existing `TradeBuilder.tsx` component is preserved with no internal changes. Layout:
+- Deal card on the left (send / receive columns)
+- Right panel with roster tabs (user's roster + partner's, when partner selected)
+- AI Advisor below the deal card
+- "+ Add from your roster" and "+ Add from their roster" buttons
+- Empty state: clicking "+ Add from their roster" fires the partner-picker modal (search + team list)
 
 ### Mobile
-| Slot | Content | Behavior |
-|---|---|---|
-| Left | Hamburger menu | Opens global navigation drawer |
-| Center | CFC league logo (clickable) | Returns to home (org chart) |
-| Right | Settings icon | Opens settings menu |
 
-**The old PP v1.0 dynamic-section-title mobile topbar pattern is killed.** There are no sections anymore, so the center stays the league logo on all R&S, Scouting, and PP mobile topbars.
+Hero Card cycler renders one card at a time. Swipe left/right to cycle. Same component, mobile-optimized layout. "Build my own" button persistent below the cycler.
 
 ---
 
-## Section 11: Working Surface — Manual Trade Machine (`/trade-builder`)
+## Section 8: Trade Studio Workroom (`/trade-studio`)
 
-The trade machine is **`src/components/trade/TradeBuilder.tsx`**, preserved with no internal changes. This section documents how it's reached and what its empty entry state looks like.
+Largely unchanged from v2.x. User picks players to shop (existing roster grid + Y toggle), hits Generate, director produces 5 offers via the existing pipeline, Hero Card cycler displays them.
 
-### Entry points
+The Hero Card pattern is the SAME component used in Trade Builder. Reused, not duplicated.
 
-1. GM Office's "Propose" button → direct to `/trade-builder` (no cart, no partner). **Note:** the GM Office spec's older Propose-popover proposal is moot now — Propose routes directly to the trade machine. Update GM Office spec Section 8 accordingly when implementing.
-2. Pro Personnel landing's *"Build a trade"* header button → same as above
-3. Pro Personnel landing's **Acquire opportunity** card flip-back, package selected → `/trade-builder` with partner + target + selected send package pre-populated
-4. Trade Studio's existing OfferCard "Edit" button → `/trade-builder?seed=studio` (existing flow, preserved)
+### Persona Override
+Per-offer persona override popover preserved (existing functionality).
 
-### Empty state composition (entry points 1 & 2)
-
-When the user lands with no cart and no partner:
-- Right panel shows **only your roster** as the active tab. No partner tabs yet.
-- Deal card on the left shows two empty sides:
-  - "You send" with a `+ Add from your roster` dashed button
-  - "You receive" with a `+ Add from their roster` dashed button
-- Topbar shows your team name only (no partner name to concatenate yet)
-- "Send offer" CTA is disabled (canSend is false)
-
-### "+ Add from their roster" tap behavior — the partner-picker modal
-
-Tapping `+ Add from their roster` on the empty state opens the **partner-picker modal**. Lightweight modal — a slight evolution of the existing `TeamPickerModal.tsx`:
-
-```
-┌────────────────────────────────────────────┐
-│  Pick a trade partner                       │
-│                                             │
-│  ┌─────────────────────────────────────┐    │
-│  │ 🔍 Search for a player or team…      │    │
-│  └─────────────────────────────────────┘    │
-│                                             │
-│  ── or pick a team ──                       │
-│                                             │
-│  → Bay Area Founders                        │
-│  → Cleveland Football Club                  │
-│  → Dallas Outlaws                           │
-│  → ... (all 11 other teams)                 │
-│                                             │
-└────────────────────────────────────────────┘
-```
-
-**Behaviors:**
-- **Search path:** typing filters across all 11 other teams' rosters by player name. Tapping a player result adds them to the receive side AND loads their team into the right panel as the active tab.
-- **Team path:** tapping a team loads that team into the right panel as the active tab. Modal closes. User picks assets from the right panel.
-- **One team at a time.** No multi-select, no "Done" button. If the user wants a third team, they tap "+Add team" again later (existing 3-team-mode flow handles the rest).
-
-### "+ Add from your roster" tap behavior
-
-If the right panel is currently showing a partner team's roster, the existing `handleAddFromTeam(myTeamId)` already flips the active tab back to your roster — no change needed.
-
-### What's preserved in `TradeBuilder.tsx`
-Everything. No changes to the component. Existing props (`initialCart`, `initialTeams`, `initialDealAssets`) all support the empty-entry case (`initialCart={[]}`, `initialTeams={[]}`).
-
-The only NEW work in the trade-machine area is the partner-picker modal — a small new component or a refactor of `TeamPickerModal.tsx` to add a search bar.
+### Inline Action Entry
+When the user enters Trade Studio from a chat inline action (e.g., director said *"Mahomes is at peak value, let me draft up shop offers"* → user clicks "Shop Mahomes"), the roster grid is pre-marked with Mahomes selected and offers auto-generate. User lands on the Hero Card cycler with offers ready.
 
 ---
 
-## Section 12: Working Surface — Trade Studio Shop Around (`/trade-studio`)
+## Section 9: Killed in v3.0
 
-The Trade Studio is **`src/components/trade-studio/TradeStudioView.tsx`**, preserved with no internal changes. **This is now the home of the Hero Card cycler** (the 5-deal Studio OfferCard).
+These existed in v1.x / v2.x and are removed:
 
-### Entry points
-
-1. GM Office's "Shop" button → direct to `/trade-studio` (existing roster-grid entry → user picks players → generates offers → Hero Card cycler drawer opens)
-2. Pro Personnel landing's *"Shop my guys"* header button → same as above
-3. Pro Personnel landing's **Shop opportunity** card flip-back, package selected → `/trade-studio?seed=shop` with the package pre-marked on the roster grid AND offers automatically generated → Hero Card cycler drawer open with offers ready
-
-### Hero Card lives here
-
-The Hero Card template (single-sided cycler, persona toggle, prev/next, send/receive grid, AI advisor prose, balance chip, *Pass* / *Edit* / *Make this offer*, counter 1/5) lives exclusively in Trade Studio Shop Around. This is the only place in the app that uses the Hero Card template — the universal flip pattern doesn't apply here (Hero Card is single-sided).
-
-No changes to `OfferCard.tsx` or `TradeStudioView.tsx`. The component already handles all the cycler logic; new entry points just route into it.
-
-### Director's-voice quip context (when entered from a PP Shop card)
-
-When entered via a PP Shop opportunity card with a pre-seeded package, the Hero Card cycler can optionally show a small director's-voice context line above the first offer, referencing why we're here:
-> *"Here's what the league's offering for [Player X] + [package]."*
-
-Defer to build whether this context line ships in V1 or as polish. The cycler works fine without it.
+1. **PP landing binder grid.** Acquire / Shop opportunity cards in a grid. Gone.
+2. **Acquire opportunity Player Card.** Gone (intel survives as conversation in office).
+3. **Shop opportunity Player Card.** Gone (intel survives as conversation in office).
+4. **Pro Scout staff voice.** Director is the only voice.
+5. **Opener chips on chat panel.** Replaced by director's opening 3 POVs.
+6. **Persistent chat right rail.** No rail — chat is the entire surface in the office.
+7. **Landing header bar with "Build a trade" + "Shop my guys" buttons.** Workrooms reached from home screen deep links or office inline actions.
+8. **Mobile pinned action buttons below the topbar.** Same reason.
+9. **Trade Builder top 10 players landing.** Killed in v3.0.
+10. **Trade Builder top 10 teams landing.** Killed in v3.0.
+11. **Director's-voice empty-state card on landing.** Empty state lives in the chat opening message.
+12. **Memo card subject chrome.** Memo card template is dead globally.
+13. **Card priority sort (red/yellow/green).** No cards on landing, no sort.
+14. **Hero Card "Director's Pick" on PP landing** (already killed in v2.x). Stays killed. Hero Card now lives in BOTH workrooms (Trade Builder and Trade Studio).
 
 ---
 
-## Section 13: Items Killed in This Redesign
+## Section 10: Files Affected
 
-These exist in the codebase and are removed:
+### Retire / replace
+- `src/components/pro-personnel/ProPersonnelLanding.tsx` — kill
+- `src/components/pro-personnel/CardGrid.tsx` — kill (or move to shared if reused for nothing; likely kill)
+- `src/components/pro-personnel/AcquireCard.tsx` — kill
+- `src/components/pro-personnel/ShopCard.tsx` — kill
+- `src/components/pro-personnel/ProScoutChatPanel.tsx` — replace with full office implementation
+- `src/components/pro-personnel/PPHeaderBar.tsx` — kill
+- `src/components/pro-personnel/EmptyLanding.tsx` — kill
+- `src/components/trade/LandingPage.tsx` — confirm killed (was retired in v2.x)
+- `src/components/trade/CartSidebar.tsx` — confirm killed
+- `src/components/trade/RosterModal.tsx` — confirm killed
+- `src/components/trade/ConfirmModal.tsx` — confirm killed
 
-1. **`src/components/trade/LandingPage.tsx`** — already killed in v1.0; remains killed. Its top-10-players and ranked-teams sections do NOT return in v2.0; the binder grid of individual opportunity cards replaces them.
-2. **`src/components/trade/CartSidebar.tsx`** — already killed in v1.0; remains killed.
-3. **`src/components/trade/RosterModal.tsx`** — already killed in v1.0; remains killed.
-4. **`src/components/trade/ConfirmModal.tsx`** — the v1.0 spec retained this with new copy. v2.0 **kills it entirely**. The universal card flip pattern replaces it. Delete the file.
-5. **Director's Pick Hero Offer Card on the PP landing** (v1.0). The Hero Card cycler is moved exclusively to Trade Studio Shop Around. The PP landing's first section is gone (no Section 1 / Section 2 / Section 3 structure exists in v2.0 — it's one binder grid).
-6. **PP v1.0 mobile snap-scroll-between-sections pattern.** Mobile is now one swipeable card deck (single section), not 3 vertically-snapped panels.
-7. **PP v1.0 dynamic section title in mobile topbar.** Killed because there are no sections.
-8. **The PP v1.0 chevron + dots IndicatorCluster** (chevron above dots for swipe-up cue). With one section only, no vertical swipe needs cueing. Dots survive as the horizontal swipe indicator on mobile single-section deck (matches R&S and Scouting).
-9. **GM Office Propose popover** ("Scout Players or Scout Teams?") — already killed in v1.0; remains killed. GM Office Propose routes directly to `/trade-builder`.
-10. **The old "GM's Office" door concept (predating v1.0)** — remains killed.
+### New (v3.0)
+- `src/components/pro-personnel/ProPersonnelOffice.tsx` — top-level office page. Mounts at `/pro-personnel/office`.
+- `src/components/pro-personnel/DirectorChat.tsx` — chat thread component (shared with Scouting and R&S — extract to `src/components/shared/DirectorChat.tsx`)
+- `src/components/pro-personnel/DirectorOpening.tsx` — opening message renderer
+- `src/components/pro-personnel/InlineTradeCard.tsx` — mini trade card (shared with Scouting)
+- `src/components/trade/TradeBuilderEntry.tsx` — new entry surface for Trade Builder. Renders the Hero Card cycler with 5 acquisition drafts + "Build my own" button. Drops to existing `TradeBuilder.tsx` for the blank-builder path.
 
----
-
-## Section 14: Files Affected
-
-### Retire (delete)
-- `src/components/trade/LandingPage.tsx` — already retired; confirm removed
-- `src/components/trade/CartSidebar.tsx` — already retired; confirm removed
-- `src/components/trade/RosterModal.tsx` — already retired; confirm removed
-- `src/components/trade/ConfirmModal.tsx` — **delete in this pass** (was retained with new copy in v1.0; now superseded by card flip)
-
-### Replace / update if v1.0 already built
-If any v1.0 PP landing files were built, refactor or replace per v2.0:
-- `src/components/pro-personnel/ProPersonnelLanding.tsx` — restructure from 3 sections to single binder grid + persistent chat panel
-- `src/components/pro-personnel/DirectorPickSection.tsx` — retire (Hero Card moved to Trade Studio)
-- `src/components/pro-personnel/HorizontalRail.tsx` — retire (no horizontal rails in v2.0)
-- `src/components/pro-personnel/IndicatorCluster.tsx` — retire (chevron + section snapping gone)
-
-### New components (v2.0)
-- `src/components/pro-personnel/ProPersonnelLanding.tsx` — top-level page composing topbar + header bar + binder grid + chat panel (desktop) / pinned-input (mobile). Mounts at `/pro-personnel`.
-- `src/components/pro-personnel/CardGrid.tsx` — binder grid for desktop (3 columns); swipe deck for mobile. May be a shared component with R&S and Scouting landings — check cross-pollination at build.
-- `src/components/pro-personnel/AcquireCard.tsx` — Player Card variant for the Acquire opportunity card. Front + back, 3 send-package options on back.
-- `src/components/pro-personnel/ShopCard.tsx` — Player Card variant for the Shop opportunity card. Front + back, 3 packaging options on back.
-- `src/components/pro-personnel/ProScoutChatPanel.tsx` — persistent right-rail chat (desktop) / pinned-input + takeover (mobile). Wraps the chat with Pro Scout identity + 3 opener chips.
-- `src/components/pro-personnel/PPHeaderBar.tsx` — landing's header bar (page title + Build a trade / Shop my guys buttons on desktop; mobile pinned-top action row).
-- `src/components/pro-personnel/EmptyLanding.tsx` — empty-state copy in director's voice.
-- `src/components/trade/PartnerPickerModal.tsx` — new modal for the trade machine empty state (search bar + team list). Replaces `TeamPickerModal.tsx` or is a refactor of it.
-
-### Reuse untouched
-- `src/components/trade-studio/OfferCard.tsx` — Hero Card. Untouched. Now used only in Trade Studio.
-- `src/components/trade-studio/PersonaPopover.tsx` — used by OfferCard
-- `src/components/trade-studio/TradeStudioView.tsx` — Trade Studio, untouched (gains a new entry-point query param `?seed=shop` for pre-seeded packages from PP Shop cards)
-- `src/components/trade-studio/RosterPanel.tsx` — used by Studio
-- `src/components/trade-studio/PassConfirmModal.tsx` — used by Studio
-- `src/components/trade/TradeBuilder.tsx` — manual trade machine, untouched
-- `src/components/trade/DealCard.tsx` — used by TradeBuilder
-- `src/components/trade/AIAdvisor.tsx` — used by TradeBuilder
-- `src/components/trade/PlayerRow.tsx` — used by TradeBuilder
-- `src/components/trade/TierDivider.tsx` — used by TradeBuilder
-- `src/components/trade/RoutingPopup.tsx` — used by TradeBuilder
-- `src/components/trade/shared/TradeBalanceChip.tsx` — used by OfferCard
+### Reuse
+- `src/components/trade-studio/OfferCard.tsx` — Hero Card. Now used in BOTH Trade Studio and Trade Builder.
+- `src/components/trade-studio/PersonaPopover.tsx`
+- `src/components/trade-studio/TradeStudioView.tsx` — Trade Studio, untouched (still gains `?seed=shop` query param for inline-action entry from office chat)
+- `src/components/trade-studio/RosterPanel.tsx`
+- `src/components/trade-studio/PassConfirmModal.tsx`
+- `src/components/trade/TradeBuilder.tsx` — blank-builder workroom, untouched. Now reached via "Build my own" or pre-population from office chat.
+- `src/components/trade/DealCard.tsx`
+- `src/components/trade/AIAdvisor.tsx`
+- `src/components/trade/PlayerRow.tsx`
+- `src/components/trade/TierDivider.tsx`
+- `src/components/trade/RoutingPopup.tsx`
+- `src/components/trade/PartnerPickerModal.tsx` — partner-picker for blank builder entry (existing or to-be-built per v2.x spec)
+- `src/components/trade/shared/TradeBalanceChip.tsx`
 
 ### APIs
-- `/api/trades/targets` — feeds the PP landing's lens engine (existing endpoint, may need extension for new lens output shape)
-- `/api/trade-studio/generate` — now consumed by Trade Studio only (no longer called from PP landing). Trade Studio's existing flow uses it.
-- `/api/trade-studio/feedback` — Pass action (Trade Studio internal)
-- `/api/trades/advisor` — AI advisor prose (Trade Studio internal)
-- `/api/trades/create` — Make this offer (Trade Studio internal)
-- New (or extended): `/api/pro-personnel/landing` — endpoint generating Acquire / Shop cards by running lenses. May extend `/api/trades/targets` rather than create new.
 
-### Data wiring
-- R&S signal integration (aging, value drift, position market, wants_more) — pulled from existing R&S strategy profile data
-- League market signals (other teams' availability changes, recent trades, partner team fit analysis) — partially exists in `/api/trades/targets`
-- Director's-voice quip generation — content engine decision (LLM at request time vs. templated rules). Defer to build.
-- Pre-built package generation per Acquire / Shop card — needs partner-aware package construction logic (similar to Trade Studio's candidate generator but inverted for the user's send-side)
+**Existing (preserved):**
+- `/api/trade-studio/generate` — generates 5 shop offers (consumed by Trade Studio)
+- `/api/trade-studio/feedback` — Pass action
+- `/api/trades/advisor` — AI advisor prose
+- `/api/trades/create` — Make this offer
 
----
+**New / extended:**
+- `/api/trade-builder/generate-acquisitions` — generates 5 acquisition drafts based on R&S signals. New endpoint. Parallel to `/api/trade-studio/generate` but inverted for the acquire side.
+- `/api/pro-personnel/office/opening` — generates director's opening 3 POVs
+- `/api/pro-personnel/office/respond` — director's response to user messages
 
-## Section 15: Build Order Recommendation
-
-Suggested sequence to ship cleanly. Each step should produce a buildable commit.
-
-### Phase 1 — Cleanup
-1. **Delete** `ConfirmModal.tsx` and any references to it.
-2. **Confirm retired** `LandingPage.tsx`, `CartSidebar.tsx`, `RosterModal.tsx` and any other v1.0 PP files no longer needed.
-3. **`PartnerPickerModal.tsx`** — new modal for trade machine empty state. Standalone. Unblocks several entry paths.
-
-### Phase 2 — Card primitives
-4. **`AcquireCard.tsx`** — Player Card variant. Front (Topps + director quip + tap-to-view) + back (3 send-package options). Stub data initially.
-5. **`ShopCard.tsx`** — Player Card variant. Front + back (3 packaging options). Stub data initially.
-
-### Phase 3 — Landing surface
-6. **`EmptyLanding.tsx`** — director's-voice empty state.
-7. **`CardGrid.tsx`** — binder grid / swipe deck. May be shared with R&S and Scouting — coordinate at build.
-8. **`/api/pro-personnel/landing`** (or extension to `/api/trades/targets`) — endpoint generating cards. Implement signal integrations one at a time:
-   - 8a. R&S signal pulls (aging, value drift, position market, wants_more)
-   - 8b. Partner team fit analysis (existing `/api/trades/targets` logic)
-   - 8c. Pre-built package generation per card
-
-### Phase 4 — Chat panel
-9. **`ProScoutChatPanel.tsx`** — persistent right-rail (desktop) / pinned-input + takeover (mobile). Wire opener chips + Pro Scout placeholder.
-
-### Phase 5 — Composition
-10. **`PPHeaderBar.tsx`** — page title + action buttons.
-11. **`ProPersonnelLanding.tsx`** — composes topbar + header bar + binder grid + chat panel. Mount at `/pro-personnel`.
-
-### Phase 6 — Trade Studio Shop seed
-12. **Wire `?seed=shop` into Trade Studio.** When PP Shop card routes to `/trade-studio?seed=shop`, the Trade Studio reads the package from sessionStorage (or query params), pre-marks the assets, and auto-runs Generate offers.
-
-### Phase 7 — GM Office update
-13. **Update GM Office Propose button** — confirm direct route to `/trade-builder` (no popover).
-14. **Update GM Office Inbox aged indicators** — pending offer reminders previously surfaced on the PP landing now surface in the Inbox as aged-indicator chips next to relevant threads.
-15. **Update CFC Insider feed** — completed league trades surface in the Insider drawer (already does this; no spec change needed, just confirming this is where they live now).
-
-### Phase 8 — Polish
-16. **Animation tuning** — flip timing, slide-off easing, package option hover.
+### Director memo pipeline
+The PP director files memos to the GM inbox (recent league trades, completed deals, fire-sale detections). Same memo pipeline as Scouting and R&S — separate workstream.
 
 ---
 
-## Section 16: Open Items / Deferred Decisions
+## Section 11: Build Order Recommendation
 
-These are NOT blockers for the PP build. They are flagged for build phase or later work:
+### Phase 1 — Office shell (parallels Scouting build)
+1. **`DirectorChat.tsx`** — shared chat thread component (if not already extracted in Scouting build).
+2. **`InlineTradeCard.tsx`** — mini trade card (shared with Scouting).
+3. **`DirectorOpening.tsx`** — opening message renderer.
+4. **`ProPersonnelOffice.tsx`** — top-level page. Mount at `/pro-personnel/office`.
 
-1. **Director's-voice quip content engine.** Per-card quip generation (Acquire and Shop cards both need quips). LLM at request time vs. templated rules. Defer to build.
-2. **Pre-built package generation logic.** Acquire send-packages and Shop packaging options need to be intelligent — fair value math, partner persona awareness, asset type fit. Likely extends Trade Studio's candidate generator. Defer to build.
-3. **Persona icon mapping for team cards.** Partner team identity on Acquire cards may carry a small persona badge (chess knight for Architect, etc.). Defer to build — same deferral as the home screen spec.
-4. **Championship rings on partner team chrome.** Same deferral. Defaults to 0 / no icon until data exists.
-5. **Card empty states.** When `/api/pro-personnel/landing` returns zero cards, the empty state copy fires (Section 7). Final copy variants may differ by reason (truly nothing vs. all opportunities recently acted on vs. system data unavailable). Defer to build.
-6. **Memo corner content engine.** When the director has a longer note on a player, the memo corner reveals a popover with the full note. Content engine same as quips — defer.
-7. **Dismiss mechanic.** Whether cards support dismissal directly on the front (e.g., a small X to send-to-cooldown without flipping). Per master design: probably yes with a cooldown, but defer to build.
-8. **Mobile dot compression** for sections with >12 cards (sliding window pattern). Threshold + animation TBD.
-9. **Animation tuning** — flip timing, slide-off easing, package option transitions.
-10. **Accessibility** — keyboard navigation, screen reader labels, focus states on cards.
-11. **3-team trade flow from a PP card.** Acquire and Shop cards both land in 2-team mode. Adding a third team uses existing TradeBuilder "+Add team". No special PP flow needed.
+### Phase 2 — Office intel + responses
+5. **`/api/pro-personnel/office/opening`** — generates 3 POVs from R&S signals + league trade activity + intel queries.
+6. **`/api/pro-personnel/office/respond`** — LLM-backed responses with structured action payloads.
+7. **Wire inline actions** — proposed trade (most common), deep links, one-click commits.
 
----
+### Phase 3 — Trade Builder restructure
+8. **`/api/trade-builder/generate-acquisitions`** — new endpoint. Generates 5 acquisition drafts auto-driven by user's wants_more + position_market_buying. Parallel architecture to Trade Studio's generate endpoint.
+9. **`TradeBuilderEntry.tsx`** — new entry surface. Hero Card cycler + "Build my own" button. Empty state pointing to Set Strategy when signals are missing.
+10. **Wire entry routing** — `/trade-builder` defaults to `TradeBuilderEntry`; "Build my own" or pre-populated entries drop to `TradeBuilder.tsx`.
 
-## Section 17: Behavioral Notes
+### Phase 4 — Inline action entry to Trade Studio
+11. **Wire `?seed=shop` query param into Trade Studio** — when entered from office chat with a pre-selected player, roster grid is pre-marked and offers auto-generate.
 
-- **Default landing within the door:** `/pro-personnel`.
-- **Logo click on topbar (any PP surface):** returns to home (org chart).
-- **Back arrow on landing:** returns to home.
-- **Back arrow inside Trade Builder / Trade Studio:** returns to the surface the user entered from (PP landing or GM Office). Defer routing detail to build.
-- **Hamburger (mobile):** opens global nav drawer with all four doors + settings.
-- **Header buttons on landing** (*Build a trade* / *Shop my guys*): direct route to the respective working surface.
-- **Acquire card tap:** flip → 3 send-package options → tap one → route to Trade Builder pre-populated.
-- **Shop card tap:** flip → 3 packaging options → tap one → route to Trade Studio Shop Around pre-seeded with offers generated.
-- **Chat panel (desktop):** persistent right rail. Always visible while on the landing.
-- **Chat panel (mobile):** pinned single-line input. Tap → full-screen chat takeover.
-- **Trade Builder empty +Add from their roster:** partner-picker modal fires.
-- **Memo corner tap (when present):** popover with full director note.
-- **Toast:** existing pattern preserved (top-center, 3s auto-dismiss). Used for trade-builder and Studio confirmations.
+### Phase 5 — Cleanup
+12. Delete killed v2.x landing components.
+13. Verify Trade Studio behavior unchanged.
 
 ---
 
-## Section 18: Color Palette (Excerpt from Design System)
+## Section 12: Open Items / Deferred Decisions
 
-| Name | Hex | Usage on Pro Personnel |
-|---|---|---|
-| Ink | #1A1A1A | Borders, primary text, action buttons (filled state), chrome backgrounds |
-| Paper | #FEFCF9 | Card backgrounds, button backgrounds, modal backgrounds, chat panel content bg |
-| Cream | #F5F0E6 | Page background, hover states |
-| Blue | #3366CC | Wants chips, partner team identifiers, balance chip variants (existing usage) |
-| Yellow | #F5C230 | AI-element accent (existing usage), yellow-tier card urgency |
-| Red | #E8503A | Untouchable chip on player cards (existing styling), red-tier card urgency |
-| Green | #019942 | Moveable chip, *"In the range"* grade, green-tier card urgency. Universal green across the app — replaces prior #007370. |
-| Muted | #8C7E6A | Secondary text, timestamps, position/team metadata, chat placeholder italic |
+NOT blockers:
 
-Full palette in `/docs/CFC-APP-STATUS.md`.
+1. **Acquisition draft generation logic.** Parallel architecture to Trade Studio's shop offer generation — partner persona awareness, deal-breaker filtering, value gap math. Existing Studio code is the reference. Defer detailed implementation to build.
+2. **Director's-voice content engine.** Same as Scouting — hybrid structured queries + LLM prose.
+3. **Inline trade card rendering.** Visual treatment, action button placement, exact balance chip behavior. Defer to mockup.
+4. **Mobile Hero Card cycler refinements.** Already exists in Trade Studio; confirm same component works for Trade Builder.
+5. **POV click behavior.** Same as Scouting — recommend direct dive.
+6. **Conversation persistence.** V1 localStorage.
+7. **Director memo generation pipeline.** Separate workstream.
+8. **Empty state copy for Trade Builder.** Final copy at content-pass time.
 
 ---
 
-## Section 19: Typography (Excerpt from Design System)
+## Section 13: Behavioral Notes
 
-| Font | Weight | Usage on Pro Personnel |
-|---|---|---|
-| Syne | 800–900 | Page title, card chrome (player name), section headers, button labels, action button labels, *"Tap to view"* label |
-| DM Sans | 400–700 | Director's-voice quip text (in quotes on cards), package option labels, body prose, chat input placeholder (italic) |
-| JetBrains Mono | 700 | Position / team chips, tab labels, balance chip text, marker chip text (STUD / YOUTH / AGING) |
-
-Full system in `/docs/CFC-APP-STATUS.md`.
+- **Default landing within the door:** `/pro-personnel/office`.
+- **Office POV click:** dives into a follow-up conversation on that topic.
+- **Inline action click:** fires the action. Trade cards route to Trade Builder pre-populated. Deep links route directly. Commits fire API + update message in place.
+- **Trade Builder default entry:** Hero Card cycler with 5 acquisition drafts.
+- **Trade Builder "Build my own":** drops to blank builder.
+- **Trade Builder empty state:** when no strategy signals, points user to Set Strategy.
+- **Trade Studio entry from office chat:** `?seed=shop` pre-marks roster grid + auto-generates offers.
+- **Logo click:** returns to home.
+- **Back arrow:** returns to home from office; from workrooms, may return to office or home depending on entry path (build decision — recommend returning to whichever surface the user came from).
 
 ---
 
-## Section 20: Summary — At-a-Glance
+## Section 14: Summary — At-a-Glance
 
 | Element | Decision |
 |---|---|
-| **Routing** | `/pro-personnel` (landing) · `/trade-builder` (trade machine) · `/trade-studio` (Trade Studio Shop Around, home of the Hero Card) |
-| **Concept** | Director's briefing room. Director on the cards + Pro Scout in the chat |
-| **Landing layout (desktop)** | 70% trading card binder grid (3 columns, 6–9 cards) + 30% persistent chat panel right rail |
-| **Landing layout (mobile)** | Pinned-top action buttons + swipeable card deck (peek killed, dots only) + pinned-bottom chat input |
-| **Card types (2)** | Acquire opportunity (Topps card of the target, flip → 3 send packages → Trade Builder) · Shop opportunity (Topps card of our player, flip → 3 packaging options → Trade Studio Shop Around) |
-| **Universal flip pattern** | Every PP card flips. Front = identity + director quip + *"Tap to view"*. Back = 3 pre-built options → route to Trade Builder / Trade Studio with deal pre-populated |
-| **Memo corner** | Optional on either card type when director has a longer attached note |
-| **Card capacity** | Dynamic. Sorted red → yellow → green. Empty state shows director-voice copy *"Quiet out there. I'll keep watching."* |
-| **Director urgency** | 3 tiers (green/yellow/red). Door tier = highest card tier on the landing. Pending offer urgency now lives in GM Office Inbox (aged indicators), not PP cards |
-| **Chat surface** | Persistent right rail (~30%) on desktop · Pinned-input + takeover on mobile · 3 opener chips (locked) · *"Ask the Pro Scout…"* placeholder |
-| **Opener chips (locked)** | *"Which teams might trade a first?"* · *"Who's hot in the trade market?"* · *"Which GMs are easiest to deal with?"* |
-| **Header actions** | *Build a trade* · *Shop my guys* (always visible, desktop top / mobile pinned) |
-| **Hero Card** | Lives ONLY in Trade Studio Shop Around. Killed from PP landing. Same `OfferCard.tsx` component, single surface |
-| **Confirm Modal** | KILLED. Replaced by universal card flip pattern |
-| **League insights** | Moved to GM Office. Pending offer reminders → Inbox aged indicators. Completed league trades → CFC Insider feed |
-| **Trade Builder empty state** | + Add from their roster → partner-picker modal (search + team list) |
-| **Trade Studio entry from Shop card** | `/trade-studio?seed=shop` → roster pre-marked + offers auto-generated → user lands on Hero Card cycler |
-| **GM Office Propose** | Direct route to `/trade-builder` (popover killed) |
-| **Killed** | `LandingPage.tsx` · `CartSidebar.tsx` · `RosterModal.tsx` · `ConfirmModal.tsx` · v1.0 3-section layout · v1.0 mobile snap-between-sections + IndicatorCluster · v1.0 dynamic-section-title topbar · Hero Card from PP landing · Top Targets / Top Trade Partners List Cards · League insights as a card type |
-| **Cross-director signals** | Acquire cards read R&S wants_more + position market (buying) + league fit. Shop cards read R&S aging + value drift + position market (selling). Scouting → PP no direct flow |
+| **Routing** | `/pro-personnel/office` (chat) · `/trade-builder` · `/trade-studio` |
+| **Concept** | Director's office — chat-driven workspace, director is the only voice |
+| **Office layout** | Full-width chat surface, no sidebars, no rails. Topbar + page title + chat thread + pinned input |
+| **Opening message** | Director's top 3 POVs ending in recommendations. Signal → named target → recommendation → optional CTA |
+| **Voice** | First person, conversational, anonymized intel, leads with POV |
+| **Inline actions** | Proposed trade (mini card) most common · Deep links · One-click commits |
+| **Trade Builder entry** | Hero Card cycler with 5 director-drafted acquisitions (auto-driven by R&S signals) · "Build my own" button drops to blank builder |
+| **Trade Builder empty state** | Points user to Set Strategy when no signals |
+| **Trade Studio entry** | Unchanged — user picks block, director generates 5 offers in Hero Card cycler |
+| **Hero Card cycler** | Same component (`OfferCard.tsx`) used in BOTH workrooms |
+| **Cross-director signals** | Acquisition drafts driven by R&S wants_more + position_market_buying. Shop offers driven by R&S aging + value drift + position_market_selling (existing) |
+| **Killed in v3.0** | Landing binder grid · Acquire / Shop cards · Pro Scout staff voice · Opener chips · Persistent chat rail · Landing header bar · Trade Builder top 10 players/teams landing · Memo card · Card priority sort |
 
 ---
 
 ## End of Spec — Ready for Build
 
-The Pro Personnel v2.0 design is fully locked. Items intentionally deferred are content-engine choices (director's-voice quip generation, memo notes), pre-built package generation logic, and adjacent polish (animation tuning, accessibility). All locked items are buildable against existing components and naturally-extended APIs.
+The Pro Personnel v3.0 design is fully locked. Items intentionally deferred are content-engine choices, mockup details, and adjacent polish.
 
-Pick this up in a build chat by attaching this document along with `/docs/CFC-APP-STATUS.md`, `CFC-HOME-SCREEN-SPEC.md`, `CFC-GM-OFFICE-SPEC.md`, `CFC-RESEARCH-STRATEGY-SPEC.md`, and `CFC-SCOUTING-SPEC.md`. The build chat should not need any conversation history beyond these six files to execute the build cleanly.
+Pick this up in a build chat by attaching this document along with `/docs/CFC-APP-STATUS.md` v3.0, `CFC-HOME-SCREEN-SPEC.md` v3.0, `CFC-GM-OFFICE-SPEC.md` v3.0, `CFC-SCOUTING-SPEC.md` v3.0, and `CFC-RESEARCH-STRATEGY-SPEC.md` v3.0.
