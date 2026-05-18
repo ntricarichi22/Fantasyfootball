@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import DraftRoom from "@/scouting/draft-room/DraftRoom";
 import DraftCompleteModal from "@/scouting/draft-room/chrome/DraftCompleteModal";
+import { DraftStatusProvider } from "@/scouting/draft-room/chrome/DraftStatusProvider";
+import ClockBar from "@/scouting/draft-room/chrome/ClockBar";
 
 export default function DraftPage() {
   const [allowed, setAllowed] = useState(false);
@@ -21,9 +23,12 @@ export default function DraftPage() {
 
   if (!allowed) return null;
   return (
-    <>
+    <DraftStatusProvider>
+      <div className="cfc-shell-chrome">
+        <ClockBar />
+      </div>
       <DraftRoom />
       <DraftCompleteModal />
-    </>
+    </DraftStatusProvider>
   );
 }
