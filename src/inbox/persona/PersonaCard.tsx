@@ -1,6 +1,7 @@
 "use client";
 
 import type { GmPersona } from "@/research-strategy/api/types";
+import { PersonaIcon } from "@/shared/ui/PersonaIcon";
 
 type Props = {
   persona: GmPersona;
@@ -42,6 +43,13 @@ const META: Record<GmPersona, Meta> = {
   },
 };
 
+const ICON_SIZE: Record<GmPersona, number> = {
+  closer: 90,
+  architect: 130,
+  straight_shooter: 120,
+  hustler: 120,
+};
+
 export function PersonaCard({ persona, selected, onClick }: Props) {
   const meta = META[persona];
 
@@ -52,6 +60,7 @@ export function PersonaCard({ persona, selected, onClick }: Props) {
       aria-pressed={selected}
       style={{
         background: meta.bg,
+        color: meta.textColor,
         border: "3px solid #1A1A1A",
         boxShadow: "4px 4px 0 #1A1A1A",
         padding: "20px 16px 18px",
@@ -80,7 +89,7 @@ export function PersonaCard({ persona, selected, onClick }: Props) {
           width: "100%",
         }}
       >
-        <PersonaIcon persona={persona} />
+        <PersonaIcon persona={persona} size={ICON_SIZE[persona]} />
       </div>
 
       <div style={{ width: "100%" }}>
@@ -111,135 +120,6 @@ export function PersonaCard({ persona, selected, onClick }: Props) {
         </div>
       </div>
     </button>
-  );
-}
-
-function PersonaIcon({ persona }: { persona: GmPersona }) {
-  if (persona === "closer") {
-    return (
-      <img
-        src="/closer-flags.png"
-        alt=""
-        style={{ height: 90, width: "auto", display: "block" }}
-      />
-    );
-  }
-
-  if (persona === "architect") {
-    return (
-      <img
-        src="/architect-knight.png"
-        alt=""
-        style={{ height: 130, width: "auto", display: "block" }}
-      />
-    );
-  }
-
-  if (persona === "straight_shooter") {
-    return (
-      <svg viewBox="0 0 100 100" width={120} height={120} aria-hidden="true">
-        <path
-          d="M 60 12 Q 92 50 60 88"
-          fill="none"
-          stroke="#FEFCF9"
-          strokeWidth="6"
-          strokeLinecap="round"
-        />
-        <path
-          d="M 60 12 Q 70 50 60 88"
-          fill="none"
-          stroke="#FEFCF9"
-          strokeWidth="2"
-          strokeLinecap="round"
-        />
-        <line x1="60" y1="12" x2="60" y2="88" stroke="#FEFCF9" strokeWidth="1.2" />
-        <line
-          x1="14"
-          y1="50"
-          x2="86"
-          y2="50"
-          stroke="#FEFCF9"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-        />
-        <polygon points="86,46 94,50 86,54" fill="#FEFCF9" />
-        <path d="M 14 46 L 22 50 L 14 54 L 18 50 Z" fill="#FEFCF9" />
-        <line x1="11" y1="46" x2="15" y2="50" stroke="#FEFCF9" strokeWidth="1.5" />
-        <line x1="11" y1="54" x2="15" y2="50" stroke="#FEFCF9" strokeWidth="1.5" />
-      </svg>
-    );
-  }
-
-  // hustler — fanned playing cards
-  return (
-    <svg viewBox="0 0 100 100" width={120} height={120} aria-hidden="true">
-      <g transform="rotate(-22 30 65)">
-        <rect
-          x="15"
-          y="32"
-          width="32"
-          height="50"
-          fill="#FEFCF9"
-          stroke="#1A1A1A"
-          strokeWidth="3"
-        />
-        <text
-          x="31"
-          y="63"
-          textAnchor="middle"
-          fontFamily="Georgia, serif"
-          fontSize="22"
-          fontWeight="900"
-          fill="#E8503A"
-        >
-          ♥
-        </text>
-      </g>
-      <g>
-        <rect
-          x="34"
-          y="26"
-          width="32"
-          height="52"
-          fill="#FEFCF9"
-          stroke="#1A1A1A"
-          strokeWidth="3"
-        />
-        <text
-          x="50"
-          y="58"
-          textAnchor="middle"
-          fontFamily="Georgia, serif"
-          fontSize="24"
-          fontWeight="900"
-          fill="#1A1A1A"
-        >
-          ♠
-        </text>
-      </g>
-      <g transform="rotate(22 70 65)">
-        <rect
-          x="53"
-          y="32"
-          width="32"
-          height="50"
-          fill="#FEFCF9"
-          stroke="#1A1A1A"
-          strokeWidth="3"
-        />
-        <text
-          x="69"
-          y="63"
-          textAnchor="middle"
-          fontFamily="Georgia, serif"
-          fontSize="22"
-          fontWeight="900"
-          fill="#1A1A1A"
-        >
-          ♣
-        </text>
-      </g>
-    </svg>
   );
 }
 
