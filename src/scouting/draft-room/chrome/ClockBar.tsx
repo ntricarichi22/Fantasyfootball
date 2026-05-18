@@ -11,8 +11,8 @@ import { normalizeName } from "@/infrastructure/strings/normalize";
 import { playChime, toggleChimeMuted, useChimeMuted } from "@/scouting/draft-room/chime";
 import { readStoredTeam, type StoredTeam } from "@/infrastructure/identity/storedTeam";
 
-const DRAFT_ROUTE = "/draft";
-const TRADE_ROUTE = "/trades";
+const DRAFT_ROUTE = "/scouting/draft-room";
+const TRADE_ROUTE = "/inbox";
 
 // Color palette — Item 1 / spec.
 const BAR_BLUE = "#3366CC";

@@ -61,8 +61,8 @@ import { HomeScreen } from "@/components/HomeScreen";
 export default function Home() {
   const router = useRouter();
   const pathname = usePathname();
-  const isDraftRoute = pathname?.startsWith("/draft");
-  const draftRoute = "/draft";
+  const isDraftRoute = pathname?.startsWith("/scouting/draft-room");
+  const draftRoute = "/scouting/draft-room";
   const isMobile = useIsMobile();
   const [selectedTeam, setSelectedTeam] = useState(() => {
     if (typeof window === "undefined") return "";

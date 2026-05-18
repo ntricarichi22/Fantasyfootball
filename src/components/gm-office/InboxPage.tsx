@@ -522,7 +522,7 @@ export default function InboxPage() {
 
             {/* Make an Offer */}
             <div
-              onClick={() => { window.location.href = "/trade-builder"; }}
+              onClick={() => { window.location.href = "/pro-personnel/trade-builder"; }}
               style={{
                 background: "#3366CC",
                 border: "2.5px solid #1A1A1A",
@@ -584,7 +584,7 @@ export default function InboxPage() {
 
             {/* Shop Around */}
             <div
-              onClick={() => { window.location.href = "/trade-studio"; }}
+              onClick={() => { window.location.href = "/pro-personnel/trade-studio"; }}
               style={{
                 background: "#F5C230",
                 border: "2.5px solid #1A1A1A",
@@ -716,7 +716,7 @@ export default function InboxPage() {
                 <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
                   <button
                     type="button"
-                    onClick={() => { window.location.href = "/trade-builder"; }}
+                    onClick={() => { window.location.href = "/pro-personnel/trade-builder"; }}
                     style={{
                       background: "#3366CC",
                       color: "#fff",
@@ -733,7 +733,7 @@ export default function InboxPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { window.location.href = "/trade-studio"; }}
+                    onClick={() => { window.location.href = "/pro-personnel/trade-studio"; }}
                     style={{
                       background: "#F5C230",
                       color: "#1A1A1A",

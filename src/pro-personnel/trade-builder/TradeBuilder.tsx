@@ -312,7 +312,7 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
       });
       if (res.ok) {
         flash("Offer sent!");
-        setTimeout(() => { window.location.href = "/trades"; }, 1000);
+        setTimeout(() => { window.location.href = "/inbox"; }, 1000);
       } else {
         const j = await res.json().catch(() => ({}));
         flash(j.error || "Failed");

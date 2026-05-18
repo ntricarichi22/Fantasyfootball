@@ -303,7 +303,7 @@ export default function TradeStudioView() {
       if (res.ok) {
         flash("Offer sent!");
         // Always go to inbox, not the thread itself
-        setTimeout(() => { window.location.href = "/trades"; }, 800);
+        setTimeout(() => { window.location.href = "/inbox"; }, 800);
       } else {
         const j = await res.json().catch(() => ({}));
         flash(j.error || "Failed to send");
@@ -349,7 +349,7 @@ export default function TradeStudioView() {
       )}
 
       <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
-        <div onClick={() => { window.location.href = "/trades"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back to inbox</div>
+        <div onClick={() => { window.location.href = "/inbox"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back to inbox</div>
         <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
         <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>Who are you shopping?</div>
         <div style={{ flex: 1 }} />

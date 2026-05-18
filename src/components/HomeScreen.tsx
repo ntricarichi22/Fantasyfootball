@@ -334,7 +334,7 @@ export function HomeScreen({
             sub="Make deals, view offers"
             stat={openTradeCount > 0 ? String(openTradeCount) : "—"}
             statLabel="Open threads"
-            onClick={() => { window.location.href = "/trades"; }}
+            onClick={() => { window.location.href = "/inbox"; }}
           />
 
           <DoorCard

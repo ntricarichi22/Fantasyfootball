@@ -66,10 +66,10 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   const navItems = useMemo(
     () => [
-      { href: "/draft", label: "Draft Room" },
+      { href: "/scouting/draft-room", label: "Draft Room" },
       { href: "/historian", label: "Historian" },
       { href: "/team-hq", label: "Team HQ" },
-      { href: "/trades", label: "Trade Center", badge: true as const },
+      { href: "/inbox", label: "Trade Center", badge: true as const },
     ],
     []
   );
@@ -117,12 +117,12 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
             <nav className="flex flex-1 items-center gap-5 overflow-x-auto cfc-no-scrollbar">
               {navItems.map((item) => {
-                const isTradeCenterItem = item.href === "/trades";
+                const isTradeCenterItem = item.href === "/inbox";
                 const active = isTradeCenterItem
-                  ? (pathname === "/trades" ||
-                      pathname?.startsWith("/trades/") ||
-                      pathname === "/trade-studio" ||
-                      pathname === "/trade-builder")
+                  ? (pathname === "/inbox" ||
+                      pathname?.startsWith("/inbox/") ||
+                      pathname === "/pro-personnel/trade-studio" ||
+                      pathname === "/pro-personnel/trade-builder")
                   : item.href === "/team-hq"
                     ? (pathname === "/team-hq" ||
                         pathname?.startsWith("/team-hq/") ||

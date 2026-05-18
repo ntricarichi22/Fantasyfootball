@@ -65,9 +65,9 @@ type Props = {
 };
 
 const NAV_ITEMS = [
-  { href: "/draft", label: "Draft Room" },
+  { href: "/scouting/draft-room", label: "Draft Room" },
   { href: "/team-hq", label: "Team HQ" },
-  { href: "/trades", label: "Trade Center" },
+  { href: "/inbox", label: "Trade Center" },
   { href: "/historian", label: "Historian" },
 ];
 
@@ -158,7 +158,7 @@ export function MobileDraftRoom(props: Props) {
       <div className="cfc-mobile-root" role="application" aria-label="Mobile draft room">
         <MobileTopBar
           onOpenMenu={() => setMenuOpen(true)}
-          onTradePress={() => onNavigate("/trades")}
+          onTradePress={() => onNavigate("/inbox")}
         />
 
         <MobileClockBar />
@@ -240,7 +240,7 @@ export function MobileDraftRoom(props: Props) {
               className="cfc-btn cfc-btn-accent"
               style={{ alignSelf: "flex-start" }}
               onClick={() => {
-                onNavigate("/trades");
+                onNavigate("/inbox");
                 closeSheet();
               }}
             >

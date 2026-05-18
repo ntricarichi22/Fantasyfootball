@@ -297,7 +297,7 @@ const scrollToBottom = useCallback(() => {
       });
       if (r.ok) {
         const j = await r.json().catch(() => ({}));
-        if (status === "withdrawn" && j.deleted) { window.location.href = "/trades"; return; }
+        if (status === "withdrawn" && j.deleted) { window.location.href = "/inbox"; return; }
         flash(status === "accepted" ? "Trade accepted!" : status === "declined" ? "Offer declined." : "Offer withdrawn.");
         setShowAccept(false);
         setShowReject(false);
@@ -347,7 +347,7 @@ const scrollToBottom = useCallback(() => {
     return (
       <div style={{ height: "100vh", background: "#F5F0E6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, fontFamily: F }}>
         <div style={{ fontSize: 14, color: "#8C7E6A" }}>Thread not found</div>
-        <button type="button" onClick={() => { window.location.href = "/trades"; }} style={{ background: "#1A1A1A", color: "#FEFCF9", border: "2.5px solid #1A1A1A", padding: "8px 20px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
+        <button type="button" onClick={() => { window.location.href = "/inbox"; }} style={{ background: "#1A1A1A", color: "#FEFCF9", border: "2.5px solid #1A1A1A", padding: "8px 20px", fontWeight: 700, fontSize: 12, cursor: "pointer" }}>
           Back to inbox
         </button>
       </div>
@@ -440,7 +440,7 @@ const scrollToBottom = useCallback(() => {
       {/* Header */}
       <div style={{ background: "#1A1A1A", padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div onClick={() => { window.location.href = "/trades"; }} style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>← Back to inbox</div>
+          <div onClick={() => { window.location.href = "/inbox"; }} style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", cursor: "pointer" }}>← Back to inbox</div>
           <div style={{ width: 1, height: 16, background: "rgba(255,255,255,0.2)" }} />
           <div style={{ fontWeight: 800, fontSize: 14, color: "#FEFCF9", letterSpacing: "0.02em", fontFamily: FH }}>{myName} × {theirName}</div>
         </div>
