@@ -1,20 +1,23 @@
 # CFC Front Office — GM Office Landing Spec
 
-**Version:** 3.0
-**Date:** May 14, 2026
-**Status:** Design locked — ready for mockup → code
+**Version:** 3.1
+**Date:** May 18, 2026
+**Status:** Design locked — ready for Phase 2 build
 
-> **Revision note (v3.0):** Major redesign. The GM Office is now exclusively the **Gmail-style inbox**. Sidebar killed (no Propose / Shop / Feed). Persona switcher relocated or killed (TBD — see Section 6). The inbox interleaves director memos and trade correspondence in a single list. Four filter chips (Unread / Sent / Trash / Archive). Row-based layout (sender / subject / preview / timestamp). Click a row → body opens. Insider feed survives as a separate drawer (carried forward from v2.x). The home screen handles all navigation; the GM Office is one focused surface.
+> **Revision note (v3.1):** Path-only update. Phase 0 is complete (May 18, 2026): the repo is reorganized into surface-based folders. Inbox components for Phase 2 land under `src/inbox/` (with subfolders `thread/`, `insider/`, `persona/`), not under `src/components/gm-office/`. Some files already moved during Phase 0 (ThreadPage, ChatBubble, AcceptModal, RejectModal, CounterDrawer, InsiderPanel, PersonaCard, PersonaPicker). InboxPage / FilterBar / TradeCard stayed at `src/components/gm-office/` and get rebuilt in Phase 2. AppShell is dead (Phase 0) — no persistent global nav above the inbox. The persona switcher's new home is decided: Settings. Design decisions from v3.0 are unchanged.
+
+> **Revision note (v3.0):** Major redesign. The GM Office is now exclusively the **Gmail-style inbox**. Sidebar killed (no Propose / Shop / Feed). Persona switcher relocated. The inbox interleaves director memos and trade correspondence in a single list. Four filter chips (Unread / Sent / Trash / Archive). Row-based layout (sender / subject / preview / timestamp). Click a row → body opens. Insider feed survives as a separate drawer (carried forward from v2.x). The home screen handles all navigation; the GM Office is one focused surface.
 
 ---
 
 ## Purpose of This Document
 
-This document captures every design decision for the **GM Office** — which in v3.0 is exclusively the inbox. The route is `/gm-office` or `/inbox` (TBD at build).
+This document captures every design decision for the **GM Office** — which in v3.0/3.1 is exclusively the inbox. The route is `/inbox` (set in Phase 0).
 
 This spec must be read alongside:
-- `/docs/CFC-APP-STATUS.md` v3.0 (project-wide non-negotiables)
-- `CFC-HOME-SCREEN-SPEC.md` v3.0 (the home screen routes here from the GM box)
+- `CFC-APP-STATUS.md` v3.0 (project-wide non-negotiables)
+- `CFC-PHASE-0-RECAP.md` (current repo state, folder map, conventions)
+- `CFC-HOME-SCREEN-SPEC.md` v3.1 (the home screen routes here from the GM box)
 
 ---
 
@@ -148,18 +151,15 @@ Search behavior:
 
 ---
 
-## Section 6: Persona Switcher — Decision Deferred
+## Section 6: Persona Switcher — Decided
 
-V2.x located the persona switcher in the GM Office nameplate. With the nameplate gone (no sidebar, no nameplate header), the persona switcher needs a new home.
+The v3.0 spec deferred the persona switcher's location after the nameplate was killed. **v3.1 resolution: persona switcher lives in Settings** (Option 1 from v3.0 Section 6).
 
-Options:
-1. **Move to Settings.** Persona is a user setting; settings menu in the topbar can house it. Cleanest from a UX standpoint.
-2. **Move to a profile / account view** reached via the team logo click in the topbar.
-3. **Inline in the inbox empty state** (when there are no unread messages, show a small persona preview + change link). Probably too obscure.
-
-**My recommendation: Option 1.** Settle at build time.
+Settings is reached via the settings icon in the InnerTopbar (right slot, desktop and mobile). Settings page itself is a separate build (defer to whichever phase introduces it).
 
 The per-deal persona override popover inside Trade Studio's OfferCard is unaffected — that's a per-trade adjustment, not a persona setting change.
+
+`src/inbox/persona/PersonaCard.tsx` and `src/inbox/persona/PersonaPicker.tsx` (relocated during Phase 0) will be consumed by Settings when that surface gets built. They're parked at their new path in anticipation.
 
 ---
 
@@ -186,16 +186,16 @@ Standard ink-bordered block with `Loading…` text in JetBrains Mono.
 Clicking an inbox row opens the message body. The view depends on message type.
 
 ### Trade Thread Body
-Inherits from the current `ThreadPage.tsx` implementation. Shows:
+Inherits from the existing `src/inbox/thread/ThreadPage.tsx` (relocated from `src/components/gm-office/ThreadPage.tsx` in Phase 0). Shows:
 - The chain of offers (original + counters)
 - Each offer card with send/receive, balance chip, AI advisor prose
 - Inline actions (Accept / Decline / Counter / Withdraw) on the latest open offer
 - ChatBubble messages between the two GMs (if any)
 
-Largely unchanged in v3.0 — this is the existing thread page. Will get its own design pass later (already flagged as out of scope in v2.x).
+Largely unchanged in v3.1 — this is the existing thread page. Will get its own design pass later (out of scope for Phase 2).
 
 ### Director Memo Body
-New for v3.0. Shows:
+New for v3.0/3.1. Shows:
 - Sender (director name + glyph)
 - Subject
 - Full memo body in director voice (first person, conversational)
@@ -225,40 +225,35 @@ The inline actions render as buttons within the body. Some are deep links (route
 
 ---
 
-## Section 9: Killed in v3.0
+## Section 9: Killed in v3.0/3.1
 
 These existed in v1.x / v2.x and are removed:
 
 1. **GM Office sidebar** (Propose / Shop / Feed nav items). The whole sidebar is gone.
 2. **Nameplate** in the sidebar. No sidebar means no nameplate.
-3. **Persona switcher in the nameplate.** Relocated (see Section 6).
+3. **Persona switcher in the nameplate.** Relocated to Settings (Section 6 above).
 4. **Propose popover** ("Scout Players or Scout Teams"). Long dead — Propose routes from home screen go directly to workrooms.
 5. **Persona cascade drawer** (the desktop slide / mobile accordion to switch persona). Persona switching moves to Settings.
 6. **The old `FilterBar` "all / open / closed"** — replaced by Unread / Sent / Trash / Archive (already changed in v2.x).
 7. **Empty-state CTAs (Make an offer / Shop around buttons).** Home screen handles next-step navigation.
 8. **Page title "Trade Center."** No more page title — the inbox is the screen.
-9. **Insider Drawer trigger from Feed nav button.** See Section 10 for Insider Feed's current state.
+9. **AppShell persistent topbar (killed in Phase 0).** No persistent global nav above the inbox.
 
 ---
 
-## Section 10: CFC Insider Feed
+## Section 10: CFC Insider Feed — Decided
 
-Carried forward from v2.x with one change: **the trigger moves.** Without a Feed nav button (sidebar is dead), the Insider feed needs a new entry point.
+The v3.0 spec deferred the Insider feed's disposition. **v3.1 resolution: roll Insider content into the inbox** (Option 3 from v3.0 Section 10).
 
-Options:
-1. **Small icon in the topbar.** Right side, next to settings. Click → drawer opens.
-2. **Persistent at the bottom of the inbox.** A small "View CFC Insider" affordance at the bottom of the row list.
-3. **Roll Insider content into the inbox.** Each completed league trade becomes a memo from a director ("Founders sent Lamb to Outlaws for 1.04 and a 2nd"). Kills the separate feed entirely.
+Each completed league trade becomes a memo from a director — likely the PP Director ("Founders sent Lamb to Outlaws for 1.04 and a 2nd"). The "feed" concept is redundant with the inbox if the inbox is broad enough; consolidate.
 
-**My recommendation: Option 3.** It's the cleanest model — everything that happens in the league surfaces in the inbox, full stop. The "feed" concept is redundant with the inbox if the inbox is broad enough. Settle at build time.
-
-If Option 3 is chosen, the Insider drawer component is killed.
+This kills the separate Insider drawer concept. `src/inbox/insider/InsiderPanel.tsx` (relocated in Phase 0) becomes parked / available for future reuse if a dedicated feed surface is ever needed, but Phase 2 build does not consume it.
 
 ---
 
 ## Section 11: Inner Page Topbar
 
-Inherits from the inner-page pattern (applies to all surfaces one level below home).
+Inherits from the inner-page pattern (applies to all surfaces one level below home). The `InnerTopbar` component is new in Phase 2 — it's the shared topbar for any inner page (will be reused by Scouting / PP / R&S in subsequent phases).
 
 ### Desktop
 | Slot | Content | Behavior |
@@ -281,49 +276,65 @@ Out of scope for this spec. At minimum: account info, league info, Sleeper integ
 
 ## Section 12: Files Affected
 
-### Retire / replace
-- `src/components/gm-office/InboxPage.tsx` — full rewrite around new layout
-- `src/components/gm-office/GMOfficeLayout.tsx` — kill (no longer needs sidebar orchestration)
+> **Phase 0 context:** As part of Phase 0, the repo reorganized into surface-based folders. Inbox components for Phase 2 land under `src/inbox/`, not `src/components/gm-office/`. Some files already moved during Phase 0 (see "Already moved" below). The legacy v2.x files that survived Phase 0 (InboxPage, FilterBar, TradeCard, GMOfficeLayout, etc.) still live in `src/components/gm-office/` and get retired during Phase 2.
+
+### Already moved (Phase 0 — paths are final)
+- `src/inbox/thread/ThreadPage.tsx`
+- `src/inbox/thread/ChatBubble.tsx`
+- `src/inbox/thread/AcceptModal.tsx`
+- `src/inbox/thread/RejectModal.tsx`
+- `src/inbox/thread/CounterDrawer.tsx`
+- `src/inbox/insider/InsiderPanel.tsx`
+- `src/inbox/persona/PersonaCard.tsx`
+- `src/inbox/persona/PersonaPicker.tsx`
+
+### Retire / replace (during Phase 2)
+Currently at `src/components/gm-office/` — get killed or rewritten:
+- `src/components/gm-office/InboxPage.tsx` — replace with `src/inbox/InboxView.tsx`
+- `src/components/gm-office/FilterBar.tsx` — replace with `src/inbox/FilterChips.tsx`
+- `src/components/gm-office/TradeCard.tsx` — kill (replaced by Gmail-style row in `src/inbox/InboxRow.tsx`)
+- `src/components/gm-office/GMOfficeLayout.tsx` — kill (no sidebar)
 - `src/components/gm-office/Nameplate.tsx` — kill
-- `src/components/gm-office/PersonaDrawer.tsx` — kill (move to Settings)
-- `src/components/gm-office/PersonaCard.tsx` — kill (move to Settings)
+- `src/components/gm-office/PersonaDrawer.tsx` — kill (persona moves to Settings, surviving PersonaCard/PersonaPicker live at `src/inbox/persona/`)
 - `src/components/gm-office/SidebarNav.tsx` — kill
 - `src/components/gm-office/MobileTabBar.tsx` — kill (no bottom tab bar)
-- `src/components/gm-office/ProposePopover.tsx` — already killed; confirm removed
-- `src/components/gm-office/InsiderDrawer.tsx` — kill if Option 3 in Section 10 is chosen
+- `src/components/gm-office/ProposePopover.tsx` — kill if not already gone
+- `src/components/gm-office/InsiderDrawer.tsx` — kill (Insider rolls into inbox per Section 10)
 
-### New (v3.0)
-- `src/components/gm-office/InboxView.tsx` — top-level inbox screen
-- `src/components/gm-office/InboxRow.tsx` — Gmail-style row component
-- `src/components/gm-office/FilterChips.tsx` — Unread / Sent / Trash / Archive
-- `src/components/gm-office/SearchToggle.tsx` — search icon + inline expansion
-- `src/components/gm-office/MessageBody.tsx` — message body container, routes between trade body and memo body
-- `src/components/gm-office/DirectorMemoBody.tsx` — memo body rendering (subject + director voice + inline actions)
-- `src/components/gm-office/InnerTopbar.tsx` — shared inner-page topbar (reusable across PP, R&S, Scouting too)
+### New (Phase 2)
+- `src/inbox/InboxView.tsx` — top-level inbox screen
+- `src/inbox/InboxRow.tsx` — Gmail-style row component
+- `src/inbox/FilterChips.tsx` — Unread / Sent / Trash / Archive
+- `src/inbox/SearchToggle.tsx` — search icon + inline expansion
+- `src/inbox/MessageBody.tsx` — message body container, routes between trade body and memo body
+- `src/inbox/DirectorMemoBody.tsx` — memo body rendering (subject + director voice + inline actions)
+- `src/shared/chrome/InnerTopbar.tsx` — shared inner-page topbar (reusable across Scouting / PP / R&S in later phases). Lives in `src/shared/chrome/` because it's cross-surface.
 
-### Reuse
-- `src/components/gm-office/InsiderPanel.tsx` — survives if Option 1 or 2 in Section 10 is chosen; killed if Option 3
-- Trade thread / ChatBubble / Accept/Reject/Counter modals — preserved for trade body rendering inside `MessageBody`
+### Reuse (existing files preserved)
+- `src/inbox/thread/ThreadPage.tsx` + sibling thread components — used inside `MessageBody`
 
 ### Data wiring
 - Inbox query that interleaves trade threads + director memos sorted by date
 - Director memo schema (sender, subject, body, status, inline actions)
 - New endpoint for marking memos read / archived / trashed
+- Existing `/api/inbox/unread-count?teamId=...` (already in use by old AppShell — surviving endpoint, can keep or refactor)
+- Existing `/api/inbox/threads/...` and `/api/inbox/threads/status` — preserved from Phase 0 API moves
 
 ---
 
 ## Section 13: Build Order Recommendation
 
-1. **`InnerTopbar.tsx`** — shared component. First commit.
-2. **`FilterChips.tsx`** — standalone, takes filter list + active prop.
-3. **`SearchToggle.tsx`** — standalone search icon + inline input.
-4. **`InboxRow.tsx`** — Gmail-style row. Takes a unified message prop (trade or memo type).
+1. **`src/shared/chrome/InnerTopbar.tsx`** — shared component. First commit. Reusable.
+2. **`src/inbox/FilterChips.tsx`** — standalone, takes filter list + active prop.
+3. **`src/inbox/SearchToggle.tsx`** — standalone search icon + inline input.
+4. **`src/inbox/InboxRow.tsx`** — Gmail-style row. Takes a unified message prop (trade or memo type).
 5. **Director memo schema + API** — backend work to create/query director memos.
-6. **`DirectorMemoBody.tsx`** — memo body rendering with inline actions.
-7. **`MessageBody.tsx`** — orchestrator that routes to trade body or memo body based on message type.
-8. **`InboxView.tsx`** — top-level page composing topbar + filter chips + search + row list + message body.
-9. **Wire data** — interleaved inbox query, read/archive/trash mutations.
-10. **Mobile responsive polish.**
+6. **`src/inbox/DirectorMemoBody.tsx`** — memo body rendering with inline actions.
+7. **`src/inbox/MessageBody.tsx`** — orchestrator that routes to trade body or memo body based on message type.
+8. **`src/inbox/InboxView.tsx`** — top-level page composing topbar + filter chips + search + row list + message body.
+9. **`src/app/inbox/page.tsx`** — replace the existing thin wrapper to mount `InboxView` (was mounting old InboxPage component).
+10. **Wire data** — interleaved inbox query, read/archive/trash mutations.
+11. **Mobile responsive polish.**
 
 ---
 
@@ -331,15 +342,13 @@ Out of scope for this spec. At minimum: account info, league info, Sleeper integ
 
 NOT blockers:
 
-1. **Persona switcher location.** Lean Option 1 (Settings) — confirm at build.
-2. **CFC Insider Feed disposition.** Lean Option 3 (roll into inbox) — confirm at build.
-3. **Director glyph designs.** Per-director visual accent. Defer to mockup.
-4. **Empty state copy.** Final copy variants — settle at content-pass time.
-5. **Memo dismissal mechanic.** Can the user "delete" a memo from the inbox? Defer.
-6. **Cross-surface deeplinking.** Memo body's inline actions need stable route targets — confirm route map at build.
-7. **Director memo generation pipeline.** Who generates memos, on what cadence, with what triggers — defer to build (separate workstream).
-8. **Settings menu contents.** Defer.
-9. **Onboarding states.** Empty inbox for a brand new user — defer.
+1. **Director glyph designs.** Per-director visual accent. Defer to mockup.
+2. **Empty state copy.** Final copy variants — settle at content-pass time.
+3. **Memo dismissal mechanic.** Can the user "delete" a memo from the inbox? Defer.
+4. **Cross-surface deeplinking.** Memo body's inline actions need stable route targets — confirm route map at build (most targets are 404 until the relevant phase ships — see CFC-HOME-SCREEN-SPEC.md v3.1 Section 4 for the current state of routes).
+5. **Director memo generation pipeline.** Who generates memos, on what cadence, with what triggers — defer to build (separate workstream).
+6. **Settings menu contents and the Settings surface itself.** Defer.
+7. **Onboarding states.** Empty inbox for a brand new user — defer.
 
 ---
 
@@ -361,25 +370,28 @@ NOT blockers:
 
 | Element | Decision |
 |---|---|
+| **Route** | `/inbox` (set in Phase 0) |
 | **Layout** | Single-surface inbox — no sidebar, no nameplate, no nav within the office |
 | **Inbox structure** | Gmail-style rows, interleaved trade correspondence + director memos by date |
 | **Row anatomy** | Status indicator · sender · subject · preview · timestamp |
 | **Filter chips** | Unread (default) / Sent / Trash / Archive |
 | **Search** | Inline expand icon |
-| **Message body** | Trade body (existing thread page) OR Director memo body (subject + voice + inline actions) |
-| **Insider feed** | Likely rolled into inbox as memos from directors (Option 3 — confirm at build) |
-| **Persona switcher** | Relocated to Settings (Option 1 — confirm at build) |
+| **Message body** | Trade body (existing ThreadPage at `src/inbox/thread/`) OR Director memo body (subject + voice + inline actions) |
+| **Insider feed** | Rolled into inbox as memos from PP Director (decided in v3.1) |
+| **Persona switcher** | Relocated to Settings (decided in v3.1) |
 | **Sidebar** | KILLED |
 | **Nameplate** | KILLED |
 | **Persona cascade drawer** | KILLED |
 | **Empty state CTAs** | KILLED (home screen handles next-step navigation) |
+| **AppShell persistent topbar** | KILLED in Phase 0 |
+| **Component location** | `src/inbox/` for inbox components, `src/shared/chrome/InnerTopbar.tsx` for the shared topbar |
 | **Topbar (desktop)** | ← back / league logo / settings |
 | **Topbar (mobile)** | hamburger / league logo / settings |
 
 ---
 
-## End of Spec — Ready for Build
+## End of Spec — Ready for Phase 2 Build
 
-The GM Office v3.0 design is fully locked. Items intentionally deferred are minor UX choices (persona switcher home, Insider feed disposition, director glyphs, memo generation pipeline).
+The GM Office v3.1 design is fully locked. Path references reflect the post-Phase-0 repo structure. The two v3.0 deferred decisions (persona switcher home, Insider feed disposition) are now resolved (both to the recommended options from v3.0). Items intentionally deferred are mockup details (director glyphs, copy variants), Settings surface itself, memo dismissal mechanics, and the memo generation pipeline.
 
-Pick this up in a build chat by attaching this document along with `/docs/CFC-APP-STATUS.md` v3.0 and `CFC-HOME-SCREEN-SPEC.md` v3.0.
+Pick this up in a Phase 2 build chat by attaching this document along with `CFC-APP-STATUS.md` v3.0, `CFC-PHASE-0-RECAP.md`, and `CFC-HOME-SCREEN-SPEC.md` v3.1.
