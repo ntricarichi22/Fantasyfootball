@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readStoredTeam } from "../../lib/storedTeam";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import CartSidebar, { type CartItem } from "./CartSidebar";
 import ConfirmModal, { type SuggestionItem } from "./ConfirmModal";
 import RosterModal, { type RosterAsset } from "./RosterModal";
@@ -41,7 +41,7 @@ export default function LandingPage({ onCheckout }: Props) {
 
   useEffect(() => {
     if (!rosterId) return;
-    fetch(`/api/trades/targets?teamId=${encodeURIComponent(rosterId)}`)
+    fetch(`/api/pro-personnel/targets?teamId=${encodeURIComponent(rosterId)}`)
       .then(r => r.json())
       .then(j => { setTargets(j.targets ?? []); setRankings(j.rankings ?? []); setAllRosters(j.rosters ?? {}); })
       .catch(() => {})

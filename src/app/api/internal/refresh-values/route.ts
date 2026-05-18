@@ -17,13 +17,13 @@
 // abort and keep yesterday's values intact (the rebuild step is skipped).
 
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import { LEAGUE_ID } from "@/lib/config";
-import { fetchFantasyCalc } from "@/lib/values/sources/fantasycalc";
-import { fetchKeepTradeCut } from "@/lib/values/sources/keeptradecut";
-import { fetchDynastyProcess } from "@/lib/values/sources/dynastyprocess";
-import { normalizeRows, type SourceRow } from "@/lib/values/normalize";
-import { rebuildTeamTradeValuesForTeam } from "@/lib/team-hq/service";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { LEAGUE_ID } from "@/infrastructure/config";
+import { fetchFantasyCalc } from "@/infrastructure/values/sources/fantasycalc";
+import { fetchKeepTradeCut } from "@/infrastructure/values/sources/keeptradecut";
+import { fetchDynastyProcess } from "@/infrastructure/values/sources/dynastyprocess";
+import { normalizeRows, type SourceRow } from "@/infrastructure/values/normalize";
+import { rebuildTeamTradeValuesForTeam } from "@/research-strategy/api/service";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes — value pipeline can take a bit

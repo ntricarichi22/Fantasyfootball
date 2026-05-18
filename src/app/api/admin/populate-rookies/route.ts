@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { normalizeName } from "@/lib/normalize";
-import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import { normalizeName } from "@/infrastructure/strings/normalize";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readStoredTeam } from "../../lib/storedTeam";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 
 type TeamTradeValueRow = {
   sleeper_player_id: string;
@@ -69,7 +69,7 @@ export default function TradeChartTab() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`/api/team-hq/trade-chart?teamId=${encodeURIComponent(rosterId)}`);
+      const res = await fetch(`/api/research-strategy/trade-chart?teamId=${encodeURIComponent(rosterId)}`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to load trade chart");
       const data = (json.data ?? []) as TeamTradeValueRow[];
@@ -78,7 +78,7 @@ export default function TradeChartTab() {
         setPickAnchors(anchors);
       }
       if (data.length === 0 && rebuildIfEmpty) {
-        const rebuildRes = await fetch("/api/team-hq/trade-chart", {
+        const rebuildRes = await fetch("/api/research-strategy/trade-chart", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ teamId: rosterId }),
@@ -123,7 +123,7 @@ export default function TradeChartTab() {
     setSavingPlayerId(playerId);
     try {
       const manualOverrideValue = composeFromPicks(updated, pickAnchors);
-      const res = await fetch("/api/team-hq/trade-chart/override", {
+      const res = await fetch("/api/research-strategy/trade-chart/override", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

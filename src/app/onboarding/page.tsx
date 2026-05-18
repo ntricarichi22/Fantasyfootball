@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useIdentity } from "@/lib/hooks/useIdentity";
-import { LEAGUE_ID } from "@/lib/config";
-import OnboardingWelcome from "@/components/onboarding/OnboardingWelcome";
-import OnboardingAttachment from "@/components/onboarding/OnboardingAttachment";
-import OnboardingWantsMore from "@/components/onboarding/OnboardingWantsMore";
-import OnboardingPosture from "@/components/onboarding/OnboardingPosture";
+import { useIdentity } from "@/infrastructure/identity/useIdentity";
+import { LEAGUE_ID } from "@/infrastructure/config";
+import OnboardingWelcome from "@/onboarding/OnboardingWelcome";
+import OnboardingAttachment from "@/onboarding/OnboardingAttachment";
+import OnboardingWantsMore from "@/onboarding/OnboardingWantsMore";
+import OnboardingPosture from "@/onboarding/OnboardingPosture";
 
 export default function OnboardingPage() {
   const router = useRouter();

@@ -1,14 +1,14 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import DraftCountdownModal from "../components/draft/DraftCountdownModal";
+import DraftCountdownModal from "@/scouting/draft-room/DraftCountdownModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   formatPickKey,
   PICK_SLOT_SEASON,
-} from "../lib/picks";
-import { getLeagueId } from "../lib/config";
-import { supabase } from "../lib/supabaseClient";
+} from "@/infrastructure/picks";
+import { getLeagueId } from "@/infrastructure/config";
+import { supabase } from "@/infrastructure/supabase/client";
 import {
   ACTIVE_TEAMS_REFRESH_MS,
   DRAFTED_CACHE_KEY,
@@ -19,16 +19,16 @@ import {
   PRECOMPUTED_GRADES_COUNT,
   SELECTED_TEAM_CACHE_KEY,
   STATUS_MESSAGE_TIMEOUT_MS,
-} from "../lib/draft/constants";
+} from "@/scouting/draft-room/constants";
 import type {
   ActiveTeamApiRow,
   ActiveTeamRecord,
   AvailablePlayer,
   DraftLogEntry,
   DraftedPlayer,
-} from "../lib/draft/types";
-import { normalizeName } from "@/lib/normalize";
-import { playChime } from "../lib/chime";
+} from "@/scouting/draft-room/types";
+import { normalizeName } from "@/infrastructure/strings/normalize";
+import { playChime } from "@/scouting/draft-room/chime";
 import {
   calculatePickNumber,
   generateSessionId,
@@ -38,25 +38,25 @@ import {
   nextPickIndexFromLog,
   resolveDraftedPlayer,
   toId,
-} from "../lib/draft/helpers";
-import { DraftBoardTable } from "../components/draft/DraftBoardTable";
-import { DraftControls } from "../components/draft/DraftControls";
-import { AssistantGmPanel } from "../components/draft/AssistantGmPanel";
-import { RosterPanel } from "../components/draft/RosterPanel";
-import { ScoutingCardModal } from "../components/draft/ScoutingCardModal";
-import { MobileDraftRoom } from "../components/draft/mobile/MobileDraftRoom";
-import { WelcomeScreen } from "../components/draft/WelcomeScreen";
-import { useDraftBoard } from "../lib/hooks/useDraftBoard";
-import { useDraftClock } from "../lib/hooks/useDraftClock";
-import { useDraftRoomLog } from "../lib/hooks/useDraftRoomLog";
-import { useIsMobile } from "../lib/hooks/useIsMobile";
-import { useNflTeamContext } from "../lib/hooks/useNflTeamContext";
-import { useRookieProspects } from "../lib/hooks/useRookieProspects";
-import { useSleeperData } from "../lib/hooks/useSleeperData";
-import { buildLeagueProfiles, type PositionKey } from "../lib/trade/profile";
-import type { StarterAsset } from "../lib/trade/starterLevel";
-import { buildScoutingGrades, type ScoutingGradeSet } from "../lib/draft/scouting";
-import { HomeScreen } from "../components/HomeScreen";
+} from "@/scouting/draft-room/helpers";
+import { DraftBoardTable } from "@/scouting/draft-room/DraftBoardTable";
+import { DraftControls } from "@/scouting/draft-room/DraftControls";
+import { AssistantGmPanel } from "@/scouting/draft-room/AssistantGmPanel";
+import { RosterPanel } from "@/scouting/draft-room/RosterPanel";
+import { ScoutingCardModal } from "@/scouting/draft-room/ScoutingCardModal";
+import { MobileDraftRoom } from "@/scouting/draft-room/mobile/MobileDraftRoom";
+import { WelcomeScreen } from "@/scouting/draft-room/WelcomeScreen";
+import { useDraftBoard } from "@/scouting/draft-room/hooks/useDraftBoard";
+import { useDraftClock } from "@/scouting/draft-room/hooks/useDraftClock";
+import { useDraftRoomLog } from "@/scouting/draft-room/hooks/useDraftRoomLog";
+import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
+import { useNflTeamContext } from "@/scouting/draft-room/hooks/useNflTeamContext";
+import { useRookieProspects } from "@/scouting/draft-room/hooks/useRookieProspects";
+import { useSleeperData } from "@/infrastructure/sleeper/useSleeperData";
+import { buildLeagueProfiles, type PositionKey } from "@/pro-personnel/trade-engine/profile";
+import type { StarterAsset } from "@/pro-personnel/trade-engine/starterLevel";
+import { buildScoutingGrades, type ScoutingGradeSet } from "@/scouting/draft-room/grades";
+import { HomeScreen } from "@/components/HomeScreen";
 
 export default function Home() {
   const router = useRouter();
