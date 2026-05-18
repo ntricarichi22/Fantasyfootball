@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
-import { SCHEMA_CONTEXT } from "../../../../lib/llm/schema-context";
+import { SCHEMA_CONTEXT } from "@/infrastructure/llm/schema-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

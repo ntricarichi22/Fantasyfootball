@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { ACTIVE_TEAM_TIMEOUT_MS } from "../../../lib/activeTeams";
+import { ACTIVE_TEAM_TIMEOUT_MS } from "@/infrastructure/identity/activeTeams";
 
 export const SESSION_TIMEOUT_MS = ACTIVE_TEAM_TIMEOUT_MS;
 

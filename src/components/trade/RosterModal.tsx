@@ -1,8 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import PlayerRow, { AVAILABILITY_CHIPS } from "./PlayerRow";
-import TierDivider from "./TierDivider";
+import PlayerRow, { AVAILABILITY_CHIPS } from "@/pro-personnel/trade-builder/PlayerRow";
+import TierDivider from "@/pro-personnel/trade-builder/TierDivider";
 
 type RosterAsset = {
   key: string;

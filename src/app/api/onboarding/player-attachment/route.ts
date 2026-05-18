@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { LEAGUE_ID } from "@/lib/config";
-import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import { saveTeamStrategyProfile } from "@/lib/team-hq/service";
-import type { TeamHqOwnGuysPreference } from "@/lib/team-hq/types";
+import { LEAGUE_ID } from "@/infrastructure/config";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { saveTeamStrategyProfile } from "@/research-strategy/api/service";
+import type { TeamHqOwnGuysPreference } from "@/research-strategy/api/types";
 
 const VALID_ATTACHMENTS = new Set([
   "untouchable",

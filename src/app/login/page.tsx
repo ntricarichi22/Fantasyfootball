@@ -2,7 +2,7 @@
 
 import { Suspense, useState, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { supabase } from "@/infrastructure/supabase/client";
 
 const ERROR_MESSAGES: Record<string, string> = {
   not_a_member: "This email isn't registered with the CFC league.",

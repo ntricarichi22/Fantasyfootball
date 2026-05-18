@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { readStoredTeam } from "../../lib/storedTeam";
-import { useMyRoster, type RosterPlayer } from "../../lib/hooks/useMyRoster";
-import type { GmPersona } from "../../lib/team-hq/types";
-import Card from "./Card";
-import { PersonaPicker } from "./PersonaPicker";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useMyRoster, type RosterPlayer } from "@/infrastructure/identity/useMyRoster";
+import type { GmPersona } from "@/research-strategy/api/types";
+import Card from "@/shared/ui/Card";
+import { PersonaPicker } from "@/inbox/persona/PersonaPicker";
 
 type NeedLevel = "low" | "medium" | "high";
 type PriorityTarget = "picks" | "studs" | "youth" | "depth";
@@ -105,7 +105,7 @@ export default function StrategyTab() {
     if (!rosterId) return;
     setLoading(true);
     setError("");
-    fetch(`/api/team-hq/strategy?teamId=${encodeURIComponent(rosterId)}`)
+    fetch(`/api/research-strategy/strategy?teamId=${encodeURIComponent(rosterId)}`)
       .then((r) => r.json().then((j) => ({ ok: r.ok, j })))
       .then(({ ok, j }) => {
         if (!ok) throw new Error(j?.error ?? "Failed to load strategy");
@@ -117,7 +117,7 @@ export default function StrategyTab() {
 
   useEffect(() => {
     if (!rosterId) return;
-    fetch(`/api/team-hq/attachment?teamId=${encodeURIComponent(rosterId)}`)
+    fetch(`/api/research-strategy/attachment?teamId=${encodeURIComponent(rosterId)}`)
       .then((r) => r.json())
       .then((j) => {
         const map: Record<string, AttachmentValue> = {};
@@ -171,7 +171,7 @@ export default function StrategyTab() {
     setSaving(true);
     setError("");
     try {
-      const res = await fetch("/api/team-hq/strategy", {
+      const res = await fetch("/api/research-strategy/strategy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -203,7 +203,7 @@ export default function StrategyTab() {
     setAttachments((prev) => ({ ...prev, [player.id]: value }));
     setSavingAttachId(player.id);
     try {
-      await fetch("/api/team-hq/attachment", {
+      await fetch("/api/research-strategy/attachment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

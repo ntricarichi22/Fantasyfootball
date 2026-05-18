@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { Suspense } from "react";
-import { readStoredTeam } from "../../lib/storedTeam";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import StrategyTab from "./StrategyTab";
 import DepthChartTab from "./DepthChartTab";
 import TradeChartTab from "./TradeChartTab";

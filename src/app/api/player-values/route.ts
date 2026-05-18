@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import { buildValueMap, backfillMissingRosteredPlayers } from "@/lib/rosterBackfill";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { buildValueMap, backfillMissingRosteredPlayers } from "@/infrastructure/identity/rosterBackfill";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";

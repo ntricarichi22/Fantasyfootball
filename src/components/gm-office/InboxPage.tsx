@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readStoredTeam } from "../../lib/storedTeam";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import FilterBar, { type FilterValue } from "./FilterBar";
-import InsiderPanel from "./InsiderPanel";
+import InsiderPanel from "@/inbox/insider/InsiderPanel";
 import TradeCard from "./TradeCard";
 
 type TradeThread = {
@@ -117,7 +117,7 @@ export default function InboxPage() {
     if (!rosterId) return;
     try {
       const threadsRes = await fetch(
-        `/api/trades/threads?teamId=${encodeURIComponent(rosterId)}`
+        `/api/inbox/threads?teamId=${encodeURIComponent(rosterId)}`
       );
       if (!threadsRes.ok) throw new Error("Failed to load threads");
       const threadsJson = await threadsRes.json();
@@ -127,7 +127,7 @@ export default function InboxPage() {
         threads.map(async (thread) => {
           try {
             const res = await fetch(
-              `/api/trades/threads/${encodeURIComponent(thread.id)}`
+              `/api/inbox/threads/${encodeURIComponent(thread.id)}`
             );
             if (!res.ok) return { thread, offers: [] as TradeOffer[] };
             const json = await res.json();
@@ -199,7 +199,7 @@ export default function InboxPage() {
 
     Promise.allSettled(
       missing.map((offerId) =>
-        fetch("/api/trades/ai-quip", {
+        fetch("/api/inbox/ai-quip", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ offer_id: offerId }),
@@ -235,7 +235,7 @@ export default function InboxPage() {
       if (actionLoading) return;
       setActionLoading(true);
       try {
-        const res = await fetch("/api/trades/status", {
+        const res = await fetch("/api/inbox/threads/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -264,7 +264,7 @@ export default function InboxPage() {
       if (actionLoading) return;
       setActionLoading(true);
       try {
-        const res = await fetch("/api/trades/status", {
+        const res = await fetch("/api/inbox/threads/status", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -522,7 +522,7 @@ export default function InboxPage() {
 
             {/* Make an Offer */}
             <div
-              onClick={() => { window.location.href = "/trade-builder"; }}
+              onClick={() => { window.location.href = "/pro-personnel/trade-builder"; }}
               style={{
                 background: "#3366CC",
                 border: "2.5px solid #1A1A1A",
@@ -584,7 +584,7 @@ export default function InboxPage() {
 
             {/* Shop Around */}
             <div
-              onClick={() => { window.location.href = "/trade-studio"; }}
+              onClick={() => { window.location.href = "/pro-personnel/trade-studio"; }}
               style={{
                 background: "#F5C230",
                 border: "2.5px solid #1A1A1A",
@@ -716,7 +716,7 @@ export default function InboxPage() {
                 <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
                   <button
                     type="button"
-                    onClick={() => { window.location.href = "/trade-builder"; }}
+                    onClick={() => { window.location.href = "/pro-personnel/trade-builder"; }}
                     style={{
                       background: "#3366CC",
                       color: "#fff",
@@ -733,7 +733,7 @@ export default function InboxPage() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => { window.location.href = "/trade-studio"; }}
+                    onClick={() => { window.location.href = "/pro-personnel/trade-studio"; }}
                     style={{
                       background: "#F5C230",
                       color: "#1A1A1A",

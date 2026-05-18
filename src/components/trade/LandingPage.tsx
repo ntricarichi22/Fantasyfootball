@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readStoredTeam } from "../../lib/storedTeam";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import CartSidebar, { type CartItem } from "./CartSidebar";
 import ConfirmModal, { type SuggestionItem } from "./ConfirmModal";
 import RosterModal, { type RosterAsset } from "./RosterModal";
@@ -41,7 +41,7 @@ export default function LandingPage({ onCheckout }: Props) {
 
   useEffect(() => {
     if (!rosterId) return;
-    fetch(`/api/trades/targets?teamId=${encodeURIComponent(rosterId)}`)
+    fetch(`/api/pro-personnel/targets?teamId=${encodeURIComponent(rosterId)}`)
       .then(r => r.json())
       .then(j => { setTargets(j.targets ?? []); setRankings(j.rankings ?? []); setAllRosters(j.rosters ?? {}); })
       .catch(() => {})
@@ -115,7 +115,7 @@ export default function LandingPage({ onCheckout }: Props) {
   return (
     <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
-        <div onClick={() => { window.location.href = "/trades"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back to inbox</div>
+        <div onClick={() => { window.location.href = "/inbox"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back to inbox</div>
         <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
         <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>Who are you targeting?</div>
       </div>
