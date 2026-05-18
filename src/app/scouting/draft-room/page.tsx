@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import DraftRoom from "../../page";
+import DraftRoom from "@/scouting/draft-room/DraftRoom";
 import DraftCompleteModal from "@/scouting/draft-room/chrome/DraftCompleteModal";
 
 export default function DraftPage() {
