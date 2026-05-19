@@ -1,6 +1,6 @@
 # CFC Front Office — Preferences & Non-Negotiables
 
-**Last Updated:** May 14, 2026
+**Last Updated:** May 19, 2026
 **Version:** 3.0 (chat-driven offices)
 
 > **Revision note (v3.0):** Major architecture shift. Director landings as binder grids of lens-engine cards are killed. Each director door is now a **chat-driven office** — open the office, the director greets you with their top 3 POVs, the chat can surface inline actions (proposed trades, one-click setting commits, deep links to workrooms). Home screen becomes a clean menu of deep links to each director's workrooms. Inbox becomes the single "what's new" surface (Gmail-style rows, interleaved director memos + trade correspondence). Card system collapses from 5 templates to 3 (Player, Selector, Hero). Staff voices killed — each director is the only voice in their office. Urgency tier system killed.
@@ -102,8 +102,8 @@ Same architecture as before. Different surfaces.
 ## Trade Engine Architecture — Non-Negotiables
 
 ### Single Source of Truth
-- All gap math, grading, liquidity classification, post-trade warnings, and shape mismatch detection lives in `src/lib/trade/core/`.
-- Builder (`src/lib/trade/advisor/`) and Studio (`src/lib/trade/studio/`) **both** call core/. They do not reimplement these primitives.
+- All gap math, grading, liquidity classification, post-trade warnings, and shape mismatch detection lives in `src/pro-personnel/trade-engine/core/`.
+- Builder (`src/pro-personnel/trade-engine/advisor/`) and Studio (`src/pro-personnel/trade-engine/studio/`) **both** call core/. They do not reimplement these primitives.
 
 ### Canonical Functions
 - **`computeGap`** (in `core/gap.ts`) — given a deal's assets and rosters, returns sendValue / receiveValue / ratio / verdict / hasSend / hasReceive. Pure math.
@@ -113,7 +113,7 @@ Same architecture as before. Different surfaces.
 
 ### Persona Ratio Bands (defined in BOTH `core/gap.ts` and `studio/persona.ts` — keep in sync)
 - Straight Shooter: 0.90–1.10
-- Closer: 0.80–1.0 (the persona is 'always pay extra to get the deal done')
+- Closer: 0.85–1.00 (the persona is 'always pay extra to get the deal done')
 - Hustler: **1.00–99** (no upper cap — the persona is "always come out ahead")
 - Architect: 0.90–1.10
 
