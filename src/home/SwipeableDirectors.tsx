@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, TouchEvent } from "react";
-import DirectorBox from "@/home/DirectorBox";
+import { DirectorBox } from "@/home/DirectorBox";
 import { DIRECTORS, type DirectorConfig } from "@/home/directors";
 
 type Props = {
