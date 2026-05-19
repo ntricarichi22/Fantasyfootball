@@ -5,7 +5,6 @@ import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { Icon } from "@/shared/ui/Icon";
 import { InnerTopbar } from "@/shared/ui/InnerTopbar";
-import { Ticker } from "@/shared/ui/Ticker";
 import {
   Sidebar,
   ActionBar,
@@ -13,7 +12,7 @@ import {
   InboxRow,
   EmptyState,
   InsiderPanel,
-  timeAgo,
+  MobileInsiderBar,
   type Filter,
   type InboxItem,
   type InsiderItem,
@@ -315,14 +314,6 @@ export default function InboxPage() {
     fetchAll();
   };
 
-  const insiderMessages = useMemo(
-    () =>
-      insider.length > 0
-        ? insider.map((i) => `${i.headline.replace(/\*\*/g, "")} · ${timeAgo(i.timestamp)} ago`)
-        : ["The league is quiet. For now."],
-    [insider]
-  );
-
   const unreadCount = useMemo(
     () => allItems.filter((it) => it.unread).length,
     [allItems]
@@ -396,12 +387,6 @@ export default function InboxPage() {
 
       <div style={{ height: 3, background: "#E8503A" }} />
 
-      {isMobile && (
-        <div style={{ background: "#1A1A1A", padding: "8px 12px 10px" }}>
-          <Ticker label="Around the league" messages={insiderMessages} vertical />
-        </div>
-      )}
-
       <div
         style={{
           display: "flex",
@@ -427,9 +412,44 @@ export default function InboxPage() {
             flex: 1,
             minWidth: 0,
             padding: isMobile ? 0 : "16px 16px 24px",
-            paddingBottom: isMobile && selected.size > 0 ? 64 : undefined,
+            paddingBottom: isMobile ? (selected.size > 0 ? 64 : 56) : undefined,
           }}
         >
+          {isMobile && (
+            <div style={{ padding: "14px 14px 10px" }}>
+              <div
+                style={{
+                  fontFamily: FM,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.16em",
+                  color: "#8C7E6A",
+                  textTransform: "uppercase",
+                  marginBottom: 4,
+                }}
+              >
+                {filter === "inbox" && `${unreadCount} unread · ${filtered.length} total`}
+                {filter === "sent" && `${filtered.length} ${filtered.length === 1 ? "offer" : "offers"}`}
+                {filter === "trash" && `${filtered.length} ${filtered.length === 1 ? "item" : "items"}`}
+                {filter === "archive" && `${filtered.length} closed`}
+              </div>
+              <div
+                style={{
+                  fontFamily: "Syne, sans-serif",
+                  fontWeight: 800,
+                  fontSize: 22,
+                  letterSpacing: "-0.005em",
+                  color: "#1A1A1A",
+                }}
+              >
+                {filter === "inbox" && "Inbox"}
+                {filter === "sent" && "Sent"}
+                {filter === "trash" && "Trash"}
+                {filter === "archive" && "Archive"}
+              </div>
+            </div>
+          )}
+
           {!isMobile && (
             <div
               style={{
@@ -540,6 +560,8 @@ export default function InboxPage() {
           onClear={() => setSelected(new Set())}
         />
       )}
+
+      {isMobile && selected.size === 0 && <MobileInsiderBar items={insider} />}
     </div>
   );
 }

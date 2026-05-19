@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef, useState } from "react";
 import { Icon } from "@/shared/ui/Icon";
 
 const FH = "Syne, sans-serif";
@@ -788,5 +789,250 @@ export function InsiderPanel({ items }: { items: InsiderItem[] }) {
         )}
       </div>
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  MobileInsiderBar — bottom-anchored bar that expands into a drawer   */
+/* ------------------------------------------------------------------ */
+
+export function MobileInsiderBar({ items }: { items: InsiderItem[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const touchStartY = useRef<number | null>(null);
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartY.current = e.touches[0].clientY;
+  };
+  const handleTouchMove = (e: React.TouchEvent) => {
+    if (touchStartY.current === null) return;
+    const delta = e.touches[0].clientY - touchStartY.current;
+    if (delta > 60) {
+      setExpanded(false);
+      touchStartY.current = null;
+    }
+  };
+  const handleTouchEnd = () => {
+    touchStartY.current = null;
+  };
+
+  const teaser =
+    items.length > 0
+      ? items[0].headline.replace(/\*\*/g, "")
+      : "The league is quiet.";
+
+  return (
+    <>
+      <style>{`
+        @keyframes cfc-mob-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.35; }
+        }
+      `}</style>
+
+      {!expanded && (
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          aria-label="Open league activity"
+          style={{
+            position: "fixed",
+            bottom: 0,
+            left: 0,
+            right: 0,
+            background: "#1A1A1A",
+            color: "#FEFCF9",
+            border: "none",
+            borderTop: "3px solid #1A1A1A",
+            padding: "10px 12px",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            zIndex: 60,
+            cursor: "pointer",
+            textAlign: "left",
+            fontFamily: FB,
+          }}
+        >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              background: "#F5C230",
+              borderRadius: "50%",
+              flexShrink: 0,
+              animation: "cfc-mob-pulse 1.6s ease-in-out infinite",
+              display: "inline-block",
+            }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontFamily: "Syne, sans-serif",
+                fontWeight: 800,
+                fontSize: 9,
+                letterSpacing: "0.06em",
+                color: "#F5C230",
+                textTransform: "uppercase",
+                marginBottom: 1,
+              }}
+            >
+              Around the league
+            </div>
+            <div
+              style={{
+                fontSize: 11,
+                color: "#FEFCF9",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {teaser}
+            </div>
+          </div>
+          <span style={{ color: "#FEFCF9", flexShrink: 0, fontSize: 14, lineHeight: 1 }}>↑</span>
+        </button>
+      )}
+
+      {expanded && (
+        <>
+          <div
+            onClick={() => setExpanded(false)}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(26,26,26,0.55)",
+              zIndex: 70,
+            }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: 110,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "#1A1A1A",
+              color: "#FEFCF9",
+              borderTop: "3px solid #1A1A1A",
+              display: "flex",
+              flexDirection: "column",
+              zIndex: 80,
+              fontFamily: FB,
+            }}
+          >
+            <div
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              style={{
+                padding: "12px 14px 13px",
+                borderBottom: "1.5px solid rgba(254,252,249,0.12)",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                flexShrink: 0,
+                cursor: "grab",
+              }}
+            >
+              <span
+                style={{
+                  width: 8,
+                  height: 8,
+                  background: "#F5C230",
+                  borderRadius: "50%",
+                  animation: "cfc-mob-pulse 1.6s ease-in-out infinite",
+                  display: "inline-block",
+                }}
+              />
+              <span
+                style={{
+                  fontFamily: "Syne, sans-serif",
+                  fontWeight: 800,
+                  fontSize: 11,
+                  letterSpacing: "0.04em",
+                  color: "#F5C230",
+                  textTransform: "uppercase",
+                  flex: 1,
+                }}
+              >
+                Around the league
+              </span>
+              <button
+                type="button"
+                onClick={() => setExpanded(false)}
+                aria-label="Close"
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#FEFCF9",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+
+            <div style={{ flex: 1, padding: "4px 14px", overflowY: "auto" }}>
+              {items.length === 0 ? (
+                <div
+                  style={{
+                    padding: "32px 0",
+                    fontSize: 12,
+                    color: "#8C7E6A",
+                    textAlign: "center",
+                    fontStyle: "italic",
+                  }}
+                >
+                  The league is quiet.
+                </div>
+              ) : (
+                items.map((item, i) => (
+                  <div
+                    key={`${item.timestamp}-${i}`}
+                    style={{
+                      padding: "10px 0",
+                      borderBottom:
+                        i < items.length - 1
+                          ? "1px solid rgba(254,252,249,0.10)"
+                          : "none",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontFamily: FM,
+                        fontSize: 9,
+                        fontWeight: 700,
+                        letterSpacing: "0.12em",
+                        color: "#8C7E6A",
+                        textTransform: "uppercase",
+                        marginBottom: 3,
+                      }}
+                    >
+                      {timeAgo(item.timestamp).toUpperCase()} AGO
+                    </div>
+                    <div
+                      style={{
+                        fontSize: 12,
+                        lineHeight: 1.4,
+                        color: "#FEFCF9",
+                      }}
+                    >
+                      {item.headline.replace(/\*\*/g, "")}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </>
   );
 }
