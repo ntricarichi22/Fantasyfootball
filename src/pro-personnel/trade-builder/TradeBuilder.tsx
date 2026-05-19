@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { teamNick } from "@/shared/util/teamNick";
 import DealCard, { type DealAsset } from "@/pro-personnel/trade-builder/DealCard";
 import AIAdvisor, { type AdvisorSuggestion } from "@/pro-personnel/trade-builder/AIAdvisor";
 import PlayerRow, { AVAILABILITY_CHIPS } from "@/pro-personnel/trade-builder/PlayerRow";
@@ -35,19 +36,6 @@ const POS_SECTIONS = [
   { key: "PASS", label: "Pass Catchers" },
   { key: "PICK", label: "Draft Picks" },
 ];
-
-// Team name shortening for the header and tab labels.
-// Default rule: drop the first word (city). Overrides handle multi-word
-// city prefixes that the default rule mishandles.
-const TEAM_NAME_OVERRIDES: Record<string, string> = {
-  "Windy City Crossfitters": "Crossfitters",
-};
-
-function teamNick(name: string): string {
-  if (TEAM_NAME_OVERRIDES[name]) return TEAM_NAME_OVERRIDES[name];
-  const p = name.split(" ");
-  return p.length > 1 ? p.slice(1).join(" ") : name;
-}
 
 export default function TradeBuilder({ initialCart, initialTeams, initialDealAssets, onBack }: Props) {
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
