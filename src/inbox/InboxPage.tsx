@@ -12,9 +12,11 @@ import {
   MobileActionBar,
   InboxRow,
   EmptyState,
+  InsiderPanel,
   timeAgo,
   type Filter,
   type InboxItem,
+  type InsiderItem,
 } from "@/inbox/InboxParts";
 
 /* ------------------------------------------------------------------ */
@@ -55,12 +57,6 @@ type TradeOffer = {
   ai_quip: string | null;
   created_at: string;
   updated_at: string;
-};
-
-type InsiderItem = {
-  type: string;
-  headline: string;
-  timestamp: string;
 };
 
 /* ------------------------------------------------------------------ */
@@ -262,7 +258,7 @@ export default function InboxPage() {
           const m = memos.find((x) => x.id === it.id);
           return m?.status !== "trashed" && m?.status !== "archived";
         }
-        return true;
+        return it.tradeFromUser !== true;
       });
     }
     if (filter === "sent") {
@@ -400,12 +396,10 @@ export default function InboxPage() {
 
       <div style={{ height: 3, background: "#E8503A" }} />
 
-      {isMobile ? (
+      {isMobile && (
         <div style={{ background: "#1A1A1A", padding: "8px 12px 10px" }}>
           <Ticker label="Around the league" messages={insiderMessages} vertical />
         </div>
-      ) : (
-        <Ticker label="Around the league" messages={insiderMessages} />
       )}
 
       {!isMobile && (
@@ -502,6 +496,8 @@ export default function InboxPage() {
             </div>
           )}
         </div>
+
+        {!isMobile && <InsiderPanel items={insider} />}
       </div>
 
       {isMobile && drawerOpen && (

@@ -668,3 +668,126 @@ export function EmptyState({ filter }: { filter: Filter }) {
     </div>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/*  InsiderPanel — desktop-only persistent feed                          */
+/* ------------------------------------------------------------------ */
+
+export type InsiderItem = {
+  type?: string;
+  headline: string;
+  timestamp: string;
+};
+
+export function InsiderPanel({ items }: { items: InsiderItem[] }) {
+  return (
+    <div
+      style={{
+        width: 178,
+        background: "#1A1A1A",
+        color: "#FEFCF9",
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
+        alignSelf: "stretch",
+      }}
+    >
+      <style>{`
+        @keyframes cfc-insider-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.35; }
+        }
+      `}</style>
+
+      <div
+        style={{
+          padding: "11px 12px",
+          borderBottom: "1.5px solid rgba(254,252,249,0.12)",
+          display: "flex",
+          alignItems: "center",
+          gap: 7,
+          position: "sticky",
+          top: 0,
+          background: "#1A1A1A",
+          zIndex: 1,
+        }}
+      >
+        <span
+          style={{
+            width: 7,
+            height: 7,
+            background: "#F5C230",
+            borderRadius: "50%",
+            display: "inline-block",
+            animation: "cfc-insider-pulse 1.6s ease-in-out infinite",
+            flexShrink: 0,
+          }}
+        />
+        <span
+          style={{
+            fontFamily: "Syne, sans-serif",
+            fontWeight: 800,
+            letterSpacing: "0.04em",
+            color: "#F5C230",
+            fontSize: 10,
+            textTransform: "uppercase",
+          }}
+        >
+          Around the league
+        </span>
+      </div>
+
+      <div style={{ flex: 1, padding: "2px 12px", overflowY: "auto" }}>
+        {items.length === 0 ? (
+          <div
+            style={{
+              padding: "24px 0",
+              fontSize: 11,
+              color: "#8C7E6A",
+              textAlign: "center",
+              fontFamily: FB,
+              fontStyle: "italic",
+            }}
+          >
+            The league is quiet.
+          </div>
+        ) : (
+          items.map((item, i) => (
+            <div
+              key={`${item.timestamp}-${i}`}
+              style={{
+                padding: "9px 0",
+                borderBottom:
+                  i < items.length - 1 ? "1px solid rgba(254,252,249,0.10)" : "none",
+              }}
+            >
+              <div
+                style={{
+                  fontFamily: FM,
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: "0.12em",
+                  color: "#8C7E6A",
+                  textTransform: "uppercase",
+                  marginBottom: 3,
+                }}
+              >
+                {timeAgo(item.timestamp).toUpperCase()} AGO
+              </div>
+              <div
+                style={{
+                  fontSize: 10.5,
+                  lineHeight: 1.4,
+                  color: "#FEFCF9",
+                  fontFamily: FB,
+                }}
+              >
+                {item.headline.replace(/\*\*/g, "")}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
