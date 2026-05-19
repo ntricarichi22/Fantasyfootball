@@ -56,7 +56,7 @@ import { useSleeperData } from "@/infrastructure/sleeper/useSleeperData";
 import { buildLeagueProfiles, type PositionKey } from "@/pro-personnel/trade-engine/profile";
 import type { StarterAsset } from "@/pro-personnel/trade-engine/starterLevel";
 import { buildScoutingGrades, type ScoutingGradeSet } from "@/scouting/draft-room/grades";
-import { HomeScreen } from "@/components/HomeScreen";
+import { HomeScreen } from "@/home/HomeScreen";
 
 export default function DraftRoom() {
   const router = useRouter();
