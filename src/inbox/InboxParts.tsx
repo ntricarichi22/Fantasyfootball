@@ -6,10 +6,10 @@ const FH = "Syne, sans-serif";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FB = "var(--font-body, 'DM Sans', sans-serif)";
 
-export type Filter = "unread" | "sent" | "trash" | "archive";
+export type Filter = "inbox" | "sent" | "trash" | "archive";
 
 export const FILTER_LABELS: { value: Filter; label: string }[] = [
-  { value: "unread", label: "Unread" },
+  { value: "inbox", label: "Inbox" },
   { value: "sent", label: "Sent" },
   { value: "trash", label: "Trash" },
   { value: "archive", label: "Archive" },
@@ -24,6 +24,8 @@ export type InboxItem = {
   unread: boolean;
   timestamp: string;
   href: string;
+  tradeFromUser?: boolean;
+  tradeStatus?: string;
 };
 
 export function timeAgo(dateStr: string): string {
@@ -48,11 +50,13 @@ export function Sidebar({
   onChange,
   isMobile,
   onClose,
+  unreadCount,
 }: {
   active: Filter;
   onChange: (f: Filter) => void;
   isMobile: boolean;
   onClose?: () => void;
+  unreadCount?: number;
 }) {
   return (
     <div
@@ -136,6 +140,7 @@ export function Sidebar({
       <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
         {FILTER_LABELS.map((f) => {
           const isActive = active === f.value;
+          const showUnreadDot = f.value === "inbox" && (unreadCount ?? 0) > 0;
           return (
             <button
               key={f.value}
@@ -156,9 +161,25 @@ export function Sidebar({
                 cursor: "pointer",
                 fontFamily: FB,
                 textAlign: "left",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
               }}
             >
-              {f.label}
+              <span>{f.label}</span>
+              {showUnreadDot && (
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    background: "#E8503A",
+                    borderRadius: "50%",
+                    display: "inline-block",
+                    flexShrink: 0,
+                  }}
+                  aria-label={`${unreadCount} unread`}
+                />
+              )}
             </button>
           );
         })}
@@ -589,7 +610,7 @@ export function InboxRow({
 
 export function EmptyState({ filter }: { filter: Filter }) {
   const COPY: Record<Filter, { eyebrow: string; head: string; sub: string }> = {
-    unread: { eyebrow: "Inbox · 0 unread", head: "You're all caught up.", sub: "Quiet around here." },
+    inbox: { eyebrow: "Inbox · 0 messages", head: "Your inbox is empty.", sub: "Nothing to see here yet." },
     sent: {
       eyebrow: "Sent · 0 offers",
       head: "You haven't sent any offers yet.",

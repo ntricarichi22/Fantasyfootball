@@ -345,7 +345,14 @@ export default function MemoBody({ memoId }: { memoId: string }) {
           padding: isMobile ? "18px 14px 60px" : "28px 24px 60px",
         }}
       >
-        {/* FROM / SUBJ / DATE header */}
+        <div
+          style={{
+            background: "#FFFFFF",
+            border: "1.5px solid #1A1A1A",
+            padding: isMobile ? "20px 16px" : "28px 30px",
+          }}
+        >
+          {/* FROM / SUBJ / DATE header */}
         <div
           style={{
             fontFamily: FM,
@@ -407,13 +414,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
         </div>
 
         {/* The play */}
-        <div
-          style={{
-            background: "#F5F0E6",
-            border: "3px solid #1A1A1A",
-            padding: isMobile ? "16px 14px" : "20px 22px",
-          }}
-        >
+        <div>
           <div
             style={{
               fontFamily: FH,
@@ -505,6 +506,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
           >
             Not now
           </button>
+        </div>
         </div>
       </div>
     </div>

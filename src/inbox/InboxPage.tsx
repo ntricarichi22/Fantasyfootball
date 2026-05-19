@@ -114,7 +114,7 @@ export default function InboxPage() {
   const rosterId = stored?.rosterId ?? "";
   const isMobile = !!useIsMobile();
 
-  const [filter, setFilter] = useState<Filter>("unread");
+  const [filter, setFilter] = useState<Filter>("inbox");
   const [searchTerm, setSearchTerm] = useState("");
   const [memos, setMemos] = useState<Memo[]>([]);
   const [threadData, setThreadData] = useState<
@@ -205,12 +205,14 @@ export default function InboxPage() {
         td.thread.team_a_id === rosterId ? td.thread.team_b_id : td.thread.team_a_id;
       const counterpartName = rosterNames[counterpartId] || `Team ${counterpartId}`;
 
-      if (td.thread.status === "open") {
-        for (const offer of td.offers.filter((o) => o.status === "pending")) {
-          const isReceiver = offer.to_team_id === rosterId;
-          const youGet = isReceiver ? offer.assets_from : offer.assets_to;
-          const youGive = isReceiver ? offer.assets_to : offer.assets_from;
-          let preview = "";
+      for (const offer of td.offers) {
+        const isFromUser = offer.from_team_id === rosterId;
+        const isReceiver = offer.to_team_id === rosterId;
+        const youGet = isReceiver ? offer.assets_from : offer.assets_to;
+        const youGive = isReceiver ? offer.assets_to : offer.assets_from;
+
+        let preview = "";
+        if (offer.status === "pending") {
           try {
             const q = offer.ai_quip ? JSON.parse(offer.ai_quip) : null;
             preview = (isReceiver ? q?.to : q?.from) ?? "";
@@ -222,35 +224,22 @@ export default function InboxPage() {
               youGive.length > 1 ? ` and ${youGive.length - 1} more` : ""
             }.`;
           }
-          items.push({
-            kind: "trade",
-            id: offer.id,
-            sender: counterpartName,
-            subject: `Offer for ${extractName(youGet[0]?.label)}`,
-            preview,
-            unread: isReceiver,
-            timestamp: offer.created_at,
-            href: `/trades/${td.thread.id}`,
-          });
+        } else {
+          preview = `${offer.status[0].toUpperCase()}${offer.status.slice(1)}.`;
         }
-      } else {
-        const terminal =
-          [...td.offers].reverse().find((o) => o.status !== "pending") ??
-          td.offers[td.offers.length - 1];
-        if (terminal) {
-          const isReceiver = terminal.to_team_id === rosterId;
-          const youGet = isReceiver ? terminal.assets_from : terminal.assets_to;
-          items.push({
-            kind: "trade",
-            id: terminal.id,
-            sender: counterpartName,
-            subject: `Offer for ${extractName(youGet[0]?.label)}`,
-            preview: `${td.thread.status[0].toUpperCase()}${td.thread.status.slice(1)}.`,
-            unread: false,
-            timestamp: td.thread.last_activity_at,
-            href: `/trades/${td.thread.id}`,
-          });
-        }
+
+        items.push({
+          kind: "trade",
+          id: offer.id,
+          sender: counterpartName,
+          subject: `Offer for ${extractName(youGet[0]?.label)}`,
+          preview,
+          unread: offer.status === "pending" && isReceiver,
+          timestamp: offer.created_at,
+          href: `/inbox/${td.thread.id}`,
+          tradeFromUser: isFromUser,
+          tradeStatus: offer.status,
+        });
       }
     }
 
@@ -266,15 +255,19 @@ export default function InboxPage() {
       it.subject.toLowerCase().includes(term) ||
       it.preview.toLowerCase().includes(term);
 
-    if (filter === "unread") return allItems.filter((it) => it.unread && matches(it));
+    if (filter === "inbox") {
+      return allItems.filter((it) => {
+        if (!matches(it)) return false;
+        if (it.kind === "memo") {
+          const m = memos.find((x) => x.id === it.id);
+          return m?.status !== "trashed" && m?.status !== "archived";
+        }
+        return true;
+      });
+    }
     if (filter === "sent") {
-      const sentThreadIds = new Set(
-        threadData
-          .filter((td) => td.offers.some((o) => o.from_team_id === rosterId))
-          .map((td) => td.thread.id)
-      );
       return allItems.filter(
-        (it) => it.kind === "trade" && sentThreadIds.has(it.href.split("/").pop() || "") && matches(it)
+        (it) => it.kind === "trade" && it.tradeFromUser === true && matches(it)
       );
     }
     if (filter === "trash") {
@@ -289,11 +282,9 @@ export default function InboxPage() {
         const m = memos.find((x) => x.id === it.id);
         return m?.status === "archived" && matches(it);
       }
-      const threadId = it.href.split("/").pop();
-      const td = threadData.find((x) => x.thread.id === threadId);
-      return td !== undefined && td.thread.status !== "open" && matches(it);
+      return it.tradeStatus !== undefined && it.tradeStatus !== "pending" && matches(it);
     });
-  }, [allItems, filter, searchTerm, rosterId, memos, threadData]);
+  }, [allItems, filter, searchTerm, memos]);
 
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
@@ -334,6 +325,11 @@ export default function InboxPage() {
         ? insider.map((i) => `${i.headline.replace(/\*\*/g, "")} · ${timeAgo(i.timestamp)} ago`)
         : ["The league is quiet. For now."],
     [insider]
+  );
+
+  const unreadCount = useMemo(
+    () => allItems.filter((it) => it.unread).length,
+    [allItems]
   );
 
   if (!rosterId) {
@@ -453,6 +449,7 @@ export default function InboxPage() {
               setSelected(new Set());
             }}
             isMobile={false}
+            unreadCount={unreadCount}
           />
         )}
 
@@ -526,6 +523,7 @@ export default function InboxPage() {
               }}
               isMobile
               onClose={() => setDrawerOpen(false)}
+              unreadCount={unreadCount}
             />
           </div>
         </div>
