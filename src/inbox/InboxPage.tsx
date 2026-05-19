@@ -402,39 +402,14 @@ export default function InboxPage() {
         </div>
       )}
 
-      {!isMobile && (
-        <div style={{ padding: "12px 16px", borderBottom: "3px solid #1A1A1A" }}>
-          <div
-            style={{
-              background: "#FEFCF9",
-              border: "3px solid #1A1A1A",
-              padding: "8px 12px",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            <Icon name="search" size={15} />
-            <input
-              type="text"
-              placeholder="Search inbox"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              style={{
-                flex: 1,
-                border: "none",
-                outline: "none",
-                background: "transparent",
-                fontSize: 13,
-                color: "#1A1A1A",
-                fontFamily: FB,
-              }}
-            />
-          </div>
-        </div>
-      )}
-
-      <div style={{ display: "flex", alignItems: "stretch", minHeight: "calc(100vh - 200px)" }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "stretch",
+          minHeight: "calc(100vh - 200px)",
+          paddingRight: !isMobile ? 14 : 0,
+        }}
+      >
         {!isMobile && (
           <Sidebar
             active={filter}
@@ -455,6 +430,37 @@ export default function InboxPage() {
             paddingBottom: isMobile && selected.size > 0 ? 64 : undefined,
           }}
         >
+          {!isMobile && (
+            <div
+              style={{
+                background: "#FEFCF9",
+                border: "3px solid #1A1A1A",
+                padding: "8px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 14,
+              }}
+            >
+              <Icon name="search" size={15} />
+              <input
+                type="text"
+                placeholder="Search inbox"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={{
+                  flex: 1,
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  fontSize: 13,
+                  color: "#1A1A1A",
+                  fontFamily: FB,
+                }}
+              />
+            </div>
+          )}
+
           {selected.size > 0 && !isMobile && (
             <ActionBar
               count={selected.size}

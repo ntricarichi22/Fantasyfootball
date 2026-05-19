@@ -683,12 +683,11 @@ export function InsiderPanel({ items }: { items: InsiderItem[] }) {
   return (
     <div
       style={{
-        width: 178,
+        flex: "0 0 25%",
         background: "#1A1A1A",
         color: "#FEFCF9",
         display: "flex",
         flexDirection: "column",
-        flexShrink: 0,
         alignSelf: "stretch",
       }}
     >
