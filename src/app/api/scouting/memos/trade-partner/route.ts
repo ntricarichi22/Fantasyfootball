@@ -1,3 +1,3 @@
-export async function GET() {
-  return Response.json({ message: "Coming soon" });
-}
+// FILE: src/app/api/scouting/memos/trade-partner/route.ts
+import { memos } from "@/scouting/api";
+export const POST = memos.tradePartner;
