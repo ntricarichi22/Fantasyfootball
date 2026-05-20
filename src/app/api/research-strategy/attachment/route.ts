@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { rebuildTeamTradeValueForPlayer } from "@/research-strategy/api/service";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,11 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Re-apply the tier modifier to this player's value so the change shows up
+    // immediately (untouchable +10%, core +5%, listening 0%, moveable -5%).
+    // Without this, the tier saves but the displayed value stays stale.
+    await rebuildTeamTradeValueForPlayer(leagueId, teamId, sleeperPlayerId);
 
     return NextResponse.json({ ok: true });
   } catch (error) {
