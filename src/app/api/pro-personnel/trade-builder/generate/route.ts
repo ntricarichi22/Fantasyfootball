@@ -1,38 +1,34 @@
-// POST /api/pro-personnel/trade-studio/generate
+// POST /api/pro-personnel/trade-builder/generate
 //
-// v3.12: per-partner persona restructure. Each partner's persona now
-// drives their candidate-generation shape. The user's persona is still
-// tracked (for the chip's OUR-band check) but no longer shapes any
-// candidates. The `persona_override` parameter is gone — toggle UI was
-// removed.
+// Builder cycler generation endpoint. Mirrors the Studio pattern:
+// client sends all rosters (hydrated with isStud/isYouth flags via the
+// /api/pro-personnel/targets endpoint), server loads profiles, personas,
+// and partner trade history, then calls the Builder engine to produce
+// a slate of up to 5 target offers.
 //
-// Inherited behavior:
+// Pipeline:
+//   1. Validate request (team_id, rosters present for user team)
+//   2. Load all teams' profiles + personas from cfc_team_strategy_profiles
+//   3. Hydrate rosters from raw client payload
+//   4. Enrich with isStarterLevel + pick fields (league-wide pure compute)
+//   5. Infer team mode per team
+//   6. Load partner trade history (read-only; for empirical accept bands)
+//   7. Load user pass history (v1 stub — returns empty)
+//   8. Build BuilderContext and call buildBuilderSlate
 //
-//   v3.4: drops shape_signature param (More Like This feature removed).
-//
-//   v3.2 OPTIMIZATION (still in effect): drops the cfc_trade_values_current
-//   full-table scan from every API call. The client populates isStud/isYouth
-//   on the assets it sends in the request body, so we trust that and skip
-//   the value-flags fetch. This cuts DB load roughly in half on every
-//   regenerate.
-//
-// What still hits the DB:
-//   - cfc_team_strategy_profiles (12 rows, fast)
-//
-// isAging support remains pending — loaded from age_multiplier_applied
-// but the engine's AGING BENCH GUY dealbreaker is a no-op until the
-// client ships the flag. Wire-up is in place for when we enforce.
+// Response shape: { offers, generatedAt, reason } where reason is
+// "ok" | "no_strategy" | "no_clean_offers".
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { generateStudioOffers } from "@/pro-personnel/trade-engine/studio/engine";
+import { buildBuilderSlate, type BuilderContext, type TeamInfo } from "@/pro-personnel/trade-engine/builder/engine";
+import {
+  loadAllPartnerHistories,
+  loadUserPassHistory,
+} from "@/pro-personnel/trade-engine/history/reader";
 import { isValidPersona, type PersonaKey } from "@/pro-personnel/trade-engine/studio/persona";
 import { enrichRosters, inferTeamMode } from "@/pro-personnel/trade-engine/studio/classification";
-import type {
-  StudioAsset,
-  StudioStrategyProfile,
-  StudioEngineContext,
-} from "@/pro-personnel/trade-engine/studio/types";
+import type { StudioAsset, StudioStrategyProfile } from "@/pro-personnel/trade-engine/studio/types";
 import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
@@ -113,60 +109,66 @@ export async function POST(req: Request) {
   try {
     const body = await req.json();
     const teamId = String(body.team_id ?? "").trim();
-    const shopKeys: string[] = Array.isArray(body.shop_list_keys) ? body.shop_list_keys : [];
-    const anchorPartnerId = body.anchor_partner_id ? String(body.anchor_partner_id) : undefined;
     const rawRosters: Record<string, RawClientAsset[]> = body.rosters ?? {};
     const teamNames: Record<string, string> = body.team_names ?? {};
 
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
-    if (shopKeys.length === 0) return NextResponse.json({ offers: [], totalCandidatesEvaluated: 0, isFallback: false });
     if (!rawRosters[teamId]) return NextResponse.json({ error: "rosters required for team" }, { status: 400 });
 
     const leagueId = getLeagueId();
     const supabase = admin();
+
+    // Load profiles + personas
     const { profiles, personas } = await loadProfilesAndPersonas(supabase, leagueId);
 
-    // Hydrate every roster's raw assets (no DB lookup needed — client provides flags)
+    // Hydrate rosters from client payload
     const hydrated = new Map<string, StudioAsset[]>();
     for (const [tid, assets] of Object.entries(rawRosters)) {
       hydrated.set(tid, assets.map(a => hydrateAsset(a, tid)));
     }
 
-    // Enrich with isStarterLevel + pick fields (league-wide ranking — pure compute, no DB)
+    // Enrich with isStarterLevel + pick fields (pure compute, league-wide)
     const enriched = enrichRosters(hydrated);
 
-    // Infer team mode per team and attach to profiles
+    // Infer team mode per team
+    const teamModes = new Map<string, "contend" | "retool" | "rebuild">();
     for (const [tid, roster] of enriched) {
       const profile = profiles.get(tid);
-      if (profile) profile.team_mode = inferTeamMode(roster, profile);
+      const mode = profile ? inferTeamMode(roster, profile) : "retool";
+      teamModes.set(tid, mode);
+      if (profile) profile.team_mode = mode;
     }
 
-    const myRoster = enriched.get(teamId) ?? [];
-    const shopList = myRoster.filter(a => shopKeys.includes(a.key));
-    if (shopList.length === 0) {
-      return NextResponse.json({ offers: [], totalCandidatesEvaluated: 0, isFallback: false });
-    }
+    // Load partner histories (all non-user teams) and user pass history in parallel
+    const partnerIds = Array.from(enriched.keys()).filter(tid => tid !== teamId);
+    const [partnerHistories, passHistory] = await Promise.all([
+      loadAllPartnerHistories(supabase, partnerIds, leagueId),
+      loadUserPassHistory(supabase, teamId),
+    ]);
 
-    const ctx: StudioEngineContext = {
-      myTeamId: teamId,
-      myTeamName: teamNames[teamId] ?? `Team ${teamId}`,
-      myPersona: personas.get(teamId) ?? "straight_shooter",
-      myProfile: profiles.get(teamId) ?? null,
-      myRoster,
-      shopList,
-      partners: Array.from(enriched.entries())
-        .filter(([tid]) => tid !== teamId)
-        .map(([tid, roster]) => ({
-          teamId: tid,
-          teamName: teamNames[tid] ?? `Team ${tid}`,
-          profile: profiles.get(tid) ?? null,
-          persona: personas.get(tid) ?? "straight_shooter",
-          roster,
-        })),
+    // Build TeamInfo entries for us + others
+    const buildTeamInfo = (tid: string): TeamInfo => ({
+      teamId: tid,
+      name: teamNames[tid] ?? `Team ${tid}`,
+      roster: enriched.get(tid) ?? [],
+      profile: profiles.get(tid) ?? null,
+      persona: personas.get(tid) ?? "straight_shooter",
+      mode: teamModes.get(tid) ?? "retool",
+    });
+
+    const us = buildTeamInfo(teamId);
+    const others = partnerIds.map(buildTeamInfo);
+
+    const ctx: BuilderContext = {
+      userTeamId: teamId,
+      us,
+      others,
+      passHistory,
+      partnerHistories,
     };
 
-    const result = generateStudioOffers(ctx, { anchorPartnerId });
-    return NextResponse.json(result);
+    const slate = await buildBuilderSlate(ctx);
+    return NextResponse.json(slate);
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });

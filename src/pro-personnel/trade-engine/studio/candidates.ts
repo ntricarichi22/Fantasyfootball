@@ -36,6 +36,20 @@
 //      starters) and picks are unrestricted.
 // Applies uniformly to SS, Closer (via SS base), Hustler (via SS base),
 // and Architect.
+//
+// v3.12: PARTNER-PERSPECTIVE DISPATCH. The persona passed to
+// generateCandidates is now the PARTNER's persona, not the user's. The
+// dispatch is intentionally swapped so the right generator fires for
+// the right partner-as-offerer behavior:
+//
+//   - Partner HUSTLER → use Closer generator (pick on user's SEND side
+//                       → user pays more → partner gets a sweetener,
+//                       which is what a Hustler partner would extract)
+//   - Partner CLOSER  → use Hustler generator (pick on user's RECEIVE
+//                       side → user gets a sweetener → partner sends
+//                       extra to close, which is what a Closer partner
+//                       does)
+//   - SS and Architect are perspective-neutral and dispatch to themselves.
 
 import type { RosterAsset, PersonaKey } from "../core/types";
 import type { StudioEngineContext, StudioPartner } from "./types";
@@ -198,7 +212,12 @@ function generateStraightShooterBase(ctx: StudioEngineContext): CandidateOffer[]
   return out;
 }
 
-// ─── CLOSER ─────────────────────────────────────────────────────────────
+// ─── CLOSER GENERATOR ────────────────────────────────────────────────────
+//
+// Originally modeled "user as Closer" — adds a pick from user's roster to
+// user's SEND side. Under partner-perspective dispatch (v3.12), this is
+// the generator for HUSTLER PARTNERS: the partner is asking for an extra
+// sweetener on top of fair value, so the user pays more.
 
 function generateCloserCandidates(ctx: StudioEngineContext): CandidateOffer[] {
   const base = generateStraightShooterBase(ctx);
@@ -226,7 +245,12 @@ function generateCloserCandidates(ctx: StudioEngineContext): CandidateOffer[] {
   }));
 }
 
-// ─── HUSTLER ────────────────────────────────────────────────────────────
+// ─── HUSTLER GENERATOR ───────────────────────────────────────────────────
+//
+// Originally modeled "user as Hustler" — adds a partner pick to user's
+// RECEIVE side. Under partner-perspective dispatch (v3.12), this is the
+// generator for CLOSER PARTNERS: the partner is sweetening the deal to
+// close it, so the user gets a small extra.
 
 function generateHustlerCandidates(ctx: StudioEngineContext): CandidateOffer[] {
   const base = generateStraightShooterBase(ctx);
@@ -361,13 +385,19 @@ function generateArchitectCandidates(ctx: StudioEngineContext): CandidateOffer[]
   return out;
 }
 
-// ─── Dispatch ────────────────────────────────────────────────────────────
+// ─── Partner-perspective dispatch ────────────────────────────────────────
+//
+// v3.12 — `persona` parameter is now the PARTNER's persona. See file
+// header for the semantic swap explanation.
 
-export function generateCandidates(ctx: StudioEngineContext, persona: PersonaKey): CandidateOffer[] {
-  switch (persona) {
+export function generateCandidates(
+  ctx: StudioEngineContext,
+  partnerPersona: PersonaKey,
+): CandidateOffer[] {
+  switch (partnerPersona) {
+    case "hustler":          return generateCloserCandidates(ctx);
+    case "closer":           return generateHustlerCandidates(ctx);
     case "straight_shooter": return generateStraightShooterBase(ctx);
-    case "closer":           return generateCloserCandidates(ctx);
-    case "hustler":          return generateHustlerCandidates(ctx);
     case "architect":        return generateArchitectCandidates(ctx);
     default:                 return generateStraightShooterBase(ctx);
   }

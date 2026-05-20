@@ -1,109 +1,127 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
-import LandingPage from "@/components/trade/LandingPage";
-import TradeBuilder from "@/pro-personnel/trade-builder/TradeBuilder";
-import type { CartItem } from "@/components/trade/CartSidebar";
-import type { DealAsset } from "@/pro-personnel/trade-builder/DealCard";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import TradeBuilder from "@/pro-personnel/trade-builder/TradeBuilder";
+import BuilderCyclerView from "@/pro-personnel/trade-builder/BuilderCyclerView";
+import type { DealAsset } from "@/pro-personnel/trade-builder/DealCard";
 
-type SeedAsset = { key: string; name: string };
-type StudioSeed = {
+// /pro-personnel/trade-builder page wrapper.
+//
+// Routes between three modes based on the ?seed= query param:
+//
+//   (no seed)     → BuilderCyclerView   — cycle through computed targets
+//   ?seed=studio  → TradeBuilder seeded from sessionStorage[cfc_studio_seed_deal]
+//                                       — Studio Edit handoff
+//   ?seed=cycler  → TradeBuilder seeded from sessionStorage[cfc_builder_seed_deal]
+//                                       — Builder cycler Edit handoff
+//   ?seed=fresh   → TradeBuilder empty  — PHONES ARE OPEN flow from cycler
+//
+// The sessionStorage seed key is read once on mount and then cleared so
+// that a page refresh doesn't re-trigger the seeded editor (the user lands
+// back on the cycler on refresh, which matches expected behavior).
+
+type SeedDeal = {
   partner_team_id: string;
   partner_team_name: string;
-  send: SeedAsset[];
-  receive: SeedAsset[];
+  send: Array<{ key: string; name: string; type?: string }>;
+  receive: Array<{ key: string; name: string; type?: string }>;
 };
 
-function TradeFlow() {
-  const [mode, setMode] = useState<"landing" | "building">("landing");
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
-  const [seedDealAssets, setSeedDealAssets] = useState<DealAsset[] | null>(null);
+type RouteMode =
+  | { kind: "loading" }
+  | { kind: "cycler" }
+  | { kind: "editor"; initialTeams: Array<{ id: string; name: string }>; initialDealAssets: DealAsset[] };
 
-  // Studio Edit handoff. When ?seed=studio is present, hydrate from
-  // sessionStorage and skip the landing page. Cleared after read so a
-  // refresh doesn't re-trigger the same seed.
+export default function TradeBuilderPage() {
+  const searchParams = useSearchParams();
+  const seed = searchParams?.get("seed") ?? null;
+  const [mode, setMode] = useState<RouteMode>({ kind: "loading" });
+
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("seed") !== "studio") return;
+    // No seed param → cycler
+    if (!seed) {
+      setMode({ kind: "cycler" });
+      return;
+    }
 
+    // Fresh editor — no sessionStorage read needed
+    if (seed === "fresh") {
+      setMode({ kind: "editor", initialTeams: [], initialDealAssets: [] });
+      return;
+    }
+
+    // Seeded editor — read sessionStorage key based on which surface seeded it
+    const seedKey = seed === "studio" ? "cfc_studio_seed_deal" : "cfc_builder_seed_deal";
     try {
-      const raw = sessionStorage.getItem("cfc_studio_seed_deal");
-      if (!raw) return;
-      sessionStorage.removeItem("cfc_studio_seed_deal");
-      const seed = JSON.parse(raw) as StudioSeed;
-
-      const { rosterId, teamName } = readStoredTeam();
-      if (!rosterId) return;
-
-      const myName = teamName || `Team ${rosterId}`;
-      const partnerId = seed.partner_team_id;
-      const partnerName = seed.partner_team_name;
+      const raw = sessionStorage.getItem(seedKey);
+      if (!raw) {
+        setMode({ kind: "cycler" });
+        return;
+      }
+      const data = JSON.parse(raw) as SeedDeal;
+      const stored = readStoredTeam();
+      const myTeamId = stored.rosterId ?? "";
+      const myTeamName = stored.teamName ?? "";
 
       const dealAssets: DealAsset[] = [
-        ...(seed.send ?? []).map((a) => ({
+        ...(data.send ?? []).map(a => ({
           key: a.key,
           name: a.name,
-          fromTeamId: rosterId,
-          toTeamId: partnerId,
-          fromTeamName: myName,
-          toTeamName: partnerName,
+          fromTeamId: myTeamId,
+          toTeamId: data.partner_team_id,
+          fromTeamName: myTeamName,
+          toTeamName: data.partner_team_name,
         })),
-        ...(seed.receive ?? []).map((a) => ({
+        ...(data.receive ?? []).map(a => ({
           key: a.key,
           name: a.name,
-          fromTeamId: partnerId,
-          toTeamId: rosterId,
-          fromTeamName: partnerName,
-          toTeamName: myName,
+          fromTeamId: data.partner_team_id,
+          toTeamId: myTeamId,
+          fromTeamName: data.partner_team_name,
+          toTeamName: myTeamName,
         })),
       ];
 
-      if (dealAssets.length === 0) return;
+      setMode({
+        kind: "editor",
+        initialTeams: [{ id: data.partner_team_id, name: data.partner_team_name }],
+        initialDealAssets: dealAssets,
+      });
 
-      setSeedDealAssets(dealAssets);
-      setTeams([{ id: partnerId, name: partnerName }]);
-      setMode("building");
-
-      // Strip ?seed=studio so a refresh lands on the normal flow
-      window.history.replaceState(null, "", window.location.pathname);
+      // Clear so refresh doesn't re-trigger the seeded editor
+      sessionStorage.removeItem(seedKey);
     } catch {
-      // Bad seed payload — fall through to landing
+      setMode({ kind: "cycler" });
     }
-  }, []);
+  }, [seed]);
 
-  const handleCheckout = useCallback((cartItems: CartItem[], selectedTeams: { id: string; name: string }[]) => {
-    setCart(cartItems);
-    setTeams(selectedTeams);
-    setSeedDealAssets(null);
-    setMode("building");
-  }, []);
+  const handleBack = () => {
+    // Manual editor's back button returns to the cycler (clean URL)
+    window.location.href = "/pro-personnel/trade-builder";
+  };
 
-  const handleBack = useCallback(() => {
-    setMode("landing");
-    setSeedDealAssets(null);
-  }, []);
+  if (mode.kind === "loading") {
+    return (
+      <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)", fontSize: 11, color: "#8C7E6A", letterSpacing: "0.1em" }}>
+          LOADING…
+        </div>
+      </div>
+    );
+  }
 
-  if (mode === "building") {
+  if (mode.kind === "editor") {
     return (
       <TradeBuilder
-        initialCart={cart}
-        initialTeams={teams}
-        initialDealAssets={seedDealAssets ?? undefined}
+        initialCart={[]}
+        initialTeams={mode.initialTeams}
+        initialDealAssets={mode.initialDealAssets}
         onBack={handleBack}
       />
     );
   }
 
-  return <LandingPage onCheckout={handleCheckout} />;
-}
-
-export default function TradeBuilderPage() {
-  return (
-    <Suspense fallback={<div style={{ minHeight: "100vh", background: "#F5F0E6" }} />}>
-      <TradeFlow />
-    </Suspense>
-  );
+  return <BuilderCyclerView />;
 }

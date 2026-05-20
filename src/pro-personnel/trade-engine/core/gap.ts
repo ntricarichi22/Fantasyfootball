@@ -1,14 +1,26 @@
-// src/lib/trade/core/gap.ts
+// src/pro-personnel/trade-engine/core/gap.ts
 //
 // Gap math + grade derivation. Single source of truth for fairness.
 //
 //   computeGap          — given a deal, returns sendValue/receiveValue/ratio/verdict
-//   gradeFromVerdict    — converts verdict to a Grade (label + color + bucket)
-//   personaAwareGrade   — adjusts Grade based on partner's gm_persona;
-//                         used by Builder so the chip reflects the partner's
-//                         likely acceptance. A +12% deal grades green
-//                         (in-the-range) with a Closer partner, yellow
-//                         (you're ahead) with a Straight Shooter.
+//   gradeFromVerdict    — converts verdict to a Grade (label + color + bucket).
+//                         Labels updated to director's-voice copy:
+//                           "We should take this deal"  (green)
+//                           "I'd push for more here"    (yellow)
+//                           "Don't even entertain this" (red)
+//   personaAwareGrade   — adjusts Grade based on OUR persona band. Builder
+//                         + Studio both pass OUR persona now — the chip is
+//                         OUR accept-band check. Bilateral acceptance (will
+//                         the partner take it?) is handled in advisor prose.
+//
+// Color update: teal #007370 → green #019942 (aligns to locked CFC palette).
+//
+// Bucket preservation: the full bucket vocabulary
+//   "great" | "ahead" | "fair" | "reaching" | "way_off" | "incomplete"
+// is preserved so any UI branching on specific buckets (e.g. position
+// dots, prose tone shifts) still works. The label and color are what
+// collapse — three buckets now share the same "We should take this deal"
+// label and green underline, but downstream code can still distinguish.
 
 import type {
   RosterAsset,
@@ -18,6 +30,23 @@ import type {
   Grade,
   PersonaKey,
 } from "./types";
+
+// ─── Color tokens (mirror locked palette) ──────────────────────────────
+
+const GREEN = "#019942";
+const YELLOW = "#F5C230";
+const RED = "#E8503A";
+const MUTED = "#8C7E6A";
+
+// ─── Director's bottom-line copy ───────────────────────────────────────
+
+const VERDICT_TAKE = "We should take this deal";
+const VERDICT_PUSH = "I'd push for more here";
+const VERDICT_WALK = "Don't even entertain this";
+const VERDICT_ADD = "Add your pieces";
+const VERDICT_PICK = "Pick your targets";
+
+// ─── Gap computation ──────────────────────────────────────────────────
 
 export function computeGap(
   dealAssets: DealAsset[],
@@ -53,37 +82,50 @@ export function computeGap(
   return { sendValue, receiveValue, ratio, delta, verdict, hasSend, hasReceive };
 }
 
+// ─── Verdict → Grade mapping ──────────────────────────────────────────
+//
+// Under the new design the chip is always OUR view. Any deal that lands
+// at or above fair value for us shows "We should take this deal" (green).
+// Bucket distinctions are preserved underneath so downstream code can
+// still differentiate "great" vs "ahead" vs "fair" if needed.
+
 export function gradeFromVerdict(v: GapVerdict): Grade {
   switch (v) {
     case "MASSIVE_FAVOR_USER":
     case "STRONG_FAVOR_USER":
-      return { label: "Great deal for you", color: "#E8503A", bucket: "great" };
+      return { label: VERDICT_TAKE, color: GREEN, bucket: "great" };
     case "SLIGHT_FAVOR_USER":
-      return { label: "You're ahead", color: "#F5C230", bucket: "ahead" };
+      return { label: VERDICT_TAKE, color: GREEN, bucket: "ahead" };
     case "FAIR":
-      return { label: "In the range", color: "#007370", bucket: "fair" };
+      return { label: VERDICT_TAKE, color: GREEN, bucket: "fair" };
     case "SLIGHT_FAVOR_OTHER":
-      return { label: "You're reaching", color: "#F5C230", bucket: "reaching" };
+      return { label: VERDICT_PUSH, color: YELLOW, bucket: "reaching" };
     case "STRONG_FAVOR_OTHER":
     case "MASSIVE_FAVOR_OTHER":
-      return { label: "Way off", color: "#E8503A", bucket: "way_off" };
+      return { label: VERDICT_WALK, color: RED, bucket: "way_off" };
     case "RECV_ONLY":
-      return { label: "Add your pieces", color: "#F5C230", bucket: "incomplete" };
+      return { label: VERDICT_ADD, color: YELLOW, bucket: "incomplete" };
     case "SEND_ONLY":
-      return { label: "Pick your targets", color: "#F5C230", bucket: "incomplete" };
+      return { label: VERDICT_PICK, color: YELLOW, bucket: "incomplete" };
     default:
-      return { label: "", color: "#8C7E6A", bucket: "incomplete" };
+      return { label: "", color: MUTED, bucket: "incomplete" };
   }
 }
 
-// Per-persona ratio bands. These match studio/persona.ts but live here too
-// so personaAwareGrade is self-contained for Builder use without importing
-// from studio/. KEEP IN SYNC with studio/persona.ts.
+// ─── Persona accept-band check ────────────────────────────────────────
 //
-// Hustler band sits ABOVE 1.0 — "come in low" means underpaying the partner,
-// so user-perspective ratio (receive/send) ends up > 1.0. Upper bound is
-// effectively uncapped (99) since the math naturally bounds the ratio
-// based on the SS base + a 3rd/2nd-round partner pick.
+// Both Builder and Studio now pass OUR persona — the chip grades whether
+// the deal falls in OUR accept band. Inside band → "We should take this
+// deal" (green). Outside band → falls through to standard verdict grade.
+//
+// Hustler band sits ABOVE 1.0 — "come in low" means we're underpaying
+// the partner, so user-perspective ratio (receive/send) ends up > 1.0.
+// Upper bound 99 lets the math naturally bound the ratio.
+//
+// When inside-band, we use the "ahead" bucket to mark this as the user's
+// preferred band hit (mildly favorable) — distinct from "great"/"fair"
+// which come straight from raw verdict math.
+
 const PERSONA_RATIO_MIN: Record<PersonaKey, number> = {
   straight_shooter: 0.90,
   closer: 0.85,
@@ -99,11 +141,11 @@ const PERSONA_RATIO_MAX: Record<PersonaKey, number> = {
 
 export function personaAwareGrade(
   gap: Gap,
-  partnerPersona?: PersonaKey | null,
+  ourPersona?: PersonaKey | null,
 ): Grade {
-  // Incomplete deals or unknown partner persona → fall back to neutral grading
+  // Incomplete deals or unknown persona → standard grading
   if (
-    !partnerPersona ||
+    !ourPersona ||
     gap.verdict === "EMPTY" ||
     gap.verdict === "RECV_ONLY" ||
     gap.verdict === "SEND_ONLY"
@@ -111,13 +153,17 @@ export function personaAwareGrade(
     return gradeFromVerdict(gap.verdict);
   }
 
-  const min = PERSONA_RATIO_MIN[partnerPersona];
-  const max = PERSONA_RATIO_MAX[partnerPersona];
+  const min = PERSONA_RATIO_MIN[ourPersona];
+  const max = PERSONA_RATIO_MAX[ourPersona];
 
-  // Inside partner's persona band → green / fair bucket
+  // Inside our persona's accept band → director endorses with green chip
   if (gap.ratio >= min && gap.ratio <= max) {
-    return { label: "In the range", color: "#007370", bucket: "fair" };
+    // Pick the bucket that best reflects where in the band we landed:
+    //   ratio >= 1.0 → "ahead" (favorable end)
+    //   ratio <  1.0 → "fair"  (we're paying fairly)
+    const bucket: Grade["bucket"] = gap.ratio >= 1.0 ? "ahead" : "fair";
+    return { label: VERDICT_TAKE, color: GREEN, bucket };
   }
-  // Outside band → neutral grading
+  // Outside band → fall through to standard verdict grade
   return gradeFromVerdict(gap.verdict);
 }
