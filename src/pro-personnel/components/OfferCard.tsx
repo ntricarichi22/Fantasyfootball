@@ -6,19 +6,16 @@
 //   1. Builder cycler — Pass | Edit | Make this offer
 //   2. Studio cycler  — Pass | Edit | Make this offer
 //   3. Inbox thread   — Pass | Counter | Accept  (future, via label props)
-//   4. Chat proposed_trade — same as cycler treatment (future)
 //
-// LOCKED design:
-//   - Max width 560px, centered. Caller is responsible for placing it
-//     in the layout (full-width centered in Builder, centered within
-//     the 60% column in Studio).
-//   - 2.5px black border, 4px offset shadow, no rounded corners.
-//   - Team name (left) + persona chip (right) — partner persona always.
-//   - 2-column ledger (SEND | RECEIVE) with cream-tiled asset cells.
-//   - Inline director treatment: 36px avatar + verdict (bold caps with
-//     colored 4px underline) + prose body.
-//   - Pass | Edit row split by 2px vertical black border.
-//   - Full-width primary commit button in blue with 3px offset shadow.
+// v3.13 layout pass:
+//   - Responsive width: fills parent up to 680px (was fixed 560). In the
+//     Builder cycler the parent is a min(680px, 94vw) column; in the Studio
+//     drawer the 60% column constrains it. Inline min()/clamp() only — no
+//     media queries, stays inline-styles-only.
+//   - Vertical padding compressed throughout so a normal deal fits in the
+//     viewport without scrolling on a laptop.
+//   - Team name now WRAPS to two lines instead of ellipsis-truncating, so
+//     "Doylestown Destroyers" and friends render in full.
 //
 // Verdict underline colors (driven by verdictColor prop):
 //   #019942 green   — "We should take this deal"
@@ -101,7 +98,7 @@ export default function OfferCard({
       background: "#FEFCF9",
       border: "2.5px solid #1A1A1A",
       boxShadow: "4px 4px 0 #1A1A1A",
-      maxWidth: 560,
+      maxWidth: 680,
       margin: "0 auto",
       width: "100%",
       fontFamily: F,
@@ -109,7 +106,7 @@ export default function OfferCard({
     }}>
       {/* Team header */}
       <div style={{
-        padding: "16px 18px",
+        padding: "12px 16px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
@@ -119,15 +116,15 @@ export default function OfferCard({
         <div style={{
           fontFamily: FH,
           fontWeight: 800,
-          fontSize: 19,
+          fontSize: "clamp(16px, 2.2vw, 20px)",
           letterSpacing: "-0.01em",
           color: "#1A1A1A",
           textTransform: "uppercase",
           flex: 1,
           minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
+          lineHeight: 1.1,
+          whiteSpace: "normal",
+          overflowWrap: "break-word",
         }}>
           {partnerName}
         </div>
@@ -135,18 +132,19 @@ export default function OfferCard({
           <div style={{
             background: "#1A1A1A",
             color: "#FEFCF9",
-            padding: "5px 10px",
+            padding: "5px 9px",
             display: "flex",
             alignItems: "center",
-            gap: 6,
+            gap: 5,
             flexShrink: 0,
           }}>
-            <i className={`ti ${PERSONA_ICONS[partnerPersona]}`} style={{ fontSize: 13 }} aria-hidden="true" />
+            <i className={`ti ${PERSONA_ICONS[partnerPersona]}`} style={{ fontSize: 12 }} aria-hidden="true" />
             <span style={{
               fontFamily: FM,
-              fontSize: 10,
-              letterSpacing: "0.1em",
+              fontSize: 9,
+              letterSpacing: "0.08em",
               fontWeight: 700,
+              whiteSpace: "nowrap",
             }}>
               {PERSONA_LABELS[partnerPersona]}
             </span>
@@ -160,27 +158,27 @@ export default function OfferCard({
         gridTemplateColumns: "1fr 1fr",
         borderBottom: "2px solid #1A1A1A",
       }}>
-        <div style={{ padding: "16px 18px", borderRight: "2px solid #1A1A1A" }}>
+        <div style={{ padding: "12px 16px", borderRight: "2px solid #1A1A1A" }}>
           <div style={{
             fontFamily: FM,
             fontSize: 9,
             letterSpacing: "0.14em",
             fontWeight: 700,
             color: "#8C7E6A",
-            marginBottom: 10,
+            marginBottom: 8,
           }}>
             SEND
           </div>
           {sendAssets.map(a => <AssetCell key={a.key} asset={a} />)}
         </div>
-        <div style={{ padding: "16px 18px" }}>
+        <div style={{ padding: "12px 16px" }}>
           <div style={{
             fontFamily: FM,
             fontSize: 9,
             letterSpacing: "0.14em",
             fontWeight: 700,
             color: "#8C7E6A",
-            marginBottom: 10,
+            marginBottom: 8,
           }}>
             RECEIVE
           </div>
@@ -190,32 +188,33 @@ export default function OfferCard({
 
       {/* Director inline section */}
       <div style={{
-        padding: "20px 18px",
+        padding: "14px 16px",
         borderBottom: "2px solid #1A1A1A",
         display: "flex",
-        alignItems: "center",
-        gap: 16,
+        alignItems: "flex-start",
+        gap: 13,
       }}>
         <img
           src="/avatars/pro-personnel.png"
           alt=""
           style={{
-            width: 36,
-            height: 36,
+            width: 32,
+            height: 32,
             borderRadius: "50%",
             objectFit: "cover",
             flexShrink: 0,
+            marginTop: 2,
           }}
         />
         <div style={{ flex: 1, minWidth: 0 }}>
           <span style={{
             fontWeight: 700,
-            fontSize: 13,
+            fontSize: 12,
             letterSpacing: "0.05em",
             textTransform: "uppercase",
             color: "#1A1A1A",
             display: "inline-block",
-            marginBottom: 10,
+            marginBottom: 7,
             textDecoration: "underline",
             textDecorationColor: verdictColor,
             textDecorationThickness: 4,
@@ -225,7 +224,7 @@ export default function OfferCard({
           </span>
           <div style={{
             fontSize: 13,
-            lineHeight: 1.55,
+            lineHeight: 1.45,
             color: "#1A1A1A",
             opacity: proseLoading ? 0.5 : 1,
           }}>
@@ -245,7 +244,7 @@ export default function OfferCard({
           style={{
             background: "#FEFCF9",
             border: "none",
-            padding: "14px",
+            padding: "12px",
             fontFamily: FM,
             fontSize: 11,
             letterSpacing: "0.1em",
@@ -263,7 +262,7 @@ export default function OfferCard({
           style={{
             background: "#FEFCF9",
             border: "none",
-            padding: "14px",
+            padding: "12px",
             fontFamily: FM,
             fontSize: 11,
             letterSpacing: "0.1em",
@@ -278,7 +277,7 @@ export default function OfferCard({
       </div>
 
       {/* Primary commit button — blue with offset shadow */}
-      <div style={{ padding: 14 }}>
+      <div style={{ padding: 12 }}>
         <button
           onClick={sending ? undefined : onMakeOffer}
           disabled={sending}
@@ -288,7 +287,7 @@ export default function OfferCard({
             color: "#FEFCF9",
             border: "2px solid #1A1A1A",
             boxShadow: "3px 3px 0 #1A1A1A",
-            padding: "12px",
+            padding: "11px",
             fontFamily: FM,
             fontSize: 12,
             letterSpacing: "0.1em",
@@ -310,14 +309,15 @@ function AssetCell({ asset }: { asset: CardAsset }) {
     <div style={{
       background: "#F5F0E6",
       border: "1.5px solid #1A1A1A",
-      padding: "10px 12px",
-      marginBottom: 8,
+      padding: "8px 10px",
+      marginBottom: 6,
     }}>
       <div style={{
         fontWeight: 700,
         fontSize: 14,
         color: "#1A1A1A",
-        lineHeight: 1.2,
+        lineHeight: 1.15,
+        overflowWrap: "break-word",
       }}>
         {asset.name}
       </div>
@@ -326,7 +326,7 @@ function AssetCell({ asset }: { asset: CardAsset }) {
           fontFamily: FM,
           fontSize: 10,
           color: "#8C7E6A",
-          marginTop: 3,
+          marginTop: 2,
         }}>
           {asset.meta}
         </div>

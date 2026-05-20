@@ -14,6 +14,9 @@ const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const BUILDER_INTRO = "Made some calls around the league and put together our top trade targets with realistic packages for each.";
 const BUILDER_NO_OFFERS = "Made my rounds. Nothing solid came back today — adjust your strategy in the Owner's Box and we'll go again.";
 
+// Content column width — fluid, caps at 680, shrinks to fit narrow screens.
+const COLUMN_WIDTH = "min(680px, 94vw)";
+
 // ─── Types matching the Builder engine output ──────────────────────────
 
 type BuilderOfferAsset = {
@@ -313,7 +316,7 @@ export default function BuilderCyclerView() {
       )}
 
       {/* Topbar — inline for now; migrating to shared InnerTopbar later */}
-      <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
+      <div style={{ background: "#F5F0E6", padding: "8px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
         <div onClick={() => { window.location.href = "/inbox"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: FM, letterSpacing: "0.04em" }}>← BACK</div>
         <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
         <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>Trade Builder</div>
@@ -322,8 +325,8 @@ export default function BuilderCyclerView() {
       </div>
 
       {/* Main scrollable content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
-        <div style={{ maxWidth: 560, margin: "0 auto", display: "flex", flexDirection: "column", gap: 20 }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px" }}>
+        <div style={{ width: COLUMN_WIDTH, maxWidth: 680, margin: "0 auto", display: "flex", flexDirection: "column", gap: 14 }}>
 
           {/* Director two-box — show on loading, ok, and no_clean_offers */}
           {(reason === "loading" || reason === "ok" || reason === "no_clean_offers") && (
@@ -332,7 +335,7 @@ export default function BuilderCyclerView() {
 
           {/* Loading */}
           {reason === "loading" && (
-            <div style={{ fontFamily: FM, fontSize: 11, color: "#8C7E6A", textAlign: "center", padding: 40, letterSpacing: "0.1em" }}>
+            <div style={{ fontFamily: FM, fontSize: 11, color: "#8C7E6A", textAlign: "center", padding: 32, letterSpacing: "0.1em" }}>
               WORKING THE PHONES…
             </div>
           )}
@@ -423,7 +426,7 @@ export default function BuilderCyclerView() {
                 color: "#FEFCF9",
                 border: "2.5px solid #1A1A1A",
                 boxShadow: "4px 4px 0 #1A1A1A",
-                padding: "14px",
+                padding: "12px",
                 fontFamily: FM,
                 fontSize: 12,
                 letterSpacing: "0.1em",

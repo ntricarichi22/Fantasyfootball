@@ -3,25 +3,11 @@
 // src/pro-personnel/components/DirectorTwoBox.tsx
 //
 // Page-level director introduction panel — the "two-box" intro that
-// opens every Pro Personnel cycler surface (Builder cycler, Studio
-// selection state, Studio offer review state, future no-offers state).
+// opens every Pro Personnel cycler surface.
 //
-// Structure (LOCKED):
-//   ┌─────────┬──────────────────────────────────────────┐
-//   │  AVATAR │  Director's message text                 │
-//   │  + TITLE│  (paper bg, black border)                │
-//   │  (black │                                          │
-//   │   fill) │                                          │
-//   └─────────┴──────────────────────────────────────────┘
-//
-// Left cell: black fill, avatar (~64px) centered + "PERSONNEL DIRECTOR"
-//            mono caps in paper color underneath.
-// Right cell: paper bg, 2.5px black border on the whole two-box, no
-//             additional offset shadow.
-//
-// This component is DIFFERENT from the in-card director treatment which
-// is simpler (inline avatar + message, no boxes). That treatment lives
-// inside OfferCard.
+// v3.13 layout pass: slimmed to reclaim vertical space for the no-scroll
+// goal. Avatar 64 → 48, padding tightened, message font fluid via clamp.
+// Structure and color treatment unchanged.
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -41,19 +27,19 @@ export default function DirectorTwoBox({ message }: DirectorTwoBoxProps) {
       {/* Left cell — black fill with avatar + title */}
       <div style={{
         background: "#1A1A1A",
-        padding: "20px 24px",
+        padding: "14px 18px",
         display: "flex",
         flexDirection: "column",
         alignItems: "center",
-        gap: 10,
+        gap: 8,
         borderRight: "2.5px solid #1A1A1A",
       }}>
         <img
           src="/avatars/pro-personnel.png"
           alt=""
           style={{
-            width: 64,
-            height: 64,
+            width: 48,
+            height: 48,
             borderRadius: "50%",
             objectFit: "cover",
             flexShrink: 0,
@@ -61,13 +47,14 @@ export default function DirectorTwoBox({ message }: DirectorTwoBoxProps) {
         />
         <div style={{
           fontFamily: FM,
-          fontSize: 9,
+          fontSize: 8,
           letterSpacing: "0.14em",
           fontWeight: 700,
           color: "#FEFCF9",
           textTransform: "uppercase",
           textAlign: "center",
           whiteSpace: "nowrap",
+          lineHeight: 1.3,
         }}>
           Personnel<br/>Director
         </div>
@@ -75,15 +62,15 @@ export default function DirectorTwoBox({ message }: DirectorTwoBoxProps) {
 
       {/* Right cell — paper bg with message */}
       <div style={{
-        padding: "24px 26px",
+        padding: "16px 20px",
         background: "#FEFCF9",
         display: "flex",
         alignItems: "center",
       }}>
         <div style={{
           fontFamily: F,
-          fontSize: 16,
-          lineHeight: 1.5,
+          fontSize: "clamp(14px, 1.8vw, 16px)",
+          lineHeight: 1.4,
           color: "#1A1A1A",
           fontWeight: 500,
         }}>
