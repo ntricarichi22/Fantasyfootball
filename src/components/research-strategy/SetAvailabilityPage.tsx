@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 
 import RosterPlayerCard from "./RosterPlayerCard";
+import RosterPickCard from "./RosterPickCard";
 import PlayerEditorOverlay from "./PlayerEditorOverlay";
+import PickEditorOverlay from "./PickEditorOverlay";
 import {
   DEFAULT_PICK_ANCHORS,
   composeFromPicks,
@@ -14,6 +16,7 @@ import {
   type PickAnchors,
   type PickCounts,
 } from "./availabilityConfig";
+import { parsePickKey, type ParsedPick } from "./pickDisplay";
 
 type TradeRow = {
   sleeper_player_id: string;
@@ -23,6 +26,10 @@ type TradeRow = {
   final_value: number;
   manual_override_value: number | null;
 };
+
+type PickAsset = { key: string; value: number; parsed: ParsedPick };
+
+type TargetsAsset = { key: string; value: number; type: "player" | "pick" };
 
 type TabKey = "QB" | "RB" | "PC" | "PICKS";
 
@@ -39,7 +46,7 @@ const positionMatchesTab = (position: string | null, tab: TabKey): boolean => {
   if (tab === "QB") return p === "QB";
   if (tab === "RB") return p === "RB";
   if (tab === "PC") return p === "WR" || p === "TE";
-  return false; // PICKS handled in the next build slice
+  return false;
 };
 
 const headshotUrl = (sleeperPlayerId: string) =>
@@ -48,17 +55,55 @@ const headshotUrl = (sleeperPlayerId: string) =>
 const priceOf = (row: TradeRow) =>
   row.manual_override_value != null ? row.manual_override_value : row.final_value;
 
+// Picks sort: year ascending, round ascending, slot ascending (unknown last).
+const sortPicks = (a: PickAsset, b: PickAsset) => {
+  if (a.parsed.year !== b.parsed.year) return a.parsed.year - b.parsed.year;
+  if (a.parsed.round !== b.parsed.round) return a.parsed.round - b.parsed.round;
+  return (a.parsed.slot ?? 999) - (b.parsed.slot ?? 999);
+};
+
 export default function SetAvailabilityPage() {
   const { rosterId = "" } = readStoredTeam();
   const [rows, setRows] = useState<TradeRow[]>([]);
+  const [picks, setPicks] = useState<PickAsset[]>([]);
   const [anchors, setAnchors] = useState<PickAnchors>(DEFAULT_PICK_ANCHORS);
   const [attachments, setAttachments] = useState<Record<string, AttachmentLevel>>({});
   const [pickState, setPickState] = useState<Record<string, PickCounts>>({});
   const [activeTab, setActiveTab] = useState<TabKey>("QB");
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
+  const [openPickKey, setOpenPickKey] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Pull attachments map (shared by players + picks; picks keyed by their pick: key).
+  const fetchAttachments = useCallback(async (): Promise<Record<string, AttachmentLevel>> => {
+    const res = await fetch(`/api/research-strategy/attachment?teamId=${encodeURIComponent(rosterId)}`);
+    const json = await res.json();
+    const map: Record<string, AttachmentLevel> = {};
+    if (res.ok && Array.isArray(json.data)) {
+      json.data.forEach((r: { sleeper_player_id: string; attachment: string }) => {
+        map[r.sleeper_player_id] = normalizeAttachment(r.attachment);
+      });
+    }
+    return map;
+  }, [rosterId]);
+
+  // Lighter refresh after an availability change: player values + attachments only.
+  // Pick inventory/values don't move, so we skip the heavy targets route.
+  const reloadValues = useCallback(async () => {
+    if (!rosterId) return;
+    try {
+      const chartRes = await fetch(`/api/research-strategy/trade-chart?teamId=${encodeURIComponent(rosterId)}`);
+      const chartJson = await chartRes.json();
+      if (!chartRes.ok) throw new Error(chartJson?.error ?? "Failed to load values");
+      setRows((chartJson.data ?? []) as TradeRow[]);
+      if (chartJson.anchors?.first) setAnchors(chartJson.anchors as PickAnchors);
+      setAttachments(await fetchAttachments());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to refresh");
+    }
+  }, [rosterId, fetchAttachments]);
 
   const load = useCallback(async () => {
     if (!rosterId) {
@@ -68,20 +113,17 @@ export default function SetAvailabilityPage() {
     setLoading(true);
     setError("");
     try {
-      const [chartRes, attachRes] = await Promise.all([
+      const [chartRes, targetsRes] = await Promise.all([
         fetch(`/api/research-strategy/trade-chart?teamId=${encodeURIComponent(rosterId)}`),
-        fetch(`/api/research-strategy/attachment?teamId=${encodeURIComponent(rosterId)}`),
+        fetch(`/api/pro-personnel/targets?teamId=${encodeURIComponent(rosterId)}`),
       ]);
 
       const chartJson = await chartRes.json();
       if (!chartRes.ok) throw new Error(chartJson?.error ?? "Failed to load values");
-
       let data = (chartJson.data ?? []) as TradeRow[];
       if (chartJson.anchors?.first && chartJson.anchors?.second && chartJson.anchors?.third) {
         setAnchors(chartJson.anchors as PickAnchors);
       }
-
-      // First visit: the per-team values table may be empty. Build it.
       if (data.length === 0) {
         const rebuildRes = await fetch("/api/research-strategy/trade-chart", {
           method: "POST",
@@ -95,20 +137,25 @@ export default function SetAvailabilityPage() {
       }
       setRows(data);
 
-      const attachJson = await attachRes.json();
-      const attachMap: Record<string, AttachmentLevel> = {};
-      if (attachRes.ok && Array.isArray(attachJson.data)) {
-        attachJson.data.forEach((r: { sleeper_player_id: string; attachment: string }) => {
-          attachMap[r.sleeper_player_id] = normalizeAttachment(r.attachment);
-        });
-      }
-      setAttachments(attachMap);
+      // Picks: pull my roster's pick assets out of the targets route and parse keys.
+      const targetsJson = await targetsRes.json();
+      const myAssets: TargetsAsset[] = (targetsRes.ok && targetsJson.rosters?.[rosterId]) || [];
+      const parsedPicks: PickAsset[] = [];
+      myAssets.forEach((a) => {
+        if (a.type !== "pick") return;
+        const parsed = parsePickKey(a.key);
+        if (parsed) parsedPicks.push({ key: a.key, value: a.value, parsed });
+      });
+      parsedPicks.sort(sortPicks);
+      setPicks(parsedPicks);
+
+      setAttachments(await fetchAttachments());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, [rosterId]);
+  }, [rosterId, fetchAttachments]);
 
   useEffect(() => {
     void load();
@@ -137,8 +184,7 @@ export default function SetAvailabilityPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to save availability");
-      // Tier changes the auto value (untouchable +10%, etc.) — reload to reflect it.
-      await load();
+      await reloadValues();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save availability");
     } finally {
@@ -177,6 +223,7 @@ export default function SetAvailabilityPage() {
   }, [rows, activeTab]);
 
   const openRow = rows.find((r) => r.sleeper_player_id === openPlayerId) ?? null;
+  const openPick = picks.find((p) => p.key === openPickKey) ?? null;
 
   return (
     <div
@@ -201,9 +248,7 @@ export default function SetAvailabilityPage() {
       </h1>
 
       {error && (
-        <p style={{ color: "#E8503A", fontSize: 13, fontWeight: 700, margin: "0 0 12px" }}>
-          {error}
-        </p>
+        <p style={{ color: "#E8503A", fontSize: 13, fontWeight: 700, margin: "0 0 12px" }}>{error}</p>
       )}
 
       <div
@@ -217,43 +262,33 @@ export default function SetAvailabilityPage() {
       >
         <div style={{ flex: 1, padding: 16, minHeight: 440 }}>
           {loading && rows.length === 0 ? (
-            <p
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 12,
-                color: "#8C7E6A",
-              }}
-            >
+            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
               Loading roster values&hellip;
             </p>
           ) : activeTab === "PICKS" ? (
-            <p
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 12,
-                color: "#8C7E6A",
-              }}
-            >
-              Picks come in the next build slice.
-            </p>
+            picks.length === 0 ? (
+              <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
+                No picks found.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+                {picks.map((pick) => (
+                  <RosterPickCard
+                    key={pick.key}
+                    parsed={pick.parsed}
+                    attachment={getAttachment(pick.key)}
+                    value={pick.value}
+                    onOpen={() => setOpenPickKey(pick.key)}
+                  />
+                ))}
+              </div>
+            )
           ) : visibleRows.length === 0 ? (
-            <p
-              style={{
-                fontFamily: "'JetBrains Mono', monospace",
-                fontSize: 12,
-                color: "#8C7E6A",
-              }}
-            >
+            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
               No players at this position.
             </p>
           ) : (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3, 1fr)",
-                gap: 14,
-              }}
-            >
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
               {visibleRows.map((row) => (
                 <RosterPlayerCard
                   key={row.sleeper_player_id}
@@ -312,6 +347,17 @@ export default function SetAvailabilityPage() {
           onSetAttachment={(level) => setAttachment(openRow.sleeper_player_id, level)}
           onAdjustPick={(key, delta) => adjustPick(openRow.sleeper_player_id, key, delta)}
           onClose={() => setOpenPlayerId(null)}
+        />
+      )}
+
+      {openPick && (
+        <PickEditorOverlay
+          parsed={openPick.parsed}
+          attachment={getAttachment(openPick.key)}
+          value={openPick.value}
+          saving={savingId === openPick.key}
+          onSetAttachment={(level) => setAttachment(openPick.key, level)}
+          onClose={() => setOpenPickKey(null)}
         />
       )}
     </div>
