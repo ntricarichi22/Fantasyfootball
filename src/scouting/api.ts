@@ -141,18 +141,78 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ ok: true });
     }
 
-    if (action === "reorder_tiers") {
-      const tiers: { id: string; order: number }[] = body.tiers;
-      const rows = tiers.map((t) => ({
-        id: t.id,
-        roster_id: rosterId,
-        tier_order: t.order,
-      }));
-      const { error } = await supabase
+    if (action === "shift_tier_boundary") {
+      const tierId: string = body.tier_id;
+      const direction: "up" | "down" = body.direction;
+
+      // Load every tier so we can find the one immediately above this tier
+      const { data: allTiersData, error: tiersErr } = await supabase
         .from("cfc_big_board_tiers")
-        .upsert(rows, { onConflict: "id" });
-      if (error) throw error;
-      return NextResponse.json({ ok: true });
+        .select("id, tier_order")
+        .eq("roster_id", rosterId)
+        .order("tier_order", { ascending: true });
+      if (tiersErr) throw tiersErr;
+      const allTiers = (allTiersData ?? []) as Array<{ id: string; tier_order: number }>;
+
+      const thisTier = allTiers.find((t) => t.id === tierId);
+      if (!thisTier) {
+        return NextResponse.json({ error: "tier not found" }, { status: 404 });
+      }
+
+      const prevTier = allTiers.find((t) => t.tier_order === thisTier.tier_order - 1);
+      if (!prevTier) {
+        return NextResponse.json({ error: "no previous tier to shift against" }, { status: 400 });
+      }
+
+      if (direction === "up") {
+        // Expand this tier upward: take the last (highest-rank) player of
+        // the previous tier and move them into this tier.
+        const { data: prevPlayersData, error: prevErr } = await supabase
+          .from("cfc_big_board_rankings")
+          .select("player_id, rank")
+          .eq("roster_id", rosterId)
+          .eq("tier_id", prevTier.id)
+          .order("rank", { ascending: false })
+          .limit(1);
+        if (prevErr) throw prevErr;
+        const prevPlayers = (prevPlayersData ?? []) as Array<{ player_id: string; rank: number }>;
+        if (prevPlayers.length === 0) {
+          return NextResponse.json({ error: "previous tier is empty" }, { status: 400 });
+        }
+        const { error: updErr } = await supabase
+          .from("cfc_big_board_rankings")
+          .update({ tier_id: tierId })
+          .eq("roster_id", rosterId)
+          .eq("player_id", prevPlayers[0].player_id);
+        if (updErr) throw updErr;
+        return NextResponse.json({ ok: true });
+      }
+
+      if (direction === "down") {
+        // Shrink this tier from the top: take the first (lowest-rank)
+        // player of this tier and push them back into the previous tier.
+        const { data: thisPlayersData, error: thisErr } = await supabase
+          .from("cfc_big_board_rankings")
+          .select("player_id, rank")
+          .eq("roster_id", rosterId)
+          .eq("tier_id", tierId)
+          .order("rank", { ascending: true })
+          .limit(1);
+        if (thisErr) throw thisErr;
+        const thisPlayers = (thisPlayersData ?? []) as Array<{ player_id: string; rank: number }>;
+        if (thisPlayers.length === 0) {
+          return NextResponse.json({ error: "this tier is empty" }, { status: 400 });
+        }
+        const { error: updErr } = await supabase
+          .from("cfc_big_board_rankings")
+          .update({ tier_id: prevTier.id })
+          .eq("roster_id", rosterId)
+          .eq("player_id", thisPlayers[0].player_id);
+        if (updErr) throw updErr;
+        return NextResponse.json({ ok: true });
+      }
+
+      return NextResponse.json({ error: "invalid direction" }, { status: 400 });
     }
 
     if (action === "reorder_players") {
@@ -257,8 +317,6 @@ async function fetchPlayerPool(valueMap: Map<string, number>): Promise<PoolPlaye
       const isActive = p.active === true;
       const isRookie = p.years_exp === 0;
 
-      // Keep players who are active, rookies, or have a known CFC value.
-      // Mirrors the draft-room filter to avoid retired bench fodder.
       if (!(isActive || isRookie || hasValue)) continue;
 
       const fullName = typeof p.full_name === "string" ? p.full_name : null;
@@ -278,8 +336,6 @@ async function fetchPlayerPool(valueMap: Map<string, number>): Promise<PoolPlaye
       });
     }
 
-    // Sort by CFC value descending. Players without a value drop to the
-    // bottom and sort alphabetically among themselves.
     pool.sort((a, b) => {
       const av = a.consensusRank;
       const bv = b.consensusRank;
@@ -299,12 +355,6 @@ async function fetchPlayerPool(valueMap: Map<string, number>): Promise<PoolPlaye
   }
 }
 
-/**
- * Find tier boundaries by locating the biggest relative drops in CFC value
- * between consecutive players. Respects MIN_TIER_SIZE so we don't end up
- * with sliver tiers of 1-2 players. Returns indices that mark where each
- * tier (after the first) begins.
- */
 function computeTierBoundaries(values: number[]): number[] {
   if (values.length < MIN_TIER_SIZE * 2) {
     return [];
@@ -335,12 +385,6 @@ function computeTierBoundaries(values: number[]): number[] {
   return boundaries.sort((a, b) => a - b);
 }
 
-/**
- * Auto-seed an empty board with tiers + rankings based on natural value
- * drops. Only fires when the user has zero tiers and zero rankings, so
- * any user-driven changes (even just adding a single tier) prevent
- * re-seeding on future loads.
- */
 async function seedBoardWithTiers(
   supabase: SupabaseClient,
   rosterId: string,

@@ -108,12 +108,12 @@ function TierDivider({
       </span>
       <span style={{ flex: 1 }} />
       <div style={{ display: "flex", gap: 4 }}>
-        <TierCtrlButton onClick={onMoveUp} disabled={!canMoveUp} title="Move tier up">
+        <TierCtrlButton onClick={onMoveUp} disabled={!canMoveUp} title="Move boundary up">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="18 15 12 9 6 15" />
           </svg>
         </TierCtrlButton>
-        <TierCtrlButton onClick={onMoveDown} disabled={!canMoveDown} title="Move tier down">
+        <TierCtrlButton onClick={onMoveDown} disabled={!canMoveDown} title="Move boundary down">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="6 9 12 15 18 9" />
           </svg>
@@ -443,6 +443,12 @@ function ChipButton({
   );
 }
 
+type DisplayRow = {
+  player: BoardPlayer;
+  ranking: Ranking | undefined;
+  displayRank: number;
+};
+
 export function BigBoard() {
   const { rosterId = "" } = readStoredTeam();
   const isMobile = useIsMobile();
@@ -497,6 +503,10 @@ export function BigBoard() {
     return [...state.tiers].sort((a, b) => a.order - b.order);
   }, [state.tiers]);
 
+  // Group players by tier, sorted within each tier by stored rank, with a
+  // computed displayRank that reflects each row's visual position on the
+  // board (1 at the top, increasing down the page). The displayRank is what
+  // the user sees — it never sticks to a player, it sticks to a position.
   const groupedRows = useMemo(() => {
     const q = query.trim().toLowerCase();
     const filtered = pool
@@ -504,23 +514,43 @@ export function BigBoard() {
       .filter((p) => !starredOnly || starredSet.has(p.id))
       .filter((p) => !q || p.name.toLowerCase().includes(q));
 
-    const ranked = filtered
-      .map((p) => ({ player: p, ranking: rankingByPlayer.get(p.id) }))
-      .sort((a, b) => {
+    const grouped = new Map<string | null, Array<{ player: BoardPlayer; ranking: Ranking | undefined }>>();
+    for (const player of filtered) {
+      const ranking = rankingByPlayer.get(player.id);
+      const key = ranking?.tierId ?? null;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push({ player, ranking });
+    }
+
+    for (const arr of grouped.values()) {
+      arr.sort((a, b) => {
         const ra = a.ranking?.rank ?? Number.MAX_SAFE_INTEGER;
         const rb = b.ranking?.rank ?? Number.MAX_SAFE_INTEGER;
         return ra - rb;
       });
-
-    const byTier = new Map<string | null, typeof ranked>();
-    for (const row of ranked) {
-      const key = row.ranking?.tierId ?? null;
-      const arr = byTier.get(key) ?? [];
-      arr.push(row);
-      byTier.set(key, arr);
     }
-    return byTier;
-  }, [pool, query, positionFilter, starredOnly, starredSet, rankingByPlayer]);
+
+    const result = new Map<string | null, DisplayRow[]>();
+    let pos = 1;
+
+    for (const tier of tiersByOrder) {
+      const arr = grouped.get(tier.id) ?? [];
+      const withDisplay: DisplayRow[] = arr.map((row) => ({
+        ...row,
+        displayRank: pos++,
+      }));
+      result.set(tier.id, withDisplay);
+    }
+
+    const unranked = grouped.get(null) ?? [];
+    const unrankedWithDisplay: DisplayRow[] = unranked.map((row) => ({
+      ...row,
+      displayRank: pos++,
+    }));
+    result.set(null, unrankedWithDisplay);
+
+    return result;
+  }, [pool, query, positionFilter, starredOnly, starredSet, rankingByPlayer, tiersByOrder]);
 
   const toggleStar = useCallback(async (playerId: string) => {
     const currentlyStarred = starredSet.has(playerId);
@@ -567,31 +597,55 @@ export function BigBoard() {
     }
   }, [tiersByOrder, rosterId]);
 
-  const moveTier = useCallback((tierId: string, direction: "up" | "down") => {
+  // Move the boundary line between this tier and the tier immediately above
+  // by one player position. "up" grows this tier (absorbs the last player
+  // of the previous tier); "down" shrinks this tier (pushes its first
+  // player back up into the previous tier).
+  const shiftTierBoundary = useCallback(async (tierId: string, direction: "up" | "down") => {
     setState((s) => {
-      const sorted = [...s.tiers].sort((a, b) => a.order - b.order);
-      const idx = sorted.findIndex((t) => t.id === tierId);
-      if (idx < 0) return s;
-      const swapIdx = direction === "up" ? idx - 1 : idx + 1;
-      if (swapIdx < 0 || swapIdx >= sorted.length) return s;
-      const a = sorted[idx];
-      const b = sorted[swapIdx];
-      const updatedTiers = s.tiers.map((t) => {
-        if (t.id === a.id) return { ...t, order: b.order };
-        if (t.id === b.id) return { ...t, order: a.order };
-        return t;
-      });
-      fetch("/api/scouting/big-board/rankings", {
+      const sortedTiers = [...s.tiers].sort((a, b) => a.order - b.order);
+      const thisIdx = sortedTiers.findIndex((t) => t.id === tierId);
+      if (thisIdx <= 0) return s;
+      const prevTier = sortedTiers[thisIdx - 1];
+      const thisTier = sortedTiers[thisIdx];
+
+      if (direction === "up") {
+        const prevTierRankings = s.rankings.filter((r) => r.tierId === prevTier.id);
+        if (prevTierRankings.length === 0) return s;
+        const lastPlayer = prevTierRankings.reduce((a, b) => (a.rank > b.rank ? a : b));
+        const newRankings = s.rankings.map((r) =>
+          r.playerId === lastPlayer.playerId ? { ...r, tierId: thisTier.id } : r
+        );
+        return { ...s, rankings: newRankings };
+      }
+
+      if (direction === "down") {
+        const thisTierRankings = s.rankings.filter((r) => r.tierId === thisTier.id);
+        if (thisTierRankings.length === 0) return s;
+        const firstPlayer = thisTierRankings.reduce((a, b) => (a.rank < b.rank ? a : b));
+        const newRankings = s.rankings.map((r) =>
+          r.playerId === firstPlayer.playerId ? { ...r, tierId: prevTier.id } : r
+        );
+        return { ...s, rankings: newRankings };
+      }
+
+      return s;
+    });
+
+    try {
+      await fetch("/api/scouting/big-board/rankings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           roster_id: rosterId,
-          action: "reorder_tiers",
-          tiers: updatedTiers.map((t) => ({ id: t.id, order: t.order })),
+          action: "shift_tier_boundary",
+          tier_id: tierId,
+          direction,
         }),
-      }).catch((err) => console.error("Tier reorder failed", err));
-      return { ...s, tiers: updatedTiers };
-    });
+      });
+    } catch (err) {
+      console.error("Shift tier boundary failed", err);
+    }
   }, [rosterId]);
 
   const deleteTier = useCallback((tierId: string) => {
@@ -682,12 +736,12 @@ export function BigBoard() {
         starredOnly={starredOnly}
         onToggleStarredOnly={() => setStarredOnly((v) => !v)}
         onAddTier={addTier}
-        onMoveTier={moveTier}
+        onShiftTierBoundary={shiftTierBoundary}
         onDeleteTier={deleteTier}
         onReorderPlayer={reorderPlayer}
         onToggleStar={toggleStar}
         tiersByOrder={tiersByOrder}
-        rankingByPlayer={rankingByPlayer}
+        groupedRows={groupedRows}
       />
     );
   }
@@ -764,21 +818,28 @@ export function BigBoard() {
 
         {tiersByOrder.map((tier, tierIdx) => {
           const rows = groupedRows.get(tier.id) ?? [];
+          const isFirstTier = tierIdx === 0;
+          const prevTierId = !isFirstTier ? tiersByOrder[tierIdx - 1].id : null;
+          const prevTierHasPlayers = prevTierId
+            ? (groupedRows.get(prevTierId)?.length ?? 0) > 0
+            : false;
+          const thisTierHasPlayers = rows.length > 0;
+
           return (
             <div key={tier.id}>
               <TierDivider
                 tierLabel={tier.label ?? `Tier ${tier.order}`}
-                onMoveUp={() => moveTier(tier.id, "up")}
-                onMoveDown={() => moveTier(tier.id, "down")}
+                onMoveUp={() => shiftTierBoundary(tier.id, "up")}
+                onMoveDown={() => shiftTierBoundary(tier.id, "down")}
                 onDelete={() => deleteTier(tier.id)}
-                canMoveUp={tierIdx > 0}
-                canMoveDown={tierIdx < tiersByOrder.length - 1}
+                canMoveUp={!isFirstTier && prevTierHasPlayers}
+                canMoveDown={!isFirstTier && thisTierHasPlayers}
               />
-              {rows.map(({ player, ranking }) => (
+              {rows.map(({ player, displayRank }) => (
                 <PlayerRow
                   key={player.id}
                   player={player}
-                  rank={ranking?.rank ?? 0}
+                  rank={displayRank}
                   starred={starredSet.has(player.id)}
                   onToggleStar={toggleStar}
                   onDragStart={handleDragStart}
@@ -802,11 +863,11 @@ export function BigBoard() {
               canMoveUp={false}
               canMoveDown={false}
             />
-            {(groupedRows.get(null) ?? []).map(({ player, ranking }) => (
+            {(groupedRows.get(null) ?? []).map(({ player, displayRank }) => (
               <PlayerRow
                 key={player.id}
                 player={player}
-                rank={ranking?.rank ?? 0}
+                rank={displayRank}
                 starred={starredSet.has(player.id)}
                 onToggleStar={toggleStar}
                 onDragStart={handleDragStart}
@@ -834,19 +895,19 @@ type MobileProps = {
   starredOnly: boolean;
   onToggleStarredOnly: () => void;
   onAddTier: () => void;
-  onMoveTier: (tierId: string, direction: "up" | "down") => void;
+  onShiftTierBoundary: (tierId: string, direction: "up" | "down") => void;
   onDeleteTier: (tierId: string) => void;
   onReorderPlayer: (draggedId: string, targetId: string) => void;
   onToggleStar: (playerId: string) => void;
   tiersByOrder: Tier[];
-  rankingByPlayer: Map<string, Ranking>;
+  groupedRows: Map<string | null, DisplayRow[]>;
 };
 
 function MobileBigBoard(props: MobileProps) {
   const {
     pool, state, starredSet, query, onQueryChange, positionFilter, onPositionFilterChange,
-    starredOnly, onToggleStarredOnly, onAddTier, onMoveTier, onDeleteTier,
-    onReorderPlayer, onToggleStar, tiersByOrder, rankingByPlayer,
+    starredOnly, onToggleStarredOnly, onAddTier, onShiftTierBoundary, onDeleteTier,
+    onReorderPlayer, onToggleStar, tiersByOrder, groupedRows,
   } = props;
 
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -880,25 +941,6 @@ function MobileBigBoard(props: MobileProps) {
     const pid = row?.dataset.playerId;
     if (pid && pid !== draggingId) setDropTargetId(pid);
   }, [draggingId]);
-
-  const groupedRows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const filtered = pool
-      .filter((p) => positionFilter === "ALL" || p.position === positionFilter)
-      .filter((p) => !starredOnly || starredSet.has(p.id))
-      .filter((p) => !q || p.name.toLowerCase().includes(q));
-    const ranked = filtered
-      .map((p) => ({ player: p, ranking: rankingByPlayer.get(p.id) }))
-      .sort((a, b) => (a.ranking?.rank ?? 9e9) - (b.ranking?.rank ?? 9e9));
-    const byTier = new Map<string | null, typeof ranked>();
-    for (const row of ranked) {
-      const key = row.ranking?.tierId ?? null;
-      const arr = byTier.get(key) ?? [];
-      arr.push(row);
-      byTier.set(key, arr);
-    }
-    return byTier;
-  }, [pool, query, positionFilter, starredOnly, starredSet, rankingByPlayer]);
 
   return (
     <div style={{ background: COLORS.cream, minHeight: "100vh", paddingBottom: 80 }}>
@@ -1056,17 +1098,24 @@ function MobileBigBoard(props: MobileProps) {
 
         {tiersByOrder.map((tier, tierIdx) => {
           const rows = groupedRows.get(tier.id) ?? [];
+          const isFirstTier = tierIdx === 0;
+          const prevTierId = !isFirstTier ? tiersByOrder[tierIdx - 1].id : null;
+          const prevTierHasPlayers = prevTierId
+            ? (groupedRows.get(prevTierId)?.length ?? 0) > 0
+            : false;
+          const thisTierHasPlayers = rows.length > 0;
+
           return (
             <div key={tier.id}>
               <TierDivider
                 tierLabel={tier.label ?? `Tier ${tier.order}`}
-                onMoveUp={() => onMoveTier(tier.id, "up")}
-                onMoveDown={() => onMoveTier(tier.id, "down")}
+                onMoveUp={() => onShiftTierBoundary(tier.id, "up")}
+                onMoveDown={() => onShiftTierBoundary(tier.id, "down")}
                 onDelete={() => onDeleteTier(tier.id)}
-                canMoveUp={tierIdx > 0}
-                canMoveDown={tierIdx < tiersByOrder.length - 1}
+                canMoveUp={!isFirstTier && prevTierHasPlayers}
+                canMoveDown={!isFirstTier && thisTierHasPlayers}
               />
-              {rows.map(({ player, ranking }) => (
+              {rows.map(({ player, displayRank }) => (
                 <div
                   key={player.id}
                   data-player-id={player.id}
@@ -1090,7 +1139,7 @@ function MobileBigBoard(props: MobileProps) {
                     padding: "12px 0",
                     textAlign: "center",
                   }}>
-                    {ranking?.rank ?? "—"}
+                    {displayRank}
                   </div>
                   <div style={{
                     padding: "12px 8px",
@@ -1164,7 +1213,7 @@ function MobileBigBoard(props: MobileProps) {
               canMoveUp={false}
               canMoveDown={false}
             />
-            {(groupedRows.get(null) ?? []).map(({ player, ranking }) => (
+            {(groupedRows.get(null) ?? []).map(({ player, displayRank }) => (
               <div
                 key={player.id}
                 data-player-id={player.id}
@@ -1177,7 +1226,7 @@ function MobileBigBoard(props: MobileProps) {
                   touchAction: "pan-y",
                 }}
               >
-                <div style={{ padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 900, fontSize: 14 }}>{ranking?.rank ?? "—"}</div>
+                <div style={{ padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 900, fontSize: 14 }}>{displayRank}</div>
                 <div style={{ padding: "12px 8px", fontFamily: F, fontSize: 13, fontWeight: 700 }}>{player.name}</div>
                 <div style={{ padding: "12px 0", textAlign: "center", fontFamily: FM, fontSize: 11, fontWeight: 700 }}>{player.position}</div>
                 <div style={{ padding: "12px 0", textAlign: "center", fontFamily: FM, fontSize: 11, fontWeight: 700 }}>{player.team || "—"}</div>
