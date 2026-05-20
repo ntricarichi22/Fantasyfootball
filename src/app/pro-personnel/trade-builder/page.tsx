@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import TradeBuilder from "@/pro-personnel/trade-builder/TradeBuilder";
@@ -21,6 +21,10 @@ import type { DealAsset } from "@/pro-personnel/trade-builder/DealCard";
 // The sessionStorage seed key is read once on mount and then cleared so
 // that a page refresh doesn't re-trigger the seeded editor (the user lands
 // back on the cycler on refresh, which matches expected behavior).
+//
+// Implementation note: useSearchParams() must be wrapped in <Suspense>
+// per Next.js 15+ static-generation requirements. The inner component
+// reads the param; the default export provides the boundary.
 
 type SeedDeal = {
   partner_team_id: string;
@@ -34,7 +38,17 @@ type RouteMode =
   | { kind: "cycler" }
   | { kind: "editor"; initialTeams: Array<{ id: string; name: string }>; initialDealAssets: DealAsset[] };
 
-export default function TradeBuilderPage() {
+function LoadingScreen() {
+  return (
+    <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)", fontSize: 11, color: "#8C7E6A", letterSpacing: "0.1em" }}>
+        LOADING…
+      </div>
+    </div>
+  );
+}
+
+function TradeBuilderPageInner() {
   const searchParams = useSearchParams();
   const seed = searchParams?.get("seed") ?? null;
   const [mode, setMode] = useState<RouteMode>({ kind: "loading" });
@@ -103,13 +117,7 @@ export default function TradeBuilderPage() {
   };
 
   if (mode.kind === "loading") {
-    return (
-      <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)", fontSize: 11, color: "#8C7E6A", letterSpacing: "0.1em" }}>
-          LOADING…
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   if (mode.kind === "editor") {
@@ -124,4 +132,12 @@ export default function TradeBuilderPage() {
   }
 
   return <BuilderCyclerView />;
+}
+
+export default function TradeBuilderPage() {
+  return (
+    <Suspense fallback={<LoadingScreen />}>
+      <TradeBuilderPageInner />
+    </Suspense>
+  );
 }
