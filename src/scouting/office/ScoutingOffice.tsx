@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { InnerTopbar } from "@/shared/ui/InnerTopbar";
 import {
   DirectorChat,
   type Message,
@@ -116,56 +117,6 @@ function buildReturningOpening(povs: POV[]): Extract<Message, { kind: "director_
   };
 }
 
-function InnerTopbar({ breadcrumb }: { breadcrumb: string }) {
-  return (
-    <div style={{
-      borderBottom: "2px solid #1A1A1A",
-      padding: "12px 26px",
-      background: "#FEFCF9",
-      display: "flex",
-      alignItems: "center",
-      gap: 12,
-      flexShrink: 0,
-    }}>
-      <button
-        type="button"
-        onClick={() => { window.location.href = "/home"; }}
-        style={{
-          background: "transparent",
-          border: "none",
-          padding: 0,
-          fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-          fontSize: 10,
-          letterSpacing: "0.2em",
-          fontWeight: 700,
-          color: "#8C7E6A",
-          textTransform: "uppercase",
-          cursor: "pointer",
-        }}
-      >
-        Home
-      </button>
-      <span style={{
-        color: "#8C7E6A",
-        fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-        fontSize: 12,
-      }}>
-        /
-      </span>
-      <span style={{
-        fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-        fontSize: 10,
-        letterSpacing: "0.2em",
-        fontWeight: 700,
-        color: "#1A1A1A",
-        textTransform: "uppercase",
-      }}>
-        {breadcrumb}
-      </span>
-    </div>
-  );
-}
-
 export function ScoutingOffice() {
   const stored = readStoredTeam();
   const rosterId = stored.rosterId ?? "";
@@ -179,7 +130,6 @@ export function ScoutingOffice() {
     const isFirstTime = typeof window !== "undefined" && !localStorage.getItem(VISITED_KEY);
 
     if (!rosterId) {
-      // No identity — show sample data so the office still renders
       const built = isFirstTime ? buildFirstTimeOpening(SAMPLE_POVS) : buildReturningOpening(SAMPLE_POVS);
       setOpening(built);
       if (isFirstTime && typeof window !== "undefined") {
@@ -200,7 +150,6 @@ export function ScoutingOffice() {
           const j = await r.json();
           povs = j.povs ?? [];
         } else if (r.status === 501) {
-          // Backend stub — fall back to sample POVs so the UI is visible end-to-end
           povs = SAMPLE_POVS;
         }
       } catch (err) {
