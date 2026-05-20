@@ -1,12 +1,5 @@
-"use client";
+import InboxPage from "@/inbox/InboxPage";
 
-import { Suspense } from "react";
-import InboxPage from "@/components/gm-office/InboxPage";
-
-export default function TradesPage() {
-  return (
-    <Suspense>
-      <InboxPage />
-    </Suspense>
-  );
+export default function Page() {
+  return <InboxPage />;
 }
