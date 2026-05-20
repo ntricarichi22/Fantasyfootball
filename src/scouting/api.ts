@@ -1,9 +1,25 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
+
+const BOARD_LIMIT = 50;
+const TARGET_TIERS = 5;
+const MIN_TIER_SIZE = 4;
+const FANTASY_POSITIONS = new Set(["QB", "RB", "WR", "TE"]);
 
 type TierRow = { id: string; tier_order: number; label: string | null };
 type RankingRow = { player_id: string; tier_id: string | null; rank: number };
 type StarRow = { player_id: string; starred: boolean };
+type ValueRow = { sleeper_player_id: string | null; cfc_value: number | null };
+type PoolPlayer = {
+  id: string;
+  name: string;
+  position: string;
+  team: string;
+  age: number | null;
+  isRookie: boolean;
+  consensusRank: number | null;
+};
 
 async function getRankings(req: NextRequest): Promise<NextResponse> {
   const url = new URL(req.url);
@@ -19,7 +35,7 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
   const supabase = result.client;
 
   try {
-    const [tiersRes, rankingsRes, starsRes] = await Promise.all([
+    const [tiersRes, rankingsRes, starsRes, valuesRes] = await Promise.all([
       supabase.from("cfc_big_board_tiers")
         .select("id, tier_order, label")
         .eq("roster_id", rosterId)
@@ -32,6 +48,9 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
         .select("player_id, starred")
         .eq("roster_id", rosterId)
         .eq("starred", true),
+      supabase.from("cfc_trade_values_current")
+        .select("sleeper_player_id, cfc_value")
+        .not("sleeper_player_id", "is", null),
     ]);
 
     if (tiersRes.error || rankingsRes.error || starsRes.error) {
@@ -41,16 +60,34 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const players = await fetchPlayerPool();
+    const valueMap = new Map<string, number>();
+    if (!valuesRes.error && valuesRes.data) {
+      for (const row of (valuesRes.data as ValueRow[])) {
+        if (row.sleeper_player_id && typeof row.cfc_value === "number") {
+          valueMap.set(row.sleeper_player_id, row.cfc_value);
+        }
+      }
+    }
+
+    const players = await fetchPlayerPool(valueMap);
+
+    let tiers = (tiersRes.data ?? []) as TierRow[];
+    let rankings = (rankingsRes.data ?? []) as RankingRow[];
+
+    if (tiers.length === 0 && rankings.length === 0 && players.length > 0) {
+      const seeded = await seedBoardWithTiers(supabase, rosterId, players);
+      tiers = seeded.tiers;
+      rankings = seeded.rankings;
+    }
 
     return NextResponse.json({
       players,
-      tiers: ((tiersRes.data ?? []) as TierRow[]).map((t: TierRow) => ({
+      tiers: tiers.map((t: TierRow) => ({
         id: t.id,
         order: t.tier_order,
         label: t.label ?? undefined,
       })),
-      rankings: ((rankingsRes.data ?? []) as RankingRow[]).map((r: RankingRow) => ({
+      rankings: rankings.map((r: RankingRow) => ({
         playerId: r.player_id,
         tierId: r.tier_id,
         rank: r.rank,
@@ -171,7 +208,7 @@ async function postStar(req: NextRequest): Promise<NextResponse> {
   }
 }
 
-async function fetchPlayerPool(): Promise<unknown[]> {
+async function fetchPlayerPool(valueMap: Map<string, number>): Promise<PoolPlayer[]> {
   const leagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
   if (!leagueId) {
     console.warn("NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set; returning empty player pool");
@@ -206,23 +243,23 @@ async function fetchPlayerPool(): Promise<unknown[]> {
       }
     }
 
-    const FANTASY_POSITIONS = new Set(["QB", "RB", "WR", "TE"]);
-    const pool: Array<{
-      id: string;
-      name: string;
-      position: string;
-      team: string;
-      age: number | null;
-      isRookie: boolean;
-      consensusRank: number | null;
-    }> = [];
+    const pool: PoolPlayer[] = [];
 
     for (const [id, raw] of Object.entries(players)) {
       if (!raw || typeof raw !== "object") continue;
       const p = raw as Record<string, unknown>;
-      if (!p.active) continue;
+
       if (rostered.has(id)) continue;
       if (typeof p.position !== "string" || !FANTASY_POSITIONS.has(p.position)) continue;
+
+      const value = valueMap.get(id);
+      const hasValue = typeof value === "number";
+      const isActive = p.active === true;
+      const isRookie = p.years_exp === 0;
+
+      // Keep players who are active, rookies, or have a known CFC value.
+      // Mirrors the draft-room filter to avoid retired bench fodder.
+      if (!(isActive || isRookie || hasValue)) continue;
 
       const fullName = typeof p.full_name === "string" ? p.full_name : null;
       const firstName = typeof p.first_name === "string" ? p.first_name : null;
@@ -236,17 +273,153 @@ async function fetchPlayerPool(): Promise<unknown[]> {
         position: p.position,
         team: typeof p.team === "string" ? p.team : "",
         age: typeof p.age === "number" ? p.age : null,
-        isRookie: p.years_exp === 0,
-        consensusRank: null,
+        isRookie,
+        consensusRank: hasValue ? value : null,
       });
     }
 
-    pool.sort((a, b) => a.name.localeCompare(b.name));
-    return pool;
+    // Sort by CFC value descending. Players without a value drop to the
+    // bottom and sort alphabetically among themselves.
+    pool.sort((a, b) => {
+      const av = a.consensusRank;
+      const bv = b.consensusRank;
+      if (av !== null && bv !== null) {
+        if (av !== bv) return bv - av;
+        return a.name.localeCompare(b.name);
+      }
+      if (av !== null) return -1;
+      if (bv !== null) return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    return pool.slice(0, BOARD_LIMIT);
   } catch (err) {
     console.error("fetchPlayerPool failed", err);
     return [];
   }
+}
+
+/**
+ * Find tier boundaries by locating the biggest relative drops in CFC value
+ * between consecutive players. Respects MIN_TIER_SIZE so we don't end up
+ * with sliver tiers of 1-2 players. Returns indices that mark where each
+ * tier (after the first) begins.
+ */
+function computeTierBoundaries(values: number[]): number[] {
+  if (values.length < MIN_TIER_SIZE * 2) {
+    return [];
+  }
+
+  const gaps = values.slice(1).map((v, i) => ({
+    idx: i + 1,
+    relGap: values[i] > 0 ? (values[i] - v) / values[i] : 0,
+  }));
+
+  gaps.sort((a, b) => b.relGap - a.relGap);
+
+  const boundaries: number[] = [];
+  for (const g of gaps) {
+    if (boundaries.length >= TARGET_TIERS - 1) break;
+    const candidate = [...boundaries, g.idx].sort((a, b) => a - b);
+    let valid = true;
+    let prev = 0;
+    for (const b of candidate) {
+      if (b - prev < MIN_TIER_SIZE) { valid = false; break; }
+      prev = b;
+    }
+    if (valid && values.length - prev >= MIN_TIER_SIZE) {
+      boundaries.push(g.idx);
+    }
+  }
+
+  return boundaries.sort((a, b) => a - b);
+}
+
+/**
+ * Auto-seed an empty board with tiers + rankings based on natural value
+ * drops. Only fires when the user has zero tiers and zero rankings, so
+ * any user-driven changes (even just adding a single tier) prevent
+ * re-seeding on future loads.
+ */
+async function seedBoardWithTiers(
+  supabase: SupabaseClient,
+  rosterId: string,
+  players: PoolPlayer[],
+): Promise<{ tiers: TierRow[]; rankings: RankingRow[] }> {
+  const playersWithValue = players.filter((p) => p.consensusRank !== null);
+  if (playersWithValue.length === 0) {
+    return { tiers: [], rankings: [] };
+  }
+
+  const values = playersWithValue.map((p) => p.consensusRank as number);
+  const boundaries = computeTierBoundaries(values);
+
+  const tierRanges: Array<{ order: number; startIdx: number; endIdx: number }> = [];
+  let start = 0;
+  for (let i = 0; i < boundaries.length; i++) {
+    tierRanges.push({ order: i + 1, startIdx: start, endIdx: boundaries[i] });
+    start = boundaries[i];
+  }
+  tierRanges.push({ order: boundaries.length + 1, startIdx: start, endIdx: playersWithValue.length });
+
+  const tierInserts = tierRanges.map((r) => ({
+    roster_id: rosterId,
+    tier_order: r.order,
+  }));
+
+  const { data: tiersData, error: tiersError } = await supabase
+    .from("cfc_big_board_tiers")
+    .insert(tierInserts)
+    .select("id, tier_order, label");
+
+  if (tiersError || !tiersData) {
+    console.error("Tier seed insert failed", tiersError);
+    return { tiers: [], rankings: [] };
+  }
+
+  const tiers = tiersData as TierRow[];
+  const tierIdByOrder = new Map<number, string>();
+  for (const t of tiers) {
+    tierIdByOrder.set(t.tier_order, t.id);
+  }
+
+  const rankingInserts: Array<{
+    roster_id: string;
+    player_id: string;
+    tier_id: string;
+    rank: number;
+  }> = [];
+
+  let rank = 1;
+  for (const range of tierRanges) {
+    const tierId = tierIdByOrder.get(range.order);
+    if (!tierId) continue;
+    for (let i = range.startIdx; i < range.endIdx; i++) {
+      const player = playersWithValue[i];
+      rankingInserts.push({
+        roster_id: rosterId,
+        player_id: player.id,
+        tier_id: tierId,
+        rank: rank++,
+      });
+    }
+  }
+
+  if (rankingInserts.length === 0) {
+    return { tiers, rankings: [] };
+  }
+
+  const { data: rankingsData, error: rankingsError } = await supabase
+    .from("cfc_big_board_rankings")
+    .insert(rankingInserts)
+    .select("player_id, tier_id, rank");
+
+  if (rankingsError || !rankingsData) {
+    console.error("Ranking seed insert failed", rankingsError);
+    return { tiers, rankings: [] };
+  }
+
+  return { tiers, rankings: rankingsData as RankingRow[] };
 }
 
 async function stubDraftPosition(_req: NextRequest): Promise<NextResponse> {
