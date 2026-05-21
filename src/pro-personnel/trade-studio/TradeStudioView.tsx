@@ -3,14 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import RosterPanel, { type RosterAssetItem } from "./RosterPanel";
-import OfferCard from "./OfferCard";
-import PassConfirmModal from "./PassConfirmModal";
-import { type PersonaKey } from "@/pro-personnel/trade-engine/studio/persona";
+import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
+import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 import type { StudioOffer } from "@/pro-personnel/trade-engine/studio/types";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
+
+// Director's voice copy — LOCKED per v3.12 design.
+const SELECTION_INTRO = "Tell me who's on the block — I'll make some calls.";
+const REVIEW_INTRO = "Made my rounds. Here's what I think we can realistically expect…";
+const NO_OFFERS_INTRO = "Made my rounds. Nothing came back worth what we're giving up. Adjust the block and we'll call again.";
 
 type RosterApiAsset = {
   key: string;
@@ -26,15 +30,29 @@ type RosterApiAsset = {
   isYouth?: boolean;
 };
 
-// Synthesize works_for_you / works_for_them from value gap ratio for feedback
-// POST backwards-compat. The schema column accepts these as nullable but we
-// populate them so any downstream ML training data stays consistent.
-//   ratio = 1.00 → 85 (fair)
-//   ratio = 1.20 → 95 (you ahead)
-//   ratio = 0.80 → 75 (you behind)
+// Synthesize works_for_you / works_for_them from value gap ratio for
+// feedback POST backwards-compat. The schema accepts these as nullable
+// but we keep populating them so any downstream ML training data stays
+// consistent.
 function synthFitFromRatio(ratio: number, perspective: "you" | "them"): number {
   const r = perspective === "you" ? ratio : (ratio > 0 ? 1 / ratio : 0);
   return Math.round(Math.max(0, Math.min(100, 85 + (r - 1) * 50)));
+}
+
+// Convert a StudioOffer's send/receive into the unified CardAsset shape.
+function toCardAssets(items: StudioOffer["send"]): CardAsset[] {
+  return items.map(a => {
+    const metaParts: string[] = [];
+    if (a.position) metaParts.push(a.position);
+    if (a.team) metaParts.push(a.team);
+    if (a.ageLabel) metaParts.push(a.ageLabel);
+    return {
+      key: a.key,
+      name: a.name,
+      meta: metaParts.length ? metaParts.join(" · ") : undefined,
+      type: a.type,
+    };
+  });
 }
 
 export default function TradeStudioView() {
@@ -47,17 +65,19 @@ export default function TradeStudioView() {
   const [offers, setOffers] = useState<StudioOffer[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [generating, setGenerating] = useState(false);
-  const [advisorByOffer, setAdvisorByOffer] = useState<Record<string, { prose: string; loading: boolean }>>({});
+  const [advisorByOffer, setAdvisorByOffer] = useState<Record<string, {
+    prose: string;
+    loading: boolean;
+    grade?: string;
+    gradeColor?: string;
+  }>>({});
   const [needsRegenerate, setNeedsRegenerate] = useState(false);
-  const [showPassModal, setShowPassModal] = useState(false);
   const [sendingOffer, setSendingOffer] = useState(false);
   const [toast, setToast] = useState("");
 
-  // Tracks advisor fetches currently in flight so the effect can re-run on
-  // state updates without firing duplicate requests. Replaces the earlier
-  // AbortController dance that aborted its own in-flight requests on every
-  // setState (the prose-empty guard never short-circuited because empty
-  // string is falsy → re-entry → abort → fallback prose stomp).
+  // Prevents duplicate advisor fetches while one is already pending for
+  // this offer. Replaces the AbortController dance that aborted itself
+  // on every setState.
   const inFlightRefs = useRef<Set<string>>(new Set());
 
   const flash = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(""), 3000); }, []);
@@ -75,7 +95,6 @@ export default function TradeStudioView() {
           const sample = (assets as { teamName?: string }[])[0];
           names[tid] = sample?.teamName ?? `Team ${tid}`;
         }
-        // Use stored team name for self
         if (teamName) names[rosterId] = teamName;
         setTeamNames(names);
       })
@@ -83,7 +102,6 @@ export default function TradeStudioView() {
       .finally(() => setLoading(false));
   }, [rosterId, teamName]);
 
-  // My roster items for the panel
   const myAssets = useMemo<RosterAssetItem[]>(() => {
     const raw = allRosters[rosterId] ?? [];
     return raw.map(a => ({
@@ -109,7 +127,6 @@ export default function TradeStudioView() {
   }, [drawerOpen]);
 
   const fetchOffers = useCallback(async (opts?: {
-    personaOverride?: PersonaKey;
     anchorPartnerId?: string;
   }): Promise<StudioOffer[]> => {
     if (shopKeys.size === 0 || !rosterId) return [];
@@ -119,7 +136,6 @@ export default function TradeStudioView() {
       body: JSON.stringify({
         team_id: rosterId,
         shop_list_keys: Array.from(shopKeys),
-        persona_override: opts?.personaOverride,
         anchor_partner_id: opts?.anchorPartnerId,
         rosters: allRosters,
         team_names: teamNames,
@@ -143,7 +159,6 @@ export default function TradeStudioView() {
       setAdvisorByOffer({});
       setNeedsRegenerate(false);
       setDrawerOpen(true);
-      if (generated.length === 0) flash("No offers met the constraints. Try a different persona or adjust your block.");
     } catch (err) {
       flash(err instanceof Error ? err.message : "Generation failed");
     } finally {
@@ -151,7 +166,7 @@ export default function TradeStudioView() {
     }
   }, [shopKeys, fetchOffers, flash]);
 
-  // Build the rosters payload that the advisor expects (key + name only)
+  // Build the rosters payload the advisor expects (key + name + light meta)
   const advisorRosterPayload = useMemo(() => {
     const payload: Record<string, Array<{ key: string; name: string; position: string; posGroup: string; value: number; tier: string; type: string; isStud?: boolean; isYouth?: boolean; meta: string; rosterMeta: string }>> = {};
     for (const [tid, assets] of Object.entries(allRosters)) {
@@ -172,10 +187,7 @@ export default function TradeStudioView() {
     return payload;
   }, [allRosters]);
 
-  // Fetch advisor prose for active offer when it changes.
-  // Re-entry safe: inFlightRefs prevents duplicate fetches while one is
-  // already pending for this offer. .finally() removes the marker so the
-  // user can re-trigger after navigating away and back if needed.
+  // Fetch advisor prose for active offer. Re-entry safe via inFlightRefs.
   useEffect(() => {
     if (!drawerOpen || offers.length === 0) return;
     const offer = offers[activeIndex];
@@ -184,7 +196,10 @@ export default function TradeStudioView() {
     if (inFlightRefs.current.has(offer.id)) return;
 
     inFlightRefs.current.add(offer.id);
-    setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: prev[offer.id]?.prose ?? "", loading: true } }));
+    setAdvisorByOffer(prev => ({
+      ...prev,
+      [offer.id]: { prose: prev[offer.id]?.prose ?? "", loading: true },
+    }));
 
     const dealAssets = [
       ...offer.send.map(a => ({ key: a.key, name: a.name, fromTeamId: rosterId, toTeamId: offer.partnerTeamId })),
@@ -203,46 +218,33 @@ export default function TradeStudioView() {
     })
       .then(r => r.json())
       .then(j => {
-        setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: j.prose ?? "Couldn't generate analysis for this one.", loading: false } }));
+        setAdvisorByOffer(prev => ({
+          ...prev,
+          [offer.id]: {
+            prose: j.prose ?? "Couldn't generate analysis for this one.",
+            loading: false,
+            grade: j.grade,
+            gradeColor: j.gradeColor,
+          },
+        }));
       })
       .catch(() => {
-        setAdvisorByOffer(prev => ({ ...prev, [offer.id]: { prose: prev[offer.id]?.prose ?? "Couldn't generate analysis for this one.", loading: false } }));
+        setAdvisorByOffer(prev => ({
+          ...prev,
+          [offer.id]: {
+            prose: prev[offer.id]?.prose ?? "Couldn't generate analysis for this one.",
+            loading: false,
+          },
+        }));
       })
       .finally(() => {
         inFlightRefs.current.delete(offer.id);
       });
   }, [drawerOpen, offers, activeIndex, advisorByOffer, rosterId, advisorRosterPayload]);
 
-  const handlePersonaChange = useCallback(async (newPersona: PersonaKey) => {
-    if (offers.length === 0) return;
-    const current = offers[activeIndex];
-    if (!current) return;
-    setGenerating(true);
-    try {
-      const replaced = await fetchOffers({ personaOverride: newPersona, anchorPartnerId: current.partnerTeamId });
-      const replacement = replaced[0];
-      if (!replacement) {
-        flash(`No clean ${newPersona.replace("_", " ")} deal with ${current.partnerTeamName}.`);
-        return;
-      }
-      setOffers(prev => {
-        const next = [...prev];
-        next[activeIndex] = replacement;
-        return next;
-      });
-      setAdvisorByOffer(prev => {
-        const next = { ...prev };
-        delete next[current.id];
-        return next;
-      });
-    } catch (err) {
-      flash(err instanceof Error ? err.message : "Failed to swap persona");
-    } finally {
-      setGenerating(false);
-    }
-  }, [offers, activeIndex, fetchOffers, flash]);
-
-  const handlePass = useCallback(async () => {
+  // Pass: log feedback, remove the offer, advance index. No modal — pass
+  // is a single click per locked v3.12 design.
+  const handlePass = useCallback(() => {
     const offer = offers[activeIndex];
     if (!offer) return;
     fetch("/api/pro-personnel/trade-studio/feedback", {
@@ -260,13 +262,7 @@ export default function TradeStudioView() {
     }).catch(() => {});
     setOffers(prev => prev.filter((_, i) => i !== activeIndex));
     setActiveIndex(prev => Math.max(0, prev - (prev === offers.length - 1 ? 1 : 0)));
-    setShowPassModal(false);
   }, [offers, activeIndex, rosterId, shopKeys]);
-
-  const handleTryPersona = useCallback((newPersona: PersonaKey) => {
-    setShowPassModal(false);
-    handlePersonaChange(newPersona);
-  }, [handlePersonaChange]);
 
   const handleEdit = useCallback(() => {
     const offer = offers[activeIndex];
@@ -279,7 +275,7 @@ export default function TradeStudioView() {
         receive: offer.receive,
       }));
     } catch {}
-    window.location.href = "/trade-builder?seed=studio";
+    window.location.href = "/pro-personnel/trade-builder?seed=studio";
   }, [offers, activeIndex]);
 
   const handleMakeOffer = useCallback(async () => {
@@ -302,7 +298,6 @@ export default function TradeStudioView() {
       });
       if (res.ok) {
         flash("Offer sent!");
-        // Always go to inbox, not the thread itself
         setTimeout(() => { window.location.href = "/inbox"; }, 800);
       } else {
         const j = await res.json().catch(() => ({}));
@@ -329,8 +324,8 @@ export default function TradeStudioView() {
   const generateButtonLabel = generating
     ? "Generating…"
     : drawerOpen
-    ? "Regenerate offers"
-    : "Generate offers";
+    ? "CALL AGAIN"
+    : "MAKE THE CALLS";
 
   if (!rosterId) {
     return (
@@ -345,67 +340,114 @@ export default function TradeStudioView() {
   return (
     <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {toast && (
-        <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#3366CC", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>{toast}</div>
+        <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#185FA5", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>{toast}</div>
       )}
 
       <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
-        <div onClick={() => { window.location.href = "/inbox"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back to inbox</div>
+        <div onClick={() => { window.location.href = "/inbox"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: FM, letterSpacing: "0.04em" }}>← BACK</div>
         <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
-        <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>Who are you shopping?</div>
+        <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>Trade Studio</div>
         <div style={{ flex: 1 }} />
         <div style={{ fontFamily: FM, fontSize: 10, color: "#8C7E6A", letterSpacing: "0.04em", textTransform: "uppercase" }}>{teamName}</div>
       </div>
 
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: drawerOpen ? "40% 60%" : "1fr", minHeight: 0, overflow: "hidden" }}>
-        <RosterPanel
-          assets={myAssets}
-          selectedKeys={shopKeys}
-          onToggle={handleToggle}
-          onGenerate={handleGenerate}
-          layout={drawerOpen ? "list" : "grid"}
-          buttonLabel={generateButtonLabel}
-          buttonPulse={drawerOpen && needsRegenerate}
-          buttonDisabled={generateButtonDisabled}
-        />
-
-        {drawerOpen && (
-          <div style={{ background: "#FEFCF9", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            {loading || generating ? (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A" }}>
-                Generating offers…
-              </div>
-            ) : currentOffer ? (
-              <OfferCard
-                offer={currentOffer}
-                index={activeIndex}
-                total={offers.length}
-                advisorProse={advisorByOffer[currentOffer.id]?.prose ?? "Reading the matchup…"}
-                advisorLoading={!!advisorByOffer[currentOffer.id]?.loading}
-                onPrev={goPrev}
-                onNext={goNext}
-                onPersonaChange={handlePersonaChange}
-                onPass={() => setShowPassModal(true)}
-                onEdit={handleEdit}
-                onMakeOffer={handleMakeOffer}
-                sendingOffer={sendingOffer}
+        {/* LEFT: roster panel. In selection state, director two-box sits
+            above it (full width). In drawer state, the panel is the only
+            thing in this column. */}
+        {!drawerOpen ? (
+          <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            <div style={{ padding: "20px 24px 0 24px", flexShrink: 0 }}>
+              <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={SELECTION_INTRO} />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, paddingTop: 16, display: "flex", flexDirection: "column" }}>
+              <RosterPanel
+                assets={myAssets}
+                selectedKeys={shopKeys}
+                onToggle={handleToggle}
+                onGenerate={handleGenerate}
+                layout="grid"
+                buttonLabel={generateButtonLabel}
+                buttonPulse={false}
+                buttonDisabled={generateButtonDisabled}
               />
-            ) : (
-              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A" }}>
-                No offers met the constraints. Adjust your block or persona and regenerate.
-              </div>
-            )}
+            </div>
+          </div>
+        ) : (
+          <RosterPanel
+            assets={myAssets}
+            selectedKeys={shopKeys}
+            onToggle={handleToggle}
+            onGenerate={handleGenerate}
+            layout="list"
+            buttonLabel={generateButtonLabel}
+            buttonPulse={needsRegenerate}
+            buttonDisabled={generateButtonDisabled}
+          />
+        )}
+
+        {/* RIGHT: drawer with director two-box + offer card. Only renders
+            in drawer state (60% column). */}
+        {drawerOpen && (
+          <div style={{
+            background: "#FEFCF9",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+            borderLeft: "2px solid #1A1A1A",
+          }}>
+            <div style={{ padding: "20px 24px 0 24px", flexShrink: 0 }}>
+              <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={currentOffer ? REVIEW_INTRO : NO_OFFERS_INTRO} />
+            </div>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px 24px" }}>
+              {loading || generating ? (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40, fontFamily: FM, fontSize: 11, color: "#8C7E6A" }}>
+                  Generating offers…
+                </div>
+              ) : currentOffer ? (
+                <>
+                  <OfferCard
+                    partnerName={currentOffer.partnerTeamName}
+                    partnerPersona={currentOffer.persona}
+                    sendAssets={toCardAssets(currentOffer.send)}
+                    receiveAssets={toCardAssets(currentOffer.receive)}
+                    verdict={advisorByOffer[currentOffer.id]?.grade ?? currentOffer.gradeLabel}
+                    verdictColor={advisorByOffer[currentOffer.id]?.gradeColor ?? currentOffer.gradeColor}
+                    prose={advisorByOffer[currentOffer.id]?.prose ?? "Reading the matchup…"}
+                    proseLoading={!!advisorByOffer[currentOffer.id]?.loading}
+                    onPass={handlePass}
+                    onEdit={handleEdit}
+                    onMakeOffer={handleMakeOffer}
+                    sending={sendingOffer}
+                  />
+                  {offers.length > 1 && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 18 }}>
+                      <button onClick={goPrev} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
+                        ← PREV
+                      </button>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {offers.map((_, i) => (
+                          <div key={i} style={{
+                            width: 8,
+                            height: 8,
+                            border: "1.5px solid #1A1A1A",
+                            background: i === activeIndex ? "#1A1A1A" : "#FEFCF9",
+                          }} />
+                        ))}
+                      </div>
+                      <button onClick={goNext} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
+                        NEXT →
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div /> /* empty state — director two-box above already speaks */
+              )}
+            </div>
           </div>
         )}
       </div>
-
-      {showPassModal && currentOffer && (
-        <PassConfirmModal
-          currentPersona={currentOffer.persona}
-          onTryPersona={handleTryPersona}
-          onPass={handlePass}
-          onClose={() => setShowPassModal(false)}
-        />
-      )}
     </div>
   );
 }
