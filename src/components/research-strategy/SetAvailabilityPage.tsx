@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { InnerTopbar } from "@/shared/ui/InnerTopbar";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 
 import RosterPlayerCard from "./RosterPlayerCard";
@@ -43,7 +44,7 @@ const TABS: { key: TabKey; label: string }[] = [
 // Strategy Director greeting for this surface. Set Availability is a work
 // surface — one tone-setting line, not per-card narration (see R&S spec).
 const STRATEGY_INTRO =
-  "Let's set the board. Tell me who's untouchable, who we'd move, and what every pick is worth to us.";
+  "Tell me who's available and what they're worth to us. I'll let the Personnel Director know so they can hold the line when other teams call about our guys.";
 
 const positionMatchesTab = (position: string | null, tab: TabKey): boolean => {
   if (!position) return false;
@@ -308,14 +309,18 @@ export default function SetAvailabilityPage() {
   const openPick = picks.find((p) => p.key === openPickKey) ?? null;
 
   return (
-    <div
-      style={{
-        padding: "20px 24px",
-        maxWidth: 1100,
-        margin: "0 auto",
-        fontFamily: "'DM Sans', sans-serif",
-      }}
-    >
+    <div style={{ minHeight: "100vh", background: "#F5F0E6", color: "#1A1A1A" }}>
+      <InnerTopbar breadcrumb="SET AVAILABILITY" />
+      <div style={{ height: 3, background: "#E8503A" }} />
+
+      <div
+        style={{
+          padding: "20px 24px",
+          maxWidth: 1100,
+          margin: "0 auto",
+          fontFamily: "'DM Sans', sans-serif",
+        }}
+      >
       <div style={{ margin: "0 0 16px" }}>
         <DirectorTwoBox
           avatarSrc="/avatars/strategy.png"
@@ -473,6 +478,7 @@ export default function SetAvailabilityPage() {
           onClose={() => setOpenPickKey(null)}
         />
       )}
+      </div>
     </div>
   );
 }
