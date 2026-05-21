@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 
 import RosterPlayerCard from "./RosterPlayerCard";
 import RosterPickCard from "./RosterPickCard";
@@ -38,6 +39,11 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: "PC", label: "PASS CATCHERS" },
   { key: "PICKS", label: "PICKS" },
 ];
+
+// Strategy Director greeting for this surface. Set Availability is a work
+// surface — one tone-setting line, not per-card narration (see R&S spec).
+const STRATEGY_INTRO =
+  "Let's set the board. Tell me who's untouchable, who we'd move, and what every pick is worth to us.";
 
 const positionMatchesTab = (position: string | null, tab: TabKey): boolean => {
   if (!position) return false;
@@ -310,18 +316,13 @@ export default function SetAvailabilityPage() {
         fontFamily: "'DM Sans', sans-serif",
       }}
     >
-      <h1
-        style={{
-          fontFamily: "'Syne', sans-serif",
-          fontWeight: 800,
-          fontSize: 28,
-          color: "#1A1A1A",
-          margin: "0 0 16px",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        SET AVAILABILITY
-      </h1>
+      <div style={{ margin: "0 0 16px" }}>
+        <DirectorTwoBox
+          avatarSrc="/avatars/strategy.png"
+          label="Strategy Director"
+          message={STRATEGY_INTRO}
+        />
+      </div>
 
       {error && (
         <p style={{ color: "#E8503A", fontSize: 13, fontWeight: 700, margin: "0 0 12px" }}>{error}</p>
