@@ -329,13 +329,34 @@ export default function SetAvailabilityPage() {
 
       <div
         style={{
+          position: "relative",
           display: "flex",
+          margin: "0 46px 0 40px",
           border: "3px solid #1A1A1A",
           boxShadow: "4px 4px 0 #1A1A1A",
           background: "#F5F0E6",
-          overflow: "hidden",
         }}
       >
+        {/* Binder ring holes down the left edge */}
+        {[18, 50, 82].map((topPct) => (
+          <span
+            key={topPct}
+            aria-hidden
+            style={{
+              position: "absolute",
+              left: -21,
+              top: `${topPct}%`,
+              transform: "translateY(-50%)",
+              width: 18,
+              height: 18,
+              borderRadius: "50%",
+              background: "#D9D2C4",
+              border: "3px solid #1A1A1A",
+              boxShadow: "2px 2px 0 #1A1A1A",
+            }}
+          />
+        ))}
+
         <div style={{ flex: 1, padding: 16, minHeight: 440 }}>
           {loading && rows.length === 0 ? (
             <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
@@ -382,7 +403,17 @@ export default function SetAvailabilityPage() {
           )}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", borderLeft: "3px solid #1A1A1A" }}>
+        {/* Binder tabs sticking out past the right edge */}
+        <div
+          style={{
+            position: "absolute",
+            right: -34,
+            top: 40,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
           {TABS.map((tab) => {
             const isActive = tab.key === activeTab;
             return (
@@ -392,17 +423,18 @@ export default function SetAvailabilityPage() {
                 style={{
                   writingMode: "vertical-rl",
                   textOrientation: "mixed",
-                  background: isActive ? "#1A1A1A" : "#FEFCF9",
+                  height: 168,
+                  background: isActive ? "#E8503A" : "#FEFCF9",
                   color: isActive ? "#FEFCF9" : "#1A1A1A",
-                  border: "none",
-                  borderBottom: "2px solid #1A1A1A",
+                  border: "3px solid #1A1A1A",
+                  borderLeft: "none",
+                  boxShadow: "3px 3px 0 #1A1A1A",
                   fontFamily: "'JetBrains Mono', monospace",
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: 800,
-                  letterSpacing: "0.12em",
-                  padding: "18px 12px",
+                  letterSpacing: "0.1em",
+                  padding: "14px 9px",
                   cursor: "pointer",
-                  flex: 1,
                 }}
               >
                 {tab.label}
