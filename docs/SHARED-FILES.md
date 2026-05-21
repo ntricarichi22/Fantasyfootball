@@ -8,7 +8,7 @@
 
 1. **Facts vs. analysis vs. valuation vs. framing.** Four data modules with hard boundaries.
    - **`league-data`** holds *facts* — undisputable data pulled from Sleeper and Supabase. Rosters, players, picks, pick ladder, values, strategy rows, last-season results, team nicknames. No opinions.
-   - **`team-profiles`** holds *analysis* — anything that is a score, rank, weight, or classification (tiers, trajectory). It imports `league-data` and never the other way around.
+   - **`team-profiles`** holds *analysis* — anything that is a score, rank, weight, or classification (tiers, trajectory, positional needs). It imports `league-data` and never the other way around.
    - **`asset-values`** holds *valuation* — the single front door for "what is this asset worth," for both players and picks, base or team-adjusted. It imports `league-data` and is server-only.
    - **`team-dossier`** holds *framing* — the plain-English stance per team (verdict, window, wants/sells, trade stance). It consumes `team-profiles` + `league-data` and **computes nothing new** — it only reframes existing fields into a readable read. Both Scouting and Pro Personnel consume it.
    - **Boundary test:** if two reasonable people couldn't disagree about it, it's a fact (→ league-data). If it involves a weight, threshold, or label, it's analysis (→ team-profiles). If it answers "what's it worth," it's valuation (→ asset-values). If it turns existing analysis into a readable stance, it's framing (→ team-dossier).
@@ -75,27 +75,34 @@ Barrel. Re-exports all types + the accessor functions (incl. `getPickOwnership`,
 
 Public surface is the barrel (`index.ts`); import from `@/shared/team-profiles`.
 
-### `types.ts` (~69 lines)
+### `types.ts` (~105 lines)
 - **`Tier`** = `championship | playoff | retooling | rebuilding`; `TIERS` (ordered array); `TIER_LABELS` (display strings).
 - **Breakdown types:** `LineupSlot`, `StrengthBreakdown` (starterValueRaw / depthBonus / starterValue / benchValue / avgStarterAge / lineup), `ProductionBreakdown` (points / wins / losses / ties / winPct), `CurrentState` (the norms + blended score), `Trajectory` (ascending / contendIntent / tradeLean / direction / nudge / notes).
-- **`TeamProfile`** — the final per-team object the whole app consumes.
+- **Needs types:** `NeedBucket` (`QB` / `RB` / `PASS_CATCHER`), `NeedLevel` (`low` / `med` / `high`), `NeedDetail` (`bucket` / `starterNorm` / `depthNorm` / `score` / `level`), `TeamNeeds` (`{ qb, rb, passCatcher }`). See `needs.ts`.
+- **`TeamProfile`** — the final per-team object the whole app consumes. Now also carries **`needs: TeamNeeds`** (baked on by the profiler).
 
 ### `strength.ts` (~107 lines)
 Pure roster math. No tiering, no posture.
 - `computeStrength(team, values, rosterPositions)` — builds the **optimal starting lineup** for the league's real slots (superflex-aware) via a `SLOT_ELIGIBLE` map (QB / RB / WR / TE / FLEX / WRRB_FLEX / REC_FLEX / SUPER_FLEX), filling restrictive slots first (greedy). Returns starter value, depth bonus (`benchValue × DEPTH_FACTOR`, 0.1), and average starter age. **Note:** `avgStarterAge` is the OPTIMAL-lineup average — a sentimentally-untouchable vet who doesn't start (e.g. an owner's original keeper) does NOT raise it. This is why a roster with an old untouchable can still read "young."
 - `computeProduction(result)` — turns a `SeasonResult` into points / record / winPct.
 
-### `profiler.ts` (~170 lines) — currently revision **07b**
+### `needs.ts` (~95 lines)
+Pure roster-relative **positional need**. No tiering, no posture, no age. Result is baked onto each `TeamProfile` by the profiler.
+- `computeNeeds(data)` → `Map<rosterId, TeamNeeds>`. **Three buckets, not four:** `QB`, `RB`, `PASS_CATCHER` (WR + TE — no dedicated TE slot in this league). Starter unit sizes QB 2 / RB 2 / PC 4; the **depth man** is the next one (QB3 / RB3 / PC5). Per bucket, `minMax` each team's starter-unit value + depth-man value across the 12 teams, then `score = STARTER_WEIGHT × (1 − starterNorm) + DEPTH_WEIGHT × (1 − depthNorm)`. Full 0–1 range: **league-worst unit = 1.0, league-best = 0.** Levels: high ≥ 0.70, med ≥ 0.34, else low.
+- **Deliberately excludes age and market.** Age would double-count value (dynasty value already prices age/upside, and the score reads from value). Market/posture is manipulable and belongs to the trade engine (willingness) + scouting POV (draft-strategy inference), applied *alongside* needs, never folded in. So `needs.ts` reads only `data.teams` + `data.values` — it does **not** touch strategy. Pure roster truth; consumers interpret it in context (the old/young rebuilder split lives in the POV via `tier` + `trajectory.direction` + `avgStarterAge`, not here).
+- **Tunable knobs** at top: `STARTER_WEIGHT` 0.75 / `DEPTH_WEIGHT` 0.25, `LEVEL_HIGH` 0.70 / `LEVEL_MED` 0.34, the per-bucket starter unit sizes. Tune against `/api/league/needs`.
+
+### `profiler.ts` (~175 lines) — currently revision **07b** (+ needs attach)
 The brain. Turns facts into tiers.
 - **Tunable knobs** at the top (see handoff §7): current-state weights, production weights, age thresholds, gap threshold, fire-sale lean, tier count.
 - `minMax(values)` — normalizes each axis 0–1 across the league.
 - `naturalBreakTiers(scores, k)` — assigns tiers by the `k-1` largest gaps in the sorted current-state curve (same idea as the Big Board auto-tiering). **Strength sets the tier.**
 - `computeTrajectory(...)` — **informational only.** Produces `ascending` (age + value/production gap), `contendIntent` (from `wantsMore` + `picksMarket`, accepting BOTH short and long want labels), and `direction`. Does not move tiers.
 - `isSellSignal(wantsMore, tradeLean)` — the **lone demote trigger**: only-stated-want-is-picks, OR `tradeLean <= FIRE_SALE_LEAN` (dormant until trades exist).
-- `buildTeamProfiles(data, ourRosterId?)` → sorted `TeamProfile[]`. Computes strengths + productions, normalizes, blends the current-state score, assigns base tiers, applies the ±1 sell-signal nudge, and returns profiles sorted by tier then score. (`ourRosterId` is reserved for flagging "us" downstream.)
+- `buildTeamProfiles(data, ourRosterId?)` → sorted `TeamProfile[]`. Computes strengths + productions, normalizes, blends the current-state score, assigns base tiers, applies the ±1 sell-signal nudge, and returns profiles sorted by tier then score. (`ourRosterId` is reserved for flagging "us" downstream.) **Also calls `computeNeeds(data)` once and bakes the result onto each profile as `TeamProfile.needs`.**
 
-### `index.ts` (~3 lines)
-Barrel. Re-exports types + `computeStrength` / `computeProduction` / `buildTeamProfiles`.
+### `index.ts` (~4 lines)
+Barrel. Re-exports types + `computeStrength` / `computeProduction` / `buildTeamProfiles` / `computeNeeds`.
 
 ---
 
@@ -144,10 +151,10 @@ The framing logic. `buildTeamDossiers(profiles, data)` → `TeamDossier[]`.
 - **Tunable knobs:** `AGE_OLD` 28.0 / `AGE_YOUNG` 25.5 (mirror the profiler's age thresholds so the layers agree); `WANT_READABLE` map (accepts BOTH the short onboarding labels — `studs`/`picks`/`youth`/`depth` — and the long trade-engine labels).
 - **window** — strong tier (championship/playoff) → `closing` if old & not ascending, else `contending`. **Tier wins at the bottom:** a `rebuilding` team is always `rebuilding`, never `ascending`. `retooling` → `ascending` if trending up, else `rebuilding`.
 - **verdict** — scout-voice headline per window. The `ascending` line only claims "young talent" when `avgStarterAge ≤ AGE_YOUNG`; otherwise it uses the value-vs-record line (a high-value roster outrunning last year's results isn't necessarily young).
-- **wants / sells** — explicit market buy/sell signal first, then stated `wantsMore`, then a tier fallback. `sells` carries a `picksLocked` override ("draft capital off the table").
+- **wants / sells** — explicit market buy/sell signal first (markets keyed `QB` / `RB` / `Pass catchers` (`pcMarket`) / `Picks`), then stated `wantsMore`, then a tier fallback. `sells` carries a `picksLocked` override ("draft capital off the table").
 - **coreLabel** — splits untouchable **players** (names) from locked **picks**. Picks render readable via `pickLabel`, which matches the attachment key against the team's `pickOwnership`, reads season/round/originalRosterId off the `OwnedPick`, and nicknames the original owner with `teamNickname` → "2027 1st (via Onslaught)". Anything not `untouchable` is treated moveable (per the binary rule: untouchable vs. moveable, nothing between).
 - **tradeStance** — tier + `contendIntent` + `persona`, with `picksLocked` flipping a retooling team to "building through the draft — all-in on a future window."
-- **confidence** — `strong` if any market is buy/sell, else `thin`.
+- **confidence** — `strong` if any market (`qb`/`rb`/`pc`/`picks`) is buy/sell, else `thin`.
 - Reads the **live** strategy/attachment rows every call, so the moment a team updates wants/markets/attachments in the app, every dossier reflects it. No rewiring.
 
 ### `index.ts` (~3 lines)
@@ -184,6 +191,13 @@ The page-level director "two-box" intro panel — the director greeting you as y
 - Returns: `count`, `resultsSource`, and the full `dossiers` array.
 - Eyeball this to tune verdict / window / wants / sells / tradeStance wording against real data.
 
+### `src/app/api/league/needs/route.ts` (~24 lines)
+`GET /api/league/needs`. The verification surface for the needs analysis.
+- `force-dynamic`, `maxDuration` 30.
+- Calls `getLeagueData()` → `buildTeamProfiles()`, reads `.needs` off each profile.
+- Returns: `count`, a flat `summary` table (per team: tier + `qb` / `rb` / `passCatcher` as `level (score)`), and the full per-team `needs` detail.
+- Eyeball this to tune the needs weights (`STARTER_WEIGHT` / `DEPTH_WEIGHT`) and the Low/Med/High cutoffs against real data.
+
 ---
 
 ## Commit / deploy order for this layer
@@ -201,20 +215,22 @@ Dependencies first, then importers, route last:
 9. `src/shared/components/DirectorTwoBox.tsx`
 10. `src/shared/team-profiles/types.ts`
 11. `src/shared/team-profiles/strength.ts`
-12. `src/shared/team-profiles/profiler.ts`
-13. `src/shared/team-profiles/index.ts`
-14. `src/app/api/league/profiles/route.ts`
-15. `src/shared/team-dossier/types.ts`
-16. `src/shared/team-dossier/builder.ts`
-17. `src/shared/team-dossier/index.ts`
-18. `src/app/api/league/dossiers/route.ts`
+12. `src/shared/team-profiles/needs.ts`
+13. `src/shared/team-profiles/profiler.ts`
+14. `src/shared/team-profiles/index.ts`
+15. `src/app/api/league/profiles/route.ts`
+16. `src/shared/team-dossier/types.ts`
+17. `src/shared/team-dossier/builder.ts`
+18. `src/shared/team-dossier/index.ts`
+19. `src/app/api/league/dossiers/route.ts`
+20. `src/app/api/league/needs/route.ts`
 
 ---
 
 ## Extending this layer
 
 - **New fact** (e.g. injuries, bye weeks, FAAB): add to `league-data` — types first, a fetch helper in `sleeper.ts` (or a Supabase accessor in `accessors.ts`), expose via `getLeagueData()` + barrel. Never put it in `team-profiles`.
-- **New analysis** (e.g. positional needs, trade-fit scores, playoff odds): add to `team-profiles`, consuming `LeagueData`. If it's a distinct concern, give it its own file rather than bloating `profiler.ts`.
+- **New analysis** (e.g. trade-fit scores, playoff odds): add to `team-profiles`, consuming `LeagueData`. If it's a distinct concern, give it its own file rather than bloating `profiler.ts` — **`needs.ts` (positional need) is the model: its own file, computed across the league, result baked onto `TeamProfile` by the profiler.** Keep new analysis pure (no posture/market) unless the signal genuinely *is* posture.
 - **New valuation rule** (e.g. a new adjuster, a different pick model): add the knob to `asset-values/modifiers.ts` and the logic to `valuation.ts`. Keep `asset-values` server-only; never import it from a client component.
 - **New framing/stance** (e.g. a new dossier field, a reworded verdict, a new `Window` rule): add to `team-dossier`, consuming `team-profiles` + `league-data`. It must **compute nothing new** — if it needs a fresh number, add that number to `team-profiles` and reframe it here.
 - **Watch line counts.** `accessors.ts` (~439) is the closest to the 500 ceiling. Split before it crosses.
