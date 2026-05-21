@@ -113,8 +113,7 @@ function computeWantsSells(
     ? {
         QB: strat.qbMarket,
         RB: strat.rbMarket,
-        WR: strat.wrMarket,
-        TE: strat.teMarket,
+        "Pass catchers": strat.pcMarket,
         Picks: strat.picksMarket,
       }
     : {};
@@ -194,8 +193,7 @@ function computeConfidence(strat: StrategyProfile | null): Confidence {
   const active = [
     strat.qbMarket,
     strat.rbMarket,
-    strat.wrMarket,
-    strat.teMarket,
+    strat.pcMarket,
     strat.picksMarket,
   ].some((s) => s === "buy" || s === "sell");
   return active ? "strong" : "thin";

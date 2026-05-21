@@ -1,5 +1,6 @@
 import type { LeagueData } from "@/shared/league-data";
 import { computeStrength, computeProduction } from "./strength";
+import { computeNeeds } from "./needs";
 import {
   TIERS,
   TIER_LABELS,
@@ -101,6 +102,7 @@ export function buildTeamProfiles(data: LeagueData, ourRosterId?: string): TeamP
   const teams = data.teams;
   const strengths = teams.map((t) => computeStrength(t, data.values, data.settings.rosterPositions));
   const productions = teams.map((t) => computeProduction(data.results.get(t.rosterId)));
+  const needsByRoster = computeNeeds(data);
 
   const svNorm = minMax(strengths.map((s) => s.starterValue));
   const ptsNorm = minMax(productions.map((p) => p.points));
@@ -162,6 +164,7 @@ export function buildTeamProfiles(data: LeagueData, ourRosterId?: string): TeamP
         nudge,
         notes,
       },
+      needs: needsByRoster.get(team.rosterId)!,
     };
   });
 
