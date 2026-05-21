@@ -3,6 +3,7 @@ export {
   getPlayerDictionary,
   getRosters,
   getPickOwnership,
+  getPickValues,
   getLeagueSettings,
   getValues,
   getStrategyProfiles,
