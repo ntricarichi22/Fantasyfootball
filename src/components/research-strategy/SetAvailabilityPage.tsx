@@ -6,7 +6,7 @@ import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import RosterPlayerCard from "./RosterPlayerCard";
 import RosterPickCard from "./RosterPickCard";
 import PlayerEditorOverlay from "./PlayerEditorOverlay";
-import PickEditorOverlay from "./PickEditorOverlay";
+import PickEditorOverlay, { type ClassScope, type ClassStrength } from "./PickEditorOverlay";
 import {
   DEFAULT_PICK_ANCHORS,
   composeFromPicks,
@@ -69,6 +69,9 @@ export default function SetAvailabilityPage() {
   const [anchors, setAnchors] = useState<PickAnchors>(DEFAULT_PICK_ANCHORS);
   const [attachments, setAttachments] = useState<Record<string, AttachmentLevel>>({});
   const [pickState, setPickState] = useState<Record<string, PickCounts>>({});
+  // Adjusted pick prices (availability + class strength), keyed by pick key.
+  const [adjustedByKey, setAdjustedByKey] = useState<Record<string, number>>({});
+  const [classByKey, setClassByKey] = useState<Record<string, ClassStrength>>({});
   const [activeTab, setActiveTab] = useState<TabKey>("QB");
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
   const [openPickKey, setOpenPickKey] = useState<string | null>(null);
@@ -89,8 +92,40 @@ export default function SetAvailabilityPage() {
     return map;
   }, [rosterId]);
 
-  // Lighter refresh after an availability change: player values + attachments only.
-  // Pick inventory/values don't move, so we skip the heavy targets route.
+  // Stored adjusted pick values (pick key -> final_value).
+  const fetchPickValues = useCallback(async (): Promise<Record<string, number>> => {
+    const res = await fetch(`/api/research-strategy/pick-values?teamId=${encodeURIComponent(rosterId)}`);
+    const json = await res.json();
+    const map: Record<string, number> = {};
+    if (res.ok && Array.isArray(json.data)) {
+      json.data.forEach((r: { pick_key: string; final_value: number }) => {
+        if (typeof r.final_value === "number") map[r.pick_key] = r.final_value;
+      });
+    }
+    return map;
+  }, [rosterId]);
+
+  // Stored draft-class-strength per pick (pick key -> strength).
+  const fetchClassStrengths = useCallback(async (): Promise<Record<string, ClassStrength>> => {
+    const res = await fetch(`/api/research-strategy/class-strength?teamId=${encodeURIComponent(rosterId)}`);
+    const json = await res.json();
+    const map: Record<string, ClassStrength> = {};
+    if (res.ok && Array.isArray(json.data)) {
+      json.data.forEach((r: { pick_key: string; strength: string }) => {
+        if (r.strength === "weak" || r.strength === "average" || r.strength === "stacked") {
+          map[r.pick_key] = r.strength;
+        }
+      });
+    }
+    return map;
+  }, [rosterId]);
+
+  // Refresh adjusted pick prices after the server has rebuilt them.
+  const reloadPickValues = useCallback(async () => {
+    setAdjustedByKey(await fetchPickValues());
+  }, [fetchPickValues]);
+
+  // Lighter refresh after a PLAYER availability change: player values + attachments.
   const reloadValues = useCallback(async () => {
     if (!rosterId) return;
     try {
@@ -137,7 +172,8 @@ export default function SetAvailabilityPage() {
       }
       setRows(data);
 
-      // Picks: pull my roster's pick assets out of the targets route and parse keys.
+      // Picks: inventory comes from the targets route (which picks I own + a base
+      // value as fallback); adjusted values come from the per-team table.
       const targetsJson = await targetsRes.json();
       const myAssets: TargetsAsset[] = (targetsRes.ok && targetsJson.rosters?.[rosterId]) || [];
       const parsedPicks: PickAsset[] = [];
@@ -150,12 +186,26 @@ export default function SetAvailabilityPage() {
       setPicks(parsedPicks);
 
       setAttachments(await fetchAttachments());
+      setClassByKey(await fetchClassStrengths());
+
+      // Adjusted prices. If any pick is missing a stored row (first visit, or a
+      // newly acquired pick), rebuild once so the whole binder reads consistently.
+      let adjusted = await fetchPickValues();
+      if (Object.keys(adjusted).length < parsedPicks.length) {
+        await fetch("/api/research-strategy/pick-values", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ teamId: rosterId }),
+        });
+        adjusted = await fetchPickValues();
+      }
+      setAdjustedByKey(adjusted);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, [rosterId, fetchAttachments]);
+  }, [rosterId, fetchAttachments, fetchClassStrengths, fetchPickValues]);
 
   useEffect(() => {
     void load();
@@ -171,6 +221,10 @@ export default function SetAvailabilityPage() {
   }, [rows, anchors]);
 
   const getAttachment = (id: string): AttachmentLevel => attachments[id] ?? "listening";
+  const getClass = (key: string): ClassStrength => classByKey[key] ?? "average";
+  // Adjusted price if we have it, else the targets-route base as a fallback.
+  const pickValue = (key: string, fallback: number) =>
+    typeof adjustedByKey[key] === "number" ? adjustedByKey[key] : fallback;
 
   const setAttachment = async (id: string, level: AttachmentLevel) => {
     setAttachments((prev) => ({ ...prev, [id]: level }));
@@ -184,9 +238,49 @@ export default function SetAvailabilityPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to save availability");
-      await reloadValues();
+      // A pick's value lives in the pick table; a player's in the player path.
+      if (id.startsWith("pick:")) {
+        await reloadPickValues();
+      } else {
+        await reloadValues();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save availability");
+    } finally {
+      setSavingId(null);
+    }
+  };
+
+  const setClassStrength = async (pick: PickAsset, strength: ClassStrength, scope: ClassScope) => {
+    const keys =
+      scope === "just_this"
+        ? [pick.key]
+        : scope === "all_year"
+          ? picks.filter((p) => p.parsed.year === pick.parsed.year).map((p) => p.key)
+          : picks
+              .filter((p) => p.parsed.year === pick.parsed.year && p.parsed.round === pick.parsed.round)
+              .map((p) => p.key);
+
+    setClassByKey((prev) => {
+      const next = { ...prev };
+      keys.forEach((k) => {
+        next[k] = strength;
+      });
+      return next;
+    });
+    if (!rosterId) return;
+    setSavingId(pick.key);
+    try {
+      const res = await fetch("/api/research-strategy/class-strength", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamId: rosterId, pickKeys: keys, strength }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "Failed to save class strength");
+      await reloadPickValues();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save class strength");
     } finally {
       setSavingId(null);
     }
@@ -277,7 +371,7 @@ export default function SetAvailabilityPage() {
                     key={pick.key}
                     parsed={pick.parsed}
                     attachment={getAttachment(pick.key)}
-                    value={pick.value}
+                    value={pickValue(pick.key, pick.value)}
                     onOpen={() => setOpenPickKey(pick.key)}
                   />
                 ))}
@@ -354,9 +448,11 @@ export default function SetAvailabilityPage() {
         <PickEditorOverlay
           parsed={openPick.parsed}
           attachment={getAttachment(openPick.key)}
-          value={openPick.value}
+          classStrength={getClass(openPick.key)}
+          value={pickValue(openPick.key, openPick.value)}
           saving={savingId === openPick.key}
           onSetAttachment={(level) => setAttachment(openPick.key, level)}
+          onSetClassStrength={(strength, scope) => setClassStrength(openPick, strength, scope)}
           onClose={() => setOpenPickKey(null)}
         />
       )}

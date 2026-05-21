@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { rebuildPickValuesForTeam } from "@/research-strategy/api/pickService";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +49,31 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to load pick values" },
+      { status: 500 }
+    );
+  }
+}
+
+// Rebuild this team's adjusted pick rows. Called on first visit (or after
+// acquiring a pick) so every owned pick has a stored row to read.
+export async function POST(request: NextRequest) {
+  try {
+    const leagueId = LEAGUE_ID;
+    if (!leagueId) {
+      return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+    }
+
+    const body = (await request.json()) as { teamId?: string };
+    const teamId = body.teamId?.trim();
+    if (!teamId) {
+      return NextResponse.json({ error: "teamId is required" }, { status: 400 });
+    }
+
+    await rebuildPickValuesForTeam(leagueId, teamId);
+    return NextResponse.json({ ok: true });
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Failed to rebuild pick values" },
       { status: 500 }
     );
   }
