@@ -26,12 +26,21 @@ export type RosteredTeam = {
   players: PlayerInfo[];
 };
 
-// One owned draft pick (current year). overall = (round-1)*teamCount + slot.
-export type PickInfo = {
-  round: number;
+// One owned draft pick — the COMPLETE fact: current AND future picks, each
+// carrying its canonical key. Scoping to a single draft year is a caller's job.
+//   key:               see the pick-key contract — built identically to the trade engine.
+//   slot / overall:    set for current-year picks with a known order; null for future.
+//   kind:              season === cfcYear ? "current" : "future".
+//   currentRosterId:   who holds it now (this is the ownership map key).
+//   originalRosterId:  whose pick it originally is — drives the future-pick tier lookup.
+export type OwnedPick = {
+  key: string;
   season: number;
-  slot: number;
-  overall: number;
+  round: number;
+  slot: number | null;
+  overall: number | null;
+  kind: "current" | "future";
+  currentRosterId: string;
   originalRosterId: string;
 };
 
@@ -68,6 +77,10 @@ export type ValueMaps = {
   isStud: Map<string, boolean>;
 };
 
+// Canonical draft-pick slot ladder. Key = "R.SS" with a ZERO-PADDED slot
+// (e.g. "1.06", "2.04", "3.12"); value = cfc_value from the pick_template rows.
+export type PickLadder = Map<string, number>;
+
 // Where last-season production actually came from, for transparency.
 export type ResultsSource = "current" | "previous" | "none";
 
@@ -80,7 +93,7 @@ export type LeagueData = {
   players: Map<string, PlayerInfo>;
   teams: RosteredTeam[];
   values: ValueMaps;
-  pickOwnership: Map<string, PickInfo[]>;
+  pickOwnership: Map<string, OwnedPick[]>;
   strategy: Map<string, StrategyProfile>;
   attachments: Map<string, Map<string, AttachmentLevel>>;
   results: Map<string, SeasonResult>;
