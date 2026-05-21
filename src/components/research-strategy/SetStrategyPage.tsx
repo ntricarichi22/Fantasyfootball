@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { InnerTopbar } from "@/shared/ui/InnerTopbar";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
@@ -56,11 +56,13 @@ const CSS = `
 .ss-pm{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:14px;}
 .ss-wm-d{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:14px;}
 .ss-wm-m{display:none;margin-top:14px;}
+.ss-pm-dots{display:none;}
 @media (max-width:700px){
-  .ss-pm{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:8px;}
-  .ss-pm>*{min-width:76%;flex:0 0 auto;scroll-snap-align:center;}
+  .ss-pm{display:flex;gap:0;overflow-x:auto;scroll-snap-type:x mandatory;}
+  .ss-pm>*{min-width:100%;flex:0 0 auto;scroll-snap-align:start;}
   .ss-wm-d{display:none;}
   .ss-wm-m{display:block;}
+  .ss-pm-dots{display:flex;justify-content:center;gap:9px;margin-top:14px;}
 }`;
 
 function BannerTag({ lines }: { lines: string[] }) {
@@ -168,6 +170,8 @@ function Divider({ label }: { label: string }) {
 export default function SetStrategyPage() {
   const [rosterId, setRosterId] = useState("");
   const [profile, setProfile] = useState<Profile | null>(null);
+  const pmRef = useRef<HTMLDivElement>(null);
+  const [pmIdx, setPmIdx] = useState(0);
 
   useEffect(() => {
     const { rosterId: rid = "" } = readStoredTeam();
@@ -219,9 +223,25 @@ export default function SetStrategyPage() {
           <>
             <div style={{ marginTop: 26 }}>
               <Divider label="WHERE WE STAND" />
-              <div className="ss-pm">
+              <div
+                className="ss-pm"
+                ref={pmRef}
+                onScroll={(e) => setPmIdx(Math.round(e.currentTarget.scrollLeft / Math.max(1, e.currentTarget.clientWidth)))}
+              >
                 {PM_CARDS.map((c) => (
                   <PMCard key={c.key} value={profile[c.key]} lines={c.lines} onSet={(m) => setMarket(c.key, m)} />
+                ))}
+              </div>
+              <div className="ss-pm-dots">
+                {PM_CARDS.map((c, i) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    aria-label={`Card ${i + 1}`}
+                    onClick={() => pmRef.current?.scrollTo({ left: i * pmRef.current.clientWidth, behavior: "smooth" })}
+                    style={{ width: 9, height: 9, borderRadius: 9, padding: 0, cursor: "pointer",
+                      border: "none", background: i === pmIdx ? INK : MUTEDB }}
+                  />
                 ))}
               </div>
             </div>
