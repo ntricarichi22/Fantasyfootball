@@ -8,7 +8,7 @@ import type { NeedBucket, NeedDetail, NeedLevel, TeamNeeds } from "./types";
 // 0..1 range: league-worst unit = 1.0, league-best = 0.
 const STARTER_WEIGHT = 0.75; // the starting unit dominates
 const DEPTH_WEIGHT = 0.25; // the depth man (injury insurance / trade currency)
-const LEVEL_HIGH = 0.6; // score >= -> high
+const LEVEL_HIGH = 0.7; // score >= -> high
 const LEVEL_MED = 0.34; // score >= -> med, else low
 
 // Starter unit size per bucket; the depth man is the next one (QB3 / RB3 / PC5).
