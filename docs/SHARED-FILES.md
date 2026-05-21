@@ -130,6 +130,21 @@ Barrel. Re-exports all modifier symbols + `ClassStrength`, and the valuation sym
 
 ---
 
+## Module: `src/shared/components/` — shared UI
+
+Cross-department React components. Pure presentation, `"use client"`, inline styles only (neobrutalist constraint). The only per-department inputs are passed as props; the layout/treatment is shared so directors don't drift apart.
+
+### `DirectorTwoBox.tsx` (~95 lines)
+The page-level director "two-box" intro panel — the director greeting you as you enter a room. Two cells in one 2.5px-bordered box (no rounded corners, no shadow): a black left cell with a circular avatar + stacked mono-caps label, and a paper right cell with one fluid-sized (`clamp`) message line.
+- **Props:** `avatarSrc` (e.g. `/avatars/pro-personnel.png`, `/avatars/strategy.png`), `label` (e.g. `"Personnel Director"` / `"Strategy Director"` — each word stacks on its own line), `message` (the intro string for that surface/state).
+- **Dumb presentation.** The parent decides the avatar, label, and copy; state-driven copy (intro / empty / returning) is chosen by the page and passed in.
+- **Consumers:** Pro Personnel `BuilderCyclerView` + `TradeStudioView` (pass the Personnel avatar/label); Strategy `SetAvailabilityPage` (Strategy avatar/label) and `SetStrategyPage` when built. Avatars live in `public/avatars/`.
+- Slim by design (48px avatar, tight padding) to protect vertical space on no-scroll pages.
+
+
+
+---
+
 ## Debug route (not shared, but part of this work)
 
 ### `src/app/api/league/profiles/route.ts` — currently revision **09b** (~58 lines)
@@ -153,11 +168,12 @@ Dependencies first, then importers, route last:
 6. `src/shared/asset-values/modifiers.ts`
 7. `src/shared/asset-values/valuation.ts`
 8. `src/shared/asset-values/index.ts`
-9. `src/shared/team-profiles/types.ts`
-10. `src/shared/team-profiles/strength.ts`
-11. `src/shared/team-profiles/profiler.ts`
-12. `src/shared/team-profiles/index.ts`
-13. `src/app/api/league/profiles/route.ts`
+9. `src/shared/components/DirectorTwoBox.tsx`
+10. `src/shared/team-profiles/types.ts`
+11. `src/shared/team-profiles/strength.ts`
+12. `src/shared/team-profiles/profiler.ts`
+13. `src/shared/team-profiles/index.ts`
+14. `src/app/api/league/profiles/route.ts`
 
 ---
 
