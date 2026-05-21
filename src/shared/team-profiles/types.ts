@@ -1,4 +1,4 @@
-import type { Position, MarketStance } from "@/shared/league-data";
+import type { Position } from "@/shared/league-data";
 
 // Four tiers, best to worst. Index 0..3 maps to this order.
 export type Tier = "championship" | "playoff" | "retooling" | "rebuilding";
@@ -55,9 +55,13 @@ export type Trajectory = {
 };
 
 // ── Team needs (league-relative, per bucket) ────────────────────────────────
-// Three buckets, not four: there is no dedicated TE slot, so WR + TE are one
-// "pass catcher" bucket. Starter unit sizes: QB 2, RB 2, pass catcher 4; the
-// depth man is the next one (QB3 / RB3 / PC5).
+// Pure ROSTER TRUTH — how a team's starting unit + depth at a position stack
+// up against the other 11, and nothing else. Age is deliberately excluded
+// (already priced into player value, so it would double-count). Market/posture
+// is deliberately excluded (manipulable, and it belongs to the trade engine /
+// scouting POV, not the raw need). Three buckets, not four: no dedicated TE
+// slot, so WR + TE are one "pass catcher" bucket. Starter unit sizes: QB 2,
+// RB 2, pass catcher 4; the depth man is the next one (QB3 / RB3 / PC5).
 export type NeedBucket = "QB" | "RB" | "PASS_CATCHER";
 
 export type NeedLevel = "low" | "med" | "high";
@@ -66,9 +70,7 @@ export type NeedDetail = {
   bucket: NeedBucket;
   starterNorm: number; // 0..1 league-relative strength of the starting unit
   depthNorm: number; // 0..1 league-relative strength of the depth man
-  ageSignal: number; // + raises need (aging unit), - suppresses (young unit), 0 neutral
-  market: MarketStance; // the bucket's stated market (QB / RB / pass-catcher)
-  score: number; // 0..1 final need, 1 = highest
+  score: number; // 0..1 final need, 1 = league-worst unit, 0 = league-best
   level: NeedLevel;
 };
 
