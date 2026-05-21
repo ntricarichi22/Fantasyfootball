@@ -16,6 +16,7 @@ type RosterPickCardProps = {
   parsed: ParsedPick;
   attachment: AttachmentLevel;
   value: number;
+  ownerSuffix?: string;
   onOpen: () => void;
 };
 
@@ -23,6 +24,7 @@ export default function RosterPickCard({
   parsed,
   attachment,
   value,
+  ownerSuffix,
   onOpen,
 }: RosterPickCardProps) {
   const avail = AVAILABILITY_CONFIG[attachment];
@@ -83,6 +85,19 @@ export default function RosterPickCard({
           }}
         >
           {bigText}
+          {ownerSuffix && (
+            <span
+              style={{
+                fontFamily: "'DM Sans', sans-serif",
+                fontSize: 13,
+                fontWeight: 700,
+                color: "#1A1A1A",
+                marginLeft: 7,
+              }}
+            >
+              {ownerSuffix}
+            </span>
+          )}
         </p>
         <p
           style={{

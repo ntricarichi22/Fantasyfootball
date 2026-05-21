@@ -27,9 +27,8 @@ type TradeRow = {
   manual_override_value: number | null;
 };
 
-type PickAsset = { key: string; value: number; parsed: ParsedPick };
-
-type TargetsAsset = { key: string; value: number; type: "player" | "pick" };
+// Adjusted pick, sourced entirely from the shared-backed pick-values route.
+type PickAsset = { key: string; value: number; parsed: ParsedPick; ownerSuffix: string };
 
 type TabKey = "QB" | "RB" | "PC" | "PICKS";
 
@@ -69,8 +68,6 @@ export default function SetAvailabilityPage() {
   const [anchors, setAnchors] = useState<PickAnchors>(DEFAULT_PICK_ANCHORS);
   const [attachments, setAttachments] = useState<Record<string, AttachmentLevel>>({});
   const [pickState, setPickState] = useState<Record<string, PickCounts>>({});
-  // Adjusted pick prices (availability + class strength), keyed by pick key.
-  const [adjustedByKey, setAdjustedByKey] = useState<Record<string, number>>({});
   const [classByKey, setClassByKey] = useState<Record<string, ClassStrength>>({});
   const [activeTab, setActiveTab] = useState<TabKey>("QB");
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
@@ -79,7 +76,7 @@ export default function SetAvailabilityPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Pull attachments map (shared by players + picks; picks keyed by their pick: key).
+  // Attachments (shared by players + picks; picks keyed by their pick: key).
   const fetchAttachments = useCallback(async (): Promise<Record<string, AttachmentLevel>> => {
     const res = await fetch(`/api/research-strategy/attachment?teamId=${encodeURIComponent(rosterId)}`);
     const json = await res.json();
@@ -92,17 +89,21 @@ export default function SetAvailabilityPage() {
     return map;
   }, [rosterId]);
 
-  // Stored adjusted pick values (pick key -> final_value).
-  const fetchPickValues = useCallback(async (): Promise<Record<string, number>> => {
+  // The PICKS tab's single source: inventory + adjusted value + owner tag.
+  const fetchPicks = useCallback(async (): Promise<PickAsset[]> => {
     const res = await fetch(`/api/research-strategy/pick-values?teamId=${encodeURIComponent(rosterId)}`);
     const json = await res.json();
-    const map: Record<string, number> = {};
+    const list: PickAsset[] = [];
     if (res.ok && Array.isArray(json.data)) {
-      json.data.forEach((r: { pick_key: string; final_value: number }) => {
-        if (typeof r.final_value === "number") map[r.pick_key] = r.final_value;
+      json.data.forEach((r: { pick_key: string; final_value: number; owner_suffix?: string }) => {
+        const parsed = parsePickKey(r.pick_key);
+        if (parsed && typeof r.final_value === "number") {
+          list.push({ key: r.pick_key, value: r.final_value, parsed, ownerSuffix: r.owner_suffix ?? "(own)" });
+        }
       });
     }
-    return map;
+    list.sort(sortPicks);
+    return list;
   }, [rosterId]);
 
   // Stored draft-class-strength per pick (pick key -> strength).
@@ -120,10 +121,10 @@ export default function SetAvailabilityPage() {
     return map;
   }, [rosterId]);
 
-  // Refresh adjusted pick prices after the server has rebuilt them.
-  const reloadPickValues = useCallback(async () => {
-    setAdjustedByKey(await fetchPickValues());
-  }, [fetchPickValues]);
+  // Refresh picks after the server has rebuilt their values.
+  const reloadPicks = useCallback(async () => {
+    setPicks(await fetchPicks());
+  }, [fetchPicks]);
 
   // Lighter refresh after a PLAYER availability change: player values + attachments.
   const reloadValues = useCallback(async () => {
@@ -148,11 +149,8 @@ export default function SetAvailabilityPage() {
     setLoading(true);
     setError("");
     try {
-      const [chartRes, targetsRes] = await Promise.all([
-        fetch(`/api/research-strategy/trade-chart?teamId=${encodeURIComponent(rosterId)}`),
-        fetch(`/api/pro-personnel/targets?teamId=${encodeURIComponent(rosterId)}`),
-      ]);
-
+      // Players: trade-chart, rebuilding on first-empty (unchanged).
+      const chartRes = await fetch(`/api/research-strategy/trade-chart?teamId=${encodeURIComponent(rosterId)}`);
       const chartJson = await chartRes.json();
       if (!chartRes.ok) throw new Error(chartJson?.error ?? "Failed to load values");
       let data = (chartJson.data ?? []) as TradeRow[];
@@ -172,40 +170,27 @@ export default function SetAvailabilityPage() {
       }
       setRows(data);
 
-      // Picks: inventory comes from the targets route (which picks I own + a base
-      // value as fallback); adjusted values come from the per-team table.
-      const targetsJson = await targetsRes.json();
-      const myAssets: TargetsAsset[] = (targetsRes.ok && targetsJson.rosters?.[rosterId]) || [];
-      const parsedPicks: PickAsset[] = [];
-      myAssets.forEach((a) => {
-        if (a.type !== "pick") return;
-        const parsed = parsePickKey(a.key);
-        if (parsed) parsedPicks.push({ key: a.key, value: a.value, parsed });
-      });
-      parsedPicks.sort(sortPicks);
-      setPicks(parsedPicks);
-
-      setAttachments(await fetchAttachments());
-      setClassByKey(await fetchClassStrengths());
-
-      // Adjusted prices. If any pick is missing a stored row (first visit, or a
-      // newly acquired pick), rebuild once so the whole binder reads consistently.
-      let adjusted = await fetchPickValues();
-      if (Object.keys(adjusted).length < parsedPicks.length) {
+      // Picks: read from the shared-backed table; rebuild once if it's empty
+      // (first visit), same first-empty pattern as players.
+      let pickList = await fetchPicks();
+      if (pickList.length === 0) {
         await fetch("/api/research-strategy/pick-values", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ teamId: rosterId }),
         });
-        adjusted = await fetchPickValues();
+        pickList = await fetchPicks();
       }
-      setAdjustedByKey(adjusted);
+      setPicks(pickList);
+
+      setAttachments(await fetchAttachments());
+      setClassByKey(await fetchClassStrengths());
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
     } finally {
       setLoading(false);
     }
-  }, [rosterId, fetchAttachments, fetchClassStrengths, fetchPickValues]);
+  }, [rosterId, fetchAttachments, fetchClassStrengths, fetchPicks]);
 
   useEffect(() => {
     void load();
@@ -222,9 +207,6 @@ export default function SetAvailabilityPage() {
 
   const getAttachment = (id: string): AttachmentLevel => attachments[id] ?? "listening";
   const getClass = (key: string): ClassStrength => classByKey[key] ?? "average";
-  // Adjusted price if we have it, else the targets-route base as a fallback.
-  const pickValue = (key: string, fallback: number) =>
-    typeof adjustedByKey[key] === "number" ? adjustedByKey[key] : fallback;
 
   const setAttachment = async (id: string, level: AttachmentLevel) => {
     setAttachments((prev) => ({ ...prev, [id]: level }));
@@ -240,7 +222,7 @@ export default function SetAvailabilityPage() {
       if (!res.ok) throw new Error(json?.error ?? "Failed to save availability");
       // A pick's value lives in the pick table; a player's in the player path.
       if (id.startsWith("pick:")) {
-        await reloadPickValues();
+        await reloadPicks();
       } else {
         await reloadValues();
       }
@@ -278,7 +260,7 @@ export default function SetAvailabilityPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Failed to save class strength");
-      await reloadPickValues();
+      await reloadPicks();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save class strength");
     } finally {
@@ -371,7 +353,8 @@ export default function SetAvailabilityPage() {
                     key={pick.key}
                     parsed={pick.parsed}
                     attachment={getAttachment(pick.key)}
-                    value={pickValue(pick.key, pick.value)}
+                    value={pick.value}
+                    ownerSuffix={pick.ownerSuffix}
                     onOpen={() => setOpenPickKey(pick.key)}
                   />
                 ))}
@@ -449,7 +432,8 @@ export default function SetAvailabilityPage() {
           parsed={openPick.parsed}
           attachment={getAttachment(openPick.key)}
           classStrength={getClass(openPick.key)}
-          value={pickValue(openPick.key, openPick.value)}
+          value={openPick.value}
+          ownerSuffix={openPick.ownerSuffix}
           saving={savingId === openPick.key}
           onSetAttachment={(level) => setAttachment(openPick.key, level)}
           onSetClassStrength={(strength, scope) => setClassStrength(openPick, strength, scope)}

@@ -29,6 +29,7 @@ type PickEditorOverlayProps = {
   attachment: AttachmentLevel;
   classStrength: ClassStrength;
   value: number;
+  ownerSuffix?: string;
   saving: boolean;
   onSetAttachment: (level: AttachmentLevel) => void;
   onSetClassStrength: (strength: ClassStrength, scope: ClassScope) => void;
@@ -40,6 +41,7 @@ export default function PickEditorOverlay({
   attachment,
   classStrength,
   value,
+  ownerSuffix,
   saving,
   onSetAttachment,
   onSetClassStrength,
@@ -113,6 +115,19 @@ export default function PickEditorOverlay({
               }}
             >
               {bigText}
+              {ownerSuffix && (
+                <span
+                  style={{
+                    fontFamily: "'DM Sans', sans-serif",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "#1A1A1A",
+                    marginLeft: 7,
+                  }}
+                >
+                  {ownerSuffix}
+                </span>
+              )}
             </p>
             <p
               style={{

@@ -11,10 +11,11 @@ import {
 
 // Picks share the per-team values table with players. We key each pick row by
 // its canonical pick key (the same key availability is saved under), tag it
-// position="PICK", and reuse the player modifier columns:
+// position="PICK", and reuse the player columns:
 //   own_guys_modifier_pct  -> availability tier  (same scale as players)
 //   market_modifier_pct    -> draft class strength (picks only)
-//   studs/youth             -> 0 (player-only signals)
+//   nfl_team               -> owner tag: "(own)" or "(via Kush)"
+//   studs/youth            -> 0 (player-only signals)
 
 const pad = (n: number): string => String(n).padStart(2, "0");
 
@@ -22,6 +23,13 @@ function pickLabel(p: OwnedPick): string {
   if (p.kind === "current" && p.slot != null) return `${p.season} ${p.round}.${pad(p.slot)}`;
   const ord = p.round === 1 ? "1st" : p.round === 2 ? "2nd" : p.round === 3 ? "3rd" : `${p.round}th`;
   return `${p.season} ${ord}`;
+}
+
+// Team nickname = team name minus its first word ("Cleveland Kush" -> "Kush"),
+// matching how the trade engine labels acquired picks.
+function teamNick(name: string): string {
+  const parts = name.split(" ");
+  return parts.length > 1 ? parts.slice(1).join(" ") : name;
 }
 
 // Maps legacy attachment values to the current set; null/unknown -> listening.
@@ -41,8 +49,8 @@ function normalizeAttachment(v: string | null | undefined): AttachmentLevel {
 }
 
 // Recompute and store adjusted values for ALL of one team's picks. Fires when a
-// pick's availability or its draft-class strength changes. Cheap to over-rebuild
-// (a team owns ~8-12 picks), and keeps every pick row internally consistent.
+// pick's availability or its draft-class strength changes, and on page load.
+// Cheap to over-rebuild (a team owns ~8-12 picks).
 export async function rebuildPickValuesForTeam(
   leagueId: string,
   teamId: string,
@@ -55,6 +63,10 @@ export async function rebuildPickValuesForTeam(
   if ("error" in league) return;
   const myPicks = league.pickOwnership.get(teamId) ?? [];
   if (myPicks.length === 0) return;
+
+  // Roster id -> team name, for the owner tag.
+  const teamNameByRoster = new Map<string, string>();
+  for (const t of league.teams) teamNameByRoster.set(t.rosterId, t.teamName);
 
   // 2. Base prices + team tiers + ladder, built once for the whole set.
   const ctx = await buildValuationContext();
@@ -94,13 +106,18 @@ export async function rebuildPickValuesForTeam(
     const classPct = CLASS_STRENGTH_PCT[strength];
     const final = applyModifiers(base, [availPct, classPct]);
 
+    const isVia = pick.originalRosterId !== pick.currentRosterId;
+    const ownerSuffix = isVia
+      ? `(via ${teamNick(teamNameByRoster.get(pick.originalRosterId) ?? `Team ${pick.originalRosterId}`)})`
+      : "(own)";
+
     return {
       league_id: leagueId,
       team_id: teamId,
       sleeper_player_id: pick.key,
       player_name: pickLabel(pick),
       position: "PICK",
-      nfl_team: null,
+      nfl_team: ownerSuffix,
       base_value: base,
       auto_value: final,
       manual_override_value: null,

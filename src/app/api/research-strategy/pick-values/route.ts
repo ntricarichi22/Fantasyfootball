@@ -5,10 +5,9 @@ import { rebuildPickValuesForTeam } from "@/research-strategy/api/pickService";
 
 export const dynamic = "force-dynamic";
 
-// Returns this team's stored adjusted pick values. Picks live in the same
-// per-team table as players (position="PICK"), keyed by their canonical pick
-// key. The Set Availability page reads these so the displayed pick price
-// reflects availability + draft-class-strength adjustments.
+// Returns this team's stored adjusted picks — the single source for the Set
+// Availability PICKS tab: inventory (pick_key), adjusted price (final_value),
+// and the owner tag (nfl_team, e.g. "(own)" / "(via Kush)").
 export async function GET(request: NextRequest) {
   try {
     const leagueId = LEAGUE_ID;
@@ -28,7 +27,7 @@ export async function GET(request: NextRequest) {
 
     const { data, error } = await client
       .from("cfc_team_trade_values_current")
-      .select("sleeper_player_id, final_value, own_guys_modifier_pct, market_modifier_pct")
+      .select("sleeper_player_id, final_value, nfl_team, own_guys_modifier_pct, market_modifier_pct")
       .eq("league_id", leagueId)
       .eq("team_id", teamId)
       .eq("position", "PICK");
@@ -37,10 +36,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // pick_key is the sleeper_player_id for pick rows.
+    // pick_key is the sleeper_player_id; owner tag rides in nfl_team for picks.
     const rows = (data ?? []).map((r) => ({
       pick_key: r.sleeper_player_id,
       final_value: r.final_value,
+      owner_suffix: r.nfl_team ?? "(own)",
       availability_pct: r.own_guys_modifier_pct,
       class_strength_pct: r.market_modifier_pct,
     }));
@@ -54,8 +54,8 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Rebuild this team's adjusted pick rows. Called on first visit (or after
-// acquiring a pick) so every owned pick has a stored row to read.
+// Rebuild this team's adjusted pick rows. Called on first visit (or when the
+// stored set is empty) so every owned pick has a row to read.
 export async function POST(request: NextRequest) {
   try {
     const leagueId = LEAGUE_ID;
