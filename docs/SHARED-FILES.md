@@ -32,7 +32,7 @@ Public surface is the barrel (`index.ts`); import from `@/shared/league-data`.
 ### `types.ts` (~114 lines)
 The vocabulary for the whole layer. No logic.
 - **Core types:** `Position`, `POSITIONS`, `MarketStance` (`buy`/`hold`/`sell`/`unknown`), `AttachmentLevel` (`untouchable` / `core_piece` / `listening` / `moveable`).
-- **Entity types:** `PlayerInfo`, `RosteredTeam` (`rosterId`, `teamName`, `ownerId`, `playerIds`, `starterIds`, `players`), `StrategyProfile`, `SeasonResult`, `LeagueSettings`, `ValueMaps`.
+- **Entity types:** `PlayerInfo`, `RosteredTeam` (`rosterId`, `teamName`, `ownerId`, `playerIds`, `starterIds`, `players`), `StrategyProfile`, `SeasonResult`, `LeagueSettings`, `ValueMaps`. The strategy-stance type exposes `qbMarket` / `rbMarket` / `pcMarket` / `picksMarket` — **`pcMarket` is the consolidated Pass Catchers stance that replaced the former separate `wrMarket` / `teMarket`.**
 - **Pick types:**
   - `OwnedPick` — `{ key, season, round, slot|null, overall|null, kind, currentRosterId, originalRosterId }`. `kind` = `"current"` (season === cfcYear) or `"future"`. `originalRosterId` ≠ `currentRosterId` means the pick was acquired ("via"). `key` is the canonical pick key (see accessors).
   - `PickLadder` = `Map<string, number>` — zero-padded slot label (`"2.04"`) → consensus pick value.
@@ -57,7 +57,7 @@ The public fact API. Composes Sleeper + Supabase into clean shapes. **Largest sh
   - `getPickValues()` → `PickLadder`. The pick price ladder from `cfc_trade_values_current` rows where `asset_type='pick_template'` (`display_name` zero-padded `"2.04"` → `cfc_value`). Keys use raw slot, ladder is padded → **pad on lookup**.
   - `getLeagueSettings()` → `LeagueSettings` (incl. `rosterPositions`, `previousLeagueId`)
   - `getValues()` → `ValueMaps` (consensus value + stud flag from `cfc_trade_values_current`)
-  - `getStrategyProfiles()` → `{ strategy: Map, attachments: Map }` (from `cfc_team_strategy_profiles` + `cfc_team_player_attachment`)
+  - `getStrategyProfiles()` → `{ strategy: Map, attachments: Map }` (from `cfc_team_strategy_profiles` + `cfc_team_player_attachment`). Stance fields are exposed as `qbMarket` / `rbMarket` / `pcMarket` / `picksMarket`. **`pcMarket` (DB column `pc_market`) replaced the former separate `wr_market` / `te_market` — WR+TE were consolidated into one Pass Catchers market across the DB and 18 code files, and the old columns were dropped. Selects/maps read `pc_market` only.**
   - `getLastSeasonResults()` → `{ results, source, previousLeagueId }`. **Reads the current league first; if stats are zeroed (fresh rollover), falls back to `previous_league_id`.** This is why `source` can be `"previous"`.
 - **`getLeagueData()`** → `LeagueData | { error }`. Fetches everything in parallel, assembles the bundle, fills `diagnostics`. This is the one call most consumers should use.
 
@@ -163,7 +163,7 @@ Cross-department React components. Pure presentation, `"use client"`, inline sty
 The page-level director "two-box" intro panel — the director greeting you as you enter a room. Two cells in one 2.5px-bordered box (no rounded corners, no shadow): a black left cell with a circular avatar + stacked mono-caps label, and a paper right cell with one fluid-sized (`clamp`) message line.
 - **Props:** `avatarSrc` (e.g. `/avatars/pro-personnel.png`, `/avatars/strategy.png`), `label` (e.g. `"Personnel Director"` / `"Strategy Director"` — each word stacks on its own line), `message` (the intro string for that surface/state).
 - **Dumb presentation.** The parent decides the avatar, label, and copy; state-driven copy (intro / empty / returning) is chosen by the page and passed in.
-- **Consumers:** Pro Personnel `BuilderCyclerView` + `TradeStudioView` (pass the Personnel avatar/label); Strategy `SetAvailabilityPage` (Strategy avatar/label) and `SetStrategyPage` when built. Avatars live in `public/avatars/`.
+- **Consumers:** Pro Personnel `BuilderCyclerView` + `TradeStudioView` (pass the Personnel avatar/label); Strategy `SetAvailabilityPage` and `SetStrategyPage` (Strategy avatar/label) — both shipped (`SetStrategyPage` at `/strategy/set-strategy`). Avatars live in `public/avatars/`.
 - Slim by design (48px avatar, tight padding) to protect vertical space on no-scroll pages.
 
 ---
@@ -174,7 +174,7 @@ The page-level director "two-box" intro panel — the director greeting you as y
 `GET /api/league/profiles`. The verification surface for the analysis layer.
 - `force-dynamic`, `maxDuration` 30.
 - Calls `getLeagueData()` + `buildTeamProfiles()`.
-- Returns: `diagnostics`, `keyCheck` (strategyKeys vs rosterIds — catches key mismatches), a flat `summary` table (tier / base / final / nudge / score / norms / record / age / ascending / contendIntent / **echoed wantsMore + markets + persona + intentResolved**), and full `profiles`.
+- Returns: `diagnostics`, `keyCheck` (strategyKeys vs rosterIds — catches key mismatches), a flat `summary` table (tier / base / final / nudge / score / norms / record / age / ascending / contendIntent / **echoed wantsMore + markets + persona + intentResolved**), and full `profiles`. **Markets are echoed as `{ qb, rb, pc }` — the `wr`/`te` keys were collapsed to one `pc` when WR+TE consolidated into `pc_market`.**
 - Keep this around — it's how we tune without guessing. (`avgStarterAge` lives here — the place to check when a dossier's "young" read looks off.)
 
 ### `src/app/api/league/dossiers/route.ts` (~22 lines)
@@ -226,7 +226,7 @@ Dependencies first, then importers, route last:
 
 These predate the shared layer and are now superseded — migrate their callers to `@/shared/...`, then delete:
 
-- `src/scouting/intel/dataLayer.ts` — the predecessor of `league-data`. Re-point to `@/shared/league-data`.
+- `src/scouting/intel/dataLayer.ts` — the predecessor of `league-data`. Re-point to `@/shared/league-data`. (Also carries the `pcMarket` consolidation now, so it stays in sync until retired.)
 - `src/scouting/intel/teamProfiles.ts` — the predecessor of `team-profiles`. Re-point to `@/shared/team-profiles`.
 - `src/app/api/scouting/intel/profiles/route.ts` — superseded by `/api/league/profiles` (or keep one, not both).
 
