@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { rebuildPickValuesForTeam } from "@/research-strategy/api/pickService";
 
 export const dynamic = "force-dynamic";
 
@@ -96,6 +97,10 @@ export async function POST(request: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
+
+    // Class strength feeds the pick value (weak -10%, average 0%, stacked +10%).
+    // Rebuild this team's pick rows so the new strength is reflected immediately.
+    await rebuildPickValuesForTeam(leagueId, teamId);
 
     return NextResponse.json({ ok: true, count: rows.length });
   } catch (error) {

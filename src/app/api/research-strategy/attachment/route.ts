@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { rebuildTeamTradeValueForPlayer } from "@/research-strategy/api/service";
+import { rebuildPickValuesForTeam } from "@/research-strategy/api/pickService";
 
 export const dynamic = "force-dynamic";
 
@@ -112,10 +113,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Re-apply the tier modifier to this player's value so the change shows up
-    // immediately (untouchable +10%, core +5%, listening 0%, moveable -5%).
-    // Without this, the tier saves but the displayed value stays stale.
-    await rebuildTeamTradeValueForPlayer(leagueId, teamId, sleeperPlayerId);
+    // Re-apply the tier modifier so the change shows up immediately
+    // (untouchable +10%, core +5%, listening 0%, moveable -5%). Picks and
+    // players store in the same table but rebuild through different routines:
+    // a pick key triggers the pick rebuild; anything else is a player.
+    if (sleeperPlayerId.startsWith("pick:")) {
+      await rebuildPickValuesForTeam(leagueId, teamId);
+    } else {
+      await rebuildTeamTradeValueForPlayer(leagueId, teamId, sleeperPlayerId);
+    }
 
     return NextResponse.json({ ok: true });
   } catch (error) {
