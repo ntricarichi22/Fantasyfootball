@@ -1,10 +1,12 @@
-import type { LeagueData, StrategyProfile, MarketStance } from "@/shared/league-data";
+import { teamNickname } from "@/shared/league-data";
+import type { LeagueData, StrategyProfile, MarketStance, OwnedPick } from "@/shared/league-data";
 import type { TeamProfile } from "@/shared/team-profiles";
 import type { TeamDossier, Window, Confidence } from "./types";
 
 // ── Tunable knobs ───────────────────────────────────────────────
-// Matches the profiler's closing-window age threshold so the two agree.
-const AGE_OLD = 28.0;
+// Mirror the profiler's age thresholds so the two layers agree.
+const AGE_OLD = 28.0; // closing-window age
+const AGE_YOUNG = 25.5; // genuinely-young core
 
 // Onboarding stores SHORT want labels; the trade engine uses LONG ones.
 // Accept both so the dossier reads correctly no matter which is stored.
@@ -23,6 +25,27 @@ function isStrong(tier: TeamProfile["tier"]): boolean {
   return tier === "championship" || tier === "playoff";
 }
 
+// An attachment id is a pick when it carries the canonical pick-key prefix;
+// otherwise it's a sleeper player id.
+function isPickKey(id: string): boolean {
+  return id.startsWith("pick:");
+}
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
+// "2027 1st" or, when acquired, "2027 1st (via Onslaught)".
+function pickLabel(pick: OwnedPick, data: LeagueData): string {
+  const base = `${pick.season} ${ordinal(pick.round)}`;
+  if (pick.originalRosterId === pick.currentRosterId) return base;
+  const orig = data.teams.find((t) => t.rosterId === pick.originalRosterId);
+  const via = orig ? teamNickname(orig.teamName) : `roster ${pick.originalRosterId}`;
+  return `${base} (via ${via})`;
+}
+
 function readWants(wantsMore: string[]): string {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -36,18 +59,33 @@ function readWants(wantsMore: string[]): string {
   return out.join(", ");
 }
 
+// Any untouchable PICK in the attachment map. Reads the attachment facts the
+// owner set — no pickOwnership needed for the boolean itself.
+function computePicksLocked(p: TeamProfile, data: LeagueData): boolean {
+  const att = data.attachments.get(p.rosterId);
+  if (!att) return false;
+  for (const [id, level] of att) {
+    if (level === "untouchable" && isPickKey(id)) return true;
+  }
+  return false;
+}
+
 function computeWindow(p: TeamProfile): Window {
   const old = p.strength.avgStarterAge != null && p.strength.avgStarterAge >= AGE_OLD;
   const ascending = p.trajectory.direction === "ascending";
   if (isStrong(p.tier)) {
     return old && !ascending ? "closing" : "contending";
   }
-  // retooling / rebuilding
+  // Tier wins at the bottom — a rebuilding team never reads "ascending".
+  if (p.tier === "rebuilding") return "rebuilding";
+  // retooling
   return ascending ? "ascending" : "rebuilding";
 }
 
 function computeVerdict(p: TeamProfile, window: Window): string {
-  const old = p.strength.avgStarterAge != null && p.strength.avgStarterAge >= AGE_OLD;
+  const age = p.strength.avgStarterAge;
+  const old = age != null && age >= AGE_OLD;
+  const young = age != null && age <= AGE_YOUNG;
   switch (window) {
     case "contending":
       return old
@@ -56,7 +94,11 @@ function computeVerdict(p: TeamProfile, window: Window): string {
     case "closing":
       return "Window's closing. Still strong, but aging fast — win now or bust.";
     case "ascending":
-      return "On the rise. Young talent outrunning the record — dangerous soon.";
+      // Only claim "young" when the core actually is. Otherwise the climb is
+      // value-vs-record, not youth.
+      return young
+        ? "On the rise. Young talent outrunning the record — dangerous soon."
+        : "On the rise. Roster's worth more than the record showed — dangerous soon.";
     case "rebuilding":
       return "Rebuild mode. Stockpiling picks and youth, playing the long game.";
   }
@@ -64,7 +106,8 @@ function computeVerdict(p: TeamProfile, window: Window): string {
 
 function computeWantsSells(
   p: TeamProfile,
-  strat: StrategyProfile | null
+  strat: StrategyProfile | null,
+  picksLocked: boolean
 ): { wants: string; sells: string } {
   const markets: Record<string, MarketStance> = strat
     ? {
@@ -83,35 +126,49 @@ function computeWantsSells(
     .map(([k]) => k);
   const stated = strat ? readWants(strat.wantsMore) : "";
 
-  // wants: prefer explicit market signal, then stated wants, then tier fallback.
+  // wants: explicit market signal, then stated wants, then tier fallback.
   let wants: string;
   if (buying.length) wants = `buying ${buying.join(", ")}`;
   else if (stated) wants = stated;
   else wants = isStrong(p.tier) ? "win-now players" : "picks & young upside";
 
-  // sells: prefer explicit market signal, then tier fallback.
+  // sells: explicit market signal, then picks-locked override, then tier fallback.
   let sells: string;
   if (selling.length) sells = `shopping ${selling.join(", ")}`;
+  else if (picksLocked) sells = "depth & vets — draft capital off the table";
   else sells = isStrong(p.tier) ? "spare picks & depth" : "vets for picks";
 
   return { wants, sells };
 }
 
-function computeCoreLabel(p: TeamProfile, data: LeagueData): string {
+function computeCoreLabel(
+  p: TeamProfile,
+  data: LeagueData,
+  pickByKey: Map<string, OwnedPick>
+): string {
   const att = data.attachments.get(p.rosterId);
-  const untouchables: string[] = [];
+  const players: string[] = [];
+  const picks: string[] = [];
   if (att) {
-    for (const [pid, level] of att) {
-      if (level === "untouchable") {
-        untouchables.push(data.players.get(pid)?.name ?? pid);
+    for (const [id, level] of att) {
+      if (level !== "untouchable") continue;
+      if (isPickKey(id)) {
+        const pk = pickByKey.get(id);
+        picks.push(pk ? pickLabel(pk, data) : id);
+      } else {
+        players.push(data.players.get(id)?.name ?? id);
       }
     }
   }
-  if (!untouchables.length) return "No untouchables — full roster moveable";
-  return `Untouchable: ${untouchables.join(", ")} · all others moveable`;
+  const parts: string[] = [];
+  if (players.length) parts.push(`Untouchable: ${players.join(", ")}`);
+  if (picks.length) parts.push(`Picks locked: ${picks.join(", ")}`);
+  if (!parts.length) return "No untouchables — full roster moveable";
+  parts.push("all others moveable");
+  return parts.join(" · ");
 }
 
-function computeStance(p: TeamProfile, persona: string): string {
+function computeStance(p: TeamProfile, persona: string, picksLocked: boolean): string {
   const intent = p.trajectory.contendIntent;
   let base: string;
   if (isStrong(p.tier)) {
@@ -120,7 +177,11 @@ function computeStance(p: TeamProfile, persona: string): string {
         ? "Aggressive buyer — pays in picks & youth to win now"
         : "Quietly opportunistic — buys selectively";
   } else if (p.tier === "retooling") {
-    base = intent > 0 ? "Buyer on the margins" : "Open for business — listens on most";
+    base = picksLocked
+      ? "Building through the draft — capital's locked, all-in on a future window"
+      : intent > 0
+        ? "Buyer on the margins"
+        : "Open for business — listens on most";
   } else {
     base = "Seller — collecting picks & youth";
   }
@@ -147,8 +208,13 @@ export function buildTeamDossiers(profiles: TeamProfile[], data: LeagueData): Te
   return profiles.map((p) => {
     const strat = data.strategy.get(p.rosterId) ?? null;
     const persona = strat?.persona ?? "unknown";
+    const picksLocked = computePicksLocked(p, data);
     const window = computeWindow(p);
-    const { wants, sells } = computeWantsSells(p, strat);
+    const { wants, sells } = computeWantsSells(p, strat, picksLocked);
+
+    const pickByKey = new Map<string, OwnedPick>();
+    for (const pk of data.pickOwnership.get(p.rosterId) ?? []) pickByKey.set(pk.key, pk);
+
     return {
       rosterId: p.rosterId,
       teamName: p.teamName,
@@ -158,9 +224,10 @@ export function buildTeamDossiers(profiles: TeamProfile[], data: LeagueData): Te
       window,
       wants,
       sells,
-      coreLabel: computeCoreLabel(p, data),
-      tradeStance: computeStance(p, persona),
+      coreLabel: computeCoreLabel(p, data, pickByKey),
+      tradeStance: computeStance(p, persona, picksLocked),
       persona,
+      picksLocked,
       confidence: computeConfidence(strat),
     };
   });

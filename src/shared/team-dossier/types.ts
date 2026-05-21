@@ -20,8 +20,9 @@ export type TeamDossier = {
   window: Window;
   wants: string; // what they're chasing
   sells: string; // what they're shedding
-  coreLabel: string; // untouchables vs. everyone-else-moveable
-  tradeStance: string; // tier + contendIntent + persona
+  coreLabel: string; // untouchable players + locked picks vs. everyone-else-moveable
+  tradeStance: string; // tier + contendIntent + persona + picksLocked
   persona: string; // raw GM persona, or "unknown"
+  picksLocked: boolean; // any future/current pick marked untouchable — clean signal for the trade engine
   confidence: Confidence;
 };
