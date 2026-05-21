@@ -118,11 +118,11 @@ export default function PickEditorOverlay({
               {ownerSuffix && (
                 <span
                   style={{
-                    fontFamily: "'DM Sans', sans-serif",
-                    fontSize: 12,
-                    fontWeight: 700,
+                    fontFamily: "Impact, system-ui, sans-serif",
+                    fontSize: 20,
+                    fontWeight: 900,
                     color: "#1A1A1A",
-                    marginLeft: 7,
+                    marginLeft: 8,
                   }}
                 >
                   {ownerSuffix}

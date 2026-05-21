@@ -88,11 +88,12 @@ export default function RosterPickCard({
           {ownerSuffix && (
             <span
               style={{
-                fontFamily: "'DM Sans', sans-serif",
-                fontSize: 13,
-                fontWeight: 700,
+                fontFamily: "Impact, system-ui, sans-serif",
+                fontSize: 22,
+                fontWeight: 900,
                 color: "#1A1A1A",
-                marginLeft: 7,
+                letterSpacing: "0.01em",
+                marginLeft: 8,
               }}
             >
               {ownerSuffix}
