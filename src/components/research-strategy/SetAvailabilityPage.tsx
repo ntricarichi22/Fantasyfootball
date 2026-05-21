@@ -33,8 +33,8 @@ type PickAsset = { key: string; value: number; parsed: ParsedPick; ownerSuffix: 
 type TabKey = "QB" | "RB" | "PC" | "PICKS";
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: "QB", label: "QB" },
-  { key: "RB", label: "RB" },
+  { key: "QB", label: "QUARTERBACKS" },
+  { key: "RB", label: "RUNNING BACKS" },
   { key: "PC", label: "PASS CATCHERS" },
   { key: "PICKS", label: "PICKS" },
 ];
@@ -344,7 +344,7 @@ export default function SetAvailabilityPage() {
             aria-hidden
             style={{
               position: "absolute",
-              left: -21,
+              left: -40,
               top: `${topPct}%`,
               transform: "translateY(-50%)",
               width: 18,
@@ -423,8 +423,8 @@ export default function SetAvailabilityPage() {
                 style={{
                   writingMode: "vertical-rl",
                   textOrientation: "mixed",
-                  height: 168,
-                  background: isActive ? "#E8503A" : "#FEFCF9",
+                  height: 140,
+                  background: isActive ? "#1A1A1A" : "#FEFCF9",
                   color: isActive ? "#FEFCF9" : "#1A1A1A",
                   border: "3px solid #1A1A1A",
                   borderLeft: "none",
