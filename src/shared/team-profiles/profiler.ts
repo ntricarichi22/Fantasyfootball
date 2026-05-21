@@ -13,10 +13,16 @@ const STARTER_WEIGHT = 0.6; // current state = 60% starter value ...
 const PRODUCTION_WEIGHT = 0.4; // ... + 40% last-season production
 const POINTS_WEIGHT = 0.75; // production = 75% points ...
 const RECORD_WEIGHT = 0.25; // ... + 25% record
-const AGE_YOUNG = 25.5; // avg starter age at/below = ascending lean
-const AGE_OLD = 28.0; // avg starter age at/above = closing-window lean
+const AGE_YOUNG = 25.5; // avg starter age at/below = ascending (informational)
+const AGE_OLD = 28.0; // avg starter age at/above = closing window (informational)
 const GAP_THRESHOLD = 0.15; // value-vs-production gap that counts as a signal
 const TIER_COUNT = 4;
+const FIRE_SALE_LEAN = -1; // tradeLean at/below this = sell-off (dormant for now)
+
+// Onboarding stores short labels; the trade engine uses long ones. Accept both.
+const PICKS_LABELS = new Set(["picks", "draft_picks"]);
+const STUD_LABELS = new Set(["studs", "elite_producers"]);
+const YOUTH_LABELS = new Set(["youth", "young_upside"]);
 
 function minMax(values: number[]): number[] {
   if (!values.length) return [];
@@ -52,13 +58,15 @@ function naturalBreakTiers(scores: number[], k: number): number[] {
   return result;
 }
 
+// Informational only — describes which way a team is trending. Does NOT move
+// tiers anymore; strength sets the tier and only a sell signal nudges it.
 function computeTrajectory(
   wantsMore: string[],
   picksMarket: string,
   avgStarterAge: number | null,
   starterValueNorm: number,
   productionNorm: number
-): { ascending: number; contendIntent: number; direction: Trajectory["direction"]; gap: number } {
+): { ascending: number; contendIntent: number; direction: Trajectory["direction"] } {
   let ascending = 0;
   if (avgStarterAge != null) {
     if (avgStarterAge <= AGE_YOUNG) ascending += 1;
@@ -69,16 +77,24 @@ function computeTrajectory(
   else if (gap <= -GAP_THRESHOLD) ascending -= 1;
 
   let contendIntent = 0;
-  const wants = new Set(wantsMore);
-  if (wants.has("elite_producers")) contendIntent += 1;
-  if (wants.has("draft_picks")) contendIntent -= 1;
-  if (wants.has("young_upside")) contendIntent -= 1;
+  for (const w of wantsMore) {
+    if (STUD_LABELS.has(w)) contendIntent += 1;
+    else if (PICKS_LABELS.has(w) || YOUTH_LABELS.has(w)) contendIntent -= 1;
+  }
   if (picksMarket === "sell") contendIntent += 1;
   else if (picksMarket === "buy") contendIntent -= 1;
 
   const direction: Trajectory["direction"] =
     ascending > 0 ? "ascending" : ascending < 0 ? "declining" : "steady";
-  return { ascending, contendIntent, direction, gap };
+  return { ascending, contendIntent, direction };
+}
+
+// The lone demote trigger: a team whose only stated want is picks, or whose
+// trade history reads as a sell-off (the latter is dormant until trades exist).
+function isSellSignal(wantsMore: string[], tradeLean: number): boolean {
+  const onlyWantsPicks = wantsMore.length === 1 && PICKS_LABELS.has(wantsMore[0]);
+  const fireSale = tradeLean <= FIRE_SALE_LEAN;
+  return onlyWantsPicks || fireSale;
 }
 
 export function buildTeamProfiles(data: LeagueData, ourRosterId?: string): TeamProfile[] {
@@ -96,36 +112,26 @@ export function buildTeamProfiles(data: LeagueData, ourRosterId?: string): TeamP
 
   const profiles: TeamProfile[] = teams.map((team, i) => {
     const strat = data.strategy.get(team.rosterId);
+    const wantsMore = strat?.wantsMore ?? [];
     const traj = computeTrajectory(
-      strat?.wantsMore ?? [],
+      wantsMore,
       strat?.picksMarket ?? "unknown",
       strengths[i].avgStarterAge,
       svNorm[i],
       productionNorm[i]
     );
 
+    const tradeLean = 0; // dormant until accepted trades exist
     const baseTier = baseTiers[i];
     let finalTier = baseTier;
-    let notes = "current-state tier held";
-
-    if (baseTier <= 1) {
-      // Strong on paper but young / value-heavy / not pushing to win now is not a
-      // true current contender — slide down a step.
-      if (traj.ascending >= 1 && traj.contendIntent <= 0) {
-        finalTier = baseTier + 1;
-        notes = "demoted: strong on paper but ascending/not win-now";
-      }
-    } else {
-      // Bottom of the league: posture splits climbing vs tearing down.
-      if (traj.contendIntent >= 1) {
-        finalTier = 2;
-        notes = "retooling: acquiring/win-now lean";
-      } else if (traj.contendIntent <= -1) {
-        finalTier = 3;
-        notes = "rebuilding: accumulating picks/youth";
-      }
+    let notes = "tier set by current-state strength";
+    if (isSellSignal(wantsMore, tradeLean)) {
+      finalTier = Math.min(TIER_COUNT - 1, baseTier + 1);
+      notes =
+        tradeLean <= FIRE_SALE_LEAN
+          ? "demoted: trade history reads as a sell-off"
+          : "demoted: only seeking picks (sell signal)";
     }
-    finalTier = Math.max(0, Math.min(TIER_COUNT - 1, finalTier));
     const nudge = finalTier - baseTier;
     const tier: Tier = TIERS[finalTier];
 
@@ -151,7 +157,7 @@ export function buildTeamProfiles(data: LeagueData, ourRosterId?: string): TeamP
       trajectory: {
         ascending: traj.ascending,
         contendIntent: traj.contendIntent,
-        tradeLean: 0, // dormant until accepted trades exist
+        tradeLean,
         direction: traj.direction,
         nudge,
         notes,
