@@ -10,3 +10,5 @@ export {
   getLastSeasonResults,
   getLeagueData,
 } from "./accessors";
+
+export { teamNickname } from "./nicknames";

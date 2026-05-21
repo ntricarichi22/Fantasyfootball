@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { getLeagueData, type AttachmentLevel, type OwnedPick } from "@/shared/league-data";
+import { getLeagueData, teamNickname, type AttachmentLevel, type OwnedPick } from "@/shared/league-data";
 import {
   buildValuationContext,
   valueAsset,
@@ -23,13 +23,6 @@ function pickLabel(p: OwnedPick): string {
   if (p.kind === "current" && p.slot != null) return `${p.season} ${p.round}.${pad(p.slot)}`;
   const ord = p.round === 1 ? "1st" : p.round === 2 ? "2nd" : p.round === 3 ? "3rd" : `${p.round}th`;
   return `${p.season} ${ord}`;
-}
-
-// Team nickname = team name minus its first word ("Cleveland Kush" -> "Kush"),
-// matching how the trade engine labels acquired picks.
-function teamNick(name: string): string {
-  const parts = name.split(" ");
-  return parts.length > 1 ? parts.slice(1).join(" ") : name;
 }
 
 // Maps legacy attachment values to the current set; null/unknown -> listening.
@@ -108,7 +101,7 @@ export async function rebuildPickValuesForTeam(
 
     const isVia = pick.originalRosterId !== pick.currentRosterId;
     const ownerSuffix = isVia
-      ? `(via ${teamNick(teamNameByRoster.get(pick.originalRosterId) ?? `Team ${pick.originalRosterId}`)})`
+      ? `(via ${teamNickname(teamNameByRoster.get(pick.originalRosterId) ?? `Team ${pick.originalRosterId}`)})`
       : "(own)";
 
     return {
