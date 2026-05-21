@@ -23,8 +23,7 @@ export function translateStrategy(profile: StrategyProfile | null, teamName: str
   const markets: Array<[keyof StrategyProfile, string]> = [
     ["qb_market", "QB"],
     ["rb_market", "RB"],
-    ["wr_market", "WR"],
-    ["te_market", "TE"],
+    ["pc_market", "pass catchers"],
     ["picks_market", "picks"],
   ];
 

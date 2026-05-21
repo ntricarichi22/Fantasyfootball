@@ -39,7 +39,7 @@ export async function GET() {
       wantsMore: strat?.wantsMore ?? null,
       picksMarket: strat?.picksMarket ?? null,
       markets: strat
-        ? { qb: strat.qbMarket, rb: strat.rbMarket, wr: strat.wrMarket, te: strat.teMarket }
+        ? { qb: strat.qbMarket, rb: strat.rbMarket, pc: strat.pcMarket }
         : null,
       persona: strat?.persona ?? null,
     };

@@ -17,14 +17,13 @@ type TeamStrategyProfile = {
   wants_more: PriorityTarget[];
   qb_market: NeedLevel;
   rb_market: NeedLevel;
-  wr_market: NeedLevel;
-  te_market: NeedLevel;
+  pc_market: NeedLevel;
   picks_market: NeedLevel;
   own_guys_preference: string;
   gm_persona: GmPersona;
 };
 
-const POSITION_BUCKETS = ["QB", "RB", "WR", "TE", "Picks"] as const;
+const POSITION_BUCKETS = ["QB", "RB", "PC", "Picks"] as const;
 type PositionBucket = (typeof POSITION_BUCKETS)[number];
 
 const NEED_LEVELS: NeedLevel[] = ["low", "medium", "high"];
@@ -74,8 +73,7 @@ const mapProfileFromApi = (data: Record<string, unknown>): TeamStrategyProfile =
   wants_more: (Array.isArray(data.wants_more) ? data.wants_more : []) as PriorityTarget[],
   qb_market: MARKET_TO_NEED[data.qb_market as string] ?? "medium",
   rb_market: MARKET_TO_NEED[data.rb_market as string] ?? "medium",
-  wr_market: MARKET_TO_NEED[data.wr_market as string] ?? "medium",
-  te_market: MARKET_TO_NEED[data.te_market as string] ?? "medium",
+  pc_market: MARKET_TO_NEED[data.pc_market as string] ?? "medium",
   picks_market: MARKET_TO_NEED[data.picks_market as string] ?? "medium",
   own_guys_preference: (data.own_guys_preference as string) ?? "neutral",
   gm_persona: ((data.gm_persona as string) ?? "straight_shooter") as GmPersona,
@@ -133,8 +131,7 @@ export default function StrategyTab() {
     if (!profile) return "medium";
     if (bucket === "QB") return profile.qb_market;
     if (bucket === "RB") return profile.rb_market;
-    if (bucket === "WR") return profile.wr_market;
-    if (bucket === "TE") return profile.te_market;
+    if (bucket === "PC") return profile.pc_market;
     return profile.picks_market;
   };
 
@@ -143,8 +140,7 @@ export default function StrategyTab() {
       if (!prev) return prev;
       if (bucket === "QB") return { ...prev, qb_market: level };
       if (bucket === "RB") return { ...prev, rb_market: level };
-      if (bucket === "WR") return { ...prev, wr_market: level };
-      if (bucket === "TE") return { ...prev, te_market: level };
+      if (bucket === "PC") return { ...prev, pc_market: level };
       return { ...prev, picks_market: level };
     });
   };
@@ -180,8 +176,7 @@ export default function StrategyTab() {
             wants_more: profile.wants_more,
             qb_market: NEED_TO_MARKET[profile.qb_market],
             rb_market: NEED_TO_MARKET[profile.rb_market],
-            wr_market: NEED_TO_MARKET[profile.wr_market],
-            te_market: NEED_TO_MARKET[profile.te_market],
+            pc_market: NEED_TO_MARKET[profile.pc_market],
             picks_market: NEED_TO_MARKET[profile.picks_market],
             own_guys_preference: profile.own_guys_preference,
             gm_persona: profile.gm_persona,
@@ -306,7 +301,7 @@ export default function StrategyTab() {
               {loading || !profile ? (
                 <p style={{ fontSize: 12, color: "#8C7E6A" }}>Loading…</p>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 8 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8 }}>
                   {POSITION_BUCKETS.map((bucket) => (
                     <div
                       key={bucket}

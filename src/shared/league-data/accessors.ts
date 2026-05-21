@@ -301,7 +301,7 @@ export async function getStrategyProfiles(): Promise<{
   const [stratRes, attachRes] = await Promise.all([
     admin.client
       .from("cfc_team_strategy_profiles")
-      .select("team_id, wants_more, qb_market, rb_market, wr_market, te_market, picks_market, gm_persona")
+      .select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona")
       .eq("league_id", leagueId),
     admin.client
       .from("cfc_team_player_attachment")
@@ -319,8 +319,7 @@ export async function getStrategyProfiles(): Promise<{
       wantsMore: wm,
       qbMarket: stance(row.qb_market),
       rbMarket: stance(row.rb_market),
-      wrMarket: stance(row.wr_market),
-      teMarket: stance(row.te_market),
+      pcMarket: stance(row.pc_market),
       picksMarket: stance(row.picks_market),
       persona: typeof row.gm_persona === "string" ? row.gm_persona : null,
     });

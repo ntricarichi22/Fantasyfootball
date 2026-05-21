@@ -27,8 +27,7 @@ export type StatedIntent = {
   wantsMore: string[];
   qbMarket: MarketStance;
   rbMarket: MarketStance;
-  wrMarket: MarketStance;
-  teMarket: MarketStance;
+  pcMarket: MarketStance;
   picksMarket: MarketStance;
   persona: string | null;
 };

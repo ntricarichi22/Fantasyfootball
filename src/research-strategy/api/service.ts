@@ -105,8 +105,7 @@ const normalizeStrategyPayload = (payload?: TeamStrategyProfileInput) => ({
   wants_more: normalizeWantsMore(payload?.wants_more),
   qb_market: normalizeMarket(payload?.qb_market),
   rb_market: normalizeMarket(payload?.rb_market),
-  wr_market: normalizeMarket(payload?.wr_market),
-  te_market: normalizeMarket(payload?.te_market),
+  pc_market: normalizeMarket(payload?.pc_market),
   picks_market: normalizeMarket(payload?.picks_market),
   own_guys_preference: normalizeOwnGuys(payload?.own_guys_preference),
   gm_persona: normalizePersona(payload?.gm_persona),
@@ -287,7 +286,7 @@ export async function getTeamStrategyProfile(
 
   const { data, error } = await client
     .from("cfc_team_strategy_profiles")
-    .select("league_id,team_id,wants_more,qb_market,rb_market,wr_market,te_market,picks_market,own_guys_preference,gm_persona")
+    .select("league_id,team_id,wants_more,qb_market,rb_market,pc_market,picks_market,own_guys_preference,gm_persona")
     .eq("league_id", leagueId)
     .eq("team_id", teamId)
     .maybeSingle();
@@ -310,8 +309,7 @@ export async function getTeamStrategyProfile(
     wants_more: normalizeWantsMore(data.wants_more),
     qb_market: normalizeMarket(data.qb_market),
     rb_market: normalizeMarket(data.rb_market),
-    wr_market: normalizeMarket(data.wr_market),
-    te_market: normalizeMarket(data.te_market),
+    pc_market: normalizeMarket(data.pc_market),
     picks_market: normalizeMarket(data.picks_market),
     own_guys_preference: normalizeOwnGuys(data.own_guys_preference),
     gm_persona: normalizePersona(data.gm_persona),
@@ -486,8 +484,7 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
     wants_more: strategyProfile.wants_more,
     qb_market: strategyProfile.qb_market,
     rb_market: strategyProfile.rb_market,
-    wr_market: strategyProfile.wr_market,
-    te_market: strategyProfile.te_market,
+    pc_market: strategyProfile.pc_market,
     picks_market: strategyProfile.picks_market,
     own_guys_preference: strategyProfile.own_guys_preference,
     gm_persona: strategyProfile.gm_persona,
@@ -571,8 +568,7 @@ export async function rebuildTeamTradeValueForPlayer(
     wants_more: strategyProfile.wants_more,
     qb_market: strategyProfile.qb_market,
     rb_market: strategyProfile.rb_market,
-    wr_market: strategyProfile.wr_market,
-    te_market: strategyProfile.te_market,
+    pc_market: strategyProfile.pc_market,
     picks_market: strategyProfile.picks_market,
     own_guys_preference: strategyProfile.own_guys_preference,
     gm_persona: strategyProfile.gm_persona,
