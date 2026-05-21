@@ -18,15 +18,14 @@ const FILL_WIDTHS = ["33.3%", "66.6%", "100%"];
 const NEED_TO_MARKET: Record<Need, string> = { low: "sell", med: "hold", high: "buy" };
 
 type PosRow = {
-  key: "QB" | "RB" | "WR" | "TE";
+  key: "QB" | "RB" | "PC";
   underline: string;
 };
 
 const ROWS: PosRow[] = [
   { key: "QB", underline: "#E8503A" },
   { key: "RB", underline: "#3366CC" },
-  { key: "WR", underline: "#F5C230" },
-  { key: "TE", underline: "#1A1A1A" },
+  { key: "PC", underline: "#B8862E" },
 ];
 
 const NEEDS: Need[] = ["low", "med", "high"];
@@ -36,8 +35,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
   const [posture, setPosture] = useState<Record<PosRow["key"], Need>>({
     QB: "med",
     RB: "med",
-    WR: "med",
-    TE: "med",
+    PC: "med",
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,8 +52,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
         wants_more: wantsMore,
         qb_market: NEED_TO_MARKET[posture.QB],
         rb_market: NEED_TO_MARKET[posture.RB],
-        wr_market: NEED_TO_MARKET[posture.WR],
-        te_market: NEED_TO_MARKET[posture.TE],
+        pc_market: NEED_TO_MARKET[posture.PC],
       };
       const res = await fetch("/api/research-strategy/strategy", {
         method: "POST",

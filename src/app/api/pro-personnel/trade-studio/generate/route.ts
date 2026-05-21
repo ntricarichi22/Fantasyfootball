@@ -47,7 +47,7 @@ async function loadProfilesAndPersonas(
 ): Promise<{ profiles: Map<string, StudioStrategyProfile>; personas: Map<string, PersonaKey> }> {
   const { data, error } = await supabase
     .from("cfc_team_strategy_profiles")
-    .select("team_id, wants_more, qb_market, rb_market, wr_market, te_market, picks_market, gm_persona")
+    .select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona")
     .eq("league_id", leagueId);
   if (error) throw new Error(`Profile load failed: ${error.message}`);
   const profiles = new Map<string, StudioStrategyProfile>();
@@ -58,8 +58,7 @@ async function loadProfilesAndPersonas(
       wants_more: Array.isArray(r.wants_more) ? r.wants_more : [],
       qb_market: r.qb_market ?? "hold",
       rb_market: r.rb_market ?? "hold",
-      wr_market: r.wr_market ?? "hold",
-      te_market: r.te_market ?? "hold",
+      pc_market: r.pc_market ?? "hold",
       picks_market: r.picks_market ?? "hold",
     });
     personas.set(r.team_id, isValidPersona(r.gm_persona) ? r.gm_persona : "straight_shooter");

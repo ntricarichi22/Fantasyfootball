@@ -6,11 +6,12 @@
 
 ## Architecture principles
 
-1. **Facts vs. analysis vs. valuation.** Three modules with hard boundaries.
+1. **Facts vs. analysis vs. valuation vs. framing.** Four data modules with hard boundaries.
    - **`league-data`** holds *facts* — undisputable data pulled from Sleeper and Supabase. Rosters, players, picks, pick ladder, values, strategy rows, last-season results, team nicknames. No opinions.
    - **`team-profiles`** holds *analysis* — anything that is a score, rank, weight, or classification (tiers, trajectory). It imports `league-data` and never the other way around.
    - **`asset-values`** holds *valuation* — the single front door for "what is this asset worth," for both players and picks, base or team-adjusted. It imports `league-data` and is server-only.
-   - **Boundary test:** if two reasonable people couldn't disagree about it, it's a fact (→ league-data). If it involves a weight, threshold, or label, it's analysis (→ team-profiles). If it answers "what's it worth," it's valuation (→ asset-values).
+   - **`team-dossier`** holds *framing* — the plain-English stance per team (verdict, window, wants/sells, trade stance). It consumes `team-profiles` + `league-data` and **computes nothing new** — it only reframes existing fields into a readable read. Both Scouting and Pro Personnel consume it.
+   - **Boundary test:** if two reasonable people couldn't disagree about it, it's a fact (→ league-data). If it involves a weight, threshold, or label, it's analysis (→ team-profiles). If it answers "what's it worth," it's valuation (→ asset-values). If it turns existing analysis into a readable stance, it's framing (→ team-dossier).
 2. **Functions, not routes.** Shared modules export importable functions. They are *not* HTTP endpoints — that avoids the self-fetch trap (a route calling its own API over the network). Routes import these functions.
 3. **Live reads, no new tables.** Every accessor reads fresh on call. We added zero database tables for this layer.
 4. **Additive.** This whole layer was built without editing a single pre-existing file.
@@ -63,7 +64,7 @@ The public fact API. Composes Sleeper + Supabase into clean shapes. **Largest sh
 ### `nicknames.ts` (~24 lines)
 Team nickname resolution — a shared FACT used anywhere a short team name is shown (e.g. "via Crossfitters").
 - `teamNickname(fullName)` → short name. **General rule = last word** (`"Cleveland Founders"` → `Founders`), which also handles multi-word *cities* for free (`"Windy City Crossfitters"` → `Crossfitters`).
-- The only case the rule can't infer is a multi-word *nickname*; those live in the `MULTI_WORD_NICKNAMES` map at the top of the file (key = how the full name ends, lowercased; value = display). Seeded with `"matzos balls" → "Matzos Balls"`. Add one line per new multi-word nickname.
+- The only case the rule can't infer is a multi-word *nickname*; those live in the `MULTI_WORD_NICKNAMES` map at the top of the file (key = how the full name ends, lowercased; value = display). Seeded with `"matzos balls" → "Matzos Balls"`. Add one line per new multi-word nickname. (Note: a multi-word *team identity* like "Kentucky Kush" still resolves to its last word — "Kush" — by design; add a map line only if you want the full label.)
 
 ### `index.ts` (~14 lines)
 Barrel. Re-exports all types + the accessor functions (incl. `getPickOwnership`, `getPickValues`) + `teamNickname`. Always import from here, never deep paths.
@@ -81,7 +82,7 @@ Public surface is the barrel (`index.ts`); import from `@/shared/team-profiles`.
 
 ### `strength.ts` (~107 lines)
 Pure roster math. No tiering, no posture.
-- `computeStrength(team, values, rosterPositions)` — builds the **optimal starting lineup** for the league's real slots (superflex-aware) via a `SLOT_ELIGIBLE` map (QB / RB / WR / TE / FLEX / WRRB_FLEX / REC_FLEX / SUPER_FLEX), filling restrictive slots first (greedy). Returns starter value, depth bonus (`benchValue × DEPTH_FACTOR`, 0.1), and average starter age.
+- `computeStrength(team, values, rosterPositions)` — builds the **optimal starting lineup** for the league's real slots (superflex-aware) via a `SLOT_ELIGIBLE` map (QB / RB / WR / TE / FLEX / WRRB_FLEX / REC_FLEX / SUPER_FLEX), filling restrictive slots first (greedy). Returns starter value, depth bonus (`benchValue × DEPTH_FACTOR`, 0.1), and average starter age. **Note:** `avgStarterAge` is the OPTIMAL-lineup average — a sentimentally-untouchable vet who doesn't start (e.g. an owner's original keeper) does NOT raise it. This is why a roster with an old untouchable can still read "young."
 - `computeProduction(result)` — turns a `SeasonResult` into points / record / winPct.
 
 ### `profiler.ts` (~170 lines) — currently revision **07b**
@@ -128,16 +129,60 @@ Barrel. Re-exports all modifier symbols + `ClassStrength`, and the valuation sym
 
 ---
 
+## Module: `src/shared/team-dossier/` — the FRAMING
+
+The plain-English scouting read per team. Sits on top of the analysis: turns a `TeamProfile` (+ the live strategy/attachment facts) into a stance both departments consume — **Scouting** renders it as a report, the **Pro Personnel** trade engine reads it to understand the other side. **Computes nothing new** — every field reframes data already on `TeamProfile` or in `LeagueData`. If a future field needs a fresh number, that number belongs back in `team-profiles`. Public surface is the barrel (`index.ts`); import from `@/shared/team-dossier`.
+
+### `types.ts` (~33 lines)
+- **`Window`** = `contending | ascending | closing | rebuilding` — the competitive-timeline read, distinct from tier (tier = strength NOW, window = where the team is in its build cycle).
+- **`Confidence`** = `strong | thin` — trust in the posture read. Flips to `strong` automatically the instant a team sets a real market; everything is `hold` pre-launch, so every team reads `thin` for now.
+- **`TeamDossier`** — the per-team report: `rosterId`, `teamName`, `tier`, `tierLabel`, `verdict`, `window`, `wants`, `sells`, `coreLabel`, `tradeStance`, `persona`, `picksLocked`, `confidence`.
+  - **`picksLocked`** is the clean boolean the trade engine reads instead of parsing prose — `true` when any current/future pick is marked `untouchable`.
+
+### `builder.ts` (~210 lines)
+The framing logic. `buildTeamDossiers(profiles, data)` → `TeamDossier[]`.
+- **Tunable knobs:** `AGE_OLD` 28.0 / `AGE_YOUNG` 25.5 (mirror the profiler's age thresholds so the layers agree); `WANT_READABLE` map (accepts BOTH the short onboarding labels — `studs`/`picks`/`youth`/`depth` — and the long trade-engine labels).
+- **window** — strong tier (championship/playoff) → `closing` if old & not ascending, else `contending`. **Tier wins at the bottom:** a `rebuilding` team is always `rebuilding`, never `ascending`. `retooling` → `ascending` if trending up, else `rebuilding`.
+- **verdict** — scout-voice headline per window. The `ascending` line only claims "young talent" when `avgStarterAge ≤ AGE_YOUNG`; otherwise it uses the value-vs-record line (a high-value roster outrunning last year's results isn't necessarily young).
+- **wants / sells** — explicit market buy/sell signal first, then stated `wantsMore`, then a tier fallback. `sells` carries a `picksLocked` override ("draft capital off the table").
+- **coreLabel** — splits untouchable **players** (names) from locked **picks**. Picks render readable via `pickLabel`, which matches the attachment key against the team's `pickOwnership`, reads season/round/originalRosterId off the `OwnedPick`, and nicknames the original owner with `teamNickname` → "2027 1st (via Onslaught)". Anything not `untouchable` is treated moveable (per the binary rule: untouchable vs. moveable, nothing between).
+- **tradeStance** — tier + `contendIntent` + `persona`, with `picksLocked` flipping a retooling team to "building through the draft — all-in on a future window."
+- **confidence** — `strong` if any market is buy/sell, else `thin`.
+- Reads the **live** strategy/attachment rows every call, so the moment a team updates wants/markets/attachments in the app, every dossier reflects it. No rewiring.
+
+### `index.ts` (~3 lines)
+Barrel. Re-exports the types + `buildTeamDossiers`.
+
 ---
 
-## Debug route (not shared, but part of this work)
+## Module: `src/shared/components/` — shared UI
+
+Cross-department React components. Pure presentation, `"use client"`, inline styles only (neobrutalist constraint). The only per-department inputs are passed as props; the layout/treatment is shared so directors don't drift apart.
+
+### `DirectorTwoBox.tsx` (~95 lines)
+The page-level director "two-box" intro panel — the director greeting you as you enter a room. Two cells in one 2.5px-bordered box (no rounded corners, no shadow): a black left cell with a circular avatar + stacked mono-caps label, and a paper right cell with one fluid-sized (`clamp`) message line.
+- **Props:** `avatarSrc` (e.g. `/avatars/pro-personnel.png`, `/avatars/strategy.png`), `label` (e.g. `"Personnel Director"` / `"Strategy Director"` — each word stacks on its own line), `message` (the intro string for that surface/state).
+- **Dumb presentation.** The parent decides the avatar, label, and copy; state-driven copy (intro / empty / returning) is chosen by the page and passed in.
+- **Consumers:** Pro Personnel `BuilderCyclerView` + `TradeStudioView` (pass the Personnel avatar/label); Strategy `SetAvailabilityPage` (Strategy avatar/label) and `SetStrategyPage` when built. Avatars live in `public/avatars/`.
+- Slim by design (48px avatar, tight padding) to protect vertical space on no-scroll pages.
+
+---
+
+## Debug routes (not shared, but part of this work)
 
 ### `src/app/api/league/profiles/route.ts` — currently revision **09b** (~58 lines)
-`GET /api/league/profiles`. The verification surface for the whole layer.
+`GET /api/league/profiles`. The verification surface for the analysis layer.
 - `force-dynamic`, `maxDuration` 30.
 - Calls `getLeagueData()` + `buildTeamProfiles()`.
 - Returns: `diagnostics`, `keyCheck` (strategyKeys vs rosterIds — catches key mismatches), a flat `summary` table (tier / base / final / nudge / score / norms / record / age / ascending / contendIntent / **echoed wantsMore + markets + persona + intentResolved**), and full `profiles`.
-- Keep this around — it's how we tune without guessing.
+- Keep this around — it's how we tune without guessing. (`avgStarterAge` lives here — the place to check when a dossier's "young" read looks off.)
+
+### `src/app/api/league/dossiers/route.ts` (~22 lines)
+`GET /api/league/dossiers`. The verification surface for the framing layer.
+- `force-dynamic`, `maxDuration` 30.
+- Calls `getLeagueData()` → `buildTeamProfiles()` → `buildTeamDossiers()`.
+- Returns: `count`, `resultsSource`, and the full `dossiers` array.
+- Eyeball this to tune verdict / window / wants / sells / tradeStance wording against real data.
 
 ---
 
@@ -153,11 +198,16 @@ Dependencies first, then importers, route last:
 6. `src/shared/asset-values/modifiers.ts`
 7. `src/shared/asset-values/valuation.ts`
 8. `src/shared/asset-values/index.ts`
-9. `src/shared/team-profiles/types.ts`
-10. `src/shared/team-profiles/strength.ts`
-11. `src/shared/team-profiles/profiler.ts`
-12. `src/shared/team-profiles/index.ts`
-13. `src/app/api/league/profiles/route.ts`
+9. `src/shared/components/DirectorTwoBox.tsx`
+10. `src/shared/team-profiles/types.ts`
+11. `src/shared/team-profiles/strength.ts`
+12. `src/shared/team-profiles/profiler.ts`
+13. `src/shared/team-profiles/index.ts`
+14. `src/app/api/league/profiles/route.ts`
+15. `src/shared/team-dossier/types.ts`
+16. `src/shared/team-dossier/builder.ts`
+17. `src/shared/team-dossier/index.ts`
+18. `src/app/api/league/dossiers/route.ts`
 
 ---
 
@@ -166,6 +216,7 @@ Dependencies first, then importers, route last:
 - **New fact** (e.g. injuries, bye weeks, FAAB): add to `league-data` — types first, a fetch helper in `sleeper.ts` (or a Supabase accessor in `accessors.ts`), expose via `getLeagueData()` + barrel. Never put it in `team-profiles`.
 - **New analysis** (e.g. positional needs, trade-fit scores, playoff odds): add to `team-profiles`, consuming `LeagueData`. If it's a distinct concern, give it its own file rather than bloating `profiler.ts`.
 - **New valuation rule** (e.g. a new adjuster, a different pick model): add the knob to `asset-values/modifiers.ts` and the logic to `valuation.ts`. Keep `asset-values` server-only; never import it from a client component.
+- **New framing/stance** (e.g. a new dossier field, a reworded verdict, a new `Window` rule): add to `team-dossier`, consuming `team-profiles` + `league-data`. It must **compute nothing new** — if it needs a fresh number, add that number to `team-profiles` and reframe it here.
 - **Watch line counts.** `accessors.ts` (~439) is the closest to the 500 ceiling. Split before it crosses.
 - **Don't re-fetch in consumers.** Call `getLeagueData()` (or `buildValuationContext()`) once and pass the bundle down.
 

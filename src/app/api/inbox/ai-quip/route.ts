@@ -18,8 +18,7 @@ type StrategyRow = {
   wants_more: string[];
   qb_market: string;
   rb_market: string;
-  wr_market: string;
-  te_market: string;
+  pc_market: string;
 };
 
 type AttachmentRow = {
@@ -63,13 +62,11 @@ function buildStrategyContext(
   const needs: string[] = [];
   if (profile.qb_market === "buy") needs.push("QB");
   if (profile.rb_market === "buy") needs.push("RB");
-  if (profile.wr_market === "buy") needs.push("WR");
-  if (profile.te_market === "buy") needs.push("TE");
+  if (profile.pc_market === "buy") { needs.push("WR"); needs.push("TE"); }
   const selling: string[] = [];
   if (profile.qb_market === "sell") selling.push("QB");
   if (profile.rb_market === "sell") selling.push("RB");
-  if (profile.wr_market === "sell") selling.push("WR");
-  if (profile.te_market === "sell") selling.push("TE");
+  if (profile.pc_market === "sell") { selling.push("WR"); selling.push("TE"); }
   const wantsMore = profile.wants_more?.length
     ? `Targeting: ${profile.wants_more.join(", ")}.`
     : "";
@@ -280,13 +277,13 @@ export async function POST(request: NextRequest) {
   const [fromStratRes, toStratRes, fromAttRes, toAttRes] = await Promise.all([
     client
       .from("cfc_team_strategy_profiles")
-      .select("team_id, wants_more, qb_market, rb_market, wr_market, te_market")
+      .select("team_id, wants_more, qb_market, rb_market, pc_market")
       .eq("league_id", league_id)
       .eq("team_id", offer.from_team_id)
       .maybeSingle(),
     client
       .from("cfc_team_strategy_profiles")
-      .select("team_id, wants_more, qb_market, rb_market, wr_market, te_market")
+      .select("team_id, wants_more, qb_market, rb_market, pc_market")
       .eq("league_id", league_id)
       .eq("team_id", offer.to_team_id)
       .maybeSingle(),
