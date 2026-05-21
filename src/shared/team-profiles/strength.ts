@@ -6,8 +6,11 @@ import type { StrengthBreakdown, ProductionBreakdown, LineupSlot } from "./types
 const DEPTH_FACTOR = 0.1;
 
 // Which positions can fill each starting slot. Slots not listed (BN, IR, TAXI,
-// K, DEF, DST) are not starting spots and are skipped.
-const SLOT_ELIGIBLE: Record<string, Position[]> = {
+// K, DEF, DST) are not starting spots and are skipped. Exported because the
+// scouting draft-fit layer reads the SAME eligibility truth to decide whether
+// an incoming player could legally start (and thus upgrade) a team's lineup —
+// one source of truth, no duplicate map drifting out of sync.
+export const SLOT_ELIGIBLE: Record<string, Position[]> = {
   QB: ["QB"],
   RB: ["RB"],
   WR: ["WR"],
