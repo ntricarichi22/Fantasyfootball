@@ -138,19 +138,23 @@ function recommend(
   };
 }
 
+// orderOverride lets a caller replay a specific draft order (e.g. a round that
+// already happened and is no longer in pickOwnership). When omitted, the order
+// is read live from pickOwnership as usual.
 export function runDraftEngine(
   data: LeagueData,
   grid: DraftFitGrid,
   profiles: TeamProfile[],
   dossiers: TeamDossier[],
   boards: Map<string, TeamBoard>,
-  successor: Map<string, SuccessorPressure>
+  successor: Map<string, SuccessorPressure>,
+  orderOverride?: OwnedPick[]
 ): { projection: SimPick[]; reads: TeamSlotRead[]; poolSize: number; draftPicks: number } {
   void profiles;
   const baseCells = grid.teams[0]?.cells ?? [];
   const poolSize = baseCells.length;
   const ctx = buildCtx(grid, boards, successor);
-  const order = draftOrder(data);
+  const order = orderOverride ?? draftOrder(data);
 
   const available = new Set<string>(baseCells.map((c) => c.playerId));
   const nameOf = new Map<string, { name: string; position: Position }>();
