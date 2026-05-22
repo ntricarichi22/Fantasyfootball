@@ -1,5 +1,5 @@
 import type { Position, RosteredTeam, ValueMaps, SeasonResult } from "@/shared/league-data";
-import type { StrengthBreakdown, ProductionBreakdown, LineupSlot } from "./types";
+import type { StrengthBreakdown, ProductionBreakdown, LineupSlot, NeedBucket } from "./types";
 
 // Light credit for bench depth — it's trade currency / injury insurance, not a
 // measure of how good you are right now. Tunable.
@@ -24,6 +24,12 @@ export const SLOT_ELIGIBLE: Record<string, Position[]> = {
   SUPER_FLX: ["QB", "RB", "WR", "TE"],
   QB_FLEX: ["QB", "RB", "WR", "TE"],
 };
+
+function bucketOf(pos: Position): NeedBucket {
+  if (pos === "QB") return "QB";
+  if (pos === "RB") return "RB";
+  return "PASS_CATCHER";
+}
 
 type Candidate = {
   id: string;
@@ -77,13 +83,18 @@ export function computeStrength(
   for (const c of cands) if (!used.has(c.id)) benchValue += c.value;
   const depthBonus = benchValue * DEPTH_FACTOR;
 
+  // Ages: overall average + per-bucket average, both from the starters only.
   const ages: number[] = [];
+  const bucketAges: Record<NeedBucket, number[]> = { QB: [], RB: [], PASS_CATCHER: [] };
   for (const l of lineup) {
-    if (!l.playerId) continue;
+    if (!l.playerId || l.position == null) continue;
     const c = cands.find((x) => x.id === l.playerId);
-    if (c && c.age != null) ages.push(c.age);
+    if (!c || c.age == null) continue;
+    ages.push(c.age);
+    bucketAges[bucketOf(c.position)].push(c.age);
   }
-  const avgStarterAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
+  const avg = (arr: number[]): number | null =>
+    arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null;
 
   return {
     lineup,
@@ -91,7 +102,12 @@ export function computeStrength(
     benchValue,
     depthBonus,
     starterValue: starterValueRaw + depthBonus,
-    avgStarterAge,
+    avgStarterAge: avg(ages),
+    bucketAge: {
+      QB: avg(bucketAges.QB),
+      RB: avg(bucketAges.RB),
+      PASS_CATCHER: avg(bucketAges.PASS_CATCHER),
+    },
   };
 }
 

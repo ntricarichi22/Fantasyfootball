@@ -26,7 +26,14 @@ export type StrengthBreakdown = {
   benchValue: number; // sum of everyone not starting
   depthBonus: number; // light credit for bench (benchValue * DEPTH_FACTOR)
   starterValue: number; // starterValueRaw + depthBonus
-  avgStarterAge: number | null;
+  avgStarterAge: number | null; // optimal-lineup average across all starters
+  // Per-bucket starter age — the average age of the starters filling each
+  // bucket's slots (QB / RB / pass-catcher), null if the bucket has no starter.
+  // Same CLASS of fact as avgStarterAge, just disaggregated, so it lives beside
+  // it in shared: the scouting sim reads it for successor pressure, and the
+  // dossier can later sharpen its "closing window" read per position. It is a
+  // raw NUMBER only — the old/young classification stays in the layers above.
+  bucketAge: Record<NeedBucket, number | null>;
 };
 
 export type ProductionBreakdown = {
