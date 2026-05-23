@@ -1,7 +1,9 @@
-import type { LeagueData, OwnedPick, Position } from "@/shared/league-data";
-import type { NeedBucket, TeamProfile } from "@/shared/team-profiles";
+import type { LeagueData, OwnedPick, Position, RosteredTeam } from "@/shared/league-data";
+import { computeStrength, SLOT_ELIGIBLE } from "@/shared/team-profiles";
+import type { LineupSlot, NeedBucket, TeamProfile } from "@/shared/team-profiles";
 import type { TeamDossier, Window } from "@/shared/team-dossier";
 import type { DraftFitGrid, DraftFitCell } from "@/scouting/draft-fit";
+import { computeSuccessorPressure } from "./signals";
 import type {
   TeamBoard,
   SuccessorPressure,
@@ -12,12 +14,18 @@ import type {
   Recommendation,
 } from "./types";
 
-// How each team's pick blends when curation is mid-range. The four signals make
-// up the "signal want"; the board makes up the "board want"; curation tilts
-// between them. Tunable against the debug route.
+// Want blend. Asset/upgrade/need/successor — none collapsed for display. Tunable.
 const SIGNAL_W = { asset: 0.45, upgrade: 0.3, need: 0.15, successor: 0.1 };
 const SURVIVORS_SHOWN = 6;
-const CURATION_COVET = 0.5; // at/above this, a team "covets" specific board targets
+const CURATION_COVET = 0.5;
+
+// QB desperation amplifier (Behavior 1): a team thin at QB reaches for a QB
+// ABOVE raw value, because the position is scarce and unfillable any other way.
+// Gated on LIVE QB-room weakness (so it relaxes the moment they draft a QB) and
+// scales with how desperate they are above the gate. QB-only by design —
+// RB/WR are flex-fungible and trustworthy on value, so they get no amplifier.
+const QB_AMP_GATE = 0.7;
+const QB_AMP_MAX = 0.15;
 
 function bucketOf(pos: Position): NeedBucket {
   if (pos === "QB") return "QB";
@@ -25,75 +33,24 @@ function bucketOf(pos: Position): NeedBucket {
   return "PASS_CATCHER";
 }
 
-type TeamCtx = {
-  cellById: Map<string, DraftFitCell>;
-  boardRank: Map<string, number>;
-  curation: number;
-  successor: SuccessorPressure;
-  maxAsset: number;
-  maxUpgrade: number;
-};
-
-function buildCtx(
-  grid: DraftFitGrid,
-  boards: Map<string, TeamBoard>,
-  successor: Map<string, SuccessorPressure>
-): Map<string, TeamCtx> {
-  const ctx = new Map<string, TeamCtx>();
-  for (const t of grid.teams) {
-    const cellById = new Map<string, DraftFitCell>();
-    let maxAsset = 1;
-    let maxUpgrade = 1;
-    for (const c of t.cells) {
-      cellById.set(c.playerId, c);
-      if (c.asset > maxAsset) maxAsset = c.asset;
-      if (c.upgrade > maxUpgrade) maxUpgrade = c.upgrade;
-    }
-    const board = boards.get(t.rosterId);
-    const boardRank = new Map<string, number>();
-    (board?.order ?? []).forEach((id, i) => boardRank.set(id, i));
-    ctx.set(t.rosterId, {
-      cellById,
-      boardRank,
-      curation: board?.curation ?? 0,
-      successor: successor.get(t.rosterId) ?? { QB: 0, RB: 0, PASS_CATCHER: 0 },
-      maxAsset,
-      maxUpgrade,
-    });
+// The weakest startable slot a player of this position could legally take.
+function floorForPosition(pos: Position, lineup: LineupSlot[]): number {
+  let floor = Infinity;
+  for (const slot of lineup) {
+    const elig = SLOT_ELIGIBLE[slot.slot.toUpperCase()];
+    if (!elig || !elig.includes(pos)) continue;
+    if (slot.value < floor) floor = slot.value;
   }
-  return ctx;
+  return floor;
 }
 
-// What a team WANTS a given player, 0..1. Signals (need/upgrade/asset/successor)
-// blended with the board, tilted by curation. At curation 0 it's pure signal;
-// at curation 1 it's pure board; between, a tug-of-war that lets a strong
-// signal still deviate from a curated board.
-function wantScore(ctx: TeamCtx, playerId: string, poolSize: number): number {
-  const c = ctx.cellById.get(playerId);
-  if (!c) return 0;
-  const assetNorm = c.asset / ctx.maxAsset;
-  const upgradeNorm = c.upgrade / ctx.maxUpgrade;
-  const succ = ctx.successor[c.bucket] ?? 0;
-  const signalWant =
-    SIGNAL_W.asset * assetNorm +
-    SIGNAL_W.upgrade * upgradeNorm +
-    SIGNAL_W.need * c.needScore +
-    SIGNAL_W.successor * succ;
-  const rank = ctx.boardRank.get(playerId);
-  const boardWant = rank == null ? 0 : 1 - rank / poolSize;
-  return ctx.curation * boardWant + (1 - ctx.curation) * signalWant;
-}
-
-// Current-year picks with a known overall, ascending = the draft order.
-function draftOrder(data: LeagueData): OwnedPick[] {
-  const picks: OwnedPick[] = [];
-  for (const list of data.pickOwnership.values()) {
-    for (const p of list) {
-      if (p.kind === "current" && p.overall != null) picks.push(p);
-    }
-  }
-  picks.sort((a, b) => a.overall! - b.overall!);
-  return picks;
+function floorsOf(lineup: LineupSlot[]): Record<Position, number> {
+  return {
+    QB: floorForPosition("QB", lineup),
+    RB: floorForPosition("RB", lineup),
+    WR: floorForPosition("WR", lineup),
+    TE: floorForPosition("TE", lineup),
+  };
 }
 
 function recommend(
@@ -138,42 +95,143 @@ function recommend(
   };
 }
 
-// orderOverride lets a caller replay a specific draft order (e.g. a round that
-// already happened and is no longer in pickOwnership). When omitted, the order
-// is read live from pickOwnership as usual.
+// orderOverride replays a specific draft order (e.g. a round already played and
+// gone from pickOwnership). Omitted => order read live from pickOwnership.
 export function runDraftEngine(
   data: LeagueData,
   grid: DraftFitGrid,
   profiles: TeamProfile[],
   dossiers: TeamDossier[],
   boards: Map<string, TeamBoard>,
-  successor: Map<string, SuccessorPressure>,
   orderOverride?: OwnedPick[]
 ): { projection: SimPick[]; reads: TeamSlotRead[]; poolSize: number; draftPicks: number } {
-  void profiles;
   const baseCells = grid.teams[0]?.cells ?? [];
   const poolSize = baseCells.length;
-  const ctx = buildCtx(grid, boards, successor);
-  const order = orderOverride ?? draftOrder(data);
+
+  let globalMaxAsset = 1;
+  const nameOf = new Map<string, { name: string; position: Position }>();
+  for (const c of baseCells) {
+    nameOf.set(c.playerId, { name: c.name, position: c.position });
+    if (c.asset > globalMaxAsset) globalMaxAsset = c.asset;
+  }
+
+  // Static per-team cell lookup (asset, league-relative need, bucket).
+  const cellByTeam = new Map<string, Map<string, DraftFitCell>>();
+  for (const t of grid.teams) {
+    const m = new Map<string, DraftFitCell>();
+    for (const c of t.cells) m.set(c.playerId, c);
+    cellByTeam.set(t.rosterId, m);
+  }
+
+  const boardRankByTeam = new Map<string, Map<string, number>>();
+  for (const t of grid.teams) {
+    const m = new Map<string, number>();
+    (boards.get(t.rosterId)?.order ?? []).forEach((id, i) => m.set(id, i));
+    boardRankByTeam.set(t.rosterId, m);
+  }
+
+  // ── live, mutable per-team state ────────────────────────────────────────────
+  const working = new Map<string, RosteredTeam>();
+  for (const t of data.teams) working.set(t.rosterId, { ...t, players: [...t.players] });
+
+  const liveFloors = new Map<string, Record<Position, number>>();
+  const liveSucc = new Map<string, SuccessorPressure>();
+  const initSucc = new Map<string, SuccessorPressure>();
+  const initMaxUpgrade = new Map<string, number>();
+
+  const recompute = (rid: string) => {
+    const team = working.get(rid);
+    if (!team) return;
+    const s = computeStrength(team, data.values, data.settings.rosterPositions);
+    liveFloors.set(rid, floorsOf(s.lineup));
+    liveSucc.set(rid, computeSuccessorPressure(s.lineup, team.players, data));
+  };
+
+  for (const t of data.teams) {
+    recompute(t.rosterId);
+    initSucc.set(t.rosterId, liveSucc.get(t.rosterId)!);
+    const floors = liveFloors.get(t.rosterId)!;
+    let mx = 1;
+    for (const c of baseCells) {
+      const up = Math.max(0, c.asset - floors[c.position]);
+      if (up > mx) mx = up;
+    }
+    initMaxUpgrade.set(t.rosterId, mx);
+  }
+
+  // Frozen QB-floor scale for the LIVE desperation gate (set pre-draft).
+  let qbFloorMin = Infinity;
+  let qbFloorMax = -Infinity;
+  for (const t of data.teams) {
+    const f = liveFloors.get(t.rosterId)!.QB;
+    const v = f === Infinity ? 0 : f;
+    if (v < qbFloorMin) qbFloorMin = v;
+    if (v > qbFloorMax) qbFloorMax = v;
+  }
+  const qbWeakness = (rid: string): number => {
+    const f = liveFloors.get(rid)!.QB;
+    const v = f === Infinity ? 0 : f;
+    if (qbFloorMax === qbFloorMin) return 0;
+    return Math.min(1, Math.max(0, (qbFloorMax - v) / (qbFloorMax - qbFloorMin)));
+  };
+
+  // What a team WANTS a player right now — live upgrade + live successor + the
+  // QB amplifier, blended with the board by curation.
+  const wantScore = (rid: string, playerId: string): number => {
+    const cell = cellByTeam.get(rid)?.get(playerId);
+    if (!cell) return 0;
+    const floors = liveFloors.get(rid)!;
+    const succ = liveSucc.get(rid)!;
+    const assetNorm = cell.asset / globalMaxAsset;
+    const liveUpgrade = Math.max(0, cell.asset - floors[cell.position]);
+    const upgradeNorm = liveUpgrade / (initMaxUpgrade.get(rid) ?? 1);
+    let signalWant =
+      SIGNAL_W.asset * assetNorm +
+      SIGNAL_W.upgrade * upgradeNorm +
+      SIGNAL_W.need * cell.needScore +
+      SIGNAL_W.successor * (succ[cell.bucket] ?? 0);
+    if (cell.position === "QB") {
+      const w = qbWeakness(rid);
+      if (w >= QB_AMP_GATE) signalWant += QB_AMP_MAX * ((w - QB_AMP_GATE) / (1 - QB_AMP_GATE));
+    }
+    const curation = boards.get(rid)?.curation ?? 0;
+    const rank = boardRankByTeam.get(rid)?.get(playerId);
+    const boardWant = rank == null ? 0 : 1 - rank / poolSize;
+    return curation * boardWant + (1 - curation) * signalWant;
+  };
+
+  const liveUpgradeOf = (rid: string, playerId: string): number => {
+    const cell = cellByTeam.get(rid)?.get(playerId);
+    if (!cell) return 0;
+    return Math.max(0, cell.asset - liveFloors.get(rid)![cell.position]);
+  };
+
+  // ── the draft ───────────────────────────────────────────────────────────────
+  const order =
+    orderOverride ??
+    (() => {
+      const picks: OwnedPick[] = [];
+      for (const list of data.pickOwnership.values()) {
+        for (const p of list) if (p.kind === "current" && p.overall != null) picks.push(p);
+      }
+      picks.sort((a, b) => a.overall! - b.overall!);
+      return picks;
+    })();
 
   const available = new Set<string>(baseCells.map((c) => c.playerId));
-  const nameOf = new Map<string, { name: string; position: Position }>();
-  for (const c of baseCells) nameOf.set(c.playerId, { name: c.name, position: c.position });
-
   const projection: SimPick[] = [];
-  const goneAt = new Map<string, number>(); // playerId -> overall it was taken
-  const snapshot = new Map<number, SurvivorView[]>(); // overall -> survivors at that moment
+  const goneAt = new Map<string, number>();
+  const snapshot = new Map<number, SurvivorView[]>();
 
   for (const pick of order) {
-    const teamCtx = ctx.get(pick.currentRosterId);
-    const board = boards.get(pick.currentRosterId);
-    const starredSet = new Set(board?.starred ?? []);
+    const rid = pick.currentRosterId;
+    const starredSet = new Set(boards.get(rid)?.starred ?? []);
 
     const ranked: Array<{ id: string; want: number }> = [];
     let bestId: string | null = null;
     let bestWant = -1;
     for (const id of available) {
-      const w = teamCtx ? wantScore(teamCtx, id, poolSize) : 0;
+      const w = wantScore(rid, id);
       ranked.push({ id, want: w });
       if (w > bestWant) {
         bestWant = w;
@@ -183,16 +241,16 @@ export function runDraftEngine(
     ranked.sort((a, b) => b.want - a.want);
 
     const survivors: SurvivorView[] = ranked.slice(0, SURVIVORS_SHOWN).map((r) => {
-      const c = teamCtx?.cellById.get(r.id);
+      const cell = cellByTeam.get(rid)?.get(r.id);
       const meta = nameOf.get(r.id)!;
       return {
         playerId: r.id,
         name: meta.name,
         position: meta.position,
-        bucket: c?.bucket ?? bucketOf(meta.position),
-        asset: c?.asset ?? 0,
-        needLevel: c?.needLevel ?? "low",
-        upgrade: c?.upgrade ?? 0,
+        bucket: cell?.bucket ?? bucketOf(meta.position),
+        asset: cell?.asset ?? 0,
+        needLevel: cell?.needLevel ?? "low",
+        upgrade: liveUpgradeOf(rid, r.id),
         starred: starredSet.has(r.id),
       };
     });
@@ -204,20 +262,29 @@ export function runDraftEngine(
         overall: pick.overall!,
         round: pick.round,
         slot: pick.slot,
-        rosterId: pick.currentRosterId,
+        rosterId: rid,
         playerId: bestId,
         name: meta.name,
         position: meta.position,
-        reason: teamCtx && teamCtx.curation >= CURATION_COVET ? "board-led" : "signal-led",
+        reason: (boards.get(rid)?.curation ?? 0) >= CURATION_COVET ? "board-led" : "signal-led",
       });
       goneAt.set(bestId, pick.overall!);
       available.delete(bestId);
+
+      // The drafted player JOINS the roster; recompute that team's lineup,
+      // floors and successor pressure so their next pick sees the new reality.
+      const info = data.players.get(bestId);
+      const team = working.get(rid);
+      if (info && team) {
+        team.players.push(info);
+        recompute(rid);
+      }
     } else {
       projection.push({
         overall: pick.overall!,
         round: pick.round,
         slot: pick.slot,
-        rosterId: pick.currentRosterId,
+        rosterId: rid,
         playerId: null,
         name: null,
         position: null,
@@ -226,7 +293,7 @@ export function runDraftEngine(
     }
   }
 
-  // ── slot reads, grouped by team ─────────────────────────────────────────────
+  // ── slot reads ───────────────────────────────────────────────────────────────
   const windowByRoster = new Map<string, Window>();
   for (const d of dossiers) windowByRoster.set(d.rosterId, d.window);
 
@@ -240,7 +307,7 @@ export function runDraftEngine(
     const rid = t.rosterId;
     const window = windowByRoster.get(rid) ?? "rebuilding";
     const board = boards.get(rid);
-    const teamCtx = ctx.get(rid)!;
+    const curation = board?.curation ?? 0;
     const myPicks = picksByRoster.get(rid) ?? [];
 
     const picks: PickRead[] = myPicks.map((pick) => {
@@ -252,10 +319,9 @@ export function runDraftEngine(
         const g = goneAt.get(sid);
         if (g != null && g < pick.overall!) starGone.push(nameOf.get(sid)?.name ?? sid);
       }
-
       const topTargets = (board?.order ?? []).slice(0, 3);
       const topTargetGone =
-        teamCtx.curation >= CURATION_COVET &&
+        curation >= CURATION_COVET &&
         topTargets.some((id) => {
           const g = goneAt.get(id);
           return g != null && g < pick.overall!;
@@ -281,8 +347,8 @@ export function runDraftEngine(
       teamName: t.teamName,
       tier: t.tier,
       window,
-      curation: teamCtx.curation,
-      successor: teamCtx.successor,
+      curation,
+      successor: initSucc.get(rid) ?? { QB: 0, RB: 0, PASS_CATCHER: 0 },
       picks,
     };
   });

@@ -1,5 +1,5 @@
-import type { LeagueData, Position, RosteredTeam } from "@/shared/league-data";
-import type { NeedBucket, TeamProfile } from "@/shared/team-profiles";
+import type { LeagueData, Position, PlayerInfo } from "@/shared/league-data";
+import type { LineupSlot, NeedBucket } from "@/shared/team-profiles";
 import type { SuccessorPressure } from "./types";
 
 // ── curation weight ─────────────────────────────────────────────────────────
@@ -26,9 +26,6 @@ export function computeCuration(
   const consIdx = new Map<string, number>();
   consensus.forEach((id, i) => consIdx.set(id, i));
 
-  // Displacement: average absolute move of the players sitting in the team's
-  // top-k vs. where consensus would have them. Normalized so an average move of
-  // k/2 reads as a fully reshuffled top => 1.0.
   let move = 0;
   for (let i = 0; i < k; i++) {
     const id = order[i];
@@ -37,7 +34,6 @@ export function computeCuration(
   }
   const displacement = Math.min(1, move / k / (k / 2));
 
-  // Stars: count (saturating) plus a hard bump if any star sits near the pick.
   let starSignal = 0;
   if (starred.length) {
     const base = Math.min(1, starred.length / STAR_SATURATION);
@@ -57,11 +53,12 @@ export function computeCuration(
   return Math.min(1, DISPLACEMENT_W * displacement + STAR_W * starSignal);
 }
 
-// ── successor pressure ───────────────────────────────────────────────────────
-const AGE_OLD = 28; // a starting unit at/above this is aging
-const AGE_STEEP = 31; // at/above this, the cliff is steep -> max pressure
-const YOUNG_SUCCESSOR_AGE = 24; // a benched player at/below this can dampen pressure
-const SUCCESSOR_VALUE_FLOOR = 40; // ...if he carries at least this much value
+// ── successor pressure (per-starter, age OR quality) ─────────────────────────
+const AGE_OLD = 28; // a starter at/above this is aging
+const AGE_STEEP = 31; // at/above this the cliff is steep -> max age pressure
+const WEAK_STARTER_VALUE = 120; // a starter below this is a placeholder, not a long-term answer
+const HEIR_AGE = 24; // a benched player at/below this can be the young heir...
+const HEIR_VALUE = 40; // ...if he carries at least this much value
 
 function bucketOf(pos: Position): NeedBucket {
   if (pos === "QB") return "QB";
@@ -69,40 +66,54 @@ function bucketOf(pos: Position): NeedBucket {
   return "PASS_CATCHER";
 }
 
-// 0..1 per bucket. High when the starting unit is old AND no young, valued heir
-// already sits on the bench. An old starter with a stud rookie behind him is
-// NOT a successor target — that's the bench-dampening that keeps it honest.
+// Per-STARTER pressure: a starter needs a successor if he's OLD or a low-value
+// PLACEHOLDER — judged individually, not by a blurred position-group average. A
+// 38-yo journeyman and a 24-yo stud in the same room no longer average out to
+// "kinda old"; the room's pressure = its single most urgent starter. Dampened
+// to 0 for a bucket that already has a young, valued heir on the bench (an old
+// starter with a stud behind him is not a target).
 export function computeSuccessorPressure(
-  profile: TeamProfile,
-  team: RosteredTeam,
+  lineup: LineupSlot[],
+  players: PlayerInfo[],
   data: LeagueData
 ): SuccessorPressure {
-  const starterIds = new Set(
-    profile.strength.lineup.map((l) => l.playerId).filter((x): x is string => !!x)
-  );
   const valueOf = (id: string) => data.values.value.get(id) ?? 0;
+  const ageOf = (id: string) => data.players.get(id)?.age ?? null;
 
-  const benchYoung: Record<NeedBucket, boolean> = { QB: false, RB: false, PASS_CATCHER: false };
-  for (const p of team.players) {
+  const starterIds = new Set(
+    lineup.map((l) => l.playerId).filter((x): x is string => !!x)
+  );
+
+  const heir: Record<NeedBucket, boolean> = { QB: false, RB: false, PASS_CATCHER: false };
+  for (const p of players) {
     if (starterIds.has(p.id)) continue;
-    if (p.age == null || p.age > YOUNG_SUCCESSOR_AGE) continue;
-    if (valueOf(p.id) < SUCCESSOR_VALUE_FLOOR) continue;
-    benchYoung[bucketOf(p.position)] = true;
+    if (p.age == null || p.age > HEIR_AGE) continue;
+    if (valueOf(p.id) < HEIR_VALUE) continue;
+    heir[bucketOf(p.position)] = true;
   }
 
-  const ageOf = profile.strength.bucketAge;
-  const pressureFor = (b: NeedBucket): number => {
-    const age = ageOf[b];
-    if (age == null) return 0; // no starter in this bucket
-    if (benchYoung[b]) return 0; // young heir already in house
-    if (age >= AGE_STEEP) return 1;
-    if (age >= AGE_OLD) return (age - AGE_OLD) / (AGE_STEEP - AGE_OLD);
-    return 0;
-  };
+  // Each starter's individual pressure = max(age cliff, placeholder quality).
+  const worst: Record<NeedBucket, number> = { QB: 0, RB: 0, PASS_CATCHER: 0 };
+  for (const slot of lineup) {
+    if (!slot.playerId || slot.position == null) continue;
+    const b = bucketOf(slot.position);
+    const age = ageOf(slot.playerId);
+    const val = slot.value;
+
+    let ageP = 0;
+    if (age != null) {
+      if (age >= AGE_STEEP) ageP = 1;
+      else if (age >= AGE_OLD) ageP = (age - AGE_OLD) / (AGE_STEEP - AGE_OLD);
+    }
+    const qualityP = val < WEAK_STARTER_VALUE ? Math.min(1, (WEAK_STARTER_VALUE - val) / WEAK_STARTER_VALUE) : 0;
+
+    const p = Math.max(ageP, qualityP);
+    if (p > worst[b]) worst[b] = p;
+  }
 
   return {
-    QB: pressureFor("QB"),
-    RB: pressureFor("RB"),
-    PASS_CATCHER: pressureFor("PASS_CATCHER"),
+    QB: heir.QB ? 0 : worst.QB,
+    RB: heir.RB ? 0 : worst.RB,
+    PASS_CATCHER: heir.PASS_CATCHER ? 0 : worst.PASS_CATCHER,
   };
 }

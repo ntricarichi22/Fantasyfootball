@@ -3,23 +3,15 @@ import { getLeagueData, type OwnedPick } from "@/shared/league-data";
 import { buildTeamProfiles } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { computeDraftFit } from "@/scouting/draft-fit";
-import {
-  getAllBoards,
-  computeSuccessorPressure,
-  runDraftEngine,
-  type SuccessorPressure,
-} from "@/scouting/draft-sim";
+import { getAllBoards, runDraftEngine } from "@/scouting/draft-sim";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 // Round 1 already happened, so it's gone from pickOwnership. This replays it
 // with the REAL engine, live values + boards, fed the historical slot order.
-// The round-1 prospects are still unrostered (that's why they're still on the
-// boards), so the pool already contains them — no restoration needed.
-//
-// slot -> team name (must match teamName exactly; unmatched names are surfaced
-// in `unresolvedTeams` so a typo is obvious rather than silent).
+// The round-1 prospects are still unrostered (still on the boards), so the pool
+// already contains them — no restoration needed.
 const ROUND1: Array<[number, string]> = [
   [1, "Fairmount Freaks"],
   [2, "Virginia Founders"],
@@ -44,13 +36,6 @@ export async function GET() {
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
 
-  const successor = new Map<string, SuccessorPressure>();
-  for (const p of profiles) {
-    const team = data.teams.find((t) => t.rosterId === p.rosterId);
-    if (team) successor.set(p.rosterId, computeSuccessorPressure(p, team, data));
-  }
-
-  // Resolve team name -> rosterId, build a synthetic round-1 order.
   const idByName = new Map(data.teams.map((t) => [t.teamName, t.rosterId]));
   const unresolved: string[] = [];
   const order: OwnedPick[] = [];
@@ -65,22 +50,14 @@ export async function GET() {
       season: data.cfcYear,
       round: 1,
       slot,
-      overall: slot, // (round - 1) * teamCount + slot; round 1 => slot
+      overall: slot,
       kind: "current",
       currentRosterId: rid,
       originalRosterId: rid,
     });
   }
 
-  const { projection } = runDraftEngine(
-    data,
-    grid,
-    profiles,
-    dossiers,
-    boards,
-    successor,
-    order
-  );
+  const { projection } = runDraftEngine(data, grid, profiles, dossiers, boards, order);
 
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
   const picks = projection.map((s) => ({
@@ -91,7 +68,7 @@ export async function GET() {
   }));
 
   return NextResponse.json({
-    note: "Round-1 replay: real engine, live values + boards, historical slot order. If the round-1 names you expect are missing here, those players got rostered and dropped out of the pool — tell me and I'll add a restore step.",
+    note: "Round-1 replay: real engine, live values + boards, mid-draft recompute on. If a round-1 name you expect is missing, that player got rostered and dropped from the pool — tell me and I'll add a restore step.",
     poolSize: grid.poolSize,
     unresolvedTeams: unresolved,
     picks,

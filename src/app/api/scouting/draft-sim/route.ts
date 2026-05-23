@@ -3,21 +3,16 @@ import { getLeagueData } from "@/shared/league-data";
 import { buildTeamProfiles } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { computeDraftFit } from "@/scouting/draft-fit";
-import {
-  getAllBoards,
-  computeSuccessorPressure,
-  runDraftEngine,
-  type SuccessorPressure,
-} from "@/scouting/draft-sim";
+import { getAllBoards, runDraftEngine } from "@/scouting/draft-sim";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// GET /api/scouting/draft-sim — verification surface for the whole engine.
-// projectionTop = the simulated draft (who falls where). teams = each team's
-// slot reads with curation, successor pressure, the four signals per survivor,
-// and the stand-pat / trade-up / trade-back call. No prose — that's the POV
-// layer. Eyeball this against the real draft order before building the voice.
+// GET /api/scouting/draft-sim — full engine. projectionTop = the simulated
+// draft (who falls where). teams = each team's slot reads with curation,
+// successor pressure, four signals per survivor, and the rec. Successor pressure
+// is now per-starter (age OR placeholder quality), and team needs/floors
+// recompute mid-draft, so a team can't stack a position on a stale need.
 export async function GET() {
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json(data, { status: 500 });
@@ -27,19 +22,12 @@ export async function GET() {
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
 
-  const successor = new Map<string, SuccessorPressure>();
-  for (const p of profiles) {
-    const team = data.teams.find((t) => t.rosterId === p.rosterId);
-    if (team) successor.set(p.rosterId, computeSuccessorPressure(p, team, data));
-  }
-
   const { projection, reads, poolSize, draftPicks } = runDraftEngine(
     data,
     grid,
     profiles,
     dossiers,
-    boards,
-    successor
+    boards
   );
 
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
