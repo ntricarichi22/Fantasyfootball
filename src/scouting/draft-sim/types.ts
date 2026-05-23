@@ -14,9 +14,9 @@ export type TeamBoard = {
   curation: number;
 };
 
-// Forward-looking age signal, per bucket, 0..1. High = old starting unit with
-// no young heir on the bench. Tilts a team toward drafting a successor even
-// when the current NEED reads low.
+// Forward-looking age signal, per bucket, 0..1. High = old/placeholder starting
+// unit with no young heir on the bench. Tilts a team toward drafting a successor
+// even when the current NEED reads low.
 export type SuccessorPressure = Record<NeedBucket, number>;
 
 // One simulated selection in the projected draft.
@@ -28,13 +28,14 @@ export type SimPick = {
   playerId: string | null;
   name: string | null;
   position: Position | null;
-  reason: string; // "board-led" | "signal-led" | "no players left"
+  reason: string; // "board-led" | "signal-led" | "qb-stash" | "no players left"
 };
 
 export type Recommendation = "stand_pat" | "trade_up" | "trade_back";
 
-// A player still on the board when a team is on the clock, with the four
-// signals exposed (never blended into one number for display).
+// A player still on the board when a team is on the clock, with the four signals
+// exposed (never blended into one number for display) plus the team's overall
+// want for that player — the margin that decides close calls.
 export type SurvivorView = {
   playerId: string;
   name: string;
@@ -44,6 +45,7 @@ export type SurvivorView = {
   needLevel: NeedLevel;
   upgrade: number;
   starred: boolean;
+  want: number;
 };
 
 export type PickRead = {
@@ -54,7 +56,7 @@ export type PickRead = {
   rationale: string;
   projectedPick: { playerId: string; name: string; position: Position } | null;
   topSurvivors: SurvivorView[];
-  starGoneBeforeSlot: string[]; // starred targets projected gone before the slot
+  starGoneBeforeSlot: string[];
 };
 
 export type TeamSlotRead = {

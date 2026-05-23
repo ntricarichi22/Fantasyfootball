@@ -275,6 +275,7 @@ export function runDraftEngine(
         needLevel: cell?.needLevel ?? "low",
         upgrade: liveUpgradeOf(rid, r.id),
         starred: starredSet.has(r.id),
+        want: r.want,
       };
     });
     snapshot.set(pick.overall!, survivors);

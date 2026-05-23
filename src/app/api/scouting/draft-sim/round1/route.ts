@@ -11,7 +11,8 @@ export const maxDuration = 30;
 // Round 1 already happened, so it's gone from pickOwnership. This replays it
 // with the REAL engine, live values + boards, fed the historical slot order.
 // The round-1 prospects are still unrostered (still on the boards), so the pool
-// already contains them — no restoration needed.
+// already contains them — no restoration needed. The `field` per pick now shows
+// each survivor's WANT score, so close calls (e.g. Lemon vs Price) are visible.
 const ROUND1: Array<[number, string]> = [
   [1, "Fairmount Freaks"],
   [2, "Virginia Founders"],
@@ -57,18 +58,36 @@ export async function GET() {
     });
   }
 
-  const { projection } = runDraftEngine(data, grid, profiles, dossiers, boards, order);
+  const { projection, reads } = runDraftEngine(data, grid, profiles, dossiers, boards, order);
 
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
+
+  // overall -> the top survivors (with want) at that slot, pulled from the reads.
+  const fieldByOverall = new Map<number, string[]>();
+  for (const r of reads) {
+    for (const p of r.picks) {
+      fieldByOverall.set(
+        p.overall,
+        p.topSurvivors.map(
+          (s) =>
+            `${s.starred ? "\u2605 " : ""}${s.name} (${s.position}) want ${s.want.toFixed(3)} | upg ${
+              s.upgrade > 0 ? "+" + Math.round(s.upgrade) : 0
+            } asset ${s.asset}`
+        )
+      );
+    }
+  }
+
   const picks = projection.map((s) => ({
     pick: `1.${String(s.slot ?? 0).padStart(2, "0")}`,
     team: nameByRoster.get(s.rosterId) ?? s.rosterId,
     enginePick: s.name ? `${s.name} (${s.position})` : "\u2014",
     reason: s.reason,
+    field: fieldByOverall.get(s.overall) ?? [],
   }));
 
   return NextResponse.json({
-    note: "Round-1 replay: real engine, live values + boards, mid-draft recompute on. If a round-1 name you expect is missing, that player got rostered and dropped from the pool — tell me and I'll add a restore step.",
+    note: "Round-1 replay with want scores. `field` lists the top survivors at each slot by want — the margin between the top two is how close the call was.",
     poolSize: grid.poolSize,
     unresolvedTeams: unresolved,
     picks,
