@@ -20,18 +20,24 @@ const SURVIVORS_SHOWN = 6;
 const CURATION_COVET = 0.5;
 
 // QB desperation amplifier (Behavior 1): a team thin at QB reaches for a QB
-// ABOVE raw value. Gated on LIVE QB-room weakness (relaxes the moment they
-// draft a QB), scales above the gate. QB-only by design.
+// that would actually START (upgrade > 0) above its raw value. Gated on LIVE
+// QB-room weakness (relaxes once they draft a QB) and on upgrade > 0 — so it
+// reaches for a real starter, never a replacement-level scrap. QB-only.
 const QB_AMP_GATE = 0.7;
 const QB_AMP_MAX = 0.15;
 
-// QB stash (Behavior 2): on a FLAT board (top candidates bunched within this
-// relative spread = no difference-maker), an uncurated team takes a QB sitting
-// in that lead cluster — superflex QBs are the premium store of value, so when
-// nothing separates, the QB wins the tie. Pure tiebreaker: a stud or a real
-// need pick stands above the bunch and prevents it; a desperate team already
-// has the QB as a clear leader via the amplifier, so this skips them.
-const QB_STASH_FLAT_SPREAD = 0.08;
+// rookie_qb_boost -> the earliest pick slot at which a QB is a sensible STASH.
+// The boost encodes draft capital (1.25 = #1 overall ... 1.05 = ~15-20). A QB
+// qualifies to be stashed at any pick AT OR PAST his tier slot — falling
+// further is only ever a better steal, never a disqualifier.
+function stashSlotFloor(boost: number): number {
+  if (boost >= 1.25) return 1;
+  if (boost >= 1.2) return 3;
+  if (boost >= 1.15) return 5;
+  if (boost >= 1.1) return 6;
+  if (boost >= 1.05) return 15;
+  return Infinity; // not a boosted rookie QB — never a stash
+}
 
 function bucketOf(pos: Position): NeedBucket {
   if (pos === "QB") return "QB";
@@ -178,20 +184,26 @@ export function runDraftEngine(
     return Math.min(1, Math.max(0, (qbFloorMax - v) / (qbFloorMax - qbFloorMin)));
   };
 
+  const liveUpgradeOf = (rid: string, playerId: string): number => {
+    const cell = cellByTeam.get(rid)?.get(playerId);
+    if (!cell) return 0;
+    return Math.max(0, cell.asset - liveFloors.get(rid)![cell.position]);
+  };
+
   const wantScore = (rid: string, playerId: string): number => {
     const cell = cellByTeam.get(rid)?.get(playerId);
     if (!cell) return 0;
-    const floors = liveFloors.get(rid)!;
     const succ = liveSucc.get(rid)!;
     const assetNorm = cell.asset / globalMaxAsset;
-    const liveUpgrade = Math.max(0, cell.asset - floors[cell.position]);
+    const liveUpgrade = liveUpgradeOf(rid, playerId);
     const upgradeNorm = liveUpgrade / (initMaxUpgrade.get(rid) ?? 1);
     let signalWant =
       SIGNAL_W.asset * assetNorm +
       SIGNAL_W.upgrade * upgradeNorm +
       SIGNAL_W.need * cell.needScore +
       SIGNAL_W.successor * (succ[cell.bucket] ?? 0);
-    if (cell.position === "QB") {
+    // Behavior 1 — desperation amplifier: only for a QB who would START.
+    if (cell.position === "QB" && liveUpgrade > 0) {
       const w = qbWeakness(rid);
       if (w >= QB_AMP_GATE) signalWant += QB_AMP_MAX * ((w - QB_AMP_GATE) / (1 - QB_AMP_GATE));
     }
@@ -201,29 +213,34 @@ export function runDraftEngine(
     return curation * boardWant + (1 - curation) * signalWant;
   };
 
-  const liveUpgradeOf = (rid: string, playerId: string): number => {
-    const cell = cellByTeam.get(rid)?.get(playerId);
-    if (!cell) return 0;
-    return Math.max(0, cell.asset - liveFloors.get(rid)![cell.position]);
-  };
-
-  // Behavior 2 — the QB stash tiebreaker. Returns the QB to promote, or null if
-  // the board isn't flat / no QB is tied / the team is curated / the leader is
-  // already a QB. ranked is sorted by want desc.
-  const qbStashChoice = (rid: string, ranked: Array<{ id: string; want: number }>): string | null => {
-    const leader = ranked[0];
-    if (!leader || leader.want <= 0) return null;
-    if ((boards.get(rid)?.curation ?? 0) >= CURATION_COVET) return null; // trust curated boards
-    if (nameOf.get(leader.id)?.position === "QB") return null; // already a QB (desperation pick)
-    const probe = ranked[Math.min(2, ranked.length - 1)];
-    const spread = (leader.want - probe.want) / leader.want;
-    if (spread > QB_STASH_FLAT_SPREAD) return null; // a difference-maker breaks the bunch
-    const band = leader.want * (1 - QB_STASH_FLAT_SPREAD);
-    for (const r of ranked) {
-      if (r.want < band) break;
-      if (nameOf.get(r.id)?.position === "QB") return r.id;
+  // Behavior 2 — the QB stash. A QB the team WOULDN'T start (upgrade 0) but who
+  // is a real prospect FOR THIS SLOT: his rookie_qb_boost tier slot must be at
+  // or before the pick. Picks the best-ASSET qualifying QB (not best-want — a
+  // stash has low want by definition, which is what hid the right guy before).
+  // Skipped on curated boards (trust their order) and when the leader already
+  // would start a QB (that's a desperation/need pick, not a stash).
+  const qbStashChoice = (
+    rid: string,
+    leaderId: string,
+    pickOverall: number,
+    available: Set<string>
+  ): string | null => {
+    if ((boards.get(rid)?.curation ?? 0) >= CURATION_COVET) return null;
+    if (nameOf.get(leaderId)?.position === "QB" && liveUpgradeOf(rid, leaderId) > 0) return null;
+    let bestQb: string | null = null;
+    let bestAsset = -1;
+    for (const id of available) {
+      if (nameOf.get(id)?.position !== "QB") continue;
+      if (liveUpgradeOf(rid, id) > 0) continue; // would start -> not a stash (amplifier's job)
+      const boost = data.values.rookieQbBoost.get(id) ?? 1;
+      if (pickOverall < stashSlotFloor(boost)) continue; // too early for this prospect tier
+      const asset = cellByTeam.get(rid)?.get(id)?.asset ?? 0;
+      if (asset > bestAsset) {
+        bestAsset = asset;
+        bestQb = id;
+      }
     }
-    return null;
+    return bestQb;
   };
 
   // ── the draft ───────────────────────────────────────────────────────────────
@@ -251,8 +268,15 @@ export function runDraftEngine(
     for (const id of available) ranked.push({ id, want: wantScore(rid, id) });
     ranked.sort((a, b) => b.want - a.want);
 
-    // Behavior 2: if a QB is tied at the top of a flat board, promote him.
-    const stashId = qbStashChoice(rid, ranked);
+    // Behavior 2: a flat board lets a quality, slot-appropriate QB stash jump
+    // the want leader. Evaluated against the best-want leader.
+    let stashId: string | null = null;
+    if (ranked.length) {
+      const leader = ranked[0];
+      const probe = ranked[Math.min(2, ranked.length - 1)];
+      const flat = leader.want > 0 && (leader.want - probe.want) / leader.want <= 0.08;
+      if (flat) stashId = qbStashChoice(rid, leader.id, pick.overall!, available);
+    }
     if (stashId) {
       const idx = ranked.findIndex((r) => r.id === stashId);
       if (idx > 0) {

@@ -269,24 +269,29 @@ export async function getLeagueSettings(): Promise<LeagueSettings> {
 export async function getValues(): Promise<ValueMaps> {
   const value = new Map<string, number>();
   const isStud = new Map<string, boolean>();
+  const rookieQbBoost = new Map<string, number>();
   const admin = getSupabaseAdminClient();
-  if (!admin.client) return { value, isStud };
+  if (!admin.client) return { value, isStud, rookieQbBoost };
   const { data } = await admin.client
     .from("cfc_trade_values_current")
-    .select("sleeper_player_id, cfc_value, elite_multiplier_applied")
+    .select("sleeper_player_id, cfc_value, elite_multiplier_applied, rookie_qb_boost")
     .not("sleeper_player_id", "is", null);
   for (const row of (data ?? []) as Array<{
     sleeper_player_id: string;
     cfc_value: number | null;
     elite_multiplier_applied: number | null;
+    rookie_qb_boost: number | null;
   }>) {
     if (!row.sleeper_player_id) continue;
     if (typeof row.cfc_value === "number") value.set(row.sleeper_player_id, row.cfc_value);
     if (typeof row.elite_multiplier_applied === "number") {
       isStud.set(row.sleeper_player_id, row.elite_multiplier_applied > 1.0);
     }
+    if (typeof row.rookie_qb_boost === "number") {
+      rookieQbBoost.set(row.sleeper_player_id, row.rookie_qb_boost);
+    }
   }
-  return { value, isStud };
+  return { value, isStud, rookieQbBoost };
 }
 
 export async function getStrategyProfiles(): Promise<{

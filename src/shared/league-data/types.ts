@@ -74,6 +74,12 @@ export type ValueMaps = {
   value: Map<string, number>;
   // elite_multiplier_applied > 1.0, keyed by sleeper_player_id.
   isStud: Map<string, boolean>;
+  // rookie_qb_boost multiplier, keyed by sleeper_player_id. Built from the
+  // draft-capital tiers (1.25 = #1 overall ... 1.05 = top 15-20, 1.0 = everyone
+  // else). The scouting draft sim reads this to gate the QB stash to picks at or
+  // past a prospect's tier slot — so a top-10 QB is stashable from his tier on,
+  // and a fringe QB isn't reached for early. ~1.0 for non-QBs and veterans.
+  rookieQbBoost: Map<string, number>;
 };
 
 // Canonical draft-pick slot ladder. Key = "R.SS" with a ZERO-PADDED slot
