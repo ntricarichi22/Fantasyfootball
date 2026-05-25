@@ -1,5 +1,6 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { fetchLeagueRosters, type SleeperRoster } from "@/infrastructure/sleeper/api";
+import { getLeagueData } from "@/shared/league-data";
 
 import {
   GM_PERSONA_VALUES,
@@ -477,6 +478,16 @@ const upsertComputedRows = async (
   return { upserted: rows.length };
 };
 
+// Owned pick keys for a team, read from the shared ownership fact (same source
+// pickService uses). Picks live in the per-team values table alongside players;
+// the stale-cleanup must treat them as owned so it sweeps only traded-away assets.
+const getOwnedPickKeys = async (teamId: string): Promise<string[]> => {
+  const league = await getLeagueData();
+  if ("error" in league) return [];
+  const picks = league.pickOwnership.get(teamId) ?? [];
+  return picks.map((pick) => pick.key).filter(Boolean);
+};
+
 export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: string) {
   const client = getClientOrThrow();
   const strategyProfile = await getTeamStrategyProfile(leagueId, teamId);
@@ -490,25 +501,22 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
     gm_persona: strategyProfile.gm_persona,
   };
 
+  // Everything this team owns — players (Sleeper roster) AND picks (shared
+  // ownership fact). Pick rows live in the same table but are rebuilt by
+  // pickService; including their keys here means the stale-cleanup treats them
+  // as owned and never sweeps a pick that's still ours.
   const ownedPlayerIds = await getOwnedPlayerIds(leagueId, teamId);
-  const ownedPlayerIdSet = new Set(ownedPlayerIds);
+  const ownedPickKeys = await getOwnedPickKeys(teamId);
+  const ownedAssetIdSet = new Set<string>([...ownedPlayerIds, ...ownedPickKeys]);
 
-  if (!ownedPlayerIds.length) {
-    const { error: clearError } = await client
-      .from("cfc_team_trade_values_current")
-      .delete()
-      .eq("league_id", leagueId)
-      .eq("team_id", teamId);
-
-    if (clearError) {
-      throw new Error(clearError.message);
-    }
-
-    return { upserted: 0, deleted: 0 };
-  }
-
+  // Recompute the player rows. (Picks are recomputed by pickService; we leave
+  // their rows in place here.) If the team owns no players we simply upsert
+  // nothing — we do NOT wipe the table, so a transient empty roster read can't
+  // nuke the chart, and picks are untouched.
   const { upserted } = await upsertComputedRows(leagueId, teamId, ownedPlayerIds, strategy);
 
+  // Stale cleanup: drop rows for any asset (player or pick) this team no longer
+  // owns. A traded-away pick falls out exactly like a traded-away player.
   const { data: existingRows, error: existingError } = await client
     .from("cfc_team_trade_values_current")
     .select("sleeper_player_id")
@@ -521,7 +529,7 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
 
   const staleIds = (existingRows ?? [])
     .map((row) => row.sleeper_player_id)
-    .filter((playerId): playerId is string => !!playerId && !ownedPlayerIdSet.has(playerId));
+    .filter((assetId): assetId is string => !!assetId && !ownedAssetIdSet.has(assetId));
 
   if (staleIds.length) {
     const { error: staleDeleteError } = await client
