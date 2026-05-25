@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import RosterPanel, { type RosterAssetItem } from "./RosterPanel";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
-import DirectorTwoBox from "@/pro-personnel/components/DirectorTwoBox";
+import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 import type { StudioOffer } from "@/pro-personnel/trade-engine/studio/types";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
@@ -358,7 +358,7 @@ export default function TradeStudioView() {
         {!drawerOpen ? (
           <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
             <div style={{ padding: "20px 24px 0 24px", flexShrink: 0 }}>
-              <DirectorTwoBox message={SELECTION_INTRO} />
+              <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={SELECTION_INTRO} />
             </div>
             <div style={{ flex: 1, minHeight: 0, paddingTop: 16, display: "flex", flexDirection: "column" }}>
               <RosterPanel
@@ -397,7 +397,7 @@ export default function TradeStudioView() {
             borderLeft: "2px solid #1A1A1A",
           }}>
             <div style={{ padding: "20px 24px 0 24px", flexShrink: 0 }}>
-              <DirectorTwoBox message={currentOffer ? REVIEW_INTRO : NO_OFFERS_INTRO} />
+              <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={currentOffer ? REVIEW_INTRO : NO_OFFERS_INTRO} />
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px 24px" }}>
               {loading || generating ? (

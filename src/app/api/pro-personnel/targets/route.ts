@@ -9,7 +9,7 @@ export const maxDuration = 30;
 const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 
 type AttachRow = { team_id: string; sleeper_player_id: string; attachment: string };
-type StratRow = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; wr_market: string; te_market: string; picks_market: string };
+type StratRow = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; pc_market: string; picks_market: string };
 type TeamValueRow = { team_id: string; sleeper_player_id: string; player_name: string; position: string; final_value: number };
 type BaseValueRow = { sleeper_player_id: string | null; display_name: string; cfc_value: number; elite_multiplier_applied: number | null; age_multiplier_applied: number | null };
 type AssetSummaryHalf = { studs?: number; youth?: number; picks_1st?: number; picks_2nd?: number; picks_3rd?: number; depth?: number };
@@ -24,8 +24,8 @@ function getNeedPositions(p: StratRow | null): Record<string, number> {
   const m: Record<string, number> = {};
   if (needLevel(p.qb_market) >= 2) m["QB"] = needLevel(p.qb_market);
   if (needLevel(p.rb_market) >= 2) m["RB"] = needLevel(p.rb_market);
-  if (needLevel(p.wr_market) >= 2) m["WR"] = needLevel(p.wr_market);
-  if (needLevel(p.te_market) >= 2) m["TE"] = needLevel(p.te_market);
+  const pcN = needLevel(p.pc_market);
+  if (pcN >= 2) { m["WR"] = pcN; m["TE"] = pcN; }
   if (needLevel(p.picks_market) >= 2) m["PICK"] = needLevel(p.picks_market);
   return m;
 }
@@ -33,7 +33,7 @@ function getSellPos(p: StratRow | null): string[] {
   if (!p) return [];
   const s: string[] = [];
   if (p.qb_market === "sell") s.push("QB"); if (p.rb_market === "sell") s.push("RB");
-  if (p.wr_market === "sell") s.push("WR"); if (p.te_market === "sell") s.push("TE");
+  if (p.pc_market === "sell") { s.push("WR"); s.push("TE"); }
   if (p.picks_market === "sell") s.push("PICK");
   return s;
 }
@@ -41,7 +41,7 @@ function getBuyPos(p: StratRow | null): string[] {
   if (!p) return [];
   const b: string[] = [];
   if (p.qb_market === "buy") b.push("QB"); if (p.rb_market === "buy") b.push("RB");
-  if (p.wr_market === "buy") b.push("WR"); if (p.te_market === "buy") b.push("TE");
+  if (p.pc_market === "buy") { b.push("WR"); b.push("TE"); }
   if (p.picks_market === "buy") b.push("PICK");
   return b;
 }
@@ -165,7 +165,7 @@ export async function GET(request: NextRequest) {
 
   const [attachRes, stratRes, teamRes, teamValRes, baseValRes, draftLogRes, acceptedOffersRes, slRosters, slTraded, slPlayers] = await Promise.all([
     client.from("cfc_team_player_attachment").select("team_id, sleeper_player_id, attachment").eq("league_id", league_id),
-    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, wr_market, te_market, picks_market").eq("league_id", league_id),
+    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market").eq("league_id", league_id),
     client.from("team_email_map").select("roster_id, team_name"),
     client.from("cfc_team_trade_values_current").select("team_id, sleeper_player_id, player_name, position, final_value").eq("league_id", league_id),
     client.from("cfc_trade_values_current").select("sleeper_player_id, display_name, cfc_value, elite_multiplier_applied, age_multiplier_applied"),

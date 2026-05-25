@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
   // Fetch supporting data in parallel
   const [stratRes, teamRes, offersRes] = await Promise.all([
     client.from("cfc_team_strategy_profiles")
-      .select("team_id, wants_more, qb_market, rb_market, wr_market, te_market, picks_market, gm_persona")
+      .select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona")
       .eq("league_id", league_id).in("team_id", allTeamIds),
     client.from("team_email_map").select("roster_id, team_name"),
     client.from("trade_offers")

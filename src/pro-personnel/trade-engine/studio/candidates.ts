@@ -79,8 +79,7 @@ function getBuyPositions(profile: StudioEngineContext["myProfile"]): Set<string>
   if (!profile) return out;
   if (profile.qb_market === "buy") out.add("QB");
   if (profile.rb_market === "buy") out.add("RB");
-  if (profile.wr_market === "buy") out.add("WR");
-  if (profile.te_market === "buy") out.add("TE");
+  if (profile.pc_market === "buy") { out.add("WR"); out.add("TE"); }
   return out;
 }
 

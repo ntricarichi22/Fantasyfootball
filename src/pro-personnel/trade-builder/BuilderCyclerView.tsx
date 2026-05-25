@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
-import DirectorTwoBox from "@/pro-personnel/components/DirectorTwoBox";
+import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 import type { PersonaKey } from "@/pro-personnel/trade-engine/studio/persona";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
@@ -330,7 +330,7 @@ export default function BuilderCyclerView() {
 
           {/* Director two-box — show on loading, ok, and no_clean_offers */}
           {(reason === "loading" || reason === "ok" || reason === "no_clean_offers") && (
-            <DirectorTwoBox message={reason === "no_clean_offers" ? BUILDER_NO_OFFERS : BUILDER_INTRO} />
+            <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={reason === "no_clean_offers" ? BUILDER_NO_OFFERS : BUILDER_INTRO} />
           )}
 
           {/* Loading */}

@@ -44,8 +44,7 @@ export function scoreWantsMatch(
 const MARKET_KEYS = [
   "qb_market",
   "rb_market",
-  "wr_market",
-  "te_market",
+  "pc_market",
   "picks_market",
 ] as const;
 
