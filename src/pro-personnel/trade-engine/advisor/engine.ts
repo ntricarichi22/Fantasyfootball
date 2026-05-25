@@ -103,8 +103,7 @@ function getBuyPositions(profile: StrategyProfile | null): Set<string> {
   if (!profile) return out;
   if (profile.qb_market === "buy") out.add("QB");
   if (profile.rb_market === "buy") out.add("RB");
-  if (profile.wr_market === "buy") out.add("WR");
-  if (profile.te_market === "buy") out.add("TE");
+  if (profile.pc_market === "buy") { out.add("WR"); out.add("TE"); }
   return out;
 }
 
@@ -126,8 +125,7 @@ function listFromMarkets(
   const out: string[] = [];
   if (p.qb_market === target) out.push("QB");
   if (p.rb_market === target) out.push("RB");
-  if (p.wr_market === target) out.push("WR");
-  if (p.te_market === target) out.push("TE");
+  if (p.pc_market === target) { out.push("WR"); out.push("TE"); }
   if (p.picks_market === target) out.push("PICK");
   return out;
 }
@@ -136,7 +134,7 @@ function getMyMarket(p: StrategyProfile | null, position: string): string {
   if (!p) return "hold";
   if (position === "QB") return p.qb_market;
   if (position === "RB") return p.rb_market;
-  if (position === "WR" || position === "TE") return p.wr_market;
+  if (position === "WR" || position === "TE") return p.pc_market;
   if (position === "PICK") return p.picks_market;
   return "hold";
 }

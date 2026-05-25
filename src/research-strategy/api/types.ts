@@ -24,8 +24,7 @@ export type TeamStrategyProfile = {
   wants_more: TeamHqWantsMore[];
   qb_market: TeamHqMarket;
   rb_market: TeamHqMarket;
-  wr_market: TeamHqMarket;
-  te_market: TeamHqMarket;
+  pc_market: TeamHqMarket;
   picks_market: TeamHqMarket;
   own_guys_preference: TeamHqOwnGuysPreference;
   gm_persona: GmPersona;
@@ -57,8 +56,7 @@ export const TEAM_STRATEGY_DEFAULTS: Omit<TeamStrategyProfile, "league_id" | "te
   wants_more: [],
   qb_market: "hold",
   rb_market: "hold",
-  wr_market: "hold",
-  te_market: "hold",
+  pc_market: "hold",
   picks_market: "hold",
   own_guys_preference: "neutral",
   gm_persona: "straight_shooter",

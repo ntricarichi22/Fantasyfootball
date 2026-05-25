@@ -49,8 +49,7 @@ export type StrategyProfile = {
   wants_more: string[];
   qb_market: string;          // "buy" | "sell" | "hold"
   rb_market: string;
-  wr_market: string;
-  te_market: string;
+  pc_market: string;
   picks_market: string;
   team_mode?: TeamMode;
   gm_persona?: PersonaKey;

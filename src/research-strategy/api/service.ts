@@ -1,5 +1,6 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { fetchLeagueRosters, type SleeperRoster } from "@/infrastructure/sleeper/api";
+import { getLeagueData } from "@/shared/league-data";
 
 import {
   GM_PERSONA_VALUES,
@@ -105,8 +106,7 @@ const normalizeStrategyPayload = (payload?: TeamStrategyProfileInput) => ({
   wants_more: normalizeWantsMore(payload?.wants_more),
   qb_market: normalizeMarket(payload?.qb_market),
   rb_market: normalizeMarket(payload?.rb_market),
-  wr_market: normalizeMarket(payload?.wr_market),
-  te_market: normalizeMarket(payload?.te_market),
+  pc_market: normalizeMarket(payload?.pc_market),
   picks_market: normalizeMarket(payload?.picks_market),
   own_guys_preference: normalizeOwnGuys(payload?.own_guys_preference),
   gm_persona: normalizePersona(payload?.gm_persona),
@@ -287,7 +287,7 @@ export async function getTeamStrategyProfile(
 
   const { data, error } = await client
     .from("cfc_team_strategy_profiles")
-    .select("league_id,team_id,wants_more,qb_market,rb_market,wr_market,te_market,picks_market,own_guys_preference,gm_persona")
+    .select("league_id,team_id,wants_more,qb_market,rb_market,pc_market,picks_market,own_guys_preference,gm_persona")
     .eq("league_id", leagueId)
     .eq("team_id", teamId)
     .maybeSingle();
@@ -310,8 +310,7 @@ export async function getTeamStrategyProfile(
     wants_more: normalizeWantsMore(data.wants_more),
     qb_market: normalizeMarket(data.qb_market),
     rb_market: normalizeMarket(data.rb_market),
-    wr_market: normalizeMarket(data.wr_market),
-    te_market: normalizeMarket(data.te_market),
+    pc_market: normalizeMarket(data.pc_market),
     picks_market: normalizeMarket(data.picks_market),
     own_guys_preference: normalizeOwnGuys(data.own_guys_preference),
     gm_persona: normalizePersona(data.gm_persona),
@@ -479,6 +478,16 @@ const upsertComputedRows = async (
   return { upserted: rows.length };
 };
 
+// Owned pick keys for a team, read from the shared ownership fact (same source
+// pickService uses). Picks live in the per-team values table alongside players;
+// the stale-cleanup must treat them as owned so it sweeps only traded-away assets.
+const getOwnedPickKeys = async (teamId: string): Promise<string[]> => {
+  const league = await getLeagueData();
+  if ("error" in league) return [];
+  const picks = league.pickOwnership.get(teamId) ?? [];
+  return picks.map((pick) => pick.key).filter(Boolean);
+};
+
 export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: string) {
   const client = getClientOrThrow();
   const strategyProfile = await getTeamStrategyProfile(leagueId, teamId);
@@ -486,32 +495,28 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
     wants_more: strategyProfile.wants_more,
     qb_market: strategyProfile.qb_market,
     rb_market: strategyProfile.rb_market,
-    wr_market: strategyProfile.wr_market,
-    te_market: strategyProfile.te_market,
+    pc_market: strategyProfile.pc_market,
     picks_market: strategyProfile.picks_market,
     own_guys_preference: strategyProfile.own_guys_preference,
     gm_persona: strategyProfile.gm_persona,
   };
 
+  // Everything this team owns — players (Sleeper roster) AND picks (shared
+  // ownership fact). Pick rows live in the same table but are rebuilt by
+  // pickService; including their keys here means the stale-cleanup treats them
+  // as owned and never sweeps a pick that's still ours.
   const ownedPlayerIds = await getOwnedPlayerIds(leagueId, teamId);
-  const ownedPlayerIdSet = new Set(ownedPlayerIds);
+  const ownedPickKeys = await getOwnedPickKeys(teamId);
+  const ownedAssetIdSet = new Set<string>([...ownedPlayerIds, ...ownedPickKeys]);
 
-  if (!ownedPlayerIds.length) {
-    const { error: clearError } = await client
-      .from("cfc_team_trade_values_current")
-      .delete()
-      .eq("league_id", leagueId)
-      .eq("team_id", teamId);
-
-    if (clearError) {
-      throw new Error(clearError.message);
-    }
-
-    return { upserted: 0, deleted: 0 };
-  }
-
+  // Recompute the player rows. (Picks are recomputed by pickService; we leave
+  // their rows in place here.) If the team owns no players we simply upsert
+  // nothing — we do NOT wipe the table, so a transient empty roster read can't
+  // nuke the chart, and picks are untouched.
   const { upserted } = await upsertComputedRows(leagueId, teamId, ownedPlayerIds, strategy);
 
+  // Stale cleanup: drop rows for any asset (player or pick) this team no longer
+  // owns. A traded-away pick falls out exactly like a traded-away player.
   const { data: existingRows, error: existingError } = await client
     .from("cfc_team_trade_values_current")
     .select("sleeper_player_id")
@@ -524,7 +529,7 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
 
   const staleIds = (existingRows ?? [])
     .map((row) => row.sleeper_player_id)
-    .filter((playerId): playerId is string => !!playerId && !ownedPlayerIdSet.has(playerId));
+    .filter((assetId): assetId is string => !!assetId && !ownedAssetIdSet.has(assetId));
 
   if (staleIds.length) {
     const { error: staleDeleteError } = await client
@@ -571,8 +576,7 @@ export async function rebuildTeamTradeValueForPlayer(
     wants_more: strategyProfile.wants_more,
     qb_market: strategyProfile.qb_market,
     rb_market: strategyProfile.rb_market,
-    wr_market: strategyProfile.wr_market,
-    te_market: strategyProfile.te_market,
+    pc_market: strategyProfile.pc_market,
     picks_market: strategyProfile.picks_market,
     own_guys_preference: strategyProfile.own_guys_preference,
     gm_persona: strategyProfile.gm_persona,
