@@ -40,7 +40,7 @@ export async function GET() {
           league_id: leagueId,
           team_id: teamId,
           sleeper_player_id: pick.key,
-          attachment: "core_piece",
+          attachment: "listening",
           updated_at: nowIso,
         }));
 
