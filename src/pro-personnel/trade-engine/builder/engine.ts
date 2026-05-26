@@ -32,12 +32,12 @@
 import {
   computeGap,
   personaAwareGrade,
-} from "../core/gap";
+} from "@/pro-personnel/engine/core/gap";
 import {
   isAging,
   isUntouchable,
   isAgingBenchGuy,
-} from "../core/classification";
+} from "@/pro-personnel/engine/core/classification";
 import type {
   RosterAsset,
   DealAsset,
@@ -47,7 +47,7 @@ import type {
   PersonaKey,
   StrategyProfile,
   TeamMode,
-} from "../core/types";
+} from "@/pro-personnel/engine/core/types";
 import {
   deriveEmpiricalBand,
   matchesRecentPass,

@@ -51,9 +51,9 @@
 //                       does)
 //   - SS and Architect are perspective-neutral and dispatch to themselves.
 
-import type { RosterAsset, PersonaKey } from "../core/types";
+import type { RosterAsset, PersonaKey } from "@/pro-personnel/engine/core/types";
 import type { StudioEngineContext, StudioPartner } from "./types";
-import { getCFCYear, sumValue, isUntouchable } from "../core/classification";
+import { getCFCYear, sumValue, isUntouchable } from "@/pro-personnel/engine/core/classification";
 
 export type CandidateOffer = {
   partnerId: string;

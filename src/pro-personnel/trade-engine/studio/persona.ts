@@ -17,7 +17,7 @@
 //   ARCHITECT        — exotic shapes only (4+ assets / pick swap / future pick),
 //                      ratio 0.90–1.10
 
-import type { PersonaKey } from "../core/types";
+import type { PersonaKey } from "@/pro-personnel/engine/core/types";
 
 export type { PersonaKey };
 

@@ -21,9 +21,9 @@ export {
   isUntouchable,
   isAgingBenchGuy,
   sumValue,
-} from "../core/classification";
+} from "@/pro-personnel/engine/core/classification";
 
-export { scoreWantsMatch, countComplementarity } from "../core/ranking";
+export { scoreWantsMatch, countComplementarity } from "@/pro-personnel/engine/core/ranking";
 
 // Backwards-compat alias — old name was countWantsMoreMatches
-export { scoreWantsMatch as countWantsMoreMatches } from "../core/ranking";
+export { scoreWantsMatch as countWantsMoreMatches } from "@/pro-personnel/engine/core/ranking";

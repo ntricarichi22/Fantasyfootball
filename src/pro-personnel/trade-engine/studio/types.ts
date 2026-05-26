@@ -17,7 +17,7 @@ import type {
   PersonaKey,
   AssetType,
   TeamMode,
-} from "../core/types";
+} from "@/pro-personnel/engine/core/types";
 
 // ─── Re-exports for backwards compat ───────────────────────────────────
 

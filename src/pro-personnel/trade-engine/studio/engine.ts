@@ -26,11 +26,11 @@
 //     [1.00, 99] identifies partners lowballing.
 //   - personaOverride option removed — toggle UI is gone.
 
-import { computeGap, personaAwareGrade } from "../core/gap";
-import { computePostTradeWarnings } from "../core/warnings";
-import { scoreWantsMatch, countComplementarity } from "../core/ranking";
-import { sumValue, isAgingBenchGuy } from "../core/classification";
-import type { RosterAsset, DealAsset } from "../core/types";
+import { computeGap, personaAwareGrade } from "@/pro-personnel/engine/core/gap";
+import { computePostTradeWarnings } from "@/pro-personnel/engine/core/warnings";
+import { scoreWantsMatch, countComplementarity } from "@/pro-personnel/engine/core/ranking";
+import { sumValue, isAgingBenchGuy } from "@/pro-personnel/engine/core/classification";
+import type { RosterAsset, DealAsset } from "@/pro-personnel/engine/core/types";
 import { getPersona } from "./persona";
 import { generateCandidates, type CandidateOffer } from "./candidates";
 import type {

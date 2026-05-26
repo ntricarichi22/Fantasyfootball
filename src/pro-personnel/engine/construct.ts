@@ -1,0 +1,518 @@
+// src/pro-personnel/engine/construct.ts
+//
+// THE front door. Every door (Studio, Builder, Scouting) funnels through one
+// deal-constructor: given a partner set and the anchors an adapter locked in,
+// build the rest of the deal until it's fair on the scoreboard the door aims
+// at and would plausibly be signed. The constructor owns all the new/risky
+// reasoning; the salvaged brains (shapes, balance, gap math) stay simple and
+// get fed from here.
+//
+// The pipeline, per (partner, candidate target):
+//   1. seed the anchors the adapter locked to each side
+//   2. build fill pools in the AIM lens (aim=us → our values, aim=partner →
+//      partner values) so balance closes on the right scoreboard
+//   3. balance to the offering persona's opening ratio, then apply that
+//      persona's finishing sweetener (shapes)
+//   4. price BOTH real scoreboards (pricing) — never the aim-lens shortcut
+//   5. grade our chip (personaAwareGrade) + read the partner (their band,
+//      empirical override when we have their history)
+//   6. demand gate (the one hard gate) + soft friction (untouchable / picks)
+//   7. post-trade safety: don't crater our starting lineup (computeStrength)
+//   8. score: surplus↔need fit + VOR + aim-board cleanliness + partner
+//      motivation + complementarity − friction
+//   9. slate: best-per-partner + per-position caps + reserved blind-spot slots
+//
+// The engine touches ZERO database — the route loads all shared inputs and the
+// ValuationContext and hands them in via EngineContext.
+
+import type { LeagueData, StrategyProfile, RosteredTeam, PlayerInfo, OwnedPick } from "@/shared/league-data";
+import type { TeamProfile, TeamNeeds, NeedLevel } from "@/shared/team-profiles";
+import { computeStrength } from "@/shared/team-profiles";
+import type { TeamDossier } from "@/shared/team-dossier";
+import { valueAsset, type AssetRef, type ValuationContext } from "@/shared/asset-values";
+
+import type {
+  DealRequest,
+  EngineOffer,
+  EngineOfferAsset,
+  EngineSlate,
+  Bucket,
+  Side,
+  AimAt,
+  PartnerRead,
+  PersonaKey,
+} from "./types";
+import { normalizePersona, bandFor, type PersonaBand } from "./core/personas";
+import { personaAwareGrade } from "./core/gap";
+import type { Gap } from "./core/types";
+import { priceDeal, type PricingInput } from "./pricing";
+import { bucketForPosition, wantsToAcquire, isUntouchable, shippingPickIsFriction, isBlindSpot } from "./gates";
+import { shapeKnobsFor } from "./shapes";
+import { balanceDeal, type ValuedAsset } from "./balance";
+
+// ─── The input bundle the route assembles (engine never hits the DB) ─────────
+
+export type EngineContext = {
+  data: LeagueData;
+  profiles: TeamProfile[];
+  dossiers: TeamDossier[];
+  needs: Map<string, TeamNeeds>;
+  ctx: ValuationContext;
+  // Optional per-team empirical accept band (>= 5 accepted trades on file).
+  // When present for a team it overrides the persona fallback band.
+  empiricalBands?: Map<string, PersonaBand>;
+};
+
+// ─── Tunables (calibrate against live output after wiring) ────────────────────
+
+const SAFETY_DROP = 0.12; // post-trade starter value may fall at most this fraction
+const MAX_TARGETS_PER_PARTNER = 2; // acquire: candidate targets considered per partner
+const SLATE_MAX = 8; // hard ceiling on offers returned
+const PER_POSITION_CAP = 2; // at most this many offers anchored on one bucket
+const BLIND_SPOT_SLOTS = 2; // reserved "fix the hole they say they don't have" slots
+const NEAR_FAIR = 0.07; // band slack used in the partner-read near-miss
+
+// Ranking weights.
+const W_FIT = 3.0;
+const W_VOR = 2.5;
+const W_AIM = 1.5;
+const W_MOTIVATION = 1.0;
+const W_COMPLEMENT = 0.75;
+const W_FRICTION = 1.5;
+
+// ─── Small helpers ────────────────────────────────────────────────────────────
+
+function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"];
+  const v = n % 100;
+  return `${n}${s[(v - 20) % 10] || s[v] || s[0]}`;
+}
+
+function toRef(key: string, type: "player" | "pick"): AssetRef {
+  return type === "pick" ? { type: "pick", key } : { type: "player", sleeperPlayerId: key };
+}
+
+function needLevel(needs: TeamNeeds | undefined, bucket: Bucket): NeedLevel | null {
+  if (!needs) return null;
+  if (bucket === "QB") return needs.qb.level;
+  if (bucket === "RB") return needs.rb.level;
+  if (bucket === "PASS_CATCHER") return needs.passCatcher.level;
+  return null;
+}
+
+function needScore(level: NeedLevel | null): number {
+  return level === "high" ? 2 : level === "med" ? 1 : 0;
+}
+
+function marketFor(strat: StrategyProfile | undefined, bucket: Bucket): string {
+  if (!strat) return "unknown";
+  if (bucket === "QB") return strat.qbMarket;
+  if (bucket === "RB") return strat.rbMarket;
+  if (bucket === "PASS_CATCHER") return strat.pcMarket;
+  return strat.picksMarket;
+}
+
+// A resolved asset — players and picks both reduce to this for construction.
+type Resolved = {
+  key: string;
+  name: string;
+  type: "player" | "pick";
+  position: string;
+  bucket: Bucket;
+  isStud: boolean;
+  ownerTeamId: string;
+  pick?: OwnedPick;
+};
+
+// ─── The constructor ───────────────────────────────────────────────────────────
+
+export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
+  const { data, ctx } = ec;
+  const ourTeamId = req.ourTeamId;
+
+  // Index everything once.
+  const dossierById = new Map(ec.dossiers.map((d) => [d.rosterId, d]));
+  const teamById = new Map(data.teams.map((t) => [t.rosterId, t]));
+  const playerOwner = new Map<string, string>();
+  for (const t of data.teams) for (const id of t.playerIds) playerOwner.set(id, t.rosterId);
+  const pickByKey = new Map<string, OwnedPick>();
+  for (const picks of data.pickOwnership.values()) for (const p of picks) pickByKey.set(p.key, p);
+
+  const ourTeam = teamById.get(ourTeamId);
+  if (!ourTeam) {
+    return { generatedAt: new Date().toISOString(), offers: [], reason: "no_clean_offers" };
+  }
+  const ourStrategy = data.strategy.get(ourTeamId);
+  const ourNeeds = ec.needs.get(ourTeamId);
+  const ourDossier = dossierById.get(ourTeamId) ?? null;
+  const ourPersona = normalizePersona(ourDossier?.persona);
+  const ourAttachment = (data.attachments.get(ourTeamId) ?? null) as Map<string, string> | null;
+  const rosterPositions = data.settings.rosterPositions;
+  const ourBaseStarter = computeStrength(ourTeam, data.values, rosterPositions).starterValue;
+
+  // Resolve any asset key to its facts.
+  function resolve(key: string): Resolved | null {
+    const p = data.players.get(key);
+    if (p) {
+      const bucket = bucketForPosition(p.position);
+      return {
+        key,
+        name: p.name,
+        type: "player",
+        position: p.position,
+        bucket,
+        isStud: data.values.isStud.get(key) ?? false,
+        ownerTeamId: playerOwner.get(key) ?? "",
+      };
+    }
+    const pk = pickByKey.get(key);
+    if (pk) {
+      return {
+        key,
+        name: `${pk.season} ${ordinal(pk.round)}`,
+        type: "pick",
+        position: "PICK",
+        bucket: "PICK",
+        isStud: false,
+        ownerTeamId: pk.currentRosterId,
+        pick: pk,
+      };
+    }
+    return null;
+  }
+
+  // Value of an asset under the AIM lens, given which side it sits on.
+  function aimValue(r: Resolved, side: Side, aim: AimAt, partnerId: string): number {
+    const ref = toRef(r.key, r.type);
+    const ours = side === "send";
+    if (aim === "us") {
+      return ours ? valueAsset(ref, ctx, { perspective: ourTeamId }) : valueAsset(ref, ctx);
+    }
+    return ours ? valueAsset(ref, ctx) : valueAsset(ref, ctx, { perspective: partnerId });
+  }
+
+  function valued(r: Resolved, side: Side, aim: AimAt, partnerId: string): ValuedAsset {
+    return { key: r.key, name: r.name, type: r.type, value: aimValue(r, side, aim, partnerId) };
+  }
+
+  // Effective accept band: empirical override if we have it, else persona.
+  function effectiveBand(teamId: string, persona: PersonaKey): PersonaBand {
+    return ec.empiricalBands?.get(teamId) ?? bandFor(persona);
+  }
+
+  function readFor(ratio: number, band: PersonaBand): PartnerRead {
+    if (ratio >= band.min && ratio <= band.max) return "likely";
+    const below = band.min - ratio;
+    if (below > 0 && below <= NEAR_FAIR) return "needs_selling";
+    const above = ratio - band.max;
+    if (above > 0 && above <= NEAR_FAIR) return "needs_selling";
+    return "long_shot";
+  }
+  const inBand = (ratio: number, band: PersonaBand) => ratio >= band.min && ratio <= band.max;
+
+  // Post-trade: does our starting lineup survive? Picks don't touch the lineup.
+  function survivesSafety(sendKeys: string[], receiveKeys: string[]): boolean {
+    const sent = new Set(sendKeys.filter((k) => data.players.has(k)));
+    const gained: PlayerInfo[] = receiveKeys
+      .map((k) => data.players.get(k))
+      .filter((p): p is PlayerInfo => !!p);
+    if (sent.size === 0 && gained.length === 0) return true;
+    const players = ourTeam!.players.filter((p) => !sent.has(p.id)).concat(gained);
+    const after: RosteredTeam = { ...ourTeam!, players };
+    const afterStarter = computeStrength(after, data.values, rosterPositions).starterValue;
+    return afterStarter >= ourBaseStarter * (1 - SAFETY_DROP);
+  }
+
+  // Marginal starter-value gain to us from the received players (VOR).
+  function vorOfReceive(receiveKeys: string[]): number {
+    const gained: PlayerInfo[] = receiveKeys
+      .map((k) => data.players.get(k))
+      .filter((p): p is PlayerInfo => !!p);
+    if (gained.length === 0) return 0;
+    const players = ourTeam!.players.concat(gained);
+    const after: RosteredTeam = { ...ourTeam!, players };
+    const afterStarter = computeStrength(after, data.values, rosterPositions).starterValue;
+    return Math.max(0, afterStarter - ourBaseStarter);
+  }
+
+  const gapFrom = (sb: { sendValue: number; receiveValue: number; ratio: number; verdict: Gap["verdict"] }): Gap => ({
+    sendValue: sb.sendValue,
+    receiveValue: sb.receiveValue,
+    ratio: sb.ratio,
+    delta: sb.receiveValue - sb.sendValue,
+    verdict: sb.verdict,
+    hasSend: sb.sendValue > 0,
+    hasReceive: sb.receiveValue > 0,
+  });
+
+  // Eligible partners.
+  const eligible: string[] =
+    req.counterparty.mode === "locked"
+      ? req.counterparty.teamIds
+      : data.teams.map((t) => t.rosterId).filter((id) => id !== ourTeamId);
+
+  // Anchors split by side (resolved).
+  const sendAnchors = req.anchors.filter((a) => a.side === "send").map((a) => a.key);
+  const receiveAnchorsBase = req.anchors.filter((a) => a.side === "receive").map((a) => a.key);
+  const requiredKeys = req.requiredCounterpartyKeys ?? [];
+
+  const offers: EngineOffer[] = [];
+
+  for (const partnerId of eligible) {
+    const partnerTeam = teamById.get(partnerId);
+    if (!partnerTeam) continue;
+    const partnerDossier = dossierById.get(partnerId) ?? null;
+    const partnerStrategy = data.strategy.get(partnerId);
+    const partnerPersona = normalizePersona(partnerDossier?.persona);
+
+    // Offering persona = whoever shapes the offer. Studio (aim=partner) → the
+    // partner shapes their own offer; otherwise it's us.
+    const offeringPersona = req.aimAt === "partner" ? partnerPersona : ourPersona;
+    const knobs = shapeKnobsFor(offeringPersona);
+
+    // Required partner picks are forced receive anchors (trade-up slot, etc.).
+    const receiveAnchors = [...receiveAnchorsBase, ...requiredKeys];
+
+    // Candidate targets: for an "acquire" door with no fixed receive anchor,
+    // discover the partner's players we want that would actually crack our
+    // lineup (positive VOR), best first. Otherwise the anchors ARE the deal.
+    let targetSets: string[][];
+    if (req.intent === "acquire" && receiveAnchors.length === 0) {
+      const cands = partnerTeam.playerIds
+        .map((k) => resolve(k))
+        .filter((r): r is Resolved => !!r)
+        .filter((r) => wantsToAcquire(r.bucket, ourStrategy ?? null, ourNeeds ?? null).ok)
+        .map((r) => ({ r, vor: vorOfReceive([r.key]) }))
+        .filter((x) => x.vor > 0)
+        .sort((a, b) => b.vor - a.vor)
+        .slice(0, MAX_TARGETS_PER_PARTNER);
+      targetSets = cands.map((c) => [c.r.key]);
+    } else {
+      targetSets = [receiveAnchors];
+    }
+    if (targetSets.length === 0) continue;
+
+    for (const targetKeys of targetSets) {
+      const offer = buildOne(partnerId, targetKeys);
+      if (offer) offers.push(offer);
+    }
+
+    // Build a single offer for this partner around fixed send/receive anchors.
+    function buildOne(pId: string, recvKeys: string[]): EngineOffer | null {
+      const aim = req.aimAt;
+
+      // Resolve + seed both sides.
+      const seedSend = sendAnchors.map(resolve).filter((r): r is Resolved => !!r);
+      const seedRecv = recvKeys.map(resolve).filter((r): r is Resolved => !!r);
+
+      const sendSeedVA = seedSend.map((r) => valued(r, "send", aim, pId));
+      const recvSeedVA = seedRecv.map((r) => valued(r, "receive", aim, pId));
+
+      // Fill pools. Send: our movable assets (no untouchables led with). Receive:
+      // partner assets we'd actually take (demand-gated), minus anchors.
+      const anchored = new Set([...sendAnchors, ...recvKeys]);
+      const sendPool = ourTeam!.playerIds
+        .concat((data.pickOwnership.get(ourTeamId) ?? []).map((p) => p.key))
+        .filter((k) => !anchored.has(k))
+        .map(resolve)
+        .filter((r): r is Resolved => !!r)
+        .filter((r) => !isUntouchable(r.key, ourAttachment))
+        .map((r) => valued(r, "send", aim, pId));
+
+      const recvPool = partnerTeam!.playerIds
+        .concat((data.pickOwnership.get(pId) ?? []).map((p) => p.key))
+        .filter((k) => !anchored.has(k))
+        .map(resolve)
+        .filter((r): r is Resolved => !!r)
+        .filter((r) => wantsToAcquire(r.bucket, ourStrategy ?? null, ourNeeds ?? null).ok)
+        .map((r) => valued(r, "receive", aim, pId));
+
+      // Opening ratio is from the offering team's seat; translate to OUR seat
+      // (balance always reads receive/send from our seat).
+      const targetRatio = aim === "us" ? knobs.openingRatio : 1 / knobs.openingRatio;
+
+      const balanced = balanceDeal({
+        send: sendSeedVA,
+        receive: recvSeedVA,
+        sendPool,
+        receivePool: recvPool,
+        targetRatio,
+        maxPerSide: knobs.maxPerSide,
+      });
+
+      let sendVA = balanced.send;
+      let recvVA = balanced.receive;
+
+      // Persona finishing sweetener: a low pick added to the indicated side.
+      if (knobs.sweetenerSide === "send" && sendVA.length < knobs.maxPerSide) {
+        const lowPick = [...sendPool]
+          .filter((a) => a.type === "pick" && !sendVA.some((s) => s.key === a.key))
+          .sort((a, b) => a.value - b.value)[0];
+        if (lowPick) sendVA = [...sendVA, lowPick];
+      } else if (knobs.sweetenerSide === "receive" && recvVA.length < knobs.maxPerSide) {
+        const smallPick = [...recvPool]
+          .filter((a) => a.type === "pick" && !recvVA.some((s) => s.key === a.key))
+          .sort((a, b) => a.value - b.value)[0];
+        if (smallPick) recvVA = [...recvVA, smallPick];
+      }
+
+      // Need a real two-sided deal.
+      if (sendVA.length === 0 || recvVA.length === 0) return null;
+
+      const assets: EngineOfferAsset[] = [
+        ...sendVA.map((a) => ({ key: a.key, name: a.name, type: a.type, side: "send" as Side })),
+        ...recvVA.map((a) => ({ key: a.key, name: a.name, type: a.type, side: "receive" as Side })),
+      ];
+
+      const sendKeys = sendVA.map((a) => a.key);
+      const recvKeysAll = recvVA.map((a) => a.key);
+
+      // Post-trade safety — never gut our own lineup.
+      if (!survivesSafety(sendKeys, recvKeysAll)) return null;
+
+      // Real two-scoreboard pricing.
+      const pricing: PricingInput = { ourTeamId, partnerTeamId: pId, assets, ctx };
+      const { ours, theirs } = priceDeal(pricing);
+
+      const ourBand = effectiveBand(ourTeamId, ourPersona);
+      const theirBand = effectiveBand(pId, partnerPersona);
+      const grade = personaAwareGrade(gapFrom(ours), ourPersona);
+      const partnerRead = readFor(theirs.ratio, theirBand);
+      const clears = inBand(ours.ratio, ourBand) && inBand(theirs.ratio, theirBand);
+
+      // Floors per door.
+      if (aim === "us") {
+        // We build for us: chip must be green-ish AND the partner at least a sell.
+        const greenish = grade.bucket === "great" || grade.bucket === "ahead" || grade.bucket === "fair";
+        if (!greenish) return null;
+        if (partnerRead === "long_shot") return null;
+      } else {
+        // Studio: only surface what the partner would realistically take.
+        if (!inBand(theirs.ratio, theirBand)) return null;
+      }
+
+      // Ranking.
+      const recvResolved = recvKeysAll.map(resolve).filter((r): r is Resolved => !!r);
+      let fit = 0;
+      let motivation = 0;
+      for (const r of recvResolved) {
+        fit += needScore(needLevel(ourNeeds, r.bucket));
+        if (marketFor(partnerStrategy, r.bucket) === "sell") motivation += 1;
+      }
+      const vor = vorOfReceive(recvKeysAll);
+      const vorNorm = ourBaseStarter > 0 ? Math.min(1, vor / (ourBaseStarter * 0.15)) : 0;
+      const aimRatio = aim === "us" ? ours.ratio : theirs.ratio;
+      const aimScore = Math.max(0, Math.min(2, aimRatio)); // reward favorable-on-aim-board
+
+      // Complementarity: we buy what they sell, and vice-versa.
+      let complement = 0;
+      for (const b of ["QB", "RB", "PASS_CATCHER", "PICK"] as Bucket[]) {
+        const my = marketFor(ourStrategy, b);
+        const th = marketFor(partnerStrategy, b);
+        if ((my === "buy" && th === "sell") || (my === "sell" && th === "buy")) complement += 1;
+      }
+
+      // Friction: leading with an untouchable (anchors can be) or shipping a
+      // pick while we're accumulating.
+      let friction = 0;
+      for (const k of sendKeys) {
+        if (isUntouchable(k, ourAttachment)) friction += 1;
+        if (pickByKey.has(k) && shippingPickIsFriction(ourStrategy ?? null, ourDossier)) friction += 0.5;
+      }
+
+      const score =
+        W_FIT * fit +
+        W_VOR * vorNorm +
+        W_AIM * aimScore +
+        W_MOTIVATION * motivation +
+        W_COMPLEMENT * complement -
+        W_FRICTION * friction;
+
+      const id = `${pId}:${[...sendKeys].sort().join(",")}>${[...recvKeysAll].sort().join(",")}`;
+
+      return {
+        id,
+        partnerTeamId: pId,
+        partnerTeamName: partnerTeam!.teamName,
+        partnerPersona,
+        intent: req.intent,
+        assets,
+        ourScoreboard: ours,
+        grade,
+        partnerScoreboard: theirs,
+        partnerRead,
+        clears,
+        prose: "",
+        score,
+      };
+    }
+  }
+
+  // ─── Slate assembly: best-per-partner, position caps, blind-spot slots ──────
+
+  // Primary bucket of an offer = bucket of its highest-value receive player.
+  function primaryBucket(o: EngineOffer): Bucket {
+    const players = o.assets.filter((a) => a.side === "receive" && a.type === "player");
+    let best: Bucket = "PICK";
+    let bestVal = -1;
+    for (const a of players) {
+      const r = resolve(a.key);
+      if (!r) continue;
+      const v = valueAsset(toRef(r.key, "player"), ctx);
+      if (v > bestVal) {
+        bestVal = v;
+        best = r.bucket;
+      }
+    }
+    return best;
+  }
+
+  // One best offer per partner, highest score.
+  const bestByPartner = new Map<string, EngineOffer>();
+  for (const o of offers) {
+    const cur = bestByPartner.get(o.partnerTeamId);
+    if (!cur || o.score > cur.score) bestByPartner.set(o.partnerTeamId, o);
+  }
+  const ranked = [...bestByPartner.values()].sort((a, b) => b.score - a.score);
+
+  // Blind-spot buckets: worst-in-league need we marked set/sell.
+  const blindBuckets = (["QB", "RB", "PASS_CATCHER"] as Bucket[]).filter((b) =>
+    isBlindSpot(b, ourStrategy ?? null, ourNeeds ?? null),
+  );
+
+  const chosen: EngineOffer[] = [];
+  const posCount = new Map<Bucket, number>();
+  const usedIds = new Set<string>();
+
+  // Reserve up to BLIND_SPOT_SLOTS for offers that fix a glaring hole first.
+  if (blindBuckets.length > 0) {
+    let reserved = 0;
+    for (const o of ranked) {
+      if (reserved >= BLIND_SPOT_SLOTS) break;
+      if (blindBuckets.includes(primaryBucket(o)) && !usedIds.has(o.id)) {
+        chosen.push(o);
+        usedIds.add(o.id);
+        const b = primaryBucket(o);
+        posCount.set(b, (posCount.get(b) ?? 0) + 1);
+        reserved++;
+      }
+    }
+  }
+
+  // Fill the rest with the per-position cap.
+  for (const o of ranked) {
+    if (chosen.length >= SLATE_MAX) break;
+    if (usedIds.has(o.id)) continue;
+    const b = primaryBucket(o);
+    if ((posCount.get(b) ?? 0) >= PER_POSITION_CAP) continue;
+    chosen.push(o);
+    usedIds.add(o.id);
+    posCount.set(b, (posCount.get(b) ?? 0) + 1);
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    offers: chosen,
+    reason: chosen.length > 0 ? "ok" : "no_clean_offers",
+  };
+}
