@@ -20,8 +20,10 @@ export function yearDiscount(yearsOut: number): number {
 }
 
 // Availability tier — how attached the owner is. Same scale for players + picks.
+// Untouchable is +20%: the price spike is the protection — pry the guy loose
+// only with a genuinely big return, no hard "never trade" wall needed.
 export const AVAILABILITY_PCT: Record<AttachmentLevel, number> = {
-  untouchable: 10,
+  untouchable: 20,
   core_piece: 5,
   listening: 0,
   moveable: -5,

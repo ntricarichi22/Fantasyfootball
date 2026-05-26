@@ -1,4 +1,4 @@
-// src/pro-personnel/trade-engine/core/gap.ts
+// src/pro-personnel/engine/core/gap.ts
 //
 // Gap math + grade derivation. Single source of truth for fairness.
 //
@@ -13,7 +13,9 @@
 //                         OUR accept-band check. Bilateral acceptance (will
 //                         the partner take it?) is handled in advisor prose.
 //
-// Color update: teal #007370 → green #019942 (aligns to locked CFC palette).
+// Band source: the locked table in ./personas (PERSONA_BANDS via bandFor).
+// This file no longer carries its own copy — that drift (closer capped at 1.00
+// here vs 1.05 in the locked table) is gone. One table, read everywhere.
 //
 // Bucket preservation: the full bucket vocabulary
 //   "great" | "ahead" | "fair" | "reaching" | "way_off" | "incomplete"
@@ -30,6 +32,7 @@ import type {
   Grade,
   PersonaKey,
 } from "./types";
+import { bandFor } from "./personas";
 
 // ─── Color tokens (mirror locked palette) ──────────────────────────────
 
@@ -114,30 +117,13 @@ export function gradeFromVerdict(v: GapVerdict): Grade {
 
 // ─── Persona accept-band check ────────────────────────────────────────
 //
-// Both Builder and Studio now pass OUR persona — the chip grades whether
-// the deal falls in OUR accept band. Inside band → "We should take this
-// deal" (green). Outside band → falls through to standard verdict grade.
+// Both Builder and Studio pass OUR persona — the chip grades whether the
+// deal falls in OUR accept band. Inside band → "We should take this deal"
+// (green). Outside band → falls through to standard verdict grade.
 //
-// Hustler band sits ABOVE 1.0 — "come in low" means we're underpaying
-// the partner, so user-perspective ratio (receive/send) ends up > 1.0.
-// Upper bound 99 lets the math naturally bound the ratio.
-//
-// When inside-band, we use the "ahead" bucket to mark this as the user's
-// preferred band hit (mildly favorable) — distinct from "great"/"fair"
-// which come straight from raw verdict math.
-
-const PERSONA_RATIO_MIN: Record<PersonaKey, number> = {
-  straight_shooter: 0.90,
-  closer: 0.85,
-  hustler: 1.00,
-  architect: 0.90,
-};
-const PERSONA_RATIO_MAX: Record<PersonaKey, number> = {
-  straight_shooter: 1.10,
-  closer: 1.00,
-  hustler: 99,
-  architect: 1.10,
-};
+// Band numbers come from the locked PERSONA_BANDS table via bandFor(), so
+// the chip and the engine can never disagree. Hustler's band sits at/above
+// 1.0 (they never overpay); the 99 ceiling lets the math bound naturally.
 
 export function personaAwareGrade(
   gap: Gap,
@@ -153,11 +139,10 @@ export function personaAwareGrade(
     return gradeFromVerdict(gap.verdict);
   }
 
-  const min = PERSONA_RATIO_MIN[ourPersona];
-  const max = PERSONA_RATIO_MAX[ourPersona];
+  const band = bandFor(ourPersona);
 
   // Inside our persona's accept band → director endorses with green chip
-  if (gap.ratio >= min && gap.ratio <= max) {
+  if (gap.ratio >= band.min && gap.ratio <= band.max) {
     // Pick the bucket that best reflects where in the band we landed:
     //   ratio >= 1.0 → "ahead" (favorable end)
     //   ratio <  1.0 → "fair"  (we're paying fairly)
