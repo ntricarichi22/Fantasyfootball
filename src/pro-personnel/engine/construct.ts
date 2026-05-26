@@ -70,12 +70,22 @@ const MAX_TARGETS_PER_PARTNER = 2; // acquire: candidate targets considered per 
 const SLATE_MAX = 8; // hard ceiling on offers returned
 const PER_POSITION_CAP = 2; // at most this many offers anchored on one bucket
 const BLIND_SPOT_SLOTS = 2; // reserved "fix the hole they say they don't have" slots
-const NEAR_FAIR = 0.07; // band slack used in the partner-read near-miss
+
+// Partner stretch (LOCKED). We surface a deal even when the partner would balk,
+// as long as it isn't fantasy for them. "Stretch" = how far BELOW their band
+// floor we'll still float it — a flat 0.10, which auto-differentiates by
+// persona since the band floors already differ (Closer 0.85→0.75, SS/Architect
+// 0.90→0.80, Hustler 1.00→0.90). HARD_FLOOR is the universal non-starter line:
+// nobody, no matter how loose their (possibly empirical) band, gets a deal
+// floated below it.
+const PARTNER_STRETCH = 0.1;
+const HARD_FLOOR = 0.75;
 
 // Ranking weights.
 const W_FIT = 3.0;
 const W_VOR = 2.5;
 const W_AIM = 1.5;
+const W_LIKELY = 2.0; // deals the partner would take outright float above stretches
 const W_MOTIVATION = 1.0;
 const W_COMPLEMENT = 0.75;
 const W_FRICTION = 1.5;
@@ -200,12 +210,20 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
     return ec.empiricalBands?.get(teamId) ?? bandFor(persona);
   }
 
+  // Partner read against THEIR band, locked tiers:
+  //   likely        — their ratio is at/above their floor (in comfort, or
+  //                    winning — both are a yes).
+  //   needs_selling  — within the 0.10 stretch below their floor: they'll
+  //                    likely balk, but it's a real ask worth floating.
+  //   long_shot      — past the stretch (or below the universal hard floor):
+  //                    fantasy for them; the constructor filters these out.
+  function stretchFloorFor(band: PersonaBand): number {
+    return Math.max(HARD_FLOOR, band.min - PARTNER_STRETCH);
+  }
+
   function readFor(ratio: number, band: PersonaBand): PartnerRead {
-    if (ratio >= band.min && ratio <= band.max) return "likely";
-    const below = band.min - ratio;
-    if (below > 0 && below <= NEAR_FAIR) return "needs_selling";
-    const above = ratio - band.max;
-    if (above > 0 && above <= NEAR_FAIR) return "needs_selling";
+    if (ratio >= band.min) return "likely";
+    if (ratio >= stretchFloorFor(band)) return "needs_selling";
     return "long_shot";
   }
   const inBand = (ratio: number, band: PersonaBand) => ratio >= band.min && ratio <= band.max;
@@ -380,11 +398,15 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const partnerRead = readFor(theirs.ratio, theirBand);
       const clears = inBand(ours.ratio, ourBand) && inBand(theirs.ratio, theirBand);
 
-      // Floors per door.
+      // Surfacing floors (LOCKED).
       if (aim === "us") {
-        // We build for us: chip must be green-ish AND the partner at least a sell.
-        const greenish = grade.bucket === "great" || grade.bucket === "ahead" || grade.bucket === "fair";
-        if (!greenish) return null;
+        // 1) Works for us: at or above OUR band floor. The persona band is the
+        //    single source of truth now — no separate grade-bucket gate. We do
+        //    NOT cap on our ceiling; a steal for us is fine and gets killed by
+        //    the partner floor below anyway.
+        if (ours.ratio < ourBand.min) return null;
+        // 2) Not fantasy for them: within their stretch. long_shot = past the
+        //    stretch (or below the hard floor) → don't surface.
         if (partnerRead === "long_shot") return null;
       } else {
         // Studio: only surface what the partner would realistically take.
@@ -424,6 +446,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         W_FIT * fit +
         W_VOR * vorNorm +
         W_AIM * aimScore +
+        W_LIKELY * (partnerRead === "likely" ? 1 : 0) +
         W_MOTIVATION * motivation +
         W_COMPLEMENT * complement -
         W_FRICTION * friction;
