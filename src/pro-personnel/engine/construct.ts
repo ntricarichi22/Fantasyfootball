@@ -66,9 +66,10 @@ export type EngineContext = {
 // ─── Tunables (calibrate against live output after wiring) ────────────────────
 
 const SAFETY_DROP = 0.12; // post-trade starter value may fall at most this fraction
-const MAX_TARGETS_PER_PARTNER = 2; // acquire: candidate targets considered per partner
-const SLATE_MAX = 8; // hard ceiling on offers returned
-const PER_POSITION_CAP = 2; // at most this many offers anchored on one bucket
+const MAX_TARGETS_PER_PARTNER = 4; // acquire: candidate targets tried per partner
+const MAX_OFFERS_PER_PARTNER = 2; // how many surfaced offers one partner may hold
+const SLATE_MAX = 12; // hard ceiling on offers returned
+const PER_POSITION_CAP = 3; // at most this many offers anchored on one bucket
 const BLIND_SPOT_SLOTS = 2; // reserved "fix the hole they say they don't have" slots
 
 // Partner stretch (LOCKED). We surface a deal even when the partner would balk,
@@ -292,19 +293,48 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
     const receiveAnchors = [...receiveAnchorsBase, ...requiredKeys];
 
     // Candidate targets: for an "acquire" door with no fixed receive anchor,
-    // discover the partner's players we want that would actually crack our
-    // lineup (positive VOR), best first. Otherwise the anchors ARE the deal.
+    // discover what we'd realistically chase from this partner. VOR is a
+    // RANKER here, never a gate (locked decision) — we consider every asset at
+    // a position we have demand for, plus blind-spot positions we objectively
+    // need despite a stated set/sell, and rank best-fit first.
     let targetSets: string[][];
     if (req.intent === "acquire" && receiveAnchors.length === 0) {
-      const cands = partnerTeam.playerIds
+      // Players we'd take: demand-gated OR a glaring blind spot. Ranked by
+      // lineup impact (VOR), then raw value — but not filtered on either.
+      const playerCands = partnerTeam.playerIds
         .map((k) => resolve(k))
         .filter((r): r is Resolved => !!r)
-        .filter((r) => wantsToAcquire(r.bucket, ourStrategy ?? null, ourNeeds ?? null).ok)
-        .map((r) => ({ r, vor: vorOfReceive([r.key]) }))
-        .filter((x) => x.vor > 0)
-        .sort((a, b) => b.vor - a.vor)
-        .slice(0, MAX_TARGETS_PER_PARTNER);
-      targetSets = cands.map((c) => [c.r.key]);
+        .filter(
+          (r) =>
+            wantsToAcquire(r.bucket, ourStrategy ?? null, ourNeeds ?? null).ok ||
+            isBlindSpot(r.bucket, ourStrategy ?? null, ourNeeds ?? null),
+        )
+        .map((r) => ({ r, score: vorOfReceive([r.key]) * 1000 + valueAsset(toRef(r.key, "player"), ctx) }))
+        .sort((a, b) => b.score - a.score)
+        .map((x) => x.r);
+
+      // Picks we'd chase, only when we're actually hunting capital (picks
+      // market is "buy", or our wants-more list calls for picks). This is what
+      // turns on "ship the RB, get picks back."
+      const huntPicks =
+        ourStrategy?.picksMarket === "buy" ||
+        (ourStrategy?.wantsMore ?? []).some((w) => w.toLowerCase().includes("pick"));
+      const pickCands = huntPicks
+        ? (data.pickOwnership.get(partnerId) ?? [])
+            .map((p) => resolve(p.key))
+            .filter((r): r is Resolved => !!r)
+            .sort((a, b) => valueAsset(toRef(b.key, "pick"), ctx) - valueAsset(toRef(a.key, "pick"), ctx))
+        : [];
+
+      // Take the best players, and reserve a slot for the top pick when hunting
+      // so capital deals aren't crowded out by players.
+      const picked: Resolved[] = [];
+      if (pickCands.length > 0) picked.push(pickCands[0]);
+      for (const r of playerCands) {
+        if (picked.length >= MAX_TARGETS_PER_PARTNER) break;
+        picked.push(r);
+      }
+      targetSets = picked.map((r) => [r.key]);
     } else {
       targetSets = [receiveAnchors];
     }
@@ -490,13 +520,20 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
     return best;
   }
 
-  // One best offer per partner, highest score.
-  const bestByPartner = new Map<string, EngineOffer>();
+  // Up to MAX_OFFERS_PER_PARTNER per partner (best-scoring), deduped by id, so
+  // one team can show e.g. a player deal and a picks deal without flooding.
+  const byPartner = new Map<string, EngineOffer[]>();
   for (const o of offers) {
-    const cur = bestByPartner.get(o.partnerTeamId);
-    if (!cur || o.score > cur.score) bestByPartner.set(o.partnerTeamId, o);
+    const list = byPartner.get(o.partnerTeamId) ?? [];
+    list.push(o);
+    byPartner.set(o.partnerTeamId, list);
   }
-  const ranked = [...bestByPartner.values()].sort((a, b) => b.score - a.score);
+  const kept: EngineOffer[] = [];
+  for (const list of byPartner.values()) {
+    const top = list.sort((a, b) => b.score - a.score).slice(0, MAX_OFFERS_PER_PARTNER);
+    kept.push(...top);
+  }
+  const ranked = kept.sort((a, b) => b.score - a.score);
 
   // Blind-spot buckets: worst-in-league need we marked set/sell.
   const blindBuckets = (["QB", "RB", "PASS_CATCHER"] as Bucket[]).filter((b) =>
