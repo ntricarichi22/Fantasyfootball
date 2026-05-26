@@ -49,6 +49,7 @@ import { priceDeal, type PricingInput } from "./pricing";
 import { bucketForPosition, wantsToAcquire, isUntouchable, shippingPickIsFriction, isBlindSpot } from "./gates";
 import { shapeKnobsFor } from "./shapes";
 import { balanceDeal, type ValuedAsset } from "./balance";
+import { buildThesis, buildPartnerFit, type Thesis, type PartnerFit } from "./thesis";
 
 // ─── The input bundle the route assembles (engine never hits the DB) ─────────
 
@@ -87,6 +88,8 @@ const W_FIT = 3.0;
 const W_VOR = 2.5;
 const W_AIM = 1.5;
 const W_LIKELY = 2.0; // deals the partner would take outright float above stretches
+const W_PARTNERFIT = 1.0; // natural counterparties (window + need mirroring) rank up
+const W_PREMIUM = 1.0; // desperation-premium deals (selling into a thin contender) rank up
 const W_MOTIVATION = 1.0;
 const W_COMPLEMENT = 0.75;
 const W_FRICTION = 1.5;
@@ -160,6 +163,25 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
   const ourAttachment = (data.attachments.get(ourTeamId) ?? null) as Map<string, string> | null;
   const rosterPositions = data.settings.rosterPositions;
   const ourBaseStarter = computeStrength(ourTeam, data.values, rosterPositions).starterValue;
+
+  // Index profiles/needs by id for the thesis + partner-fit.
+  const profileById = new Map(ec.profiles.map((p) => [p.rosterId, p]));
+  const ourProfile = profileById.get(ourTeamId) ?? null;
+
+  // OUR deal-thesis — the judgment that steers everything below.
+  const thesis: Thesis = buildThesis(ourTeamId, data, ourProfile, ourDossier, ourNeeds ?? null);
+
+  // Which of our picks are protected (war chest) per posture. accumulate →
+  // shield all; non_first → shield 1sts; all → shield none. Protected picks
+  // stay out of the send filler pool (they can still be explicit anchors).
+  const ourPicks = data.pickOwnership.get(ourTeamId) ?? [];
+  const protectedPickKeys = new Set<string>(
+    thesis.pickSpend === "all"
+      ? []
+      : ourPicks
+          .filter((p) => (thesis.pickSpend === "none" ? true : p.round === 1))
+          .map((p) => p.key),
+  );
 
   // Resolve any asset key to its facts.
   function resolve(key: string): Resolved | null {
@@ -283,6 +305,26 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
     const partnerDossier = dossierById.get(partnerId) ?? null;
     const partnerStrategy = data.strategy.get(partnerId);
     const partnerPersona = normalizePersona(partnerDossier?.persona);
+    const partnerProfile = profileById.get(partnerId) ?? null;
+    const partnerNeeds = ec.needs.get(partnerId) ?? null;
+
+    // Partner-fit: how natural a counterparty this is for our thesis, plus the
+    // per-position desperation-premium read.
+    const fit: PartnerFit = buildPartnerFit(
+      partnerId,
+      data,
+      partnerProfile,
+      partnerDossier,
+      partnerNeeds,
+      ourNeeds ?? null,
+    );
+
+    // In open acquire mode, skip clearly poor-fit partners (same window/wants
+    // as us, no need-mirroring) so we call the right teams instead of everyone.
+    // Locked counterparties (Studio/Scouting targets) are always honored.
+    if (req.counterparty.mode === "open" && req.intent === "acquire" && fit.fitScore <= 0) {
+      continue;
+    }
 
     // Offering persona = whoever shapes the offer. Studio (aim=partner) → the
     // partner shapes their own offer; otherwise it's us.
@@ -356,8 +398,10 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const sendSeedVA = seedSend.map((r) => valued(r, "send", aim, pId));
       const recvSeedVA = seedRecv.map((r) => valued(r, "receive", aim, pId));
 
-      // Fill pools. Send: our movable assets (no untouchables led with). Receive:
-      // partner assets we'd actually take (demand-gated), minus anchors.
+      // Fill pools. Send: our movable assets, but thesis-aware — never the
+      // war-chest picks, never a position we're actively buying (don't ship
+      // what we're collecting), never an untouchable. Receive: partner assets
+      // we'd actually take (demand-gated), minus anchors.
       const anchored = new Set([...sendAnchors, ...recvKeys]);
       const sendPool = ourTeam!.playerIds
         .concat((data.pickOwnership.get(ourTeamId) ?? []).map((p) => p.key))
@@ -365,6 +409,8 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         .map(resolve)
         .filter((r): r is Resolved => !!r)
         .filter((r) => !isUntouchable(r.key, ourAttachment))
+        .filter((r) => !(r.type === "pick" && protectedPickKeys.has(r.key)))
+        .filter((r) => !(r.type === "player" && marketFor(ourStrategy, r.bucket) === "buy"))
         .map((r) => valued(r, "send", aim, pId));
 
       const recvPool = partnerTeam!.playerIds
@@ -423,7 +469,18 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const { ours, theirs } = priceDeal(pricing);
 
       const ourBand = effectiveBand(ourTeamId, ourPersona);
-      const theirBand = effectiveBand(pId, partnerPersona);
+      let theirBand = effectiveBand(pId, partnerPersona);
+      // Desperation premium: if we're shipping a position this partner is
+      // win-now desperate for, they'll pay above flat value — model that by
+      // lowering their effective floor toward the locked stretch floor, so a
+      // deal that asks them to "overpay" still reads as acceptable for them.
+      const sellingBuckets = new Set(
+        sendVA.map((a) => resolve(a.key)?.bucket).filter((b): b is Bucket => !!b && b !== "PICK"),
+      );
+      const premiumOn = [...sellingBuckets].some((b) => fit.premiumFires(b));
+      if (premiumOn) {
+        theirBand = { ...theirBand, min: Math.max(HARD_FLOOR, theirBand.min - PARTNER_STRETCH) };
+      }
       const grade = personaAwareGrade(gapFrom(ours), ourPersona);
       const partnerRead = readFor(theirs.ratio, theirBand);
       const clears = inBand(ours.ratio, ourBand) && inBand(theirs.ratio, theirBand);
@@ -445,10 +502,13 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
 
       // Ranking.
       const recvResolved = recvKeysAll.map(resolve).filter((r): r is Resolved => !!r);
-      let fit = 0;
+      const sevByBucket = new Map(thesis.buy.map((b) => [b.bucket, b.severity]));
+      let needFit = 0;
       let motivation = 0;
       for (const r of recvResolved) {
-        fit += needScore(needLevel(ourNeeds, r.bucket));
+        // Relative-need weighted: a pass-catcher at severity 0.92 outranks an RB
+        // at 0.72 instead of both counting as a flat "high".
+        needFit += (sevByBucket.get(r.bucket) ?? 0) * 2 + needScore(needLevel(ourNeeds, r.bucket));
         if (marketFor(partnerStrategy, r.bucket) === "sell") motivation += 1;
       }
       const vor = vorOfReceive(recvKeysAll);
@@ -473,10 +533,12 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       }
 
       const score =
-        W_FIT * fit +
+        W_FIT * needFit +
         W_VOR * vorNorm +
         W_AIM * aimScore +
         W_LIKELY * (partnerRead === "likely" ? 1 : 0) +
+        W_PARTNERFIT * fit.fitScore +
+        W_PREMIUM * (premiumOn ? 1 : 0) +
         W_MOTIVATION * motivation +
         W_COMPLEMENT * complement -
         W_FRICTION * friction;
