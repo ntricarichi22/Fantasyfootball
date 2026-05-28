@@ -7,7 +7,11 @@ const DEPTH_FACTOR = 0.1;
 
 // Which positions can fill each starting slot. Slots not listed (BN, IR, TAXI,
 // K, DEF, DST) are not starting spots and are skipped.
-const SLOT_ELIGIBLE: Record<string, Position[]> = {
+//
+// EXPORTED: this is the single source of truth for slot eligibility. The
+// slot-aware depth-cliff logic (team-narratives/cliff.ts) reads the same map
+// so it can never drift from how the optimal lineup is actually built.
+export const SLOT_ELIGIBLE: Record<string, Position[]> = {
   QB: ["QB"],
   RB: ["RB"],
   WR: ["WR"],
@@ -22,6 +26,24 @@ const SLOT_ELIGIBLE: Record<string, Position[]> = {
   QB_FLEX: ["QB", "RB", "WR", "TE"],
 };
 
+// Eligible positions for a given slot name, or null if the slot isn't a
+// starting spot (BN/IR/TAXI/K/DEF/etc.). Tolerant of case.
+export function slotEligibility(slot: string): Position[] | null {
+  return SLOT_ELIGIBLE[(slot ?? "").toUpperCase()] ?? null;
+}
+
+// The starting slots from a rosterPositions config, most-restrictive first —
+// the same ordering computeStrength uses to fill greedily. Exposed so the
+// cliff logic builds the identical slot list.
+export function startingSlots(
+  rosterPositions: string[]
+): Array<{ slot: string; elig: Position[] }> {
+  return rosterPositions
+    .map((slot) => ({ slot, elig: slotEligibility(slot) }))
+    .filter((s): s is { slot: string; elig: Position[] } => Array.isArray(s.elig))
+    .sort((a, b) => a.elig.length - b.elig.length);
+}
+
 type Candidate = {
   id: string;
   name: string;
@@ -30,28 +52,14 @@ type Candidate = {
   value: number;
 };
 
-// Build the best legal starting lineup from the real roster slots, fill it
-// greedily most-restrictive-slot first, and sum its CFC value.
-export function computeStrength(
-  team: RosteredTeam,
-  values: ValueMaps,
-  rosterPositions: string[]
-): StrengthBreakdown {
-  const cands: Candidate[] = team.players.map((p) => ({
-    id: p.id,
-    name: p.name,
-    position: p.position,
-    age: p.age,
-    value: values.value.get(p.id) ?? 0,
-  }));
-
-  // Starting slots only, restrictive ones first so dedicated spots claim their
-  // best option before FLEX / SUPER_FLEX get the leftovers.
-  const slots = rosterPositions
-    .map((slot) => ({ slot, elig: SLOT_ELIGIBLE[slot.toUpperCase()] }))
-    .filter((s): s is { slot: string; elig: Position[] } => Array.isArray(s.elig))
-    .sort((a, b) => a.elig.length - b.elig.length);
-
+// Build the best legal starting lineup from a candidate pool, filling the
+// most-restrictive slot first so dedicated spots claim their best option
+// before FLEX / SUPER_FLEX get the leftovers. Pure helper shared by
+// computeStrength and the cliff recompute.
+export function fillLineup(
+  cands: Candidate[],
+  slots: Array<{ slot: string; elig: Position[] }>
+): { lineup: LineupSlot[]; used: Set<string> } {
   const used = new Set<string>();
   const lineup: LineupSlot[] = [];
   for (const { slot, elig } of slots) {
@@ -68,6 +76,31 @@ export function computeStrength(
       lineup.push({ slot, playerId: null, name: null, position: null, value: 0 });
     }
   }
+  return { lineup, used };
+}
+
+// Candidate pool from a roster — exported so the cliff logic can rebuild the
+// pool minus a dropped player and recompute the optimal lineup.
+export function candidatesFor(team: RosteredTeam, values: ValueMaps): Candidate[] {
+  return team.players.map((p) => ({
+    id: p.id,
+    name: p.name,
+    position: p.position,
+    age: p.age,
+    value: values.value.get(p.id) ?? 0,
+  }));
+}
+
+// Build the best legal starting lineup from the real roster slots, fill it
+// greedily most-restrictive-slot first, and sum its CFC value.
+export function computeStrength(
+  team: RosteredTeam,
+  values: ValueMaps,
+  rosterPositions: string[]
+): StrengthBreakdown {
+  const cands = candidatesFor(team, values);
+  const slots = startingSlots(rosterPositions);
+  const { lineup, used } = fillLineup(cands, slots);
 
   const starterValueRaw = lineup.reduce((s, l) => s + l.value, 0);
   let benchValue = 0;

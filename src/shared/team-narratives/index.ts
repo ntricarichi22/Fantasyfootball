@@ -8,6 +8,12 @@ export {
   checkPhantomHighValueIsNotSurplus,
 } from "./phantoms";
 export {
+  detectSlotCliffs,
+  CLIFF_RETENTION_THRESHOLD,
+  CLIFF_MIN_STARTER_VALUE,
+  type SlotCliff,
+} from "./cliff";
+export {
   fireAllArchetypes,
   fireConsolidate,
   fireDeConsolidate,
