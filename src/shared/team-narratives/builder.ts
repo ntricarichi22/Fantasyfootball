@@ -19,8 +19,6 @@ import { checkPhantomCliff } from "./phantoms";
 import { startsForCount } from "./cliff";
 import { fireAllArchetypes, type TriggerContext } from "./triggers";
 
-// ── Position → bucket map ─────────────────────────────────────────────────
-
 const POSITION_TO_BUCKET: Record<string, NeedBucket> = {
   QB: "QB", RB: "RB", WR: "PASS_CATCHER", TE: "PASS_CATCHER",
 };
@@ -36,15 +34,16 @@ function needDetailFor(needs: TeamNeeds, bucket: NeedBucket): NeedDetail {
 
 // How many OTHER teams a player must be a starting-grade upgrade-or-equal for,
 // to count as genuine surplus. League-relative, slot-aware (see cliff.ts).
-const SURPLUS_STARTS_FOR_TEAMS = 4;
+// Calibrated from sim data: at 2, real depth pieces (Pollard, Boutte, Mason,
+// Allen, Coleman) clear without scrubs (Troy Franklin, Chris Godwin) sneaking
+// through. At 4 the test was too strict — wiped out surplus everywhere.
+const SURPLUS_STARTS_FOR_TEAMS = 2;
 
-// Minimum value to even be considered as a tradeable vet (junk below this isn't
-// worth a pick). The CEILING for "is this a liquidation vet" is handled by the
-// startability test — a widely-startable aging player is NOT a liquidation
-// piece (he routes to reset / sell-high instead).
+// Minimum value for a player to be considered a tradeable vet at all (junk
+// below this isn't worth a pick). The CEILING for "is this a liquidation vet"
+// reuses the startability test — a widely-startable aging player is NOT a
+// liquidation piece (he routes to reset / sell-high instead).
 const VET_MIN_VALUE = 30;
-
-// ── Roster read construction ──────────────────────────────────────────────
 
 function buildRosterRead(
   rosterId: string,
@@ -63,7 +62,6 @@ function buildRosterRead(
 
   const phantoms: PhantomCorrection[] = [];
 
-  // Group players by bucket; count studs by bucket (for phantom Rule 1).
   const byBucket = new Map<NeedBucket, PlayerInfo[]>();
   for (const p of team.players) {
     const b = bucketOf(p.position);
@@ -84,7 +82,7 @@ function buildRosterRead(
 
   const buckets: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
 
-  // ── Scarcities — high/med needs, phantom Rule 1 suppression ─────────────
+  // ── Scarcities ─────────────────────────────────────────────────────────
   const scarcities: ScarcityPosition[] = [];
   for (const bucket of buckets) {
     const need = needDetailFor(needs, bucket);
@@ -107,15 +105,13 @@ function buildRosterRead(
   }
   const scarcityBuckets = new Set(scarcities.map((s) => s.bucket));
 
-  // ── Surpluses — players who'd START FOR >= 4 OTHER TEAMS (slot-aware),
-  // are NOT in our own optimal lineup, and whose bucket isn't itself a
-  // scarcity (can't be surplus and scarce at once). ───────────────────────
+  // ── Surpluses — slot-aware, league-relative, scarcity-disqualified ─────
   const surpluses: SurplusPosition[] = [];
   for (const bucket of buckets) {
-    if (scarcityBuckets.has(bucket)) continue; // can't be surplus AND scarce
+    if (scarcityBuckets.has(bucket)) continue;
     const players = byBucket.get(bucket) ?? [];
     const surplusPieces = players
-      .filter((p) => !inOptimalLineup.has(p.id)) // not one of our starters
+      .filter((p) => !inOptimalLineup.has(p.id))
       .map((p) => ({ p, v: data.values.value.get(p.id) ?? 0 }))
       .filter(({ p, v }) =>
         startsForCount(p.id, p.position, v, rosterId, data) >= SURPLUS_STARTS_FOR_TEAMS,
@@ -131,7 +127,7 @@ function buildRosterRead(
     });
   }
 
-  // ── Worst optimal-lineup starter ────────────────────────────────────────
+  // ── Worst optimal-lineup starter ───────────────────────────────────────
   let worst: WorstOptimalStarter = null;
   for (const slot of profile.strength.lineup) {
     if (!slot.playerId || !slot.position || !slot.name) continue;
@@ -140,7 +136,7 @@ function buildRosterRead(
     }
   }
 
-  // ── Aging stars at peak — high value AND past aging line ────────────────
+  // ── Aging stars at peak ────────────────────────────────────────────────
   const STAR_VALUE_FLOOR = 180;
   const agingStarsAtPeak: AgingStarAtPeak[] = [];
   for (const p of team.players) {
@@ -152,21 +148,18 @@ function buildRosterRead(
   }
   agingStarsAtPeak.sort((a, b) => b.value - a.value);
 
-  // ── Off-timeline vets — aging/old, residual value, but NOT a stud and NOT
-  // widely startable. A widely-startable aging player (Lamar, CMC) is a
-  // reset/sell-high asset, not a liquidation piece. Reuse the startability
-  // test as the ceiling: if he'd start for >= 4 teams, he's too good to be a
-  // "dump for a pick" vet. ─────────────────────────────────────────────────
+  // ── Off-timeline vets ──────────────────────────────────────────────────
+  // Aging/older + residual value, NOT a stud, NOT widely startable. The
+  // startability ceiling reuses SURPLUS_STARTS_FOR_TEAMS — a player who'd
+  // start for >= N other teams is too good to be a "dump for a pick" vet.
   const isYoungOrRebuildingTier = profile.tier === "rebuilding" || profile.tier === "retooling";
   const offTimelineVets: OffTimelineVet[] = [];
   for (const p of team.players) {
     if (p.age === null) continue;
     const v = data.values.value.get(p.id) ?? 0;
     if (v < VET_MIN_VALUE) continue;
-    if (data.values.isStud.get(p.id)) continue;                 // studs are not liquidation pieces
-    // Ceiling: widely-startable players route elsewhere.
+    if (data.values.isStud.get(p.id)) continue;
     if (startsForCount(p.id, p.position, v, rosterId, data) >= SURPLUS_STARTS_FOR_TEAMS) continue;
-    // Off-timeline = aging, OR notably old on a rebuilder.
     if (!isAging(p.position, p.age)) {
       if (!isYoungOrRebuildingTier) continue;
       if (p.age < 28) continue;
@@ -175,7 +168,7 @@ function buildRosterRead(
   }
   offTimelineVets.sort((a, b) => b.value - a.value);
 
-  // ── Buried young players (currency for buyer recipes) ───────────────────
+  // ── Buried young players ───────────────────────────────────────────────
   const worstByBucket = new Map<NeedBucket, number>();
   for (const slot of profile.strength.lineup) {
     if (!slot.position) continue;
@@ -206,8 +199,6 @@ function buildRosterRead(
   };
 }
 
-// ── Identity sentence ─────────────────────────────────────────────────────
-
 function buildIdentitySentence(
   profile: TeamProfile,
   dossier: TeamDossier,
@@ -219,7 +210,6 @@ function buildIdentitySentence(
   const window = dossier.window;
   const direction = wantsDirection ?? "no-clear-direction";
   const traj = profile.trajectory.direction;
-
   let headline = "no dominant signal";
   if (read.scarcities.length > 0 && read.surpluses.length > 0) {
     headline = `surplus at ${read.surpluses[0].bucket}, scarcity at ${read.scarcities[0].bucket}`;
@@ -232,15 +222,11 @@ function buildIdentitySentence(
   } else if (read.offTimelineVets.length > 0) {
     headline = `off-timeline vets ripe for liquidation`;
   }
-
   const wantsClause = wantsGrade === "clear"
     ? `wants are clear (${direction})`
     : `wants are noisy — roster does the work`;
-
   return `${tier}, ${window}, ${traj}; ${wantsClause}; ${headline}.`;
 }
-
-// ── Cross-narrative notes ─────────────────────────────────────────────────
 
 function buildCrossNotes(firedNarratives: ReturnType<typeof fireAllArchetypes>): string[] {
   const notes: string[] = [];
@@ -272,8 +258,6 @@ function buildCrossNotes(firedNarratives: ReturnType<typeof fireAllArchetypes>):
   }
   return notes;
 }
-
-// ── Top-level builder ─────────────────────────────────────────────────────
 
 export function buildTeamNarratives(
   data: LeagueData,

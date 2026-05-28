@@ -55,11 +55,9 @@ function spendablePickKeys(rosterId: string, data: LeagueData): string[] {
 }
 
 const DECON_VALUE_FLOOR = 150;
+// "Aging core" threshold for reset's secondary trigger.
 const RESET_AGE_FLOOR = 27;
 const STARTABLE_FLOOR = 50;
-// A "haul-worthy" stud for reset — a premium chip whose sale returns a real
-// future bounty. League-relative would be ideal; flat floor for v1, tunable.
-const RESET_STUD_VALUE = 200;
 
 // ── De-consolidate ────────────────────────────────────────────────────────
 
@@ -143,39 +141,50 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
   return out;
 }
 
-// ── Reset / blow-it-up (LOOSENED: drops tier gate; fires on premium studs +
-// non-ascending trajectory, regardless of tier) ──────────────────────────
+// ── Reset / blow-it-up ────────────────────────────────────────────────────
+//
+// Uses isStud (the canonical elite signal — driven by elite_multiplier_applied
+// in the DB) as the only "premium chip" measure. Two paths:
+//   A. >= 2 studs on a non-ascending team (the Matzo case).
+//   B. >= 1 stud on a non-ascending team WITH aging core or declining
+//      trajectory (the Doylestown case — Lamar alone, with declining signal).
+//
+// Both paths require non-ascending — an ascending team should not reset, period.
 
 export function fireReset(ctx: TriggerContext): FiredNarrative[] {
   const { profile, dossier, data } = ctx;
-  const avgAge = profile.strength.avgStarterAge ?? 0;
   if (profile.trajectory.direction === "ascending") return [];
 
   const team = data.teams.find((t) => t.rosterId === ctx.rosterId);
   if (!team) return [];
 
-  // Premium chips = studs OR any player worth >= RESET_STUD_VALUE (a haul piece
-  // even if not flagged stud). This is what makes a reset worth doing.
-  const chips = team.players
-    .filter((p) => isStud(p.id, data) || valueOf(p.id, data) >= RESET_STUD_VALUE)
+  const studs = team.players
+    .filter((p) => isStud(p.id, data))
     .map((p) => ({ p, v: valueOf(p.id, data) }))
     .sort((a, b) => b.v - a.v)
     .map((x) => x.p);
 
-  // Need at least 2 premium chips to make a reset a real "blow it up," AND
-  // either an aging core OR a declining trajectory (a young ascending team with
-  // studs is NOT resetting).
+  if (studs.length === 0) return [];
+
+  const avgAge = profile.strength.avgStarterAge ?? 0;
   const agingOrDeclining = avgAge >= RESET_AGE_FLOOR || profile.trajectory.direction === "declining";
-  if (chips.length < 2 || !agingOrDeclining) return [];
+
+  const pathA = studs.length >= 2;
+  const pathB = studs.length >= 1 && agingOrDeclining;
+  if (!pathA && !pathB) return [];
+
+  const pathLabel = pathA && pathB ? "two-stud + aging/declining"
+    : pathA ? "two-stud"
+    : "single-elite-on-decline";
 
   return [{
     archetype: "reset", role: "seller", flavor: null,
-    triggerScenario: `reset: ${chips.length} premium chips (${chips.map((s) => s.name).join(", ")})`,
+    triggerScenario: `reset [${pathLabel}]: ${studs.length} stud(s) (${studs.map((s) => s.name).join(", ")})`,
     evidence:
       `Window ${dossier.window}, trajectory ${profile.trajectory.direction}, avgStarterAge ${avgAge.toFixed(1)}, ` +
-      `${chips.length} premium chips. Ceiling reached / window not opening; cash premium pieces — each in a ` +
-      `SEPARATE deal — for future capital.`,
-    assets: chips.map((p) => p.id),
+      `${studs.length} stud chip(s). ${pathA ? "Multiple premium pieces to sell off." : "Single elite chip + decline signal — one trade is enough to anchor a reset."} ` +
+      `Cash each chip in a SEPARATE deal for future capital.`,
+    assets: studs.map((p) => p.id),
     returnShape: `Picks plus young players only (no aging vets). Sell each chip to a different buyer to maximize the haul.`,
   }];
 }
@@ -264,12 +273,8 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   }
   for (const by of rosterRead.buriedYoungPlayers) eligible.add(by.playerId);
 
-  // GATE: must have >= 2 genuinely-surplus PLAYERS (slot-aware surplus, not
-  // junk) to actually package. This is what kills barren rebuilders firing
-  // consolidate. We count only players who came from the real surplus list.
   const realSurplusPlayers = new Set<string>();
   for (const sp of rosterRead.surpluses) for (const id of sp.surplusPlayerIds) realSurplusPlayers.add(id);
-  // Sell-market players also count as packageable currency.
   if (team) {
     for (const p of team.players) {
       const b = bucketOf(p.position);
