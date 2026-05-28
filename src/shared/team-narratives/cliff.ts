@@ -3,65 +3,30 @@ import {
   startingSlots,
   fillLineup,
   candidatesFor,
+  slotEligibility,
 } from "@/shared/team-profiles";
 
-// ── Slot-aware depth-cliff detection ──────────────────────────────────────
+// ── Slot-aware depth-cliff detection + league-relative startability ────────
 //
-// The position-dial approach to depth (depthNorm < 0.25 at a bucket) over-fires
-// because it ignores the lineup's actual slot structure. A thin 3rd RB doesn't
-// matter if your pass-catchers are deep enough to win the FLEX slots — RB only
-// has to fill one dedicated slot. The real question is: if a starter goes down,
-// does the OPTIMAL LINEUP crater, accounting for who backfills the flex?
-//
-// And it's not enough to survive ONE loss — bye weeks plus injuries overlap, so
-// a team needs roughly a 2-deep cushion to be genuinely safe. See trade_brain
-// discussion (slot-aware cliff, 2-deep cushion).
-//
-// Method, per starting slot:
-//   1. Take the optimal lineup's player in that slot.
-//   2. Drop him, recompute the optimal lineup from the remaining pool.
-//   3. Drop the FIRST backfill too, recompute again (the 2-deep test).
-//   4. Measure the cumulative value drop-off across those two losses against
-//      the original slot value.
-//   5. If the drop-off is steep, the slot is a cliff — and the fill-set is the
-//      positions ELIGIBLE for that slot (so a FLEX cliff shops RB OR pass-
-//      catcher, a SUPER_FLEX cliff includes QB).
+// Two slot-aware tools, both built on the same optimal-lineup machinery so
+// they can never drift from how lineups are actually constructed:
+//   detectSlotCliffs  — does dropping a starter crater the lineup (2-deep)?
+//   startsForAtLeast  — would this player start for at least N other teams?
 
-// How far the slot's coverage can fall across a 2-deep loss before it's a
-// cliff. Expressed as the fraction of the original starter's value that the
-// 2nd backfill retains. Below this, it's a cliff. Tunable.
-//
-// 0.45 means: after losing the starter AND his first replacement, the next
-// body in is worth less than 45% of the original — a real fall-off.
 export const CLIFF_RETENTION_THRESHOLD = 0.45;
-
-// Minimum starter value for a slot to even be cliff-eligible. A slot that's
-// already near-empty isn't a "cliff" (it's just a scarcity the need dials
-// already catch); cliffs are about good starters with nothing behind.
 export const CLIFF_MIN_STARTER_VALUE = 80;
 
 export type SlotCliff = {
-  slot: string;                 // e.g. "SUPER_FLEX", "RB", "FLEX"
+  slot: string;
   starterId: string;
   starterName: string;
   starterValue: number;
-  // Value of the lineup's slot after dropping the starter (1-deep backfill).
   backfill1Value: number;
-  // Value after dropping the starter AND the first backfill (2-deep).
   backfill2Value: number;
-  retention: number;            // backfill2Value / starterValue
-  // Positions eligible to fill this slot — the fix-set. A FLEX cliff returns
-  // [RB, WR, TE]; a SUPER_FLEX cliff includes QB.
+  retention: number;
   eligiblePositions: Position[];
 };
 
-// Recompute the optimal lineup from a candidate pool that excludes a set of
-// player IDs, and return the value assigned to a specific target slot
-// occurrence. Because a roster can have multiple identical slot names (two RB,
-// three WR), we match by slot ORDER: we ask for the value of the Nth slot in
-// the most-restrictive-first ordering. Simpler and robust: we just sum the
-// whole lineup and compare deltas, since dropping one player and recomputing
-// reflects the true marginal loss across the WHOLE lineup (the flex cascade).
 function lineupValueExcluding(
   team: RosteredTeam,
   data: LeagueData,
@@ -73,20 +38,10 @@ function lineupValueExcluding(
   return lineup.reduce((s, l) => s + l.value, 0);
 }
 
-// Detect cliffs across all starting slots for one team. Returns at most one
-// cliff PER SLOT NAME (deduped) — so a roster with two RB slots yields a
-// single RB-slot cliff entry, not two. This is part of the collapse-to-one
-// behavior: the narrative layer fires de-consolidate ONCE per slot-cliff, not
-// once per fragile player.
-export function detectSlotCliffs(
-  team: RosteredTeam,
-  data: LeagueData,
-): SlotCliff[] {
+export function detectSlotCliffs(team: RosteredTeam, data: LeagueData): SlotCliff[] {
   const slots = startingSlots(data.settings.rosterPositions);
   const cands = candidatesFor(team, data.values);
   const { lineup } = fillLineup(cands, slots);
-
-  // Full optimal lineup value — the baseline.
   const baseValue = lineup.reduce((s, l) => s + l.value, 0);
 
   const cliffsBySlotName = new Map<string, SlotCliff>();
@@ -97,17 +52,11 @@ export function detectSlotCliffs(
     const starterId = slotEntry.playerId;
     const starterValue = slotEntry.value;
 
-    // 1-deep: drop the starter, recompute whole lineup, measure the marginal
-    // loss. The marginal loss IS the value of the best backfill the flex
-    // cascade can muster.
     const excluded1 = new Set<string>([starterId]);
     const value1 = lineupValueExcluding(team, data, excluded1);
-    const marginalLoss1 = baseValue - value1; // value the replacement could NOT recover
-    const backfill1Value = starterValue - marginalLoss1; // what the replacement is worth
+    const marginalLoss1 = baseValue - value1;
+    const backfill1Value = starterValue - marginalLoss1;
 
-    // Find who actually backfilled (the player now occupying the marginal
-    // slot) so we can drop them for the 2-deep test. Recompute and diff the
-    // used sets.
     const slotsList = startingSlots(data.settings.rosterPositions);
     const pool1 = candidatesFor(team, data.values).filter((c) => !excluded1.has(c.id));
     const fill1 = fillLineup(pool1, slotsList);
@@ -117,7 +66,6 @@ export function detectSlotCliffs(
       if (!usedBase.has(id)) { firstBackfillId = id; break; }
     }
 
-    // 2-deep: drop the starter AND the first backfill, recompute.
     const excluded2 = new Set<string>([starterId]);
     if (firstBackfillId) excluded2.add(firstBackfillId);
     const value2 = lineupValueExcluding(team, data, excluded2);
@@ -125,12 +73,9 @@ export function detectSlotCliffs(
     const backfill2Value = starterValue - (marginalLoss2 - marginalLoss1);
 
     const retention = starterValue > 0 ? Math.max(0, backfill2Value) / starterValue : 0;
+    if (retention >= CLIFF_RETENTION_THRESHOLD) continue;
 
-    if (retention >= CLIFF_RETENTION_THRESHOLD) continue; // cushion holds — no cliff
-
-    const elig = slotEntry.position
-      ? (startingSlots(data.settings.rosterPositions).find((s) => s.slot === slotEntry.slot)?.elig ?? [slotEntry.position])
-      : [];
+    const elig = slotEligibility(slotEntry.slot) ?? (slotEntry.position ? [slotEntry.position] : []);
 
     const cliff: SlotCliff = {
       slot: slotEntry.slot,
@@ -143,7 +88,6 @@ export function detectSlotCliffs(
       eligiblePositions: elig,
     };
 
-    // Keep only the worst cliff per slot NAME (dedupe two RB slots → one).
     const existing = cliffsBySlotName.get(slotEntry.slot);
     if (!existing || cliff.retention < existing.retention) {
       cliffsBySlotName.set(slotEntry.slot, cliff);
@@ -151,4 +95,68 @@ export function detectSlotCliffs(
   }
 
   return Array.from(cliffsBySlotName.values());
+}
+
+// ── League-relative startability ──────────────────────────────────────────
+//
+// Would `player` (value `playerValue`, position `playerPos`) START for a given
+// team — i.e. is he >= that team's worst optimal-lineup starter at a slot he's
+// eligible for? Used for surplus detection ("starts for >= 4 teams") and for
+// the vet-liquidation ceiling ("a real liquidation vet does NOT widely start").
+//
+// "Start for them" = there exists a starting slot whose eligibility includes
+// the player's position, where the team's current occupant of that slot (or the
+// weakest such occupant) is worth <= the player's value. Because lineups are
+// built best-first, the relevant bar per eligible slot type is the WEAKEST
+// starter currently filling a slot the player could take.
+
+function worstEligibleStarterValue(
+  team: RosteredTeam,
+  data: LeagueData,
+  playerPos: Position,
+): number | null {
+  const slots = startingSlots(data.settings.rosterPositions);
+  const cands = candidatesFor(team, data.values);
+  const { lineup } = fillLineup(cands, slots);
+  let worst: number | null = null;
+  for (const slot of lineup) {
+    const elig = slotEligibility(slot.slot);
+    if (!elig || !elig.includes(playerPos)) continue;
+    // An empty slot (no one filling it) means the player would obviously start.
+    if (!slot.playerId) return 0;
+    if (worst === null || slot.value < worst) worst = slot.value;
+  }
+  return worst;
+}
+
+// Count how many teams (excluding the player's own roster) the player would
+// start for. `>=` comparison — we're asking whether HE has surplus quality,
+// not whether a specific deal exists. Ties count as "would start."
+export function startsForCount(
+  playerId: string,
+  playerPos: Position,
+  playerValue: number,
+  ownRosterId: string,
+  data: LeagueData,
+): number {
+  let count = 0;
+  for (const team of data.teams) {
+    if (team.rosterId === ownRosterId) continue;
+    const bar = worstEligibleStarterValue(team, data, playerPos);
+    if (bar === null) continue; // team has no slot this position can fill (rare)
+    if (playerValue >= bar) count++;
+  }
+  return count;
+}
+
+// Convenience predicate: would this player start for at least N teams?
+export function startsForAtLeast(
+  playerId: string,
+  playerPos: Position,
+  playerValue: number,
+  ownRosterId: string,
+  data: LeagueData,
+  n: number,
+): boolean {
+  return startsForCount(playerId, playerPos, playerValue, ownRosterId, data) >= n;
 }

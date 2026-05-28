@@ -5,17 +5,6 @@ import type { TeamDossier } from "@/shared/team-dossier";
 import type { FiredNarrative, RosterRead, WantsClarity } from "./types";
 import { detectSlotCliffs, type SlotCliff } from "./cliff";
 
-// ── Trigger context ───────────────────────────────────────────────────────
-//
-// Every archetype trigger receives the same bundled context. Triggers READ
-// from this — they never recompute facts. See trade_brain.docx Section 3.4.
-//
-// COLLAPSE-TO-ONE: each archetype fires AT MOST ONCE per team (de-consolidate
-// can carry up to 3 flavor-tagged narratives because the flavors are genuinely
-// different shapes). When multiple candidates qualify (8 vets, 5 cliff slots),
-// they collapse into the single narrative's assets[] list and offer-prep
-// surfaces the best deals from it.
-
 export type TriggerContext = {
   rosterId: string;
   profile: TeamProfile;
@@ -26,8 +15,6 @@ export type TriggerContext = {
   rosterRead: RosterRead;
   data: LeagueData;
 };
-
-// ── Local helpers ─────────────────────────────────────────────────────────
 
 const POSITION_TO_BUCKET: Record<string, NeedBucket> = {
   QB: "QB", RB: "RB", WR: "PASS_CATCHER", TE: "PASS_CATCHER",
@@ -67,17 +54,12 @@ function spendablePickKeys(rosterId: string, data: LeagueData): string[] {
   return (data.pickOwnership.get(rosterId) ?? []).map((p) => p.key);
 }
 
-// "High value enough to be a de-consolidation anchor." Below this, splitting
-// isn't worth it. Tunable.
 const DECON_VALUE_FLOOR = 150;
-// Aging-core threshold for reset.
 const RESET_AGE_FLOOR = 27;
-// Startable-grade floor for "real means to consolidate" + buried-young, etc.
 const STARTABLE_FLOOR = 50;
-
-// ─────────────────────────────────────────────────────────────────────────
-// SELLER ARCHETYPES
-// ─────────────────────────────────────────────────────────────────────────
+// A "haul-worthy" stud for reset — a premium chip whose sale returns a real
+// future bounty. League-relative would be ideal; flat floor for v1, tunable.
+const RESET_STUD_VALUE = 200;
 
 // ── De-consolidate ────────────────────────────────────────────────────────
 
@@ -87,31 +69,22 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
   const team = data.teams.find((t) => t.rosterId === ctx.rosterId);
   if (!team) return out;
 
-  // Flavor 1: depth_cliff — SLOT-AWARE, 2-deep cushion, deduped per slot.
   const cliffs: SlotCliff[] = detectSlotCliffs(team, data);
   const decoCliffs = cliffs.filter((c) => c.starterValue >= DECON_VALUE_FLOOR);
   if (decoCliffs.length > 0) {
     const eligSet = new Set<Position>();
     decoCliffs.forEach((c) => c.eligiblePositions.forEach((p) => eligSet.add(p)));
     out.push({
-      archetype: "de_consolidate",
-      role: "seller",
-      flavor: "depth_cliff",
-      triggerScenario:
-        `de_consolidate / depth_cliff: ${decoCliffs.map((c) => `${c.starterName}@${c.slot}`).join(", ")}`,
+      archetype: "de_consolidate", role: "seller", flavor: "depth_cliff",
+      triggerScenario: `de_consolidate / depth_cliff: ${decoCliffs.map((c) => `${c.starterName}@${c.slot}`).join(", ")}`,
       evidence:
         `Slot-aware cliff test (2-deep cushion) flags ${decoCliffs.length} slot(s) where a high-value ` +
-        `starter has no real backfill: ${decoCliffs.map((c) => `${c.starterName} (${c.slot}, retains ${(c.retention * 100).toFixed(0)}%)`).join("; ")}. ` +
-        `Splitting one for a replacement-plus-upgrade preserves the slot and upgrades elsewhere.`,
+        `starter has no real backfill: ${decoCliffs.map((c) => `${c.starterName} (${c.slot}, retains ${(c.retention * 100).toFixed(0)}%)`).join("; ")}.`,
       assets: decoCliffs.map((c) => c.starterId),
-      returnShape:
-        `Replacement eligible at the cliff slot (positions: ${Array.from(eligSet).join("/")}) — forced by no-new-void — ` +
-        `plus an upgrade at our worst slot or picks/young.`,
+      returnShape: `Replacement eligible at the cliff slot (positions: ${Array.from(eligSet).join("/")}) — forced by no-new-void — plus an upgrade at our worst slot or picks/young.`,
     });
   }
 
-  // Flavor 2: surplus_of_quality — more studs than starter slots + a mediocre
-  // worst optimal starter to upgrade.
   const studsByBucket = new Map<NeedBucket, string[]>();
   for (const slot of profile.strength.lineup) {
     if (!slot.playerId || !slot.position) continue;
@@ -140,11 +113,8 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
   }
   if (excessStuds.length > 0 && hasUpgradeRoom) {
     out.push({
-      archetype: "de_consolidate",
-      role: "seller",
-      flavor: "surplus_of_quality",
-      triggerScenario:
-        `de_consolidate / surplus_of_quality: ${excessStuds.map((id) => data.players.get(id)?.name ?? id).join(", ")}`,
+      archetype: "de_consolidate", role: "seller", flavor: "surplus_of_quality",
+      triggerScenario: `de_consolidate / surplus_of_quality: ${excessStuds.map((id) => data.players.get(id)?.name ?? id).join(", ")}`,
       evidence:
         `Studs exceed starter slots, and our weakest optimal starter (${worst?.name} @ ${worst?.slot}, ` +
         `value ${worst?.value?.toFixed(0)}) is upgradeable. Ship an excess stud for two starters that upgrade the weak slot.`,
@@ -153,17 +123,13 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
     });
   }
 
-  // Flavor 3: pick_trade_back — rebuilder/retooler with a premium 1st + 2+
-  // high scarcities.
   const isRebuilderOrRetooler = profile.tier === "rebuilding" || profile.tier === "retooling";
   const manyHoles = rosterRead.scarcities.filter((s) => s.severity === "high").length >= 2;
   if (isRebuilderOrRetooler && manyHoles) {
     const premiumPicks = (data.pickOwnership.get(ctx.rosterId) ?? []).filter((p) => p.round === 1);
     if (premiumPicks.length > 0) {
       out.push({
-        archetype: "de_consolidate",
-        role: "seller",
-        flavor: "pick_trade_back",
+        archetype: "de_consolidate", role: "seller", flavor: "pick_trade_back",
         triggerScenario: `de_consolidate / pick_trade_back: ${premiumPicks.map((p) => `${p.season} R${p.round}`).join(", ")}`,
         evidence:
           `Tier ${profile.tier} with ${rosterRead.scarcities.filter((s) => s.severity === "high").length} high-severity holes. ` +
@@ -177,38 +143,44 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
   return out;
 }
 
-// ── Reset / blow-it-up ────────────────────────────────────────────────────
+// ── Reset / blow-it-up (LOOSENED: drops tier gate; fires on premium studs +
+// non-ascending trajectory, regardless of tier) ──────────────────────────
 
 export function fireReset(ctx: TriggerContext): FiredNarrative[] {
   const { profile, dossier, data } = ctx;
   const avgAge = profile.strength.avgStarterAge ?? 0;
-  if (avgAge < RESET_AGE_FLOOR) return [];
   if (profile.trajectory.direction === "ascending") return [];
-  if (profile.tier !== "championship" && profile.tier !== "playoff") return [];
 
   const team = data.teams.find((t) => t.rosterId === ctx.rosterId);
   if (!team) return [];
-  const studs = team.players
-    .filter((p) => isStud(p.id, data))
+
+  // Premium chips = studs OR any player worth >= RESET_STUD_VALUE (a haul piece
+  // even if not flagged stud). This is what makes a reset worth doing.
+  const chips = team.players
+    .filter((p) => isStud(p.id, data) || valueOf(p.id, data) >= RESET_STUD_VALUE)
     .map((p) => ({ p, v: valueOf(p.id, data) }))
     .sort((a, b) => b.v - a.v)
     .map((x) => x.p);
-  if (studs.length < 2) return [];
+
+  // Need at least 2 premium chips to make a reset a real "blow it up," AND
+  // either an aging core OR a declining trajectory (a young ascending team with
+  // studs is NOT resetting).
+  const agingOrDeclining = avgAge >= RESET_AGE_FLOOR || profile.trajectory.direction === "declining";
+  if (chips.length < 2 || !agingOrDeclining) return [];
 
   return [{
-    archetype: "reset",
-    role: "seller",
-    flavor: null,
-    triggerScenario: `reset: ${studs.length} premium chips (${studs.map((s) => s.name).join(", ")})`,
+    archetype: "reset", role: "seller", flavor: null,
+    triggerScenario: `reset: ${chips.length} premium chips (${chips.map((s) => s.name).join(", ")})`,
     evidence:
-      `Window ${dossier.window}, avgStarterAge ${avgAge.toFixed(1)}, ${studs.length} studs. ` +
-      `Roster has reached its ceiling; cash premium pieces — each in a SEPARATE deal — for future capital.`,
-    assets: studs.map((p) => p.id),
-    returnShape: `Picks plus young players only (no aging vets). Sell each star to a different buyer.`,
+      `Window ${dossier.window}, trajectory ${profile.trajectory.direction}, avgStarterAge ${avgAge.toFixed(1)}, ` +
+      `${chips.length} premium chips. Ceiling reached / window not opening; cash premium pieces — each in a ` +
+      `SEPARATE deal — for future capital.`,
+    assets: chips.map((p) => p.id),
+    returnShape: `Picks plus young players only (no aging vets). Sell each chip to a different buyer to maximize the haul.`,
   }];
 }
 
-// ── Sell-high star (two flavors) ──────────────────────────────────────────
+// ── Sell-high star ────────────────────────────────────────────────────────
 
 export function fireSellHighStar(ctx: TriggerContext): FiredNarrative[] {
   const { profile, needs, strategy, rosterRead, wantsClarity } = ctx;
@@ -229,9 +201,7 @@ export function fireSellHighStar(ctx: TriggerContext): FiredNarrative[] {
   const flavor: "contender" | "rebuilder" = isCleanAccumulate && isRebuilderTier ? "rebuilder" : "contender";
 
   return [{
-    archetype: "sell_high_star",
-    role: "seller",
-    flavor,
+    archetype: "sell_high_star", role: "seller", flavor,
     triggerScenario: `sell_high_star / ${flavor}: ${candidates.map((s) => s.name).join(", ")}`,
     evidence:
       `Aging star(s) past the positional line at non-need, non-buy position(s): ` +
@@ -247,7 +217,7 @@ export function fireSellHighStar(ctx: TriggerContext): FiredNarrative[] {
   }];
 }
 
-// ── Vet-liquidation (collapse: ONE narrative listing every vet) ────────────
+// ── Vet-liquidation ───────────────────────────────────────────────────────
 
 export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
   const { profile, wantsClarity, rosterRead } = ctx;
@@ -257,9 +227,7 @@ export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
   if (!accumulateAligned) return [];
 
   return [{
-    archetype: "vet_liquidation",
-    role: "seller",
-    flavor: null,
+    archetype: "vet_liquidation", role: "seller", flavor: null,
     triggerScenario: `vet_liquidation: ${rosterRead.offTimelineVets.length} off-timeline vet(s)`,
     evidence:
       `${profile.tier} team holding off-timeline vets: ` +
@@ -270,11 +238,7 @@ export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
   }];
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// BUYER ARCHETYPES
-// ─────────────────────────────────────────────────────────────────────────
-
-// ── Consolidate (TIGHTENED) ───────────────────────────────────────────────
+// ── Consolidate ───────────────────────────────────────────────────────────
 
 export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   const { strategy, wantsClarity, rosterRead, data } = ctx;
@@ -300,10 +264,19 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   }
   for (const by of rosterRead.buriedYoungPlayers) eligible.add(by.playerId);
 
-  // GATE: must have >= 2 startable-grade PLAYERS to actually package. Picks
-  // alone aren't consolidation. A barren rebuilder no longer fires this.
-  const startableEligible = Array.from(eligible).filter((id) => valueOf(id, data) >= STARTABLE_FLOOR);
-  if (startableEligible.length < 2) return [];
+  // GATE: must have >= 2 genuinely-surplus PLAYERS (slot-aware surplus, not
+  // junk) to actually package. This is what kills barren rebuilders firing
+  // consolidate. We count only players who came from the real surplus list.
+  const realSurplusPlayers = new Set<string>();
+  for (const sp of rosterRead.surpluses) for (const id of sp.surplusPlayerIds) realSurplusPlayers.add(id);
+  // Sell-market players also count as packageable currency.
+  if (team) {
+    for (const p of team.players) {
+      const b = bucketOf(p.position);
+      if (b && sellBuckets.has(b) && valueOf(p.id, data) >= STARTABLE_FLOOR) realSurplusPlayers.add(p.id);
+    }
+  }
+  if (realSurplusPlayers.size < 2) return [];
 
   for (const pk of spendablePickKeys(ctx.rosterId, data)) eligible.add(pk);
 
@@ -315,13 +288,11 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
     : hasBuyMarket(strategy) ? `buy market at ${buyMarketBuckets(strategy).join(", ")}` : `wants=convert`;
 
   return [{
-    archetype: "consolidate",
-    role: "buyer",
-    flavor: null,
+    archetype: "consolidate", role: "buyer", flavor: null,
     triggerScenario: `consolidate: source=${sourceReason}, dest=${destReason}`,
     evidence:
-      `Genuine source (${sourceReason}) and destination (${destReason}), with ${startableEligible.length} ` +
-      `startable-grade pieces to package. Bundle multiple into one stud at the destination.`,
+      `Genuine source (${sourceReason}) and destination (${destReason}), with ${realSurplusPlayers.size} ` +
+      `genuinely-surplus pieces to package. Bundle multiple into one stud at the destination.`,
     assets: Array.from(eligible),
     returnShape: `One impact starter at the destination (anchor comes from the matched seller).`,
   }];
@@ -343,9 +314,7 @@ export function fireWinNowPush(ctx: TriggerContext): FiredNarrative[] {
   for (const pk of spendablePickKeys(ctx.rosterId, data)) eligible.push(pk);
 
   return [{
-    archetype: "win_now_push",
-    role: "buyer",
-    flavor: null,
+    archetype: "win_now_push", role: "buyer", flavor: null,
     triggerScenario: `win_now_push: ${profile.tier} contender, ${wantsStuds ? "wants studs" : "buy market"}`,
     evidence: `${profile.tier} tier, ${wantsStuds ? "clean 'wants studs'" : "explicit buy market"}. Spend future + depth for present impact.`,
     assets: eligible,
@@ -353,7 +322,7 @@ export function fireWinNowPush(ctx: TriggerContext): FiredNarrative[] {
   }];
 }
 
-// ── Insurance (TIGHTENED to real QB-superflex fragility) ──────────────────
+// ── Insurance ─────────────────────────────────────────────────────────────
 
 export function fireInsurance(ctx: TriggerContext): FiredNarrative[] {
   const { profile, dossier, data } = ctx;
@@ -373,9 +342,7 @@ export function fireInsurance(ctx: TriggerContext): FiredNarrative[] {
   if (!qbFragile) return [];
 
   return [{
-    archetype: "insurance",
-    role: "buyer",
-    flavor: null,
+    archetype: "insurance", role: "buyer", flavor: null,
     triggerScenario: `insurance: QB-superflex fragility (${qbs.length} startable QB(s))`,
     evidence:
       `Contending ${profile.tier} team in a superflex league with only ${qbs.length} startable QB(s). ` +
@@ -385,9 +352,7 @@ export function fireInsurance(ctx: TriggerContext): FiredNarrative[] {
   }];
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// NULL ACTION
-// ─────────────────────────────────────────────────────────────────────────
+// ── Stand-pat ─────────────────────────────────────────────────────────────
 
 export function fireStandPat(ctx: TriggerContext): FiredNarrative[] {
   const { profile, wantsClarity } = ctx;
@@ -396,9 +361,7 @@ export function fireStandPat(ctx: TriggerContext): FiredNarrative[] {
   if (profile.tier !== "rebuilding" && profile.tier !== "retooling") return [];
 
   return [{
-    archetype: "stand_pat",
-    role: "null_action",
-    flavor: null,
+    archetype: "stand_pat", role: "null_action", flavor: null,
     triggerScenario: `stand_pat: clean accumulate on ${profile.tier} team`,
     evidence: `Clear-accumulate on a ${profile.tier} team. Patience is the move; build through the draft. Active moves live under vet-liquidation / trade-back.`,
     assets: [],
