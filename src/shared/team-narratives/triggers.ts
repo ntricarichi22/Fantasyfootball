@@ -54,10 +54,20 @@ function spendablePickKeys(rosterId: string, data: LeagueData): string[] {
   return (data.pickOwnership.get(rosterId) ?? []).map((p) => p.key);
 }
 
+// Count of first-round picks this team owns across all upcoming drafts.
+// Baseline for a normal team is 2 (your own next two firsts). <=1 means
+// you've spent at least one first on a win-now move.
+function countFutureFirsts(rosterId: string, data: LeagueData): number {
+  const picks = data.pickOwnership.get(rosterId) ?? [];
+  return picks.filter((p) => p.round === 1).length;
+}
+
 const DECON_VALUE_FLOOR = 150;
-// "Aging core" threshold for reset's secondary trigger.
 const RESET_AGE_FLOOR = 27;
 const STARTABLE_FLOOR = 50;
+// Reset's "low future capital" gate: aged-core teams with this many or fewer
+// future firsts have spent capital chasing it without breakthrough.
+const RESET_FUTURE_FIRSTS_CEILING = 1;
 
 // ── De-consolidate ────────────────────────────────────────────────────────
 
@@ -143,13 +153,13 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
 
 // ── Reset / blow-it-up ────────────────────────────────────────────────────
 //
-// Uses isStud (the canonical elite signal — driven by elite_multiplier_applied
-// in the DB) as the only "premium chip" measure. Two paths:
-//   A. >= 2 studs on a non-ascending team (the Matzo case).
-//   B. >= 1 stud on a non-ascending team WITH aging core or declining
-//      trajectory (the Doylestown case — Lamar alone, with declining signal).
-//
-// Both paths require non-ascending — an ascending team should not reset, period.
+// Two paths, both require non-ascending + >=1 stud:
+//   A. Aged core (avgStarterAge >= 27) AND low future capital (<=1 future
+//      first) — the Matzo case: peaked-without-breakthrough, no organic
+//      restocking. Aging alone isn't enough (Kush at 27 with 4 firsts has
+//      runway and shouldn't reset).
+//   B. Declining trajectory — the Doylestown case: active decline overrides
+//      the future-capital signal.
 
 export function fireReset(ctx: TriggerContext): FiredNarrative[] {
   const { profile, dossier, data } = ctx;
@@ -163,26 +173,25 @@ export function fireReset(ctx: TriggerContext): FiredNarrative[] {
     .map((p) => ({ p, v: valueOf(p.id, data) }))
     .sort((a, b) => b.v - a.v)
     .map((x) => x.p);
-
   if (studs.length === 0) return [];
 
   const avgAge = profile.strength.avgStarterAge ?? 0;
-  const agingOrDeclining = avgAge >= RESET_AGE_FLOOR || profile.trajectory.direction === "declining";
+  const futureFirsts = countFutureFirsts(ctx.rosterId, data);
 
-  const pathA = studs.length >= 2;
-  const pathB = studs.length >= 1 && agingOrDeclining;
+  const pathA = avgAge >= RESET_AGE_FLOOR && futureFirsts <= RESET_FUTURE_FIRSTS_CEILING;
+  const pathB = profile.trajectory.direction === "declining";
   if (!pathA && !pathB) return [];
 
-  const pathLabel = pathA && pathB ? "two-stud + aging/declining"
-    : pathA ? "two-stud"
-    : "single-elite-on-decline";
+  const pathLabel = pathA && pathB ? "aged+low-capital + declining"
+    : pathA ? "aged-core + low-future-capital"
+    : "declining-trajectory";
 
   return [{
     archetype: "reset", role: "seller", flavor: null,
     triggerScenario: `reset [${pathLabel}]: ${studs.length} stud(s) (${studs.map((s) => s.name).join(", ")})`,
     evidence:
       `Window ${dossier.window}, trajectory ${profile.trajectory.direction}, avgStarterAge ${avgAge.toFixed(1)}, ` +
-      `${studs.length} stud chip(s). ${pathA ? "Multiple premium pieces to sell off." : "Single elite chip + decline signal — one trade is enough to anchor a reset."} ` +
+      `${futureFirsts} future first(s). ${pathA ? `Aged core with little organic restocking capacity (<= ${RESET_FUTURE_FIRSTS_CEILING} future first).` : "Active decline."} ` +
       `Cash each chip in a SEPARATE deal for future capital.`,
     assets: studs.map((p) => p.id),
     returnShape: `Picks plus young players only (no aging vets). Sell each chip to a different buyer to maximize the haul.`,
@@ -248,21 +257,57 @@ export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
 }
 
 // ── Consolidate ───────────────────────────────────────────────────────────
+//
+// Four independent source paths — any one fires consolidate. More triggers
+// = more shots on goal:
+//   1. Real surplus + destination (existing)
+//   2. Sell market + destination (existing)
+//   3. wants=convert + real scarcity + >=1 future first (the Brokepark path:
+//      "we have picks for a clear need, no surplus required")
+//   4. Contender thesis viable (rosterRead.contenderUpgrades non-empty —
+//      the simulated upgrade would tier-jump us)
+//
+// Packaging-capital gate: must have >=2 startable bench pieces OR >=1 future
+// first. Picks count as currency — picks alone (or with mediocre bench fill)
+// can fund a consolidation.
 
 export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
-  const { strategy, wantsClarity, rosterRead, data } = ctx;
+  const { strategy, wantsClarity, rosterRead, data, profile } = ctx;
 
   const hasRealSurplus = rosterRead.surpluses.length > 0;
-  const hasSource = hasRealSurplus || hasSellMarket(strategy);
-
+  const hasSell = hasSellMarket(strategy);
   const hasRealScarcity = rosterRead.scarcities.length > 0;
   const wantsConvert = wantsClarity.direction === "convert";
-  const hasDestination = hasRealScarcity || hasBuyMarket(strategy) || wantsConvert;
+  const futureFirsts = countFutureFirsts(ctx.rosterId, data);
+  const hasContenderUpgrade = rosterRead.contenderUpgrades.length > 0;
+  const hasDestination = hasRealScarcity || hasBuyMarket(strategy) || wantsConvert || hasContenderUpgrade;
 
-  if (!hasSource || !hasDestination) return [];
+  // Evaluate each path independently
+  const paths: string[] = [];
+  if (hasRealSurplus && hasDestination) {
+    paths.push(
+      `surplus at ${rosterRead.surpluses.map((s) => s.bucket).join(", ")} → destination ${rosterRead.scarcities.map((s) => s.bucket).join(", ") || (wantsConvert ? "wants=convert" : "buy market")}`,
+    );
+  }
+  if (hasSell && hasDestination) {
+    paths.push(`sell market at ${sellMarketBuckets(strategy).join(", ")}`);
+  }
+  if (wantsConvert && hasRealScarcity && futureFirsts >= 1) {
+    paths.push(
+      `wants=convert + scarcity at ${rosterRead.scarcities.map((s) => s.bucket).join(", ")} + ${futureFirsts} future first(s)`,
+    );
+  }
+  if (hasContenderUpgrade) {
+    paths.push(
+      `contender thesis: ${rosterRead.contenderUpgrades.map((u) => `${u.tierJump}-jump at ${u.bucket}`).join(", ")}`,
+    );
+  }
+  if (paths.length === 0) return [];
 
+  // Build send-pool eligibility (currency the team would pay with)
   const team = data.teams.find((t) => t.rosterId === ctx.rosterId);
   const sellBuckets = new Set(sellMarketBuckets(strategy));
+  const inLineup = new Set(profile.strength.lineup.map((s) => s.playerId).filter((id): id is string => !!id));
   const eligible = new Set<string>();
   for (const sp of rosterRead.surpluses) for (const id of sp.surplusPlayerIds) eligible.add(id);
   if (team) {
@@ -273,33 +318,35 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   }
   for (const by of rosterRead.buriedYoungPlayers) eligible.add(by.playerId);
 
-  const realSurplusPlayers = new Set<string>();
-  for (const sp of rosterRead.surpluses) for (const id of sp.surplusPlayerIds) realSurplusPlayers.add(id);
+  // Bench-startable count = bench players (not in optimal lineup, not studs)
+  // with value >= STARTABLE_FLOOR. Mediocre bench QBs like Tua/Geno count here.
+  let benchStartableCount = 0;
   if (team) {
     for (const p of team.players) {
-      const b = bucketOf(p.position);
-      if (b && sellBuckets.has(b) && valueOf(p.id, data) >= STARTABLE_FLOOR) realSurplusPlayers.add(p.id);
+      if (inLineup.has(p.id)) continue;
+      if (isStud(p.id, data)) continue;
+      if (valueOf(p.id, data) < STARTABLE_FLOOR) continue;
+      benchStartableCount++;
+      eligible.add(p.id);
     }
   }
-  if (realSurplusPlayers.size < 2) return [];
+
+  // Packaging capital — must have something tradeable
+  const hasCapital = benchStartableCount >= 2 || futureFirsts >= 1;
+  if (!hasCapital) return [];
 
   for (const pk of spendablePickKeys(ctx.rosterId, data)) eligible.add(pk);
 
-  const sourceReason = hasRealSurplus
-    ? `surplus at ${rosterRead.surpluses.map((s) => s.bucket).join(", ")}`
-    : `sell market at ${sellMarketBuckets(strategy).join(", ")}`;
-  const destReason = hasRealScarcity
-    ? `scarcity at ${rosterRead.scarcities.map((s) => s.bucket).join(", ")}`
-    : hasBuyMarket(strategy) ? `buy market at ${buyMarketBuckets(strategy).join(", ")}` : `wants=convert`;
-
   return [{
     archetype: "consolidate", role: "buyer", flavor: null,
-    triggerScenario: `consolidate: source=${sourceReason}, dest=${destReason}`,
+    triggerScenario: `consolidate (${paths.length} path${paths.length === 1 ? "" : "s"} fired)`,
     evidence:
-      `Genuine source (${sourceReason}) and destination (${destReason}), with ${realSurplusPlayers.size} ` +
-      `genuinely-surplus pieces to package. Bundle multiple into one stud at the destination.`,
+      `${paths.length} consolidate trigger(s): ${paths.join(" | ")}. ` +
+      `Packaging capital: ${benchStartableCount} bench-startable piece(s), ${futureFirsts} future first(s).`,
     assets: Array.from(eligible),
-    returnShape: `One impact starter at the destination (anchor comes from the matched seller).`,
+    returnShape: hasContenderUpgrade
+      ? `Stud at ${rosterRead.contenderUpgrades.map((u) => u.bucket).join("/")} (the tier-jump position). Pay with bench pieces + picks.`
+      : `One impact starter at the destination position (anchor from the matched seller).`,
   }];
 }
 
@@ -368,7 +415,7 @@ export function fireStandPat(ctx: TriggerContext): FiredNarrative[] {
   return [{
     archetype: "stand_pat", role: "null_action", flavor: null,
     triggerScenario: `stand_pat: clean accumulate on ${profile.tier} team`,
-    evidence: `Clear-accumulate on a ${profile.tier} team. Patience is the move; build through the draft. Active moves live under vet-liquidation / trade-back.`,
+    evidence: `Clear-accumulate on a ${profile.tier} team. Patience is the move; build through the draft.`,
     assets: [],
     returnShape: `No offers; restraint is the answer.`,
   }];
