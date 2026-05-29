@@ -164,6 +164,7 @@ function buildPickOwnership(
   const withPicks = withComputedDraftPicks(rawRosters, traded as TradedPick[], {
     teamCountOverride: teamCount,
     rosterOwnerMap,
+    seasons: [String(cfcYear), String(cfcYear + 1), String(cfcYear + 2)],
   });
 
   const map = new Map<string, OwnedPick[]>();
