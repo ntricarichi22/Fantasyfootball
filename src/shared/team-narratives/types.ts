@@ -183,4 +183,3 @@ export type NarrativeBundle = {
   firedNarratives: FiredNarrative[];
   crossNotes: string[];
 };
-

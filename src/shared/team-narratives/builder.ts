@@ -182,15 +182,21 @@ function buildRosterRead(
   agingStarsAtPeak.sort((a, b) => b.value - a.value);
 
   // Off-timeline vets
-  // Vet-liquidation candidates: a rebuilding/retooling team's cashable pieces.
-  // NOT a stud (studs route to sell-high / reset), NOT young (keep the building
-  // blocks), and startable for at least one OTHER team — the market proving the
-  // piece fetches a real return, which replaces the old flat value floor.
+  // Vet-liquidation candidates. ALWAYS eligible: aging, non-stud pieces. PLUS,
+  // on a rebuilding (teardown) team only, prime non-studs too — nobody prime is
+  // sacred during a rebuild, so a serviceable starter like a stopgap QB is fair
+  // game; retooling teams (reloading to contend) keep their prime core and shed
+  // only aging pieces. "Startable for 1+ OTHER team" is the market proving the
+  // piece fetches a real return (the test already excludes this roster), which
+  // replaces the old flat value floor.
+  const isRebuildingTier = profile.tier === "rebuilding";
   const offTimelineVets: OffTimelineVet[] = [];
   for (const p of team.players) {
     if (p.age === null) continue;
     if (data.values.isStud.get(p.id)) continue;
-    if (isYoung(p.position, p.age)) continue;
+    const aging = isAging(p.position, p.age);
+    const prime = !aging && !isYoung(p.position, p.age);
+    if (!(aging || (isRebuildingTier && prime))) continue;
     const v = data.values.value.get(p.id) ?? 0;
     if (startsForCount(p.id, p.position, v, rosterId, data) < VET_STARTS_FOR_TEAMS) continue;
     offTimelineVets.push({ playerId: p.id, name: p.name, position: p.position, age: p.age, value: v });
@@ -390,4 +396,3 @@ export function buildTeamNarratives(
 
   return result;
 }
-
