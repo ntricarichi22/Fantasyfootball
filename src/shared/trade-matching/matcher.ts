@@ -205,8 +205,12 @@ function matchBuyNarrative(
 
         const info = resolvePlayer(input.data, asset);
         const value = info ? input.data.values.value.get(info.id) ?? 0 : 0;
-        // Insurance wants a cheap backup — skip targets too valuable to be one.
+        // Insurance wants a cheap, PROVEN veteran backup — skip targets too
+        // valuable to be one (a starter, not insurance) AND skip young players
+        // (a 23-year-old arm is a developmental asset, a different storyline,
+        // not the self-respecting vet backup insurance is after).
         if (fired.archetype === "insurance" && value > INSURANCE_TARGET_CEILING) continue;
+        if (fired.archetype === "insurance" && info && isYoung(info.position, info.age)) continue;
         const cur = currencyFor(input.data, partnerId);
         const win = windowComplement(
           windowByRoster.get(active.rosterId)!,
