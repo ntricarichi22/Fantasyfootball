@@ -193,6 +193,16 @@ function buildRosterRead(
   // piece fetches a real return (the test already excludes this roster), which
   // replaces the old flat value floor.
   const isRebuildingTier = profile.tier === "rebuilding";
+  // Owner intent override: a clear ACCUMULATE signal (picks and/or youth, no
+  // win-now want) means the owner has explicitly chosen to convert proven
+  // players into future capital — so prime non-studs become liquidation-
+  // eligible even on a contender, the same way a rebuilding teardown opens
+  // them up. The dev-window + startability fence below still protects the
+  // young core and untouchable studs.
+  const wantsAccumulate = (() => {
+    const w = gradeWants(data.strategy.get(rosterId) ?? null);
+    return w.grade === "clear" && w.direction === "accumulate";
+  })();
   const offTimelineVets: OffTimelineVet[] = [];
   for (const p of team.players) {
     if (p.age === null) continue;
@@ -202,7 +212,8 @@ function buildRosterRead(
     // Prime guys still in their development window stay off the block — a
     // rebuilder keeps its young ascending core, only the established ones go.
     const stillDeveloping = p.exp !== null && p.exp <= VET_DEV_WINDOW_YEARS;
-    if (!(aging || (isRebuildingTier && prime && !stillDeveloping))) continue;
+    const primeEligible = (isRebuildingTier || wantsAccumulate) && prime && !stillDeveloping;
+    if (!(aging || primeEligible)) continue;
     const v = data.values.value.get(p.id) ?? 0;
     if (startsForCount(p.id, p.position, v, rosterId, data) < VET_STARTS_FOR_TEAMS) continue;
     offTimelineVets.push({ playerId: p.id, name: p.name, position: p.position, age: p.age, value: v });
