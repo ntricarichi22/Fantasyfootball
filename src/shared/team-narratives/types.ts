@@ -51,8 +51,8 @@ export const ARCHETYPE_OPPOSITES: Record<ArchetypeName, ArchetypeName[]> = {
   win_now_push: ["de_consolidate", "reset", "sell_high_star", "vet_liquidation"],
   reset: ["consolidate", "win_now_push"],
   sell_high_star: ["consolidate", "win_now_push"],
-  vet_liquidation: ["consolidate", "win_now_push"],
-  insurance: ["de_consolidate"],
+  vet_liquidation: ["consolidate", "win_now_push", "insurance"],
+  insurance: ["de_consolidate", "vet_liquidation"],
   stand_pat: [],
 };
 
@@ -161,6 +161,11 @@ export type FiredNarrative = {
   archetype: ArchetypeName;
   role: NarrativeRole;
   flavor: Flavor;
+  // For BUYER narratives: which bucket this narrative is shopping. Insurance
+  // stamps the position it fired on (QB in superflex today) rather than relying
+  // on a scarcity entry, since a depth/fragility need is not a listed scarcity.
+  // Seller / null narratives leave this undefined.
+  targetBucket?: NeedBucket;
   triggerScenario: string;
   evidence: string;
   assets: string[];
@@ -178,3 +183,4 @@ export type NarrativeBundle = {
   firedNarratives: FiredNarrative[];
   crossNotes: string[];
 };
+

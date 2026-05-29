@@ -130,12 +130,20 @@ function matchSellNarrative(
     for (const [partnerId, partnerBundle] of input.bundles) {
       if (partnerId === active.rosterId) continue;
 
-      const partnerOpp = partnerBundle.firedNarratives.find(
+      const partnerBuyers = partnerBundle.firedNarratives.filter(
         (fn) => opposites.includes(fn.archetype) && ARCHETYPE_ROLE[fn.archetype] === "buyer"
       );
-      if (!partnerOpp) continue; // hard gate: opposite buyer archetype must actually fire
+      if (partnerBuyers.length === 0) continue; // hard gate: opposite buyer archetype must actually fire
 
-      if (!scarcityBuckets(partnerBundle).has(bk)) continue; // they must need this position
+      // They must want this position: a real scarcity at the bucket, OR a buyer
+      // narrative explicitly shopping it (insurance stamps QB even though a
+      // depth/fragility need is not a listed scarcity).
+      const wantsBucket =
+        scarcityBuckets(partnerBundle).has(bk) || partnerBuyers.some((fn) => fn.targetBucket === bk);
+      if (!wantsBucket) continue;
+
+      // Prefer the buyer narrative explicitly shopping this bucket.
+      const partnerOpp = partnerBuyers.find((fn) => fn.targetBucket === bk) ?? partnerBuyers[0];
 
       const sev = needScore(input.needs, partnerId, bk);
       const cur = currencyFor(input.data, partnerId);
@@ -176,7 +184,9 @@ function matchBuyNarrative(
 ): Match[] {
   const out: Array<{ match: Match; value: number }> = [];
   const opposites = ARCHETYPE_OPPOSITES[fired.archetype];
-  const targets = scarcityBuckets(active);
+  // A buyer narrative shops at its stamped target bucket when it has one
+  // (insurance -> QB); otherwise it shops at our roster scarcities.
+  const targets = fired.targetBucket ? new Set<NeedBucket>([fired.targetBucket]) : scarcityBuckets(active);
 
   for (const [partnerId, partnerBundle] of input.bundles) {
     if (partnerId === active.rosterId) continue;

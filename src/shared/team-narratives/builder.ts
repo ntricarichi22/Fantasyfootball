@@ -35,7 +35,9 @@ function canonicalPositionForBucket(bucket: NeedBucket): Position {
 }
 
 const SURPLUS_STARTS_FOR_TEAMS = 2;
-const VET_MIN_VALUE = 30;
+// Vet-liquidation: a cashable piece must be startable for at least this many
+// OTHER teams (the start-for test already excludes this team's own roster).
+const VET_STARTS_FOR_TEAMS = 1;
 
 // ── League stats (computed once per request, shared across teams) ─────────
 //
@@ -180,18 +182,17 @@ function buildRosterRead(
   agingStarsAtPeak.sort((a, b) => b.value - a.value);
 
   // Off-timeline vets
-  const isYoungOrRebuildingTier = profile.tier === "rebuilding" || profile.tier === "retooling";
+  // Vet-liquidation candidates: a rebuilding/retooling team's cashable pieces.
+  // NOT a stud (studs route to sell-high / reset), NOT young (keep the building
+  // blocks), and startable for at least one OTHER team — the market proving the
+  // piece fetches a real return, which replaces the old flat value floor.
   const offTimelineVets: OffTimelineVet[] = [];
   for (const p of team.players) {
     if (p.age === null) continue;
-    const v = data.values.value.get(p.id) ?? 0;
-    if (v < VET_MIN_VALUE) continue;
     if (data.values.isStud.get(p.id)) continue;
-    if (startsForCount(p.id, p.position, v, rosterId, data) >= SURPLUS_STARTS_FOR_TEAMS) continue;
-    if (!isAging(p.position, p.age)) {
-      if (!isYoungOrRebuildingTier) continue;
-      if (p.age < 28) continue;
-    }
+    if (isYoung(p.position, p.age)) continue;
+    const v = data.values.value.get(p.id) ?? 0;
+    if (startsForCount(p.id, p.position, v, rosterId, data) < VET_STARTS_FOR_TEAMS) continue;
     offTimelineVets.push({ playerId: p.id, name: p.name, position: p.position, age: p.age, value: v });
   }
   offTimelineVets.sort((a, b) => b.value - a.value);
@@ -389,3 +390,4 @@ export function buildTeamNarratives(
 
   return result;
 }
+

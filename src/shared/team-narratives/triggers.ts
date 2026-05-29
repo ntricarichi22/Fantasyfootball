@@ -368,6 +368,9 @@ export function fireInsurance(ctx: TriggerContext): FiredNarrative[] {
 
   return [{
     archetype: "insurance", role: "buyer", flavor: null,
+    // Insurance fired on the QB room (superflex fragility). Stamp the bucket so
+    // the matcher knows what position we're shopping without a scarcity entry.
+    targetBucket: "QB",
     triggerScenario: `insurance: QB-superflex fragility (${qbs.length} startable QB(s))`,
     evidence:
       `Contending ${profile.tier} team in a superflex league with only ${qbs.length} startable QB(s). ` +
