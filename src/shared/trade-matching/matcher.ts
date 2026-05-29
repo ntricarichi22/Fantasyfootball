@@ -155,6 +155,7 @@ function matchSellNarrative(
         narrativeArchetype: fired.archetype,
         narrativeFlavor: fired.flavor,
         anchor: label,
+        anchorKey: asset,
         anchorBucket: bk,
         partnerRosterId: partnerId,
         partnerTeam: partnerBundle.teamName,
@@ -210,6 +211,7 @@ function matchBuyNarrative(
             narrativeArchetype: fired.archetype,
             narrativeFlavor: fired.flavor,
             anchor: anchorLabel(input.data, asset),
+            anchorKey: asset,
             anchorBucket: bk,
             partnerRosterId: partnerId,
             partnerTeam: partnerBundle.teamName,
@@ -292,6 +294,7 @@ function floorMatch(
     narrativeArchetype: "stand_pat", // floor isn't driven by one of our narratives
     narrativeFlavor: null,
     anchor: `(${bk} — value-fit)`,
+    anchorKey: "",
     anchorBucket: bk,
     partnerRosterId: partnerId,
     partnerTeam,

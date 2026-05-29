@@ -36,6 +36,9 @@ export type Match = {
   narrativeFlavor: Flavor;
   // The headline piece changing hands — a player name or a pick label.
   anchor: string;
+  // The raw asset key for the anchor (player id or pick key), for offer-gen to
+  // seed the constructor. Empty for tier-2 floor rows (no concrete piece yet).
+  anchorKey: string;
   anchorBucket: AnchorBucket;
   partnerRosterId: string;
   partnerTeam: string;
