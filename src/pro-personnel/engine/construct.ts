@@ -29,7 +29,7 @@ import type { LeagueData, StrategyProfile, RosteredTeam, PlayerInfo, OwnedPick }
 import type { TeamProfile, TeamNeeds, NeedLevel } from "@/shared/team-profiles";
 import { computeStrength } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
-import { valueAsset, type AssetRef, type ValuationContext } from "@/shared/asset-values";
+import { valueAsset, isYoung, type AssetRef, type ValuationContext } from "@/shared/asset-values";
 
 import type {
   DealRequest,
@@ -400,8 +400,12 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
 
       // Fill pools. Send: our movable assets, but thesis-aware — never the
       // war-chest picks, never a position we're actively buying (don't ship
-      // what we're collecting), never an untouchable. Receive: partner assets
-      // we'd actually take (demand-gated), minus anchors.
+      // what we're collecting), never an untouchable. Plus the PARTNER-SIDE
+      // gate: don't offer the partner a player at a position THEY are selling
+      // (they won't take more of what they're dumping). Receive: partner assets
+      // we'd actually take (our demand gate), AND that the partner would
+      // actually part with — never a position the partner is buying (they're
+      // collecting it, not trading it away).
       const anchored = new Set([...sendAnchors, ...recvKeys]);
       const sendPool = ourTeam!.playerIds
         .concat((data.pickOwnership.get(ourTeamId) ?? []).map((p) => p.key))
@@ -411,15 +415,43 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         .filter((r) => !isUntouchable(r.key, ourAttachment))
         .filter((r) => !(r.type === "pick" && protectedPickKeys.has(r.key)))
         .filter((r) => !(r.type === "player" && marketFor(ourStrategy, r.bucket) === "buy"))
+        // Partner won't accept a player at a position they're selling.
+        .filter((r) => !(r.type === "player" && marketFor(partnerStrategy, r.bucket) === "sell"))
         .map((r) => valued(r, "send", aim, pId));
 
-      const recvPool = partnerTeam!.playerIds
+      const recvResolvedPool = partnerTeam!.playerIds
         .concat((data.pickOwnership.get(pId) ?? []).map((p) => p.key))
         .filter((k) => !anchored.has(k))
         .map(resolve)
         .filter((r): r is Resolved => !!r)
         .filter((r) => wantsToAcquire(r.bucket, ourStrategy ?? null, ourNeeds ?? null).ok)
-        .map((r) => valued(r, "receive", aim, pId));
+        // Partner won't ship a player at a position they're buying (collecting).
+        .filter((r) => !(r.type === "player" && marketFor(partnerStrategy, r.bucket) === "buy"));
+
+      const recvPool = recvResolvedPool.map((r) => valued(r, "receive", aim, pId));
+
+      // Lean bias: when the seller's narrative wants future capital
+      // (prefer_picks — reset / vet-liquidation), the return should be PICKS or
+      // YOUNG players, never proven studs — a team resetting builds for the
+      // future, it doesn't take back win-now stars. So the fill pool keeps
+      // every pick plus any non-stud player who is young (isYoung), and drops
+      // studs and prime/aging vets. Seeded receive anchors are untouched; this
+      // only constrains what balance ADDS. prefer_players (de-consolidate)
+      // leaves the pool as-is.
+      const preferPicks = (req.leans ?? []).includes("prefer_picks");
+      const resetEligibleKeys = new Set(
+        recvResolvedPool
+          .filter((r) => {
+            if (r.type === "pick") return true;
+            if (r.isStud) return false;
+            const info = data.players.get(r.key);
+            return isYoung(r.position, info?.age ?? null);
+          })
+          .map((r) => r.key),
+      );
+      const recvFillPool = preferPicks
+        ? recvPool.filter((a) => resetEligibleKeys.has(a.key))
+        : recvPool;
 
       // Opening ratio is from the offering team's seat; translate to OUR seat
       // (balance always reads receive/send from our seat).
@@ -429,7 +461,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         send: sendSeedVA,
         receive: recvSeedVA,
         sendPool,
-        receivePool: recvPool,
+        receivePool: recvFillPool,
         targetRatio,
         maxPerSide: knobs.maxPerSide,
       });
@@ -444,7 +476,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
           .sort((a, b) => a.value - b.value)[0];
         if (lowPick) sendVA = [...sendVA, lowPick];
       } else if (knobs.sweetenerSide === "receive" && recvVA.length < knobs.maxPerSide) {
-        const smallPick = [...recvPool]
+        const smallPick = [...recvFillPool]
           .filter((a) => a.type === "pick" && !recvVA.some((s) => s.key === a.key))
           .sort((a, b) => a.value - b.value)[0];
         if (smallPick) recvVA = [...recvVA, smallPick];

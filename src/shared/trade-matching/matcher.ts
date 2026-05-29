@@ -88,6 +88,14 @@ function currencyFor(data: LeagueData, rosterId: string): CurrencyMatch {
 const CURRENCY_RANK: Record<CurrencyMatch, number> = { strong: 2, partial: 1, weak: 0 };
 const WINDOW_RANK: Record<WindowComplement, number> = { clean: 1, same_window: 0 };
 
+// Insurance buys a cheap backup, not a starter. A QB worth more than this is
+// too good to sit on a bench — that's a real win-now acquisition, not
+// insurance — so insurance matches are capped at this target value. Set above
+// legitimate backup arms (Jones/Willis ~142, Murray ~179) but below franchise
+// starters (Lawrence ~302), so the "scrounge a self-respecting backup"
+// storyline can't pull in a player who's plainly a starter elsewhere.
+const INSURANCE_TARGET_CEILING = 200;
+
 // Order matches: need severity first (the desperate buyer leads), then
 // currency, then window. All three stay visible on each match; this only
 // decides the sequence.
@@ -197,6 +205,8 @@ function matchBuyNarrative(
 
         const info = resolvePlayer(input.data, asset);
         const value = info ? input.data.values.value.get(info.id) ?? 0 : 0;
+        // Insurance wants a cheap backup — skip targets too valuable to be one.
+        if (fired.archetype === "insurance" && value > INSURANCE_TARGET_CEILING) continue;
         const cur = currencyFor(input.data, partnerId);
         const win = windowComplement(
           windowByRoster.get(active.rosterId)!,
