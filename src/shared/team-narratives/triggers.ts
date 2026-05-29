@@ -212,7 +212,14 @@ export function fireSellHighStar(ctx: TriggerContext): FiredNarrative[] {
 
 export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
   const { profile, wantsClarity, rosterRead } = ctx;
-  if (profile.tier !== "rebuilding" && profile.tier !== "retooling") return [];
+  // Tier gate, with an owner-intent override: rebuilding/retooling teams shed
+  // vets by default, but a clear ACCUMULATE signal means even a contender has
+  // explicitly chosen to convert proven players into picks — so let it fire.
+  // (The eligibility of WHICH players is fenced in buildRosterRead; here we
+  // only decide whether the team is in a selling posture at all.)
+  const clearAccumulate = wantsClarity.grade === "clear" && wantsClarity.direction === "accumulate";
+  const sellingTier = profile.tier === "rebuilding" || profile.tier === "retooling";
+  if (!sellingTier && !clearAccumulate) return [];
   if (rosterRead.offTimelineVets.length === 0) return [];
   const accumulateAligned = wantsClarity.direction === "accumulate" || wantsClarity.grade === "noise";
   if (!accumulateAligned) return [];
@@ -221,7 +228,7 @@ export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
     archetype: "vet_liquidation", role: "seller", flavor: null,
     triggerScenario: `vet_liquidation: ${rosterRead.offTimelineVets.length} off-timeline vet(s)`,
     evidence:
-      `${profile.tier} team holding off-timeline vets: ` +
+      `${clearAccumulate && !sellingTier ? "Accumulate-minded" : profile.tier} team holding off-timeline vets: ` +
       `${rosterRead.offTimelineVets.map((v) => `${v.name} (${v.position}, ${v.age}, val ${v.value.toFixed(0)})`).join(", ")}. ` +
       `Convert to picks before value depreciates — volume beats holding out.`,
     assets: rosterRead.offTimelineVets.map((v) => v.playerId),
