@@ -38,6 +38,9 @@ const SURPLUS_STARTS_FOR_TEAMS = 2;
 // Vet-liquidation: a cashable piece must be startable for at least this many
 // OTHER teams (the start-for test already excludes this team's own roster).
 const VET_STARTS_FOR_TEAMS = 1;
+// On a rebuilder, a prime piece within this many years of experience is still
+// developing — part of the rebuild core, not a vet to cash.
+const VET_DEV_WINDOW_YEARS = 3;
 
 // ── League stats (computed once per request, shared across teams) ─────────
 //
@@ -196,7 +199,10 @@ function buildRosterRead(
     if (data.values.isStud.get(p.id)) continue;
     const aging = isAging(p.position, p.age);
     const prime = !aging && !isYoung(p.position, p.age);
-    if (!(aging || (isRebuildingTier && prime))) continue;
+    // Prime guys still in their development window stay off the block — a
+    // rebuilder keeps its young ascending core, only the established ones go.
+    const stillDeveloping = p.exp !== null && p.exp <= VET_DEV_WINDOW_YEARS;
+    if (!(aging || (isRebuildingTier && prime && !stillDeveloping))) continue;
     const v = data.values.value.get(p.id) ?? 0;
     if (startsForCount(p.id, p.position, v, rosterId, data) < VET_STARTS_FOR_TEAMS) continue;
     offTimelineVets.push({ playerId: p.id, name: p.name, position: p.position, age: p.age, value: v });
