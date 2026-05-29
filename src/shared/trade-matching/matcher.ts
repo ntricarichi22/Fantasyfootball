@@ -24,10 +24,6 @@ import type {
   WindowComplement,
 } from "./types";
 
-// Below this many narrative-driven (tier 1) matches, the value-fit floor opens
-// up to backfill the slate. At or above it, the floor stays hidden.
-const TIER2_THRESHOLD = 3;
-
 // ── small read helpers (no recomputation — straight reads off the layers) ──
 
 function bucketKey(bucket: NeedBucket): "qb" | "rb" | "passCatcher" {
@@ -327,7 +323,12 @@ export function buildMatchSlates(input: MatchInput): Map<string, TeamSlate> {
       }
     }
 
-    const tier2 = tier1.length < TIER2_THRESHOLD ? buildFloor(active, input, windowByRoster) : [];
+    // Matching surfaces every valid pairing; the downstream ranking, universal
+    // filters, and offer generation do the trimming. No tier-1 count gate — an
+    // explicit buy/sell toggle must always surface offers, even when tier 1 is
+    // already full. The tier label is kept so the director can still tell
+    // narrative-driven deals from value-fit ones.
+    const tier2 = buildFloor(active, input, windowByRoster);
 
     slates.set(rosterId, {
       rosterId,
