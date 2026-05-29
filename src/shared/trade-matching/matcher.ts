@@ -5,7 +5,7 @@ import {
   sellMarketBuckets,
   buyMarketBuckets,
 } from "@/shared/team-profiles";
-import type { TeamDossier, Window } from "@/shared/team-dossier";
+import type { Window } from "@/shared/team-dossier";
 import { isYoung } from "@/shared/asset-values";
 import {
   ARCHETYPE_OPPOSITES,
@@ -34,29 +34,32 @@ function bucketKey(bucket: NeedBucket): "qb" | "rb" | "passCatcher" {
   return bucket === "QB" ? "qb" : bucket === "RB" ? "rb" : "passCatcher";
 }
 
-// A player's display name doesn't carry a position, so resolve it against the
-// roster that owns it. Built once per team.
-function buildNameIndex(players: PlayerInfo[]): Map<string, PlayerInfo> {
-  const m = new Map<string, PlayerInfo>();
-  for (const p of players) m.set(p.name, p);
-  return m;
+// FiredNarrative.assets carries player IDs and pick keys (not display names),
+// so resolve players against the global id->PlayerInfo map. Anything not found
+// there is a pick key (e.g. "pick:2027:1").
+function resolvePlayer(data: LeagueData, asset: string): PlayerInfo | null {
+  return data.players.get(asset) ?? null;
 }
 
-function isPickAsset(asset: string): boolean {
-  return asset.endsWith("(pick)");
-}
-
-// The bucket of a headline piece. Picks are "PICK"; players resolve through
-// the shared position->bucket mapper. Unknown names return null (skip).
-function anchorBucketOf(asset: string, ownerNames: Map<string, PlayerInfo>): AnchorBucket | null {
-  if (isPickAsset(asset)) return "PICK";
-  const info = ownerNames.get(asset);
-  if (!info) return null;
+// The bucket of a headline piece. Players resolve through the shared
+// position->bucket mapper; pick keys (and anything unresolvable) are "PICK".
+function anchorBucketOf(data: LeagueData, asset: string): AnchorBucket | null {
+  const info = resolvePlayer(data, asset);
+  if (!info) return "PICK";
   return bucketOf(info.position);
+}
+
+// Human-readable label for an asset — the player's name, or the raw key.
+function anchorLabel(data: LeagueData, asset: string): string {
+  return resolvePlayer(data, asset)?.name ?? asset;
 }
 
 function scarcityBuckets(bundle: NarrativeBundle): Set<NeedBucket> {
   return new Set(bundle.rosterRead.scarcities.map((s) => s.bucket));
+}
+
+function surplusBuckets(bundle: NarrativeBundle): Set<NeedBucket> {
+  return new Set(bundle.rosterRead.surpluses.map((s) => s.bucket));
 }
 
 function needScore(needs: MatchInput["needs"], rosterId: string, bucket: NeedBucket): number | null {
@@ -89,10 +92,10 @@ function currencyFor(data: LeagueData, rosterId: string): CurrencyMatch {
 const CURRENCY_RANK: Record<CurrencyMatch, number> = { strong: 2, partial: 1, weak: 0 };
 const WINDOW_RANK: Record<WindowComplement, number> = { clean: 1, same_window: 0 };
 
-// Order a list of matches: need severity first (the desperate buyer leads),
-// then currency, then window. All three stay visible on each match; this only
+// Order matches: need severity first (the desperate buyer leads), then
+// currency, then window. All three stay visible on each match; this only
 // decides the sequence.
-function sortMatches(matches: Match[]): Match[] {
+function sortBySeverity(matches: Match[]): Match[] {
   return matches.slice().sort((x, y) => {
     const sx = x.reasons.needSeverity ?? -1;
     const sy = y.reasons.needSeverity ?? -1;
@@ -112,18 +115,17 @@ function matchSellNarrative(
   active: NarrativeBundle,
   fired: FiredNarrative,
   input: MatchInput,
-  nameIndexByRoster: Map<string, Map<string, PlayerInfo>>,
   windowByRoster: Map<string, Window>
 ): Match[] {
   const out: Match[] = [];
   const opposites = ARCHETYPE_OPPOSITES[fired.archetype];
-  const ourNames = nameIndexByRoster.get(active.rosterId)!;
 
   for (const asset of fired.assets) {
-    const bk = anchorBucketOf(asset, ourNames);
+    const bk = anchorBucketOf(input.data, asset);
     // Pick anchors (e.g. trade-back) need pick-for-pick logic that lives in
     // offer generation, not here — skip them at the matching layer for now.
     if (bk === null || bk === "PICK") continue;
+    const label = anchorLabel(input.data, asset);
 
     for (const [partnerId, partnerBundle] of input.bundles) {
       if (partnerId === active.rosterId) continue;
@@ -148,7 +150,7 @@ function matchSellNarrative(
         side: "we_sell",
         narrativeArchetype: fired.archetype,
         narrativeFlavor: fired.flavor,
-        anchor: asset,
+        anchor: label,
         anchorBucket: bk,
         partnerRosterId: partnerId,
         partnerTeam: partnerBundle.teamName,
@@ -159,7 +161,7 @@ function matchSellNarrative(
     }
   }
 
-  return sortMatches(out);
+  return sortBySeverity(out);
 }
 
 // Our buyer narrative shops at our scarcity buckets. A partner qualifies if
@@ -170,25 +172,23 @@ function matchBuyNarrative(
   active: NarrativeBundle,
   fired: FiredNarrative,
   input: MatchInput,
-  nameIndexByRoster: Map<string, Map<string, PlayerInfo>>,
   windowByRoster: Map<string, Window>
 ): Match[] {
-  const out: Match[] = [];
+  const out: Array<{ match: Match; value: number }> = [];
   const opposites = ARCHETYPE_OPPOSITES[fired.archetype];
   const targets = scarcityBuckets(active);
 
   for (const [partnerId, partnerBundle] of input.bundles) {
     if (partnerId === active.rosterId) continue;
-    const partnerNames = nameIndexByRoster.get(partnerId)!;
 
     for (const fn of partnerBundle.firedNarratives) {
       if (!opposites.includes(fn.archetype) || ARCHETYPE_ROLE[fn.archetype] !== "seller") continue;
 
       for (const asset of fn.assets) {
-        const bk = anchorBucketOf(asset, partnerNames);
+        const bk = anchorBucketOf(input.data, asset);
         if (bk === null || bk === "PICK" || !targets.has(bk)) continue;
 
-        const info = partnerNames.get(asset);
+        const info = resolvePlayer(input.data, asset);
         const value = info ? input.data.values.value.get(info.id) ?? 0 : 0;
         const cur = currencyFor(input.data, partnerId);
         const win = windowComplement(
@@ -197,31 +197,28 @@ function matchBuyNarrative(
         );
 
         out.push({
-          tier: 1,
-          side: "we_buy",
-          narrativeArchetype: fired.archetype,
-          narrativeFlavor: fired.flavor,
-          anchor: asset,
-          anchorBucket: bk,
-          partnerRosterId: partnerId,
-          partnerTeam: partnerBundle.teamName,
-          partnerArchetype: fn.archetype,
-          // needSeverity null on buy-side; we rank by piece value instead.
-          reasons: { needSeverity: null, currencyMatch: cur, windowComplement: win },
-          why: `${partnerBundle.teamName} is shipping ${asset} (${bk}, val ${value}) via ${fn.archetype} — fills our ${bk} hole.`,
+          value,
+          match: {
+            tier: 1,
+            side: "we_buy",
+            narrativeArchetype: fired.archetype,
+            narrativeFlavor: fired.flavor,
+            anchor: anchorLabel(input.data, asset),
+            anchorBucket: bk,
+            partnerRosterId: partnerId,
+            partnerTeam: partnerBundle.teamName,
+            partnerArchetype: fn.archetype,
+            // needSeverity null on buy-side; we rank by piece value instead.
+            reasons: { needSeverity: null, currencyMatch: cur, windowComplement: win },
+            why: `${partnerBundle.teamName} is shipping ${anchorLabel(input.data, asset)} (${bk}, val ${value}) via ${fn.archetype} — fills our ${bk} hole.`,
+          },
         });
       }
     }
   }
 
   // Buy-side: order by the headline piece's value (best stud first).
-  return out.sort((x, y) => {
-    const vx = nameIndexByRoster.get(x.partnerRosterId)!.get(x.anchor);
-    const vy = nameIndexByRoster.get(y.partnerRosterId)!.get(y.anchor);
-    const valX = vx ? input.data.values.value.get(vx.id) ?? 0 : 0;
-    const valY = vy ? input.data.values.value.get(vy.id) ?? 0 : 0;
-    return valY - valX;
-  });
+  return out.sort((a, b) => b.value - a.value).map((o) => o.match);
 }
 
 // ── tier 2 — the value-fit floor (symmetric stated-market rule) ────────────
@@ -229,10 +226,6 @@ function matchBuyNarrative(
 // A stated SELL at a position matches a partner who has stated BUY there OR a
 // genuine need there. A stated BUY at a position matches a partner who has
 // stated SELL there OR a genuine surplus there. Only built when tier 1 is thin.
-
-function surplusBuckets(bundle: NarrativeBundle): Set<NeedBucket> {
-  return new Set(bundle.rosterRead.surpluses.map((s) => s.bucket));
-}
 
 function buildFloor(
   active: NarrativeBundle,
@@ -258,19 +251,23 @@ function buildFloor(
       if (!(pBuys.has(bk) || pNeeds.has(bk))) continue;
       const sev = needScore(input.needs, partnerId, bk);
       const reason = pBuys.has(bk) ? "stated buy" : `need ${sev ?? "?"}`;
-      out.push(floorMatch("we_sell", bk, partnerId, partnerBundle.teamName, sev, currencyFor(input.data, partnerId), win,
-        `We're shopping ${bk}; ${partnerBundle.teamName} has a ${reason} there.`));
+      out.push(
+        floorMatch("we_sell", bk, partnerId, partnerBundle.teamName, sev, currencyFor(input.data, partnerId), win,
+          `We're shopping ${bk}; ${partnerBundle.teamName} has a ${reason} there.`)
+      );
     }
     // Our stated buys -> partner sells there OR has surplus there.
     for (const bk of ourBuys) {
       if (!(pSells.has(bk) || pSurplus.has(bk))) continue;
       const reason = pSells.has(bk) ? "stated sell" : "surplus";
-      out.push(floorMatch("we_buy", bk, partnerId, partnerBundle.teamName, null, currencyFor(input.data, partnerId), win,
-        `We want ${bk}; ${partnerBundle.teamName} has a ${reason} there.`));
+      out.push(
+        floorMatch("we_buy", bk, partnerId, partnerBundle.teamName, null, currencyFor(input.data, partnerId), win,
+          `We want ${bk}; ${partnerBundle.teamName} has a ${reason} there.`)
+      );
     }
   }
 
-  return sortMatches(out);
+  return sortBySeverity(out);
 }
 
 function floorMatch(
@@ -301,11 +298,7 @@ function floorMatch(
 // ── public entry ───────────────────────────────────────────────────────────
 
 export function buildMatchSlates(input: MatchInput): Map<string, TeamSlate> {
-  const nameIndexByRoster = new Map<string, Map<string, PlayerInfo>>();
   const windowByRoster = new Map<string, Window>();
-  for (const team of input.data.teams) {
-    nameIndexByRoster.set(team.rosterId, buildNameIndex(team.players));
-  }
   for (const d of input.dossiers) windowByRoster.set(d.rosterId, d.window);
 
   const slates = new Map<string, TeamSlate>();
@@ -318,9 +311,9 @@ export function buildMatchSlates(input: MatchInput): Map<string, TeamSlate> {
       if (role === "null_action") continue; // stand-pat produces no offers
 
       if (role === "seller") {
-        tier1.push(...matchSellNarrative(active, fired, input, nameIndexByRoster, windowByRoster));
+        tier1.push(...matchSellNarrative(active, fired, input, windowByRoster));
       } else {
-        tier1.push(...matchBuyNarrative(active, fired, input, nameIndexByRoster, windowByRoster));
+        tier1.push(...matchBuyNarrative(active, fired, input, windowByRoster));
       }
     }
 
