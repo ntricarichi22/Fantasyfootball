@@ -1,5 +1,6 @@
 import type { LeagueData, StrategyProfile, Position } from "@/shared/league-data";
 import type { TeamProfile, TeamNeeds, NeedBucket } from "@/shared/team-profiles";
+import { bucketOf, hasSellMarket, hasBuyMarket, sellMarketBuckets } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
 
 import type { FiredNarrative, RosterRead, WantsClarity } from "./types";
@@ -16,39 +17,11 @@ export type TriggerContext = {
   data: LeagueData;
 };
 
-const POSITION_TO_BUCKET: Record<string, NeedBucket> = {
-  QB: "QB", RB: "RB", WR: "PASS_CATCHER", TE: "PASS_CATCHER",
-};
-function bucketOf(position: string): NeedBucket | null {
-  return POSITION_TO_BUCKET[position] ?? null;
-}
 function isStud(playerId: string, data: LeagueData): boolean {
   return data.values.isStud.get(playerId) ?? false;
 }
 function valueOf(playerId: string, data: LeagueData): number {
   return data.values.value.get(playerId) ?? 0;
-}
-function hasSellMarket(s: StrategyProfile | null): boolean {
-  return !!s && (s.qbMarket === "sell" || s.rbMarket === "sell" || s.pcMarket === "sell" || s.picksMarket === "sell");
-}
-function hasBuyMarket(s: StrategyProfile | null): boolean {
-  return !!s && (s.qbMarket === "buy" || s.rbMarket === "buy" || s.pcMarket === "buy" || s.picksMarket === "buy");
-}
-function sellMarketBuckets(s: StrategyProfile | null): NeedBucket[] {
-  if (!s) return [];
-  const out: NeedBucket[] = [];
-  if (s.qbMarket === "sell") out.push("QB");
-  if (s.rbMarket === "sell") out.push("RB");
-  if (s.pcMarket === "sell") out.push("PASS_CATCHER");
-  return out;
-}
-function buyMarketBuckets(s: StrategyProfile | null): NeedBucket[] {
-  if (!s) return [];
-  const out: NeedBucket[] = [];
-  if (s.qbMarket === "buy") out.push("QB");
-  if (s.rbMarket === "buy") out.push("RB");
-  if (s.pcMarket === "buy") out.push("PASS_CATCHER");
-  return out;
 }
 function spendablePickKeys(rosterId: string, data: LeagueData): string[] {
   return (data.pickOwnership.get(rosterId) ?? []).map((p) => p.key);

@@ -1,6 +1,6 @@
 import type { LeagueData, PlayerInfo, Position } from "@/shared/league-data";
 import type { TeamProfile, TeamNeeds, NeedBucket, NeedDetail } from "@/shared/team-profiles";
-import { slotEligibility } from "@/shared/team-profiles";
+import { slotEligibility, bucketOf } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
 import { isYoung, isAging } from "@/shared/asset-values";
 
@@ -21,12 +21,6 @@ import { checkPhantomCliff } from "./phantoms";
 import { startsForCount } from "./cliff";
 import { fireAllArchetypes, type TriggerContext } from "./triggers";
 
-const POSITION_TO_BUCKET: Record<string, NeedBucket> = {
-  QB: "QB", RB: "RB", WR: "PASS_CATCHER", TE: "PASS_CATCHER",
-};
-function bucketOf(position: string): NeedBucket | null {
-  return POSITION_TO_BUCKET[position] ?? null;
-}
 function bucketKey(bucket: NeedBucket): "qb" | "rb" | "passCatcher" {
   return bucket === "QB" ? "qb" : bucket === "RB" ? "rb" : "passCatcher";
 }

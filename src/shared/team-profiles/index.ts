@@ -10,3 +10,11 @@ export {
 } from "./strength";
 export { buildTeamProfiles } from "./profiler";
 export { computeNeeds } from "./needs";
+export {
+  POSITION_TO_BUCKET,
+  bucketOf,
+  hasSellMarket,
+  hasBuyMarket,
+  sellMarketBuckets,
+  buyMarketBuckets,
+} from "./buckets";
