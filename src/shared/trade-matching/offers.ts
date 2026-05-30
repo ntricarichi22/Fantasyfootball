@@ -43,42 +43,52 @@ function positionsForBucket(bucket: string): Set<string> {
 // single best-fit sell anchor: our highest-value player at the bucket who is
 // NOT in our optimal starting lineup (shipping a starter would open a hole the
 // safety filter rejects anyway). Returns null if we have nothing sheddable.
-function bestSellAnchorAtBucket(
+// Our sheddable non-starter players at a bucket, highest value first. A tier-2
+// SELL floor match names only a position; the owner flagged it as a sell, so we
+// shop our depth there — but never a player in the optimal lineup (shipping a
+// starter opens a hole the safety filter rejects anyway). Returns a ranked list
+// so the floor can spread across the pieces we'd actually move (different RBs to
+// different teams), not clone one player into every deal. Bounded by the caller.
+function sheddableAtBucket(
   activeRosterId: string,
   bucket: string,
   ec: EngineContext
-): string | null {
+): string[] {
   const team = ec.data.teams.find((t) => t.rosterId === activeRosterId);
-  if (!team) return null;
+  if (!team) return [];
   const positions = positionsForBucket(bucket);
-  if (positions.size === 0) return null;
+  if (positions.size === 0) return [];
 
   const profile = ec.profiles.find((p) => p.rosterId === activeRosterId) ?? null;
   const starterIds = new Set(
     (profile?.strength.lineup ?? []).map((s) => s.playerId).filter((id): id is string => !!id)
   );
 
-  const candidates = team.players
+  return team.players
     .filter((p) => positions.has(p.position.toUpperCase()))
     .filter((p) => !starterIds.has(p.id)) // don't ship a starter into a hole
     .map((p) => ({ id: p.id, value: ec.data.values.value.get(p.id) ?? 0 }))
-    .sort((a, b) => b.value - a.value);
-
-  return candidates[0]?.id ?? null;
+    .sort((a, b) => b.value - a.value)
+    .map((x) => x.id);
 }
+
+// How many distinct sell pieces one tier-2 floor bucket may shop per partner.
+// Keeps the slate from exploding (a deep position × 11 partners) while letting
+// the floor spread beyond a single player.
+const TIER2_SELL_PIECES = 2;
 
 function requestForMatch(
   activeRosterId: string,
   match: Match,
   ec: EngineContext
-): DealRequest | null {
+): DealRequest[] {
   // Pick-anchored sells aren't matched today (deferred to pick-for-pick logic).
-  if (match.anchorBucket === "PICK") return null;
+  if (match.anchorBucket === "PICK") return [];
 
   // ── Tier 1: narrative-driven, anchored on a named player. ────────────────
   if (match.tier === 1) {
     if (match.side === "we_sell") {
-      return {
+      return [{
         ourTeamId: activeRosterId,
         offeringTeamId: activeRosterId,
         intent: "shop" as Intent,
@@ -86,10 +96,10 @@ function requestForMatch(
         counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
         leans: leansFor(match.narrativeArchetype),
         aimAt: "us",
-      };
+      }];
     }
     // we_buy: the anchor is the partner's piece we want.
-    return {
+    return [{
       ourTeamId: activeRosterId,
       offeringTeamId: activeRosterId,
       intent: "acquire" as Intent,
@@ -97,7 +107,8 @@ function requestForMatch(
       counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
       leans: leansFor(match.narrativeArchetype),
       aimAt: "us",
-    };
+      ...(match.narrativeArchetype === "insurance" ? { dealKind: "insurance" as const } : {}),
+    }];
   }
 
   // ── Tier 2: stated-market floor, anchored on a BUCKET, not a player. ──────
@@ -108,7 +119,7 @@ function requestForMatch(
     // Acquire-with-no-anchor: the constructor discovers the best-fit target at
     // a position we have demand for, on this partner. Exactly the existing
     // buy-side discovery path — no new logic.
-    return {
+    return [{
       ourTeamId: activeRosterId,
       offeringTeamId: activeRosterId,
       intent: "acquire" as Intent,
@@ -116,14 +127,18 @@ function requestForMatch(
       counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
       leans: [],
       aimAt: "us",
-    };
+    }];
   }
 
   // we_sell floor: the constructor has no "discover what of OURS to ship" path,
-  // so the adapter picks our best sheddable piece at the bucket and seeds it.
-  const sellKey = bestSellAnchorAtBucket(activeRosterId, match.anchorBucket, ec);
-  if (!sellKey) return null;
-  return {
+  // so the adapter seeds the anchor. We spread across our sheddable depth at the
+  // bucket (up to TIER2_SELL_PIECES) so the floor shops different players to a
+  // partner instead of cloning one piece into every deal.
+  const sellKeys = sheddableAtBucket(activeRosterId, match.anchorBucket, ec).slice(
+    0,
+    TIER2_SELL_PIECES
+  );
+  return sellKeys.map((sellKey) => ({
     ourTeamId: activeRosterId,
     offeringTeamId: activeRosterId,
     intent: "shop" as Intent,
@@ -131,7 +146,7 @@ function requestForMatch(
     counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
     leans: [],
     aimAt: "us",
-  };
+  }));
 }
 
 export type GeneratedOffer = {
@@ -159,29 +174,30 @@ export function generateOffersForTeam(
   const seen = new Set<string>();
 
   const runMatch = (match: TeamSlate["tier1"][number]) => {
-    const req = requestForMatch(slate.rosterId, match, ec);
-    if (!req) return;
-    const result = construct(req, ec);
-    for (const offer of result.offers) {
-      // Locked counterparty should guarantee this, but be defensive.
-      if (offer.partnerTeamId !== match.partnerRosterId) continue;
-      const sig =
-        offer.partnerTeamId +
-        "|" +
-        offer.assets
-          .map((a) => `${a.side}:${a.key}`)
-          .sort()
-          .join(",");
-      if (seen.has(sig)) continue;
-      seen.add(sig);
-      out.push({
-        narrativeArchetype: match.narrativeArchetype,
-        tier: match.tier,
-        side: match.side,
-        anchor: match.anchor,
-        partnerTeam: match.partnerTeam,
-        offer,
-      });
+    const reqs = requestForMatch(slate.rosterId, match, ec);
+    for (const req of reqs) {
+      const result = construct(req, ec);
+      for (const offer of result.offers) {
+        // Locked counterparty should guarantee this, but be defensive.
+        if (offer.partnerTeamId !== match.partnerRosterId) continue;
+        const sig =
+          offer.partnerTeamId +
+          "|" +
+          offer.assets
+            .map((a) => `${a.side}:${a.key}`)
+            .sort()
+            .join(",");
+        if (seen.has(sig)) continue;
+        seen.add(sig);
+        out.push({
+          narrativeArchetype: match.narrativeArchetype,
+          tier: match.tier,
+          side: match.side,
+          anchor: match.anchor,
+          partnerTeam: match.partnerTeam,
+          offer,
+        });
+      }
     }
   };
 

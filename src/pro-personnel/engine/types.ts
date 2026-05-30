@@ -111,6 +111,12 @@ export type DealRequest = {
   requiredCounterpartyKeys?: AssetKey[];
   leans: Lean[];
   aimAt: AimAt;
+  // Marks a deal whose currency rules differ from a normal trade. "insurance"
+  // means a contender buying depth: it must NOT pay with anyone who fills a
+  // real role (optimal-lineup starter OR a needed backup), only with picks plus
+  // genuinely-excess players (the brain's surplus / buried-young lists). The
+  // constructor reads that excess set from ec.bundles for ourTeamId.
+  dealKind?: "insurance";
 };
 
 // ─── Pricing — two scoreboards ─────────────────────────────────────────────

@@ -51,7 +51,7 @@ export async function GET(req: Request) {
     const slates = buildMatchSlates({ data, profiles, needs, dossiers, bundles });
 
     const ctx = await buildValuationContext();
-    const ec: EngineContext = { data, profiles, dossiers, needs, ctx };
+    const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };
 
     const runOne = (rosterId: string) => {
       const slate = slates.get(rosterId);

@@ -29,6 +29,7 @@ import type { LeagueData, StrategyProfile, RosteredTeam, PlayerInfo, OwnedPick }
 import type { TeamProfile, TeamNeeds, NeedLevel } from "@/shared/team-profiles";
 import { computeStrength } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
+import type { NarrativeBundle } from "@/shared/team-narratives";
 import { valueAsset, isYoung, type AssetRef, type ValuationContext } from "@/shared/asset-values";
 
 import type {
@@ -59,6 +60,11 @@ export type EngineContext = {
   dossiers: TeamDossier[];
   needs: Map<string, TeamNeeds>;
   ctx: ValuationContext;
+  // The brain's per-team NarrativeBundle, keyed by rosterId. The constructor
+  // reads rosterRead (surpluses, buried young) from here rather than recomputing
+  // — single source. Optional so non-narrative callers (Studio/Builder/Scouting
+  // doors) still work without it.
+  bundles?: Map<string, NarrativeBundle>;
   // Optional per-team empirical accept band (>= 5 accepted trades on file).
   // When present for a team it overrides the persona fallback band.
   empiricalBands?: Map<string, PersonaBand>;
@@ -407,6 +413,25 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       // actually part with — never a position the partner is buying (they're
       // collecting it, not trading it away).
       const anchored = new Set([...sendAnchors, ...recvKeys]);
+
+      // Insurance currency: a contender protecting a win-now roster pays in
+      // PICKS plus genuinely-EXCESS players — never anyone who fills a real
+      // role (a starter OR a needed backup), since shipping a useful piece to
+      // fix one depth spot just opens another. "Excess" = the brain's already-
+      // computed surplus pieces (bench bodies who'd start for 2+ other teams)
+      // plus buried young players (below our worst starter at their position).
+      // Read from ec.bundles (single source — not recomputed here).
+      const insuranceCurrencyKeys: Set<string> | null = (() => {
+        if (req.dealKind !== "insurance") return null;
+        const bundle = ec.bundles?.get(ourTeamId);
+        const keys = new Set<string>();
+        for (const s of bundle?.rosterRead.surpluses ?? []) {
+          for (const k of s.surplusPlayerIds) keys.add(k);
+        }
+        for (const b of bundle?.rosterRead.buriedYoungPlayers ?? []) keys.add(b.playerId);
+        return keys;
+      })();
+
       const sendPool = ourTeam!.playerIds
         .concat((data.pickOwnership.get(ourTeamId) ?? []).map((p) => p.key))
         .filter((k) => !anchored.has(k))
@@ -417,6 +442,8 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         .filter((r) => !(r.type === "player" && marketFor(ourStrategy, r.bucket) === "buy"))
         // Partner won't accept a player at a position they're selling.
         .filter((r) => !(r.type === "player" && marketFor(partnerStrategy, r.bucket) === "sell"))
+        // Insurance: players must be genuinely excess; picks always allowed.
+        .filter((r) => !insuranceCurrencyKeys || r.type === "pick" || insuranceCurrencyKeys.has(r.key))
         .map((r) => valued(r, "send", aim, pId));
 
       const recvResolvedPool = partnerTeam!.playerIds
