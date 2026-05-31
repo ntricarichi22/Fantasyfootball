@@ -13,3 +13,4 @@ export {
   type AssetRef,
   type ValuationContext,
 } from "./valuation";
+export { ageBucket, isYoung, isAging, type AgeBucket } from "./age";

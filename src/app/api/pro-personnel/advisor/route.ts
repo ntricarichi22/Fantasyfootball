@@ -104,6 +104,27 @@ export async function POST(request: NextRequest) {
 
   const myProfile = strategies.find(s => s.team_id === my_team_id) ?? null;
   const otherProfile = strategies.find(s => s.team_id === otherTeamId) ?? null;
+
+  // ── PERSONA MODEL (locked restructure v2) ─────────────────────────────
+  //
+  // Each GM has a fixed persona — no user-toggleable knob anymore. Two
+  // distinct personas drive distinct outputs:
+  //
+  //   - myPersona      → fed to personaAwareGrade. The chip on every card
+  //                       is OUR accept-band check ("would we take this?").
+  //                       Inside our band → green "We should take this deal".
+  //                       Outside our band → standard verdict-based grade.
+  //
+  //   - partnerPersona → fed into advisor prose context. The receiver's-view
+  //                       read ("will they take it?") lives in the prose,
+  //                       not the chip. Personality dictionary is still
+  //                       keyed on the partner.
+  //
+  // Previously the chip was being computed with the partner's persona, which
+  // was conceptually wrong — it answered "does this fit their band?" rather
+  // than "does this fit our band?". This flip is paired with the gap.ts
+  // update where the parameter is named `ourPersona`.
+  const myPersona = coercePersona(myProfile?.gm_persona);
   const partnerPersona = coercePersona(otherProfile?.gm_persona);
 
   const myRoster = rosters[my_team_id] ?? [];
@@ -126,10 +147,10 @@ export async function POST(request: NextRequest) {
 
   // ── PURE LOGIC (single source of truth) ────────────────────────────────
   const gap = computeGap(dealAssets, rosters, my_team_id);
-  // Persona-aware grading: a +12% deal grades green with a Closer partner,
-  // yellow with a Straight Shooter. Falls back to neutral grading when the
-  // partner persona is unknown or the deal is incomplete.
-  const grade = personaAwareGrade(gap, partnerPersona);
+  // Chip = OUR accept-band check (locked restructure v2). Inside our band
+  // → green "We should take this deal". Outside our band → standard
+  // verdict grade. Bilateral acceptance lives in advisor prose.
+  const grade = personaAwareGrade(gap, myPersona);
   const suggestions = generateSuggestions({
     dealAssets, rosters, myTeamId: my_team_id, otherTeamId,
     myProfile, otherProfile, partnerPersona, gap,

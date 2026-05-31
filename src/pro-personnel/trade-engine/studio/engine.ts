@@ -3,29 +3,34 @@
 // Trade Studio engine — main entry.
 //
 // Pipeline:
-//   1. Dispatch to per-persona candidate generator (candidates.ts)
-//   2. Filter dealbreakers (AGING BENCH GUY, partner untouchables in receive,
-//      alarm-severity post-trade warnings)
-//   3. Score each candidate's gap (computeGap from core)
-//   4. Filter by persona's ratio bounds (PersonaConfig.ratioMin/Max)
+//   1. Per-partner candidate generation. For each partner, dispatch to
+//      the generator matching THAT partner's persona (the offering team).
+//   2. Filter dealbreakers (AGING BENCH GUY, partner untouchables in
+//      receive, alarm-severity post-trade warnings).
+//   3. Score each candidate's gap (computeGap from core).
+//   4. Filter by the partner's persona band, applied to the PARTNER's
+//      perspective ratio (their_receive / their_send).
 //   5. Rank by:
 //        (a) WANTS_MORE matches (count-based with caps in core/ranking)
 //        (b) market complementarity
-//        (c) ratio closeness to 1.0 (final tiebreaker)
-//   6. Build slate up to 5, preferring partner variety
+//        (c) ratio closeness to 1.0 (final tiebreaker, from user's view)
+//   6. Build slate up to 5, preferring partner variety.
 //
-// v3.4 changes from v3.3:
-//   - FitScore math is gone. Single source of fairness = computeGap.
-//   - No fallback Pass-3. Empty slate → empty slate. UI shows the message.
-//   - StudioOffer carries valueGap + gradeLabel + gradeColor (computed here,
-//     consumed by OfferCard's TradeBalanceChip).
-//   - Drops applyShapeSignature (More Like This feature removed).
+// v3.12 — per-partner persona restructure. Notes:
+//   - Candidate SHAPE is driven by each partner's persona, not the user's.
+//   - The CHIP grade uses personaAwareGrade(gap, ctx.myPersona) — OUR
+//     accept-band check, mirroring the advisor route.
+//   - The ratio GATE applies the partner's persona band to the partner's
+//     perspective ratio. Closer band [0.85, 1.00] applied to partner ratio
+//     correctly identifies partners sweetening to close; Hustler band
+//     [1.00, 99] identifies partners lowballing.
+//   - personaOverride option removed — toggle UI is gone.
 
-import { computeGap, gradeFromVerdict } from "../core/gap";
-import { computePostTradeWarnings } from "../core/warnings";
-import { scoreWantsMatch, countComplementarity } from "../core/ranking";
-import { sumValue, isAgingBenchGuy } from "../core/classification";
-import type { RosterAsset, DealAsset, PersonaKey } from "../core/types";
+import { computeGap, personaAwareGrade } from "@/pro-personnel/engine/core/gap";
+import { computePostTradeWarnings } from "@/pro-personnel/engine/core/warnings";
+import { scoreWantsMatch, countComplementarity } from "@/pro-personnel/engine/core/ranking";
+import { sumValue, isAgingBenchGuy } from "@/pro-personnel/engine/core/classification";
+import type { RosterAsset, DealAsset } from "@/pro-personnel/engine/core/types";
 import { getPersona } from "./persona";
 import { generateCandidates, type CandidateOffer } from "./candidates";
 import type {
@@ -100,7 +105,6 @@ function scoreCandidate(
   c: CandidateOffer,
   ctx: StudioEngineContext,
   partner: StudioPartner,
-  personaKey: PersonaKey,
 ): ScoredCandidate {
   const dealAssets = toDealAssets(c, ctx.myTeamId, partner.teamId);
   const rosters: Record<string, RosterAsset[]> = {
@@ -109,7 +113,9 @@ function scoreCandidate(
   };
 
   const valueGap = computeGap(dealAssets, rosters, ctx.myTeamId);
-  const grade = gradeFromVerdict(valueGap.verdict);
+  // Chip is OUR accept-band check (locked design v3.12).
+  // Inside our band → green "We should take this deal".
+  const grade = personaAwareGrade(valueGap, ctx.myPersona);
 
   const wantsMatches = ctx.myProfile
     ? scoreWantsMatch(c.receive, ctx.myProfile.wants_more)
@@ -120,7 +126,7 @@ function scoreCandidate(
     id: `studio-${partner.teamId}-${c.receive.map(a => a.key).join("-")}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     partnerTeamId: partner.teamId,
     partnerTeamName: partner.teamName,
-    persona: personaKey,
+    persona: partner.persona, // partner's persona, not user's
     send: c.send.map(toOfferAsset),
     receive: c.receive.map(toOfferAsset),
     sendValue: valueGap.sendValue,
@@ -171,7 +177,8 @@ function buildSlate(passing: ScoredCandidate[]): StudioOffer[] {
 // ─── Public entry ────────────────────────────────────────────────────────
 
 export type GenerateOptions = {
-  personaOverride?: PersonaKey;
+  // Restrict generation to a single partner. Used by call-again-against-one-partner
+  // flows. personaOverride is gone in v3.12 — toggle UI removed.
   anchorPartnerId?: string;
 };
 
@@ -186,42 +193,58 @@ export function generateStudioOffers(
     return { offers: [], totalCandidatesEvaluated: 0, isFallback: false };
   }
 
-  const persona = getPersona(options?.personaOverride ?? ctx.myPersona);
-
-  // Optionally restrict to a single partner (used by persona toggle)
+  // Optionally restrict to a single partner
   const partnerList = options?.anchorPartnerId
     ? ctx.partners.filter(p => p.teamId === options.anchorPartnerId)
     : ctx.partners;
-  const ctxFiltered: StudioEngineContext = { ...ctx, partners: partnerList };
   const partnersById = new Map(partnerList.map(p => [p.teamId, p]));
 
-  // Step 1: candidates
-  const candidates = generateCandidates(ctxFiltered, persona.key);
+  // Step 1: per-partner candidate generation. Each partner gets their own
+  // shape via their persona.
+  const allCandidates: CandidateOffer[] = [];
+  for (const partner of partnerList) {
+    const partnerCtx: StudioEngineContext = {
+      ...ctx,
+      partners: [partner],
+    };
+    const partnerCandidates = generateCandidates(partnerCtx, partner.persona);
+    allCandidates.push(...partnerCandidates);
+  }
 
   // Step 2 + 3: filter dealbreakers, score
   const scored: ScoredCandidate[] = [];
-  for (const c of candidates) {
+  for (const c of allCandidates) {
     const partner = partnersById.get(c.partnerId);
     if (!partner) continue;
-    if (violatesDealbreakers(c, ctxFiltered, partner)) continue;
-    scored.push(scoreCandidate(c, ctxFiltered, partner, persona.key));
+    if (violatesDealbreakers(c, ctx, partner)) continue;
+    scored.push(scoreCandidate(c, ctx, partner));
   }
 
-  // Step 4: persona ratio gate
+  // Step 4: partner-persona ratio gate, partner's perspective.
+  //   partnerRatio = their_receive / their_send
+  //                = our_send_value / our_receive_value
+  // Closer band [0.85, 1.00] applied here = partner sweetening to close.
+  // Hustler band [1.00, 99] applied here = partner lowballing us.
   const passing = scored.filter(s => {
-    const r = s.offer.valueGap.ratio;
-    return r >= persona.ratioMin && r <= persona.ratioMax;
+    const partner = partnersById.get(s.offer.partnerTeamId);
+    if (!partner) return false;
+    const persona = getPersona(partner.persona);
+    const sendVal = s.offer.valueGap.sendValue;
+    const recvVal = s.offer.valueGap.receiveValue;
+    if (recvVal <= 0) return false;
+    const partnerRatio = sendVal / recvVal;
+    return partnerRatio >= persona.ratioMin && partnerRatio <= persona.ratioMax;
   });
 
   // Step 5: rank
   passing.sort(rank);
 
-  // Step 6: build slate (no fallback in v3.4)
+  // Step 6: build slate
   const offers = buildSlate(passing);
 
   return {
     offers,
-    totalCandidatesEvaluated: candidates.length,
+    totalCandidatesEvaluated: allCandidates.length,
     isFallback: false,
   };
 }

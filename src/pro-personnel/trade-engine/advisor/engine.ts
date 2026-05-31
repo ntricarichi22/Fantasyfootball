@@ -42,13 +42,13 @@ import type {
   LiquidityTier,
   PostTradeWarning,
   PersonaKey,
-} from "../core/types";
+} from "@/pro-personnel/engine/core/types";
 
-import { computeGap, gradeFromVerdict, personaAwareGrade } from "../core/gap";
-import { getLiquidityTier, isPremiumAsset } from "../core/liquidity";
-import { computePostTradeWarnings } from "../core/warnings";
-import { detectShapeMismatch } from "../core/shape";
-import { getCFCYear, parsePickKey } from "../core/classification";
+import { computeGap, gradeFromVerdict, personaAwareGrade } from "@/pro-personnel/engine/core/gap";
+import { getLiquidityTier, isPremiumAsset } from "@/pro-personnel/engine/core/liquidity";
+import { computePostTradeWarnings } from "@/pro-personnel/engine/core/warnings";
+import { detectShapeMismatch } from "@/pro-personnel/engine/core/shape";
+import { getCFCYear, parsePickKey } from "@/pro-personnel/engine/core/classification";
 
 // ─── Re-exports (backwards compat) ─────────────────────────────────────
 

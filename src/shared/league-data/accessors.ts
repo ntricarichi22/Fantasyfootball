@@ -80,11 +80,32 @@ function buildTeamNames(rosters: SleeperRoster[], users: SleeperUser[]): Map<str
 function buildTeams(
   rosters: SleeperRoster[],
   names: Map<string, string>,
-  dict: Map<string, PlayerInfo>
+  dict: Map<string, PlayerInfo>,
+  drafted: Array<{ rosterId: string; playerId: string }> = []
 ): RosteredTeam[] {
+  // Drafted-but-not-yet-in-Sleeper players, grouped by roster for the graft.
+  const draftedByRoster = new Map<string, string[]>();
+  for (const d of drafted) {
+    const list = draftedByRoster.get(d.rosterId) ?? [];
+    list.push(d.playerId);
+    draftedByRoster.set(d.rosterId, list);
+  }
+
   return rosters.map((r) => {
     const rid = toStr(r.roster_id);
     const playerIds = (r.players ?? []).map(toStr);
+
+    // Graft drafted players Sleeper hasn't processed yet: add only if NOT
+    // already on the Sleeper roster (dedupe) and the player resolves in the
+    // dictionary. Once Sleeper catches up, the dedupe stops re-adding them.
+    const sleeperSet = new Set(playerIds);
+    for (const pid of draftedByRoster.get(rid) ?? []) {
+      if (!sleeperSet.has(pid) && dict.has(pid)) {
+        playerIds.push(pid);
+        sleeperSet.add(pid);
+      }
+    }
+
     const players: PlayerInfo[] = [];
     for (const pid of playerIds) {
       const info = dict.get(pid);
@@ -140,6 +161,30 @@ async function fetchSpentPickNumbers(): Promise<Set<string>> {
   return spent;
 }
 
+// Players already drafted in the current-year rookie draft but not yet
+// processed into Sleeper rosters. The draft log is the source of truth: each
+// made pick (submitted_at set) records which roster took which player. We read
+// only the current cfc_year (the generated column on draft_log) so prior
+// drafts never leak in, and getLeagueData grafts these onto rosters — skipping
+// anyone Sleeper already shows, so the graft silently stops once Sleeper
+// catches up.
+async function fetchDraftedPlayers(cfcYear: number): Promise<Array<{ rosterId: string; playerId: string }>> {
+  const out: Array<{ rosterId: string; playerId: string }> = [];
+  const admin = getSupabaseAdminClient();
+  if (!admin.client) return out;
+  const { data } = await admin.client
+    .from("draft_log")
+    .select("roster_id, player_id, submitted_at, cfc_year")
+    .eq("cfc_year", cfcYear)
+    .not("submitted_at", "is", null);
+  for (const row of (data ?? []) as Array<{ roster_id: string | null; player_id: string | null }>) {
+    if (row.roster_id && row.player_id) {
+      out.push({ rosterId: String(row.roster_id), playerId: String(row.player_id) });
+    }
+  }
+  return out;
+}
+
 // Complete pick ownership: current AND future picks, each with its canonical
 // key. The key is built identically to the trade engine — current-year picks
 // carry a RAW (un-padded) slot and "tbd" when the order isn't set; the trailing
@@ -164,6 +209,7 @@ function buildPickOwnership(
   const withPicks = withComputedDraftPicks(rawRosters, traded as TradedPick[], {
     teamCountOverride: teamCount,
     rosterOwnerMap,
+    seasons: [String(cfcYear), String(cfcYear + 1), String(cfcYear + 2)],
   });
 
   const map = new Map<string, OwnedPick[]>();
@@ -364,7 +410,7 @@ export async function getLeagueData(): Promise<LeagueData | { error: string }> {
   const leagueId = getSleeperLeagueId();
   if (!leagueId) return { error: "NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set" };
 
-  const [players, rosters, users, traded, league, values, strat, spent] = await Promise.all([
+  const [players, rosters, users, traded, league, values, strat, spent, drafted] = await Promise.all([
     fetchPlayers(),
     fetchRosters(leagueId),
     fetchUsers(leagueId),
@@ -373,12 +419,13 @@ export async function getLeagueData(): Promise<LeagueData | { error: string }> {
     getValues(),
     getStrategyProfiles(),
     fetchSpentPickNumbers(),
+    fetchDraftedPlayers(getCFCYear()),
   ]);
 
   if (!rosters.length) return { error: "Sleeper rosters unavailable" };
 
   const dict = buildPlayerDict(players);
-  const teams = buildTeams(rosters, buildTeamNames(rosters, users), dict);
+  const teams = buildTeams(rosters, buildTeamNames(rosters, users), dict, drafted);
   const ownership = buildPickOwnership(rosters, traded, spent);
 
   const settings: LeagueSettings = {
