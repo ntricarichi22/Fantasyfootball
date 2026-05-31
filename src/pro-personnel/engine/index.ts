@@ -9,12 +9,14 @@ import {
   builderRequest,
   builderRequestForTarget,
   scoutingRequest,
+  inferShopListLeans,
 } from "./adapters";
+import type { ShopListItem } from "./adapters";
 import type { EngineSlate, Intent, Lean } from "./types";
 
 export * from "./types";
-export { construct, studioRequest, builderRequest, builderRequestForTarget, scoutingRequest };
-export type { EngineContext };
+export { construct, studioRequest, builderRequest, builderRequestForTarget, scoutingRequest, inferShopListLeans };
+export type { EngineContext, ShopListItem };
 
 // Thin runners — one call from a route: adapter → constructor → slate.
 
@@ -22,7 +24,7 @@ export function runStudio(
   ec: EngineContext,
   ourTeamId: string,
   shopKeys: string[],
-  opts?: { counterpartyTeamIds?: string[] },
+  opts?: { counterpartyTeamIds?: string[]; leans?: Lean[] },
 ): EngineSlate {
   return construct(studioRequest(ourTeamId, shopKeys, opts), ec);
 }

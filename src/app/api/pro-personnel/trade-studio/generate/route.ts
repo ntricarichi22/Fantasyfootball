@@ -15,13 +15,20 @@ import { NextResponse } from "next/server";
 import { getLeagueData, type LeagueData } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
+import { buildTeamNarratives } from "@/shared/team-narratives";
 import {
   buildValuationContext,
   valueAsset,
+  isYoung,
   type AssetRef,
   type ValuationContext,
 } from "@/shared/asset-values";
-import { runStudio, type EngineContext } from "@/pro-personnel/engine";
+import {
+  runStudio,
+  inferShopListLeans,
+  type EngineContext,
+  type ShopListItem,
+} from "@/pro-personnel/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -61,11 +68,32 @@ export async function POST(req: Request) {
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
+    const bundles = buildTeamNarratives(data, profiles, dossiers, needs);
     const ctx = await buildValuationContext();
 
-    const ec: EngineContext = { data, profiles, dossiers, needs, ctx };
+    const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };
+
+    // Infer the storyline from the SHAPE of the shop list — the user telling us
+    // what they're doing by what they put on the block. Same leans the auto
+    // door fires from the roster, fed to the same constructor. A lone stud (or
+    // a lone prime vet on a contender) → prefer_picks; anything else → no lean.
+    const shopItems: ShopListItem[] = shopKeys.map((key) => {
+      const p = data.players.get(key);
+      const isPick = !p; // a key the player dict doesn't know is a pick key
+      return {
+        key,
+        type: isPick ? "pick" : "player",
+        value: data.values.value.get(key) ?? 0,
+        isStud: data.values.isStud.get(key) ?? false,
+        isYoung: p ? isYoung(p.position, p.age ?? null) : false,
+      };
+    });
+    const ourTier = profiles.find((pr) => pr.rosterId === teamId)?.tier ?? null;
+    const { leans } = inferShopListLeans(shopItems, ourTier);
+
     const slate = runStudio(ec, teamId, shopKeys, {
       counterpartyTeamIds: anchorPartnerId ? [anchorPartnerId] : undefined,
+      leans,
     });
 
     const offers = slate.offers.map((o) => {
