@@ -331,25 +331,50 @@ function sellMenu(
   }
 
   // 3) a complete-the-room shape per proven-acquire bucket (RB consolidate).
-  for (const p of provenAcquireBucketsFor(strat)) {
-    if (p === bucket) continue; // don't "complete" the room you're selling from
-    out.push({
-      mode: `room_${p}`,
-      req: {
-        ...base(activeRosterId, match.partnerRosterId, "shop"),
-        anchors: send,
-        leans: [],
-        returnShape: {
-          requireBackfill,
-          preferBuckets: [p],
-          youthBuckets: [],
-          strength: "hard",
+  // ONLY for a headline stud sell (withBackfill) — a vet-liquidation return is
+  // strictly picks or a young buy-position body, never a proven veteran at a
+  // position we're consolidating.
+  if (withBackfill) {
+    for (const p of provenAcquireBucketsFor(strat)) {
+      if (p === bucket) continue; // don't "complete" the room you're selling from
+      out.push({
+        mode: `room_${p}`,
+        req: {
+          ...base(activeRosterId, match.partnerRosterId, "shop"),
+          anchors: send,
+          leans: [],
+          returnShape: {
+            requireBackfill,
+            preferBuckets: [p],
+            youthBuckets: [],
+            strength: "hard",
+          },
         },
-      },
-    });
+      });
+    }
   }
 
   return out;
+}
+
+// League-wide "impact at a position" = a player ranked in the top N by value at
+// his bucket. Top-20 for QB/RB, top-40 for pass-catchers. A consolidate is the
+// move of turning depth into a real starter, so its target must clear this bar.
+const IMPACT_TOPN: Record<ABucket, number> = { QB: 20, RB: 20, PASS_CATCHER: 40 };
+function isImpactTarget(ec: EngineContext, key: string): boolean {
+  const p = ec.data.players.get(key);
+  if (!p) return false;
+  const b = bucketOf(p.position);
+  const v = ec.data.values.value.get(key) ?? 0;
+  let better = 0;
+  for (const t of ec.data.teams) {
+    for (const pid of t.playerIds) {
+      const pp = ec.data.players.get(pid);
+      if (!pp || bucketOf(pp.position) !== b) continue;
+      if ((ec.data.values.value.get(pid) ?? 0) > v) better++;
+    }
+  }
+  return better < IMPACT_TOPN[b];
 }
 
 function requestForMatch(
@@ -393,6 +418,11 @@ function requestForMatch(
     // if this bucket carries a buy_young intent, the target itself MUST be
     // young (kills an aging WR like McLaurin surfacing under a buy_young PC
     // plan). Proven-acquire buckets (RB consolidate) accept any starter.
+    // CONSOLIDATE FLOOR — a consolidate turns depth into a real starter, so the
+    // target must be a league top-N impact player; otherwise it's a lateral.
+    if (match.narrativeArchetype === "consolidate" && !isImpactTarget(ec, match.anchorKey)) {
+      return [];
+    }
     const buyBucket = bucketOf(
       ec.data.players.get(match.anchorKey)?.position ?? match.anchorBucket,
     );
@@ -511,6 +541,7 @@ export function generateOffersForTeam(
   const seen = new Set<string>();                // dedupe identical packages
   const shapeCount = new Map<string, number>();  // `${thesis}|${anchor}|${mode}`
   const anchorCount = new Map<string, number>(); // `${thesis}|${anchor}`
+  const usedReceived = new Map<string, Set<string>>(); // thesis → received player keys
 
   const resolveThesisId = (match: Match): string =>
     match.thesisId && byId.has(match.thesisId) ? match.thesisId : intentThesis.id;
@@ -545,7 +576,17 @@ export function generateOffersForTeam(
       if ((shapeCount.get(shapeK) ?? 0) >= MAX_OFFERS_PER_SHAPE) continue;
       if ((anchorCount.get(anchorK) ?? 0) >= MAX_OFFERS_PER_ANCHOR) continue;
 
+      // Variety: a received PLAYER may headline only one deal per thesis, so we
+      // don't surface the same body (e.g. Keon Coleman) across several offers.
+      const recvPlayers = offer.assets
+        .filter((a) => a.side === "receive" && a.type === "player")
+        .map((a) => a.key);
+      const used = usedReceived.get(thesisId) ?? new Set<string>();
+      if (recvPlayers.some((k) => used.has(k))) continue;
+
       seen.add(sig);
+      for (const k of recvPlayers) used.add(k);
+      usedReceived.set(thesisId, used);
       shapeCount.set(shapeK, (shapeCount.get(shapeK) ?? 0) + 1);
       anchorCount.set(anchorK, (anchorCount.get(anchorK) ?? 0) + 1);
       const arr = collected.get(thesisId) ?? [];
