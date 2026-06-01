@@ -141,15 +141,6 @@ function BannerTag({ lines }: { lines: string[] }) {
   );
 }
 
-function Divider({ label }: { label: string }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, background: CREAM, zIndex: 5, padding: "10px 0" }}>
-      <span style={{ fontFamily: mono, fontSize: 13, fontWeight: 800, letterSpacing: "0.2em", color: INK, whiteSpace: "nowrap" }}>{label}</span>
-      <div style={{ flex: 1, height: 2.5, background: INK }} />
-    </div>
-  );
-}
-
 function PMCard({
   cfg,
   profile,
@@ -290,8 +281,7 @@ export default function SetStrategyPage() {
         {!profile ? (
           <p style={{ fontFamily: mono, fontSize: 12, color: MUTED, marginTop: 24 }}>Loading&hellip;</p>
         ) : (
-          <div style={{ marginTop: 26 }}>
-            <Divider label="WHERE WE STAND" />
+          <div style={{ marginTop: 8 }}>
             <div className="ss-grid">
               {CARDS.map((cfg) => (
                 <div key={cfg.tab} className={"ss-card" + (activeTab === cfg.tab ? " active" : "")}>
