@@ -7,11 +7,17 @@ import {
   TEAM_HQ_MARKET_VALUES,
   TEAM_HQ_OWN_GUYS_VALUES,
   TEAM_HQ_WANTS_MORE_VALUES,
+  TEAM_HQ_BUY_INTENT_VALUES,
+  TEAM_HQ_PICKS_KIND_VALUES,
+  TEAM_HQ_SELL_MOVE_VALUES,
   TEAM_STRATEGY_DEFAULTS,
   type GmPersona,
   type TeamHqMarket,
   type TeamHqOwnGuysPreference,
   type TeamHqWantsMore,
+  type TeamHqBuyIntent,
+  type TeamHqPicksKind,
+  type TeamHqSellMove,
   type TeamStrategyProfile,
   type TeamStrategyProfileInput,
   type TeamTradeValueRow,
@@ -35,6 +41,9 @@ type AttachmentLevel = "untouchable" | "core_piece" | "listening" | "moveable";
 
 const WANTS_SET = new Set<string>(TEAM_HQ_WANTS_MORE_VALUES);
 const MARKET_SET = new Set<string>(TEAM_HQ_MARKET_VALUES);
+const BUY_INTENT_SET = new Set<string>(TEAM_HQ_BUY_INTENT_VALUES);
+const PICKS_KIND_SET = new Set<string>(TEAM_HQ_PICKS_KIND_VALUES);
+const SELL_MOVE_SET = new Set<string>(TEAM_HQ_SELL_MOVE_VALUES);
 const OWN_GUYS_SET = new Set<string>(TEAM_HQ_OWN_GUYS_VALUES);
 const PERSONA_SET = new Set<string>(GM_PERSONA_VALUES);
 const ATTACHMENT_SET = new Set<AttachmentLevel>([
@@ -78,6 +87,18 @@ const normalizeWantsMore = (value: unknown): TeamHqWantsMore[] => {
     .filter((item): item is TeamHqWantsMore => WANTS_SET.has(item));
 };
 
+// Generic multi-select normalizer for the per-position intent arrays: lowercase,
+// filter to the allowed vocabulary, dedupe. Anything else is dropped.
+const normalizeEnumArray = <T extends string>(value: unknown, allowed: Set<string>): T[] => {
+  if (!Array.isArray(value)) return [];
+  const out: T[] = [];
+  for (const item of value) {
+    const s = typeof item === "string" ? item.toLowerCase().trim() : "";
+    if (allowed.has(s) && !out.includes(s as T)) out.push(s as T);
+  }
+  return out;
+};
+
 const normalizeMarket = (value: unknown, fallback: TeamHqMarket = "hold"): TeamHqMarket => {
   if (typeof value !== "string") return fallback;
   const normalized = value.toLowerCase().trim();
@@ -108,6 +129,13 @@ const normalizeStrategyPayload = (payload?: TeamStrategyProfileInput) => ({
   rb_market: normalizeMarket(payload?.rb_market),
   pc_market: normalizeMarket(payload?.pc_market),
   picks_market: normalizeMarket(payload?.picks_market),
+  qb_buy_intent: normalizeEnumArray<TeamHqBuyIntent>(payload?.qb_buy_intent, BUY_INTENT_SET),
+  rb_buy_intent: normalizeEnumArray<TeamHqBuyIntent>(payload?.rb_buy_intent, BUY_INTENT_SET),
+  pc_buy_intent: normalizeEnumArray<TeamHqBuyIntent>(payload?.pc_buy_intent, BUY_INTENT_SET),
+  picks_buy_kind: normalizeEnumArray<TeamHqPicksKind>(payload?.picks_buy_kind, PICKS_KIND_SET),
+  qb_sell_move: normalizeEnumArray<TeamHqSellMove>(payload?.qb_sell_move, SELL_MOVE_SET),
+  rb_sell_move: normalizeEnumArray<TeamHqSellMove>(payload?.rb_sell_move, SELL_MOVE_SET),
+  pc_sell_move: normalizeEnumArray<TeamHqSellMove>(payload?.pc_sell_move, SELL_MOVE_SET),
   own_guys_preference: normalizeOwnGuys(payload?.own_guys_preference),
   gm_persona: normalizePersona(payload?.gm_persona),
 });
@@ -287,7 +315,7 @@ export async function getTeamStrategyProfile(
 
   const { data, error } = await client
     .from("cfc_team_strategy_profiles")
-    .select("league_id,team_id,wants_more,qb_market,rb_market,pc_market,picks_market,own_guys_preference,gm_persona")
+    .select("league_id,team_id,wants_more,qb_market,rb_market,pc_market,picks_market,qb_buy_intent,rb_buy_intent,pc_buy_intent,picks_buy_kind,qb_sell_move,rb_sell_move,pc_sell_move,own_guys_preference,gm_persona")
     .eq("league_id", leagueId)
     .eq("team_id", teamId)
     .maybeSingle();
@@ -312,6 +340,13 @@ export async function getTeamStrategyProfile(
     rb_market: normalizeMarket(data.rb_market),
     pc_market: normalizeMarket(data.pc_market),
     picks_market: normalizeMarket(data.picks_market),
+    qb_buy_intent: normalizeEnumArray<TeamHqBuyIntent>(data.qb_buy_intent, BUY_INTENT_SET),
+    rb_buy_intent: normalizeEnumArray<TeamHqBuyIntent>(data.rb_buy_intent, BUY_INTENT_SET),
+    pc_buy_intent: normalizeEnumArray<TeamHqBuyIntent>(data.pc_buy_intent, BUY_INTENT_SET),
+    picks_buy_kind: normalizeEnumArray<TeamHqPicksKind>(data.picks_buy_kind, PICKS_KIND_SET),
+    qb_sell_move: normalizeEnumArray<TeamHqSellMove>(data.qb_sell_move, SELL_MOVE_SET),
+    rb_sell_move: normalizeEnumArray<TeamHqSellMove>(data.rb_sell_move, SELL_MOVE_SET),
+    pc_sell_move: normalizeEnumArray<TeamHqSellMove>(data.pc_sell_move, SELL_MOVE_SET),
     own_guys_preference: normalizeOwnGuys(data.own_guys_preference),
     gm_persona: normalizePersona(data.gm_persona),
   };
@@ -351,7 +386,10 @@ const upsertComputedRows = async (
   leagueId: string,
   teamId: string,
   playerIds: string[],
-  strategy: Omit<TeamStrategyProfile, "league_id" | "team_id">,
+  // Only the wants_more signal is consumed here (the studs/youth value
+  // modifiers). The rest of the strategy profile is irrelevant to value
+  // computation, so we ask for exactly what we use — no fake full-profile object.
+  strategy: { wants_more: TeamHqWantsMore[] },
 ) => {
   const client = getClientOrThrow();
   if (!playerIds.length) return { upserted: 0 };
@@ -491,15 +529,7 @@ const getOwnedPickKeys = async (teamId: string): Promise<string[]> => {
 export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: string) {
   const client = getClientOrThrow();
   const strategyProfile = await getTeamStrategyProfile(leagueId, teamId);
-  const strategy = {
-    wants_more: strategyProfile.wants_more,
-    qb_market: strategyProfile.qb_market,
-    rb_market: strategyProfile.rb_market,
-    pc_market: strategyProfile.pc_market,
-    picks_market: strategyProfile.picks_market,
-    own_guys_preference: strategyProfile.own_guys_preference,
-    gm_persona: strategyProfile.gm_persona,
-  };
+  const strategy = { wants_more: strategyProfile.wants_more };
 
   // Everything this team owns — players (Sleeper roster) AND picks (shared
   // ownership fact). Pick rows live in the same table but are rebuilt by
@@ -574,12 +604,6 @@ export async function rebuildTeamTradeValueForPlayer(
   const strategyProfile = await getTeamStrategyProfile(leagueId, teamId);
   await upsertComputedRows(leagueId, teamId, [sleeperPlayerId], {
     wants_more: strategyProfile.wants_more,
-    qb_market: strategyProfile.qb_market,
-    rb_market: strategyProfile.rb_market,
-    pc_market: strategyProfile.pc_market,
-    picks_market: strategyProfile.picks_market,
-    own_guys_preference: strategyProfile.own_guys_preference,
-    gm_persona: strategyProfile.gm_persona,
   });
 
   return { rebuilt: true };

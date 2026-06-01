@@ -22,6 +22,9 @@ import {
   type RosteredTeam,
   type OwnedPick,
   type StrategyProfile,
+  type BuyIntent,
+  type PicksKind,
+  type SellMove,
   type SeasonResult,
   type LeagueSettings,
   type ValueMaps,
@@ -44,6 +47,25 @@ function stance(v: unknown): MarketStance {
   const s = typeof v === "string" ? v.toLowerCase() : "";
   if (s === "buy" || s === "hold" || s === "sell") return s;
   return "unknown";
+}
+
+// Per-position intent vocabularies (must match the SQL column comments and the
+// research-strategy save path). Anything outside the set is dropped — defensive
+// against typos / future tags, exactly like the old wants_more normalize.
+const BUY_INTENTS = new Set<string>(["difference_maker", "insurance", "young"]);
+const PICKS_KINDS = new Set<string>(["premium", "day2", "future"]);
+const SELL_MOVES = new Set<string>(["consolidate", "fill_need"]);
+
+// Read a text[] column, lowercased + filtered to the allowed vocabulary, deduped.
+// A missing/empty column reads as [] ( = nothing selected ).
+function intentArr<T extends string>(v: unknown, allowed: Set<string>): T[] {
+  if (!Array.isArray(v)) return [];
+  const out: T[] = [];
+  for (const raw of v) {
+    const s = typeof raw === "string" ? raw.toLowerCase().trim() : "";
+    if (allowed.has(s) && !out.includes(s as T)) out.push(s as T);
+  }
+  return out;
 }
 
 // ── builders (pure: raw data in, normalized facts out) ─────────────────────
@@ -347,7 +369,9 @@ export async function getStrategyProfiles(): Promise<{
   const [stratRes, attachRes] = await Promise.all([
     admin.client
       .from("cfc_team_strategy_profiles")
-      .select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona")
+      .select(
+        "team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona, qb_buy_intent, rb_buy_intent, pc_buy_intent, picks_buy_kind, qb_sell_move, rb_sell_move, pc_sell_move"
+      )
       .eq("league_id", leagueId),
     admin.client
       .from("cfc_team_player_attachment")
@@ -368,6 +392,13 @@ export async function getStrategyProfiles(): Promise<{
       pcMarket: stance(row.pc_market),
       picksMarket: stance(row.picks_market),
       persona: typeof row.gm_persona === "string" ? row.gm_persona : null,
+      qbBuyIntent: intentArr<BuyIntent>(row.qb_buy_intent, BUY_INTENTS),
+      rbBuyIntent: intentArr<BuyIntent>(row.rb_buy_intent, BUY_INTENTS),
+      pcBuyIntent: intentArr<BuyIntent>(row.pc_buy_intent, BUY_INTENTS),
+      picksBuyKind: intentArr<PicksKind>(row.picks_buy_kind, PICKS_KINDS),
+      qbSellMove: intentArr<SellMove>(row.qb_sell_move, SELL_MOVES),
+      rbSellMove: intentArr<SellMove>(row.rb_sell_move, SELL_MOVES),
+      pcSellMove: intentArr<SellMove>(row.pc_sell_move, SELL_MOVES),
     });
   }
   for (const row of (attachRes.data ?? []) as Array<Record<string, unknown>>) {

@@ -44,14 +44,54 @@ export type OwnedPick = {
   originalRosterId: string;
 };
 
+// ── Per-position trade intent ──────────────────────────────────────────────
+// The signal the brain consumes, replacing the old global wantsMore array.
+// Intent is tied to each position's market stance, so "young QB" vs "stud PC"
+// is explicit instead of guessed. All three are MULTI-SELECT (stored as arrays;
+// empty array = nothing selected). See trade_brain.docx Section 7.
+
+// Buy side — "What do we need here?" (gated by the position's market = "buy").
+//   difference_maker : studs + clear starter upgrades (go land the best guy).
+//   insurance        : a proven guy who'd step in and start if a starter goes down.
+//   young            : young pieces to build on (cornerstones down to cheap fliers).
+export type BuyIntent = "difference_maker" | "insurance" | "young";
+
+// Picks side — "What kind?" (gated by picksMarket = "buy").
+//   premium : this year's first-rounders.
+//   day2    : this year's 2nds & 3rds.
+//   future  : down-the-road capital. On its own, means all future picks; combined
+//             with premium/day2, extends those into future years too.
+export type PicksKind = "premium" | "day2" | "future";
+
+// Sell side — "What's the move?" (gated by the position's market = "sell").
+//   consolidate : package this depth into one better player here (same engine
+//                 action as a buy → difference_maker).
+//   fill_need   : route the surplus to whatever else we've flagged thin (a
+//                 position or picks). Governed by the other buy/picks settings.
+export type SellMove = "consolidate" | "fill_need";
+
 export type StrategyProfile = {
   teamId: string;
+  // DEPRECATED — the old global wants signal. Kept only through the transition
+  // to the per-position intent below; dropped (and the new fields tightened to
+  // required) in the cleanup commit once nothing reads it.
   wantsMore: string[];
   qbMarket: MarketStance;
   rbMarket: MarketStance;
   pcMarket: MarketStance;
   picksMarket: MarketStance;
   persona: string | null;
+  // Per-position intent. Optional ONLY during the transition — accessors
+  // populates them (empty-array default) in the next file, and they become
+  // required when wantsMore is removed. Consumers should read them as
+  // `?? []` until then.
+  qbBuyIntent?: BuyIntent[];
+  rbBuyIntent?: BuyIntent[];
+  pcBuyIntent?: BuyIntent[];
+  picksBuyKind?: PicksKind[];
+  qbSellMove?: SellMove[];
+  rbSellMove?: SellMove[];
+  pcSellMove?: SellMove[];
 };
 
 // Last completed-season results, pulled from Sleeper roster settings.
