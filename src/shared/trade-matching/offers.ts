@@ -1,6 +1,8 @@
 import { construct, type EngineContext } from "@/pro-personnel/engine";
 import type { DealRequest, EngineOffer, Lean, Intent } from "@/pro-personnel/engine";
 import type { ArchetypeName } from "@/shared/team-narratives";
+import { isYoung } from "@/shared/asset-values";
+import type { BuyIntent, StrategyProfile } from "@/shared/league-data";
 import type { Match, TeamSlate } from "./types";
 
 // Offer generation = the bridge from the matching layer to the existing deal
@@ -77,6 +79,126 @@ function sheddableAtBucket(
 // the floor spread beyond a single player.
 const TIER2_SELL_PIECES = 2;
 
+// ── buy intent ─────────────────────────────────────────────────────────────
+//
+// A tier-2 BUY floor names only a position (the owner flagged it "thin"). When
+// the owner ALSO stated WHAT they're after at that position — the buy intent —
+// we honor it by picking the matching target(s) off the partner's roster and
+// anchoring them, instead of letting the constructor grab the best raw fit. No
+// intent set → unchanged (the constructor discovers, exactly like before).
+//
+//   difference_maker → a stud, or a clear upgrade over what we start there
+//   young            → a young building block (age-gated, value-ranked)
+//   insurance        → a proven, affordable backup (not a stud, not a kid),
+//                      built with the existing insurance currency rules
+//
+// Intent is per position; gate the slate so a deep market × 11 partners can't
+// explode. Realistic-only: if a partner has nothing matching the intent, we
+// emit NOTHING for them rather than fall back to a generic grab that ignores
+// what the owner asked for. The roster-read (tier 1) still fills the slate.
+const TIER2_BUY_TARGETS = 2;
+
+// Mirrors matcher.ts INSURANCE_TARGET_CEILING: above legitimate backup arms,
+// below franchise starters — so "insurance" can't pull in a plain starter.
+const INSURANCE_TARGET_CEILING = 200;
+
+function buyIntentForBucket(strat: StrategyProfile | null, bucket: string): BuyIntent[] {
+  if (!strat) return [];
+  if (bucket === "QB") return strat.qbBuyIntent ?? [];
+  if (bucket === "RB") return strat.rbBuyIntent ?? [];
+  if (bucket === "PASS_CATCHER") return strat.pcBuyIntent ?? [];
+  return [];
+}
+
+// Lowest value among the players we actually START at this bucket. A target
+// worth more than this is a genuine upgrade. No starter there (a real hole) →
+// 0, so any decent piece reads as an upgrade.
+function ourWorstStarterValueAt(activeRosterId: string, bucket: string, ec: EngineContext): number {
+  const positions = positionsForBucket(bucket);
+  if (positions.size === 0) return 0;
+  const team = ec.data.teams.find((t) => t.rosterId === activeRosterId);
+  if (!team) return 0;
+  const profile = ec.profiles.find((p) => p.rosterId === activeRosterId) ?? null;
+  const starterIds = new Set(
+    (profile?.strength.lineup ?? []).map((s) => s.playerId).filter((id): id is string => !!id)
+  );
+  const vals = team.players
+    .filter((p) => positions.has(p.position.toUpperCase()) && starterIds.has(p.id))
+    .map((p) => ec.data.values.value.get(p.id) ?? 0);
+  return vals.length ? Math.min(...vals) : 0;
+}
+
+// Pick the partner's pieces at a bucket that match the stated buy intent(s).
+// Round-robins across the selected intents so a multi-select (e.g. "studs AND
+// young guys") returns a mix, deduped and capped. Each entry remembers whether
+// it's an insurance buy, so the request can carry the insurance currency rule.
+function buyTargetsForIntent(
+  activeRosterId: string,
+  partnerId: string,
+  bucket: string,
+  intents: BuyIntent[],
+  ec: EngineContext
+): Array<{ key: string; insurance: boolean }> {
+  const positions = positionsForBucket(bucket);
+  if (positions.size === 0) return [];
+  const partner = ec.data.teams.find((t) => t.rosterId === partnerId);
+  if (!partner) return [];
+
+  const worstStarter = ourWorstStarterValueAt(activeRosterId, bucket, ec);
+
+  const cands = partner.players
+    .filter((p) => positions.has(p.position.toUpperCase()))
+    .map((p) => ({
+      id: p.id,
+      value: ec.data.values.value.get(p.id) ?? 0,
+      isStud: ec.data.values.isStud.get(p.id) ?? false,
+      young: isYoung(p.position, p.age),
+    }));
+
+  const byVal = (a: { value: number }, b: { value: number }) => b.value - a.value;
+  const lists: Array<{ insurance: boolean; ids: string[] }> = [];
+
+  if (intents.includes("difference_maker")) {
+    lists.push({
+      insurance: false,
+      ids: cands.filter((c) => c.isStud || c.value >= worstStarter).sort(byVal).map((c) => c.id),
+    });
+  }
+  if (intents.includes("young")) {
+    lists.push({
+      insurance: false,
+      ids: cands.filter((c) => c.young).sort(byVal).map((c) => c.id),
+    });
+  }
+  if (intents.includes("insurance")) {
+    lists.push({
+      insurance: true,
+      ids: cands
+        .filter((c) => !c.isStud && !c.young && c.value > 0 && c.value <= INSURANCE_TARGET_CEILING)
+        .sort(byVal)
+        .map((c) => c.id),
+    });
+  }
+
+  const out: Array<{ key: string; insurance: boolean }> = [];
+  const seen = new Set<string>();
+  for (let i = 0; out.length < TIER2_BUY_TARGETS; i++) {
+    let advanced = false;
+    for (const lst of lists) {
+      if (i >= lst.ids.length) continue;
+      advanced = true;
+      const id = lst.ids[i];
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push({ key: id, insurance: lst.insurance });
+        if (out.length >= TIER2_BUY_TARGETS) break;
+      }
+    }
+    if (!advanced) break;
+  }
+  return out;
+}
+
 function requestForMatch(
   activeRosterId: string,
   match: Match,
@@ -116,9 +238,35 @@ function requestForMatch(
   // owner's market toggle. There's no narrative and no named anchor, so we
   // translate the bucket into a concrete request the constructor can run.
   if (match.side === "we_buy") {
-    // Acquire-with-no-anchor: the constructor discovers the best-fit target at
-    // a position we have demand for, on this partner. Exactly the existing
-    // buy-side discovery path — no new logic.
+    const strat = ec.data.strategy.get(activeRosterId) ?? null;
+    const intents = buyIntentForBucket(strat, match.anchorBucket);
+
+    // Intent stated → honor it: anchor the matching target(s) off this partner.
+    // Realistic-only: a partner with nothing matching yields no offer (rather
+    // than a generic grab that ignores what the owner asked for).
+    if (intents.length > 0) {
+      const targets = buyTargetsForIntent(
+        activeRosterId,
+        match.partnerRosterId,
+        match.anchorBucket,
+        intents,
+        ec
+      );
+      return targets.map((t) => ({
+        ourTeamId: activeRosterId,
+        offeringTeamId: activeRosterId,
+        intent: "acquire" as Intent,
+        anchors: [{ key: t.key, side: "receive" as const }],
+        counterparty: { mode: "locked" as const, teamIds: [match.partnerRosterId] },
+        leans: [],
+        aimAt: "us" as const,
+        ...(t.insurance ? { dealKind: "insurance" as const } : {}),
+      }));
+    }
+
+    // No intent set → the constructor discovers the best-fit target at a
+    // position we have demand for, on this partner. Exactly the existing
+    // buy-side discovery path — unchanged behavior when no intent is stated.
     return [{
       ourTeamId: activeRosterId,
       offeringTeamId: activeRosterId,
