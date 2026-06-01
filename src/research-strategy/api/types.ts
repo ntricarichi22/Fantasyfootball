@@ -44,6 +44,7 @@ export type TeamStrategyProfile = {
   qb_sell_move: TeamHqSellMove[];
   rb_sell_move: TeamHqSellMove[];
   pc_sell_move: TeamHqSellMove[];
+  picks_sell_move: TeamHqSellMove[];
   own_guys_preference: TeamHqOwnGuysPreference;
   gm_persona: GmPersona;
 };
@@ -83,6 +84,7 @@ export const TEAM_STRATEGY_DEFAULTS: Omit<TeamStrategyProfile, "league_id" | "te
   qb_sell_move: [],
   rb_sell_move: [],
   pc_sell_move: [],
+  picks_sell_move: [],
   own_guys_preference: "neutral",
   gm_persona: "straight_shooter",
 };

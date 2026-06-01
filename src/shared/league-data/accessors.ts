@@ -370,7 +370,7 @@ export async function getStrategyProfiles(): Promise<{
     admin.client
       .from("cfc_team_strategy_profiles")
       .select(
-        "team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona, qb_buy_intent, rb_buy_intent, pc_buy_intent, picks_buy_kind, qb_sell_move, rb_sell_move, pc_sell_move"
+        "team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona, qb_buy_intent, rb_buy_intent, pc_buy_intent, picks_buy_kind, qb_sell_move, rb_sell_move, pc_sell_move, picks_sell_move"
       )
       .eq("league_id", leagueId),
     admin.client
@@ -399,6 +399,7 @@ export async function getStrategyProfiles(): Promise<{
       qbSellMove: intentArr<SellMove>(row.qb_sell_move, SELL_MOVES),
       rbSellMove: intentArr<SellMove>(row.rb_sell_move, SELL_MOVES),
       pcSellMove: intentArr<SellMove>(row.pc_sell_move, SELL_MOVES),
+      picksSellMove: intentArr<SellMove>(row.picks_sell_move, SELL_MOVES),
     });
   }
   for (const row of (attachRes.data ?? []) as Array<Record<string, unknown>>) {

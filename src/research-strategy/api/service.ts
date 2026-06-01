@@ -136,6 +136,7 @@ const normalizeStrategyPayload = (payload?: TeamStrategyProfileInput) => ({
   qb_sell_move: normalizeEnumArray<TeamHqSellMove>(payload?.qb_sell_move, SELL_MOVE_SET),
   rb_sell_move: normalizeEnumArray<TeamHqSellMove>(payload?.rb_sell_move, SELL_MOVE_SET),
   pc_sell_move: normalizeEnumArray<TeamHqSellMove>(payload?.pc_sell_move, SELL_MOVE_SET),
+  picks_sell_move: normalizeEnumArray<TeamHqSellMove>(payload?.picks_sell_move, SELL_MOVE_SET),
   own_guys_preference: normalizeOwnGuys(payload?.own_guys_preference),
   gm_persona: normalizePersona(payload?.gm_persona),
 });
@@ -315,7 +316,7 @@ export async function getTeamStrategyProfile(
 
   const { data, error } = await client
     .from("cfc_team_strategy_profiles")
-    .select("league_id,team_id,wants_more,qb_market,rb_market,pc_market,picks_market,qb_buy_intent,rb_buy_intent,pc_buy_intent,picks_buy_kind,qb_sell_move,rb_sell_move,pc_sell_move,own_guys_preference,gm_persona")
+    .select("league_id,team_id,wants_more,qb_market,rb_market,pc_market,picks_market,qb_buy_intent,rb_buy_intent,pc_buy_intent,picks_buy_kind,qb_sell_move,rb_sell_move,pc_sell_move,picks_sell_move,own_guys_preference,gm_persona")
     .eq("league_id", leagueId)
     .eq("team_id", teamId)
     .maybeSingle();
@@ -347,6 +348,7 @@ export async function getTeamStrategyProfile(
     qb_sell_move: normalizeEnumArray<TeamHqSellMove>(data.qb_sell_move, SELL_MOVE_SET),
     rb_sell_move: normalizeEnumArray<TeamHqSellMove>(data.rb_sell_move, SELL_MOVE_SET),
     pc_sell_move: normalizeEnumArray<TeamHqSellMove>(data.pc_sell_move, SELL_MOVE_SET),
+    picks_sell_move: normalizeEnumArray<TeamHqSellMove>(data.picks_sell_move, SELL_MOVE_SET),
     own_guys_preference: normalizeOwnGuys(data.own_guys_preference),
     gm_persona: normalizePersona(data.gm_persona),
   };
