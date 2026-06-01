@@ -3,7 +3,15 @@ import type { TeamProfile, TeamNeeds, NeedBucket } from "@/shared/team-profiles"
 import { bucketOf, hasSellMarket, hasBuyMarket, sellMarketBuckets } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
 
-import type { FiredNarrative, RosterRead, WantsClarity } from "./types";
+import type { FiredNarrative, RosterRead, Timeline } from "./types";
+import type { IntentSignals } from "./intent";
+import {
+  acquiresStudAt,
+  consolidatesAt,
+  anyShed,
+  accumulatesPicks,
+  hasAccumulateSignal,
+} from "./intent";
 import { detectSlotCliffs, type SlotCliff } from "./cliff";
 
 export type TriggerContext = {
@@ -12,10 +20,20 @@ export type TriggerContext = {
   dossier: TeamDossier;
   needs: TeamNeeds;
   strategy: StrategyProfile | null;
-  wantsClarity: WantsClarity;
+  intent: IntentSignals;
   rosterRead: RosterRead;
   data: LeagueData;
 };
+
+// The team's baseline clock from roster facts alone — the frame a move serves
+// when intent doesn't override it. Contenders run on a win-now clock, ascending
+// non-contenders on a build clock, declining/aged on a retool clock.
+function baseTimeline(profile: TeamProfile): Timeline {
+  if (profile.tier === "championship" || profile.tier === "playoff") return "win_now";
+  if (profile.trajectory.direction === "ascending") return "build_future";
+  if (profile.trajectory.direction === "declining") return "retool";
+  return profile.tier === "rebuilding" || profile.tier === "retooling" ? "retool" : "build_future";
+}
 
 function isStud(playerId: string, data: LeagueData): boolean {
   return data.values.isStud.get(playerId) ?? false;
@@ -57,6 +75,7 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
     decoCliffs.forEach((c) => c.eligiblePositions.forEach((p) => eligSet.add(p)));
     out.push({
       archetype: "de_consolidate", role: "seller", flavor: "depth_cliff",
+      timeline: baseTimeline(profile),
       triggerScenario: `de_consolidate / depth_cliff: ${decoCliffs.map((c) => `${c.starterName}@${c.slot}`).join(", ")}`,
       evidence:
         `Slot-aware cliff test (2-deep cushion) flags ${decoCliffs.length} slot(s) where a high-value ` +
@@ -95,6 +114,7 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
   if (excessStuds.length > 0 && hasUpgradeRoom) {
     out.push({
       archetype: "de_consolidate", role: "seller", flavor: "surplus_of_quality",
+      timeline: baseTimeline(profile),
       triggerScenario: `de_consolidate / surplus_of_quality: ${excessStuds.map((id) => data.players.get(id)?.name ?? id).join(", ")}`,
       evidence:
         `Studs exceed starter slots, and our weakest optimal starter (${worst?.name} @ ${worst?.slot}, ` +
@@ -111,6 +131,7 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
     if (premiumPicks.length > 0) {
       out.push({
         archetype: "de_consolidate", role: "seller", flavor: "pick_trade_back",
+        timeline: "retool",
         triggerScenario: `de_consolidate / pick_trade_back: ${premiumPicks.map((p) => `${p.season} R${p.round}`).join(", ")}`,
         evidence:
           `Tier ${profile.tier} with ${rosterRead.scarcities.filter((s) => s.severity === "high").length} high-severity holes. ` +
@@ -161,6 +182,7 @@ export function fireReset(ctx: TriggerContext): FiredNarrative[] {
 
   return [{
     archetype: "reset", role: "seller", flavor: null,
+    timeline: "retool",
     triggerScenario: `reset [${pathLabel}]: ${studs.length} stud(s) (${studs.map((s) => s.name).join(", ")})`,
     evidence:
       `Window ${dossier.window}, trajectory ${profile.trajectory.direction}, avgStarterAge ${avgAge.toFixed(1)}, ` +
@@ -174,31 +196,32 @@ export function fireReset(ctx: TriggerContext): FiredNarrative[] {
 // ── Sell-high star ────────────────────────────────────────────────────────
 
 export function fireSellHighStar(ctx: TriggerContext): FiredNarrative[] {
-  const { profile, needs, strategy, rosterRead, wantsClarity } = ctx;
+  const { profile, needs, intent, rosterRead } = ctx;
   const candidates: typeof rosterRead.agingStarsAtPeak = [];
   for (const star of rosterRead.agingStarsAtPeak) {
     const b = bucketOf(star.position);
     if (!b) continue;
     const need = needs[b === "PASS_CATCHER" ? "passCatcher" : b === "QB" ? "qb" : "rb"];
     if (need.level === "high") continue;
-    const market = b === "QB" ? strategy?.qbMarket : b === "RB" ? strategy?.rbMarket : strategy?.pcMarket;
+    const market = intent.byBucket.get(b)?.market;
     if (market === "buy") continue;
     candidates.push(star);
   }
   if (candidates.length === 0) return [];
 
-  const isCleanAccumulate = wantsClarity.grade === "clear" && wantsClarity.direction === "accumulate";
+  const accumulateMinded = hasAccumulateSignal(intent);
   const isRebuilderTier = profile.tier === "rebuilding" || profile.tier === "retooling";
-  const flavor: "contender" | "rebuilder" = isCleanAccumulate && isRebuilderTier ? "rebuilder" : "contender";
+  const flavor: "contender" | "rebuilder" = accumulateMinded && isRebuilderTier ? "rebuilder" : "contender";
 
   return [{
     archetype: "sell_high_star", role: "seller", flavor,
+    timeline: flavor === "rebuilder" ? "retool" : baseTimeline(profile),
     triggerScenario: `sell_high_star / ${flavor}: ${candidates.map((s) => s.name).join(", ")}`,
     evidence:
       `Aging star(s) past the positional line at non-need, non-buy position(s): ` +
       `${candidates.map((s) => `${s.name} (${s.position}, ${s.age})`).join(", ")}. ` +
       (flavor === "rebuilder"
-        ? `Clean-accumulate ${profile.tier} team — void acceptable (losing serves the draft).`
+        ? `Accumulate-minded ${profile.tier} team — void acceptable (losing serves the draft).`
         : `${profile.tier} team — return must include a starting-caliber replacement (no-new-void).`),
     assets: candidates.map((s) => s.playerId),
     returnShape:
@@ -211,24 +234,24 @@ export function fireSellHighStar(ctx: TriggerContext): FiredNarrative[] {
 // ── Vet-liquidation ───────────────────────────────────────────────────────
 
 export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
-  const { profile, wantsClarity, rosterRead } = ctx;
+  const { profile, intent, rosterRead } = ctx;
   // Tier gate, with an owner-intent override: rebuilding/retooling teams shed
-  // vets by default, but a clear ACCUMULATE signal means even a contender has
-  // explicitly chosen to convert proven players into picks — so let it fire.
-  // (The eligibility of WHICH players is fenced in buildRosterRead; here we
-  // only decide whether the team is in a selling posture at all.)
-  const clearAccumulate = wantsClarity.grade === "clear" && wantsClarity.direction === "accumulate";
+  // vets by default, but ANY shed signal (a sell market, or a get-younger buy
+  // that makes the old guys at that spot expendable) or a future-pick stockpile
+  // means even a contender has explicitly chosen to turn proven players into
+  // capital — so let it fire. (WHICH players are eligible is fenced per-position
+  // in buildRosterRead via shedsAt; here we only decide selling posture at all.)
+  const ownerSelling = anyShed(intent) || accumulatesPicks(intent);
   const sellingTier = profile.tier === "rebuilding" || profile.tier === "retooling";
-  if (!sellingTier && !clearAccumulate) return [];
+  if (!sellingTier && !ownerSelling) return [];
   if (rosterRead.offTimelineVets.length === 0) return [];
-  const accumulateAligned = wantsClarity.direction === "accumulate" || wantsClarity.grade === "noise";
-  if (!accumulateAligned) return [];
 
   return [{
     archetype: "vet_liquidation", role: "seller", flavor: null,
+    timeline: "retool",
     triggerScenario: `vet_liquidation: ${rosterRead.offTimelineVets.length} off-timeline vet(s)`,
     evidence:
-      `${clearAccumulate && !sellingTier ? "Accumulate-minded" : profile.tier} team holding off-timeline vets: ` +
+      `${ownerSelling && !sellingTier ? "Accumulate-minded" : profile.tier} team holding off-timeline vets: ` +
       `${rosterRead.offTimelineVets.map((v) => `${v.name} (${v.position}, ${v.age}, val ${v.value.toFixed(0)})`).join(", ")}. ` +
       `Convert to picks before value depreciates — volume beats holding out.`,
     assets: rosterRead.offTimelineVets.map((v) => v.playerId),
@@ -252,12 +275,15 @@ export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
 // can fund a consolidation.
 
 export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
-  const { strategy, wantsClarity, rosterRead, data, profile } = ctx;
+  const { strategy, intent, rosterRead, data, profile } = ctx;
 
   const hasRealSurplus = rosterRead.surpluses.length > 0;
   const hasSell = hasSellMarket(strategy);
   const hasRealScarcity = rosterRead.scarcities.length > 0;
-  const wantsConvert = wantsClarity.direction === "convert";
+  // The owner-driven "convert" intent: wanting a stud at any bucket, or
+  // explicitly consolidating depth at a bucket into one better player.
+  const buckets: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
+  const wantsConvert = buckets.some((b) => acquiresStudAt(intent, b) || consolidatesAt(intent, b));
   const futureFirsts = countFutureFirsts(ctx.rosterId, data);
   const hasContenderUpgrade = rosterRead.contenderUpgrades.length > 0;
   const hasDestination = hasRealScarcity || hasBuyMarket(strategy) || wantsConvert || hasContenderUpgrade;
@@ -266,7 +292,7 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   const paths: string[] = [];
   if (hasRealSurplus && hasDestination) {
     paths.push(
-      `surplus at ${rosterRead.surpluses.map((s) => s.bucket).join(", ")} → destination ${rosterRead.scarcities.map((s) => s.bucket).join(", ") || (wantsConvert ? "wants=convert" : "buy market")}`,
+      `surplus at ${rosterRead.surpluses.map((s) => s.bucket).join(", ")} → destination ${rosterRead.scarcities.map((s) => s.bucket).join(", ") || (wantsConvert ? "owner wants upgrade" : "buy market")}`,
     );
   }
   if (hasSell && hasDestination) {
@@ -274,7 +300,7 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   }
   if (wantsConvert && hasRealScarcity && futureFirsts >= 1) {
     paths.push(
-      `wants=convert + scarcity at ${rosterRead.scarcities.map((s) => s.bucket).join(", ")} + ${futureFirsts} future first(s)`,
+      `owner wants upgrade + scarcity at ${rosterRead.scarcities.map((s) => s.bucket).join(", ")} + ${futureFirsts} future first(s)`,
     );
   }
   if (hasContenderUpgrade) {
@@ -319,6 +345,7 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
 
   return [{
     archetype: "consolidate", role: "buyer", flavor: null,
+    timeline: wantsConvert || hasContenderUpgrade ? "win_now" : baseTimeline(profile),
     triggerScenario: `consolidate (${paths.length} path${paths.length === 1 ? "" : "s"} fired)`,
     evidence:
       `${paths.length} consolidate trigger(s): ${paths.join(" | ")}. ` +
@@ -333,9 +360,10 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
 // ── Win-now push ──────────────────────────────────────────────────────────
 
 export function fireWinNowPush(ctx: TriggerContext): FiredNarrative[] {
-  const { profile, strategy, wantsClarity, data } = ctx;
+  const { profile, strategy, intent, data } = ctx;
   if (profile.tier !== "championship" && profile.tier !== "playoff") return [];
-  const wantsStuds = wantsClarity.grade === "clear" && wantsClarity.direction === "convert";
+  const buckets: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
+  const wantsStuds = buckets.some((b) => acquiresStudAt(intent, b));
   if (!wantsStuds && !hasBuyMarket(strategy)) return [];
 
   const team = data.teams.find((t) => t.rosterId === ctx.rosterId);
@@ -347,8 +375,9 @@ export function fireWinNowPush(ctx: TriggerContext): FiredNarrative[] {
 
   return [{
     archetype: "win_now_push", role: "buyer", flavor: null,
+    timeline: "win_now",
     triggerScenario: `win_now_push: ${profile.tier} contender, ${wantsStuds ? "wants studs" : "buy market"}`,
-    evidence: `${profile.tier} tier, ${wantsStuds ? "clean 'wants studs'" : "explicit buy market"}. Spend future + depth for present impact.`,
+    evidence: `${profile.tier} tier, ${wantsStuds ? "owner wants studs" : "explicit buy market"}. Spend future + depth for present impact.`,
     assets: eligible,
     returnShape: `Stud at our needed position (anchor from seller). The displaced current starter joins the package at match time.`,
   }];
@@ -375,6 +404,7 @@ export function fireInsurance(ctx: TriggerContext): FiredNarrative[] {
 
   return [{
     archetype: "insurance", role: "buyer", flavor: null,
+    timeline: "win_now",
     // Insurance fired on the QB room (superflex fragility). Stamp the bucket so
     // the matcher knows what position we're shopping without a scarcity entry.
     targetBucket: "QB",
@@ -390,15 +420,19 @@ export function fireInsurance(ctx: TriggerContext): FiredNarrative[] {
 // ── Stand-pat ─────────────────────────────────────────────────────────────
 
 export function fireStandPat(ctx: TriggerContext): FiredNarrative[] {
-  const { profile, wantsClarity } = ctx;
-  const isCleanAccumulate = wantsClarity.grade === "clear" && wantsClarity.direction === "accumulate";
-  if (!isCleanAccumulate) return [];
+  const { profile, intent } = ctx;
+  // Patience card: fires when the owner's signals lean accumulate (get-younger
+  // buys and/or future-pick stockpiling) on a non-contending team. One card
+  // among many — "your stated direction is patient building; the do-nothing-
+  // but-draft path is on the table" — not a global posture that mutes others.
+  if (!hasAccumulateSignal(intent)) return [];
   if (profile.tier !== "rebuilding" && profile.tier !== "retooling") return [];
 
   return [{
     archetype: "stand_pat", role: "null_action", flavor: null,
-    triggerScenario: `stand_pat: clean accumulate on ${profile.tier} team`,
-    evidence: `Clear-accumulate on a ${profile.tier} team. Patience is the move; build through the draft.`,
+    timeline: "build_future",
+    triggerScenario: `stand_pat: accumulate-minded ${profile.tier} team`,
+    evidence: `Accumulate-leaning signals on a ${profile.tier} team. Patience is a real option; build through the draft.`,
     assets: [],
     returnShape: `No offers; restraint is the answer.`,
   }];

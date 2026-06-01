@@ -1,5 +1,17 @@
 export * from "./types";
-export { gradeWants } from "./wants";
+export {
+  readIntent,
+  acquiresYoungAt,
+  acquiresStudAt,
+  shedsAt,
+  consolidatesAt,
+  fillsNeedAt,
+  anyStudHunt,
+  anyShed,
+  accumulatesPicks,
+  wantsPremiumPicks,
+  hasAccumulateSignal,
+} from "./intent";
 export {
   STARTER_COUNTS,
   DEPTH_CLIFF_THRESHOLD,

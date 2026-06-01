@@ -41,11 +41,16 @@ function legible(
     team: bundle.teamName,
     rosterId: bundle.rosterId,
     identity: bundle.identitySentence,
-    wants: bundle.wantsClarity,
+    intent: {
+      silent: bundle.intentSignals.silent,
+      picks: bundle.intentSignals.picks,
+      byBucket: Object.fromEntries(bundle.intentSignals.byBucket),
+    },
     firedNarratives: bundle.firedNarratives.map((n) => ({
       archetype: n.archetype,
       role: n.role,
       flavor: n.flavor,
+      timeline: n.timeline,
       trigger: n.triggerScenario,
       evidence: n.evidence,
       assets: resolve(n.assets),
@@ -122,8 +127,9 @@ export async function GET(req: Request) {
       .map((b) => ({
         team: b.teamName,
         rosterId: b.rosterId,
-        wants: `${b.wantsClarity.grade}${b.wantsClarity.direction ? ` (${b.wantsClarity.direction})` : ""}`,
+        intent: b.intentSignals.silent ? "silent" : "active",
         fired: b.firedNarratives.map((n) => n.flavor ? `${n.archetype}/${n.flavor}` : n.archetype),
+        timelines: b.firedNarratives.map((n) => n.timeline ?? "none"),
         count: b.firedNarratives.length,
       }))
       .sort((a, b) => b.count - a.count);

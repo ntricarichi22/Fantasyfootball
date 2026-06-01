@@ -1,5 +1,6 @@
 import type { Position } from "@/shared/league-data";
 import type { NeedBucket } from "@/shared/team-profiles";
+import type { IntentSignals } from "./intent";
 
 // ── Archetypes ────────────────────────────────────────────────────────────
 
@@ -56,16 +57,23 @@ export const ARCHETYPE_OPPOSITES: Record<ArchetypeName, ArchetypeName[]> = {
   stand_pat: [],
 };
 
-// ── Wants clarity ─────────────────────────────────────────────────────────
+// ── Intent signals ────────────────────────────────────────────────────────
+//
+// The per-position intent read replaces the old global WantsClarity posture.
+// Defined in ./intent (alongside readIntent + the predicate helpers); re-exported
+// here so types.ts stays the one stop for narrative-layer types.
 
-export type WantsGrade = "clear" | "noise";
-export type WantsDirection = "accumulate" | "convert" | null;
+export type { PositionIntent, PicksIntent } from "./intent";
+export type { IntentSignals };
 
-export type WantsClarity = {
-  grade: WantsGrade;
-  direction: WantsDirection;
-  raw: string[];
-};
+// ── Timeline frame ────────────────────────────────────────────────────────
+//
+// The clock a fired move serves. Phase B's thesis layer groups narratives by
+// this axis into coherent stories (build_future / win_now / retool). Stamped on
+// every FiredNarrative at trigger time. null = frame-agnostic (e.g. stand_pat
+// can attach to whatever story is dominant).
+
+export type Timeline = "win_now" | "build_future" | "retool" | null;
 
 // ── Roster read ───────────────────────────────────────────────────────────
 
@@ -161,6 +169,9 @@ export type FiredNarrative = {
   archetype: ArchetypeName;
   role: NarrativeRole;
   flavor: Flavor;
+  // The clock this move serves, for Phase B story grouping. Stamped at trigger
+  // time from the team's tier/trajectory + the intent signal that fired it.
+  timeline: Timeline;
   // For BUYER narratives: which bucket this narrative is shopping. Insurance
   // stamps the position it fired on (QB in superflex today) rather than relying
   // on a scarcity entry, since a depth/fragility need is not a listed scarcity.
@@ -178,7 +189,7 @@ export type NarrativeBundle = {
   rosterId: string;
   teamName: string;
   identitySentence: string;
-  wantsClarity: WantsClarity;
+  intentSignals: IntentSignals;
   rosterRead: RosterRead;
   firedNarratives: FiredNarrative[];
   crossNotes: string[];

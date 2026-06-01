@@ -16,7 +16,7 @@ import type {
   PhantomCorrection,
   ContenderUpgrade,
 } from "./types";
-import { gradeWants } from "./wants";
+import { readIntent, shedsAt, hasAccumulateSignal, type IntentSignals } from "./intent";
 import { checkPhantomCliff } from "./phantoms";
 import { startsForCount } from "./cliff";
 import { fireAllArchetypes, type TriggerContext } from "./triggers";
@@ -193,16 +193,13 @@ function buildRosterRead(
   // piece fetches a real return (the test already excludes this roster), which
   // replaces the old flat value floor.
   const isRebuildingTier = profile.tier === "rebuilding";
-  // Owner intent override: a clear ACCUMULATE signal (picks and/or youth, no
-  // win-now want) means the owner has explicitly chosen to convert proven
-  // players into future capital — so prime non-studs become liquidation-
-  // eligible even on a contender, the same way a rebuilding teardown opens
-  // them up. The dev-window + startability fence below still protects the
+  // Owner intent override, now PER POSITION: a shed signal at a bucket (an
+  // explicit sell market, or a get-younger buy that makes the older guys there
+  // expendable — the DJ Moore dot) opens that bucket's prime non-studs to
+  // liquidation even on a contender, the same way a rebuilding teardown opens
+  // every bucket. The dev-window + startability fence below still protects the
   // young core and untouchable studs.
-  const wantsAccumulate = (() => {
-    const w = gradeWants(data.strategy.get(rosterId) ?? null);
-    return w.grade === "clear" && w.direction === "accumulate";
-  })();
+  const intent = readIntent(data.strategy.get(rosterId) ?? null);
   const offTimelineVets: OffTimelineVet[] = [];
   for (const p of team.players) {
     if (p.age === null) continue;
@@ -212,7 +209,9 @@ function buildRosterRead(
     // Prime guys still in their development window stay off the block — a
     // rebuilder keeps its young ascending core, only the established ones go.
     const stillDeveloping = p.exp !== null && p.exp <= VET_DEV_WINDOW_YEARS;
-    const primeEligible = (isRebuildingTier || wantsAccumulate) && prime && !stillDeveloping;
+    const bucket = bucketOf(p.position);
+    const ownerShedsHere = bucket ? shedsAt(intent, bucket) : false;
+    const primeEligible = (isRebuildingTier || ownerShedsHere) && prime && !stillDeveloping;
     if (!(aging || primeEligible)) continue;
     const v = data.values.value.get(p.id) ?? 0;
     if (startsForCount(p.id, p.position, v, rosterId, data) < VET_STARTS_FOR_TEAMS) continue;
@@ -316,13 +315,11 @@ function buildRosterRead(
 function buildIdentitySentence(
   profile: TeamProfile,
   dossier: TeamDossier,
-  wantsGrade: "clear" | "noise",
-  wantsDirection: "accumulate" | "convert" | null,
+  intent: IntentSignals,
   read: RosterRead,
 ): string {
   const tier = profile.tierLabel.toLowerCase();
   const window = dossier.window;
-  const direction = wantsDirection ?? "no-clear-direction";
   const traj = profile.trajectory.direction;
   let headline = "no dominant signal";
   if (read.contenderUpgrades.length > 0) {
@@ -338,10 +335,12 @@ function buildIdentitySentence(
   } else if (read.offTimelineVets.length > 0) {
     headline = `off-timeline vets ripe for liquidation`;
   }
-  const wantsClause = wantsGrade === "clear"
-    ? `wants are clear (${direction})`
-    : `wants are noisy — roster does the work`;
-  return `${tier}, ${window}, ${traj}; ${wantsClause}; ${headline}.`;
+  const intentClause = intent.silent
+    ? `no stated intent — roster does the work`
+    : hasAccumulateSignal(intent)
+      ? `owner leans accumulate (youth/picks)`
+      : `owner has active market signals`;
+  return `${tier}, ${window}, ${traj}; ${intentClause}; ${headline}.`;
 }
 
 function buildCrossNotes(firedNarratives: ReturnType<typeof fireAllArchetypes>): string[] {
@@ -393,21 +392,21 @@ export function buildTeamNarratives(
     if (!profile || !dossier || !teamNeeds) continue;
     const strategy = data.strategy.get(rosterId) ?? null;
 
-    const wantsClarity = gradeWants(strategy);
+    const intentSignals = readIntent(strategy);
     const rosterRead = buildRosterRead(rosterId, profile, teamNeeds, data, leagueStats);
 
     const triggerCtx: TriggerContext = {
-      rosterId, profile, dossier, needs: teamNeeds, strategy, wantsClarity, rosterRead, data,
+      rosterId, profile, dossier, needs: teamNeeds, strategy, intent: intentSignals, rosterRead, data,
     };
     const firedNarratives = fireAllArchetypes(triggerCtx);
     const crossNotes = buildCrossNotes(firedNarratives);
     const identitySentence = buildIdentitySentence(
-      profile, dossier, wantsClarity.grade, wantsClarity.direction, rosterRead,
+      profile, dossier, intentSignals, rosterRead,
     );
 
     result.set(rosterId, {
       rosterId, teamName: team.teamName, identitySentence,
-      wantsClarity, rosterRead, firedNarratives, crossNotes,
+      intentSignals, rosterRead, firedNarratives, crossNotes,
     });
   }
 
