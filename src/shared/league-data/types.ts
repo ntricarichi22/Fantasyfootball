@@ -92,6 +92,7 @@ export type StrategyProfile = {
   qbSellMove?: SellMove[];
   rbSellMove?: SellMove[];
   pcSellMove?: SellMove[];
+  picksSellMove?: SellMove[];
 };
 
 // Last completed-season results, pulled from Sleeper roster settings.
