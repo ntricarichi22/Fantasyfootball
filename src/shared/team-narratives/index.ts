@@ -21,6 +21,8 @@ export {
 } from "./phantoms";
 export {
   detectSlotCliffs,
+  startsForCount,
+  startsForAtLeast,
   CLIFF_RETENTION_THRESHOLD,
   CLIFF_MIN_STARTER_VALUE,
   type SlotCliff,

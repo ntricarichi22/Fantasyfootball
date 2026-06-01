@@ -1,5 +1,5 @@
 import { construct, type EngineContext } from "@/pro-personnel/engine";
-import type { DealRequest, EngineOffer, Lean, Intent } from "@/pro-personnel/engine";
+import type { DealRequest, EngineOffer, Lean, Intent, ReturnAim, Bucket } from "@/pro-personnel/engine";
 import type { ArchetypeName, Thesis } from "@/shared/team-narratives";
 import { isYoung } from "@/shared/asset-values";
 import type { BuyIntent, StrategyProfile } from "@/shared/league-data";
@@ -28,6 +28,64 @@ function leansFor(archetype: ArchetypeName): Lean[] {
     default:
       return [];
   }
+}
+
+// The storyline's demand on the RETURN composition, pushed into construct's
+// balance step (see ReturnAim). Two independent parts:
+//
+//  1. Backfill (timeline-independent). A move that ships a needed starter must
+//     get a competent starter back at that bucket, or it's a teardown, not the
+//     owner's plan. Applies to harvest_surplus and the sell-high-of-a-starter —
+//     the canonical "sell one of two stud QBs, get a QB2 back" case.
+//  2. Youth / pick-tier aim (timeline-driven). On a BUILD, the return should be
+//     young players and picks of the tier the owner asked for — not the
+//     highest-value vet the math allows. HARD for outright sells (harvest /
+//     sell-high / vet-liq / reset: the package IS youth+picks); SOFT for
+//     consolidate (the incoming player is the point, just tilt him young). A
+//     WIN-NOW thesis wants the best proven piece, so no youth/pick aim there.
+function returnShapeFor(
+  match: Match,
+  thesis: Thesis | undefined,
+  strat: StrategyProfile | null,
+): ReturnAim | undefined {
+  const arch = match.narrativeArchetype;
+  const selling = match.side === "we_sell";
+  const bucket = match.anchorBucket as Bucket;
+
+  let requireBackfill: Bucket | undefined;
+  if (
+    selling &&
+    bucket !== "PICK" &&
+    (arch === "harvest_surplus" || arch === "sell_high_star")
+  ) {
+    requireBackfill = bucket;
+  }
+
+  let preferYouth: boolean | undefined;
+  let preferPickTier: ReturnAim["preferPickTier"];
+  let strength: ReturnAim["strength"];
+
+  const tl = thesis?.timeline;
+  const youthAimArch =
+    arch === "harvest_surplus" ||
+    arch === "sell_high_star" ||
+    arch === "vet_liquidation" ||
+    arch === "reset" ||
+    arch === "consolidate";
+
+  if (tl === "build_future" && youthAimArch) {
+    preferYouth = true;
+    const kinds = strat?.picksBuyKind ?? [];
+    preferPickTier = kinds.includes("premium")
+      ? "premium"
+      : kinds.includes("future")
+        ? "future"
+        : "future"; // a build banks future capital by default
+    strength = arch === "consolidate" ? "soft" : "hard";
+  }
+
+  if (!requireBackfill && !preferYouth && !preferPickTier) return undefined;
+  return { requireBackfill, preferYouth, preferPickTier, strength };
 }
 
 // One match → one DealRequest, locked to the single matched partner and aimed
@@ -362,12 +420,16 @@ export function generateOffersForTeam(
   const resolveThesisId = (match: Match): string =>
     match.thesisId && byId.has(match.thesisId) ? match.thesisId : intentThesis.id;
 
+  const strat = ec.data.strategy.get(slate.rosterId) ?? null;
+
   const runMatch = (match: Match) => {
     const thesisId = resolveThesisId(match);
     const spendable = spendableOf(thesisId);
 
     const reqs = requestForMatch(slate.rosterId, match, ec);
+    const shape = returnShapeFor(match, byId.get(thesisId), strat);
     for (const req of reqs) {
+      if (shape) req.returnShape = shape;
       const result = construct(req, ec);
       for (const offer of result.offers) {
         if (offer.partnerTeamId !== match.partnerRosterId) continue;

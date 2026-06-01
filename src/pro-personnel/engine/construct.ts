@@ -25,11 +25,12 @@
 // The engine touches ZERO database — the route loads all shared inputs and the
 // ValuationContext and hands them in via EngineContext.
 
-import type { LeagueData, StrategyProfile, RosteredTeam, PlayerInfo, OwnedPick } from "@/shared/league-data";
+import type { LeagueData, StrategyProfile, RosteredTeam, PlayerInfo, OwnedPick, Position } from "@/shared/league-data";
 import type { TeamProfile, TeamNeeds, NeedLevel } from "@/shared/team-profiles";
 import { computeStrength } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
 import type { NarrativeBundle } from "@/shared/team-narratives";
+import { startsForAtLeast } from "@/shared/team-narratives";
 import { valueAsset, isYoung, type AssetRef, type ValuationContext } from "@/shared/asset-values";
 
 import type {
@@ -110,6 +111,15 @@ function ordinal(n: number): string {
 
 function toRef(key: string, type: "player" | "pick"): AssetRef {
   return type === "pick" ? { type: "pick", key } : { type: "player", sleeperPlayerId: key };
+}
+
+// Bucket → the player positions that fill it (PASS_CATCHER = WR + TE). Inverse
+// of bucketForPosition, used for same-bucket backfill discovery.
+function bucketPositions(bucket: Bucket): Set<string> {
+  if (bucket === "QB") return new Set(["QB"]);
+  if (bucket === "RB") return new Set(["RB"]);
+  if (bucket === "PASS_CATCHER") return new Set(["WR", "TE"]);
+  return new Set();
 }
 
 function needLevel(needs: TeamNeeds | undefined, bucket: Bucket): NeedLevel | null {
@@ -397,9 +407,39 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
     function buildOne(pId: string, recvKeys: string[]): EngineOffer | null {
       const aim = req.aimAt;
 
+      // ── Required backfill (HARD return-shape constraint) ──────────────────
+      // Some moves cannot open a hole at the donor position: ship a QB when you
+      // only start two and you must get a competent QB back, or the move isn't
+      // your storyline (it's a teardown). So before balancing we seed a
+      // competent same-bucket starter from THIS partner as a forced receive
+      // anchor. "Competent" = the start-for test (would start for >= 1 other
+      // team) — keeps a clipboard QB out. We seed the CHEAPEST competent piece
+      // so the rest of the package (the value the anchor frees up) flows to the
+      // youth / picks the storyline actually wants. Partner has no competent
+      // piece there → no deal with them (correct: they can't satisfy the move).
+      let recvKeysEff = recvKeys;
+      const backfillBucket = req.returnShape?.requireBackfill;
+      if (backfillBucket) {
+        const positions = bucketPositions(backfillBucket);
+        const already = recvKeys
+          .map(resolve)
+          .some((r) => r && positions.has(r.position.toUpperCase()));
+        if (!already) {
+          const cand = partnerTeam!.players
+            .filter((p) => positions.has(p.position.toUpperCase()))
+            .map((p) => ({ p, value: data.values.value.get(p.id) ?? 0 }))
+            .filter(({ p, value }) =>
+              startsForAtLeast(p.id, p.position as Position, value, pId, data, 1),
+            )
+            .sort((a, b) => a.value - b.value)[0]; // cheapest competent
+          if (!cand) return null; // partner can't backfill the hole → no deal
+          recvKeysEff = [cand.p.id, ...recvKeys];
+        }
+      }
+
       // Resolve + seed both sides.
       const seedSend = sendAnchors.map(resolve).filter((r): r is Resolved => !!r);
-      const seedRecv = recvKeys.map(resolve).filter((r): r is Resolved => !!r);
+      const seedRecv = recvKeysEff.map(resolve).filter((r): r is Resolved => !!r);
 
       const sendSeedVA = seedSend.map((r) => valued(r, "send", aim, pId));
       const recvSeedVA = seedRecv.map((r) => valued(r, "receive", aim, pId));
@@ -412,7 +452,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       // we'd actually take (our demand gate), AND that the partner would
       // actually part with — never a position the partner is buying (they're
       // collecting it, not trading it away).
-      const anchored = new Set([...sendAnchors, ...recvKeys]);
+      const anchored = new Set([...sendAnchors, ...recvKeysEff]);
 
       // Insurance currency: a contender protecting a win-now roster pays in
       // PICKS plus genuinely-EXCESS players — never anyone who fills a real
@@ -457,28 +497,46 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
 
       const recvPool = recvResolvedPool.map((r) => valued(r, "receive", aim, pId));
 
-      // Lean bias: when the seller's narrative wants future capital
-      // (prefer_picks — reset / vet-liquidation), the return should be PICKS or
-      // YOUNG players, never proven studs — a team resetting builds for the
-      // future, it doesn't take back win-now stars. So the fill pool keeps
-      // every pick plus any non-stud player who is young (isYoung), and drops
-      // studs and prime/aging vets. Seeded receive anchors are untouched; this
-      // only constrains what balance ADDS. prefer_players (de-consolidate)
-      // leaves the pool as-is.
-      const preferPicks = (req.leans ?? []).includes("prefer_picks");
-      const resetEligibleKeys = new Set(
-        recvResolvedPool
-          .filter((r) => {
-            if (r.type === "pick") return true;
-            if (r.isStud) return false;
-            const info = data.players.get(r.key);
-            return isYoung(r.position, info?.age ?? null);
-          })
-          .map((r) => r.key),
-      );
-      const recvFillPool = preferPicks
-        ? recvPool.filter((a) => resetEligibleKeys.has(a.key))
-        : recvPool;
+      // ── Return aim: shape the fill, don't just balance to value ───────────
+      // The storyline's ReturnAim decides WHAT the gap-closer pulls. An aim
+      // match is a pick of the wanted tier OR a young non-stud player.
+      //   strength "hard"  → restrict the fill pool to aim matches only (a build
+      //                      selling a stud takes back youth/picks, full stop —
+      //                      this subsumes the old prefer_picks lean).
+      //   strength "soft"  → keep the full pool but PREFER aim matches among the
+      //                      in-band candidates (consolidate — the player is the
+      //                      point, just tilt him young).
+      // Back-compat: no returnShape but prefer_picks lean set → behave as the
+      // old reset/vet-liq hard youth+picks filter.
+      const shape = req.returnShape ?? null;
+      const legacyPreferPicks = !shape && (req.leans ?? []).includes("prefer_picks");
+
+      const pickTier = shape?.preferPickTier ?? (legacyPreferPicks ? "any" : undefined);
+      const wantYouth = shape?.preferYouth ?? legacyPreferPicks;
+
+      const pickMatchesTier = (r: Resolved): boolean => {
+        if (r.type !== "pick" || !r.pick) return false;
+        if (!pickTier || pickTier === "any") return true;
+        if (pickTier === "premium") return r.pick.round === 1;
+        if (pickTier === "future") return r.pick.kind === "future";
+        return true;
+      };
+      const aimMatch = (r: Resolved): boolean => {
+        if (r.type === "pick") return pickMatchesTier(r);
+        if (!wantYouth) return false;
+        if (r.isStud) return false;
+        return isYoung(r.position, data.players.get(r.key)?.age ?? null);
+      };
+
+      const aimKeys = new Set(recvResolvedPool.filter(aimMatch).map((r) => r.key));
+      const hard = shape?.strength === "hard" || legacyPreferPicks;
+
+      // Hard aim filters the pool; soft aim passes preferKeys to the balancer.
+      const recvFillPool =
+        hard && (wantYouth || pickTier)
+          ? recvPool.filter((a) => aimKeys.has(a.key))
+          : recvPool;
+      const preferKeys = !hard && (wantYouth || pickTier) ? aimKeys : undefined;
 
       // Opening ratio is from the offering team's seat; translate to OUR seat
       // (balance always reads receive/send from our seat).
@@ -491,6 +549,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         receivePool: recvFillPool,
         targetRatio,
         maxPerSide: knobs.maxPerSide,
+        preferKeys,
       });
 
       let sendVA = balanced.send;

@@ -29,6 +29,11 @@ export type BalanceInput = {
   targetRatio: number; // desired receive/send from our seat
   maxPerSide: number;
   tolerance?: number; // fraction of target ratio that still counts as "fair"
+  // SOFT return aim: among in-band fill candidates, prefer these keys (the
+  // storyline's youth / pick-tier matches) before falling back to nearest by
+  // value. Empty/absent → pure nearest-value, exactly as before. A "hard" aim
+  // is expressed by the constructor pre-filtering the pool, not here.
+  preferKeys?: Set<string>;
 };
 
 export type BalanceResult = {
@@ -142,24 +147,37 @@ export function balanceDeal(input: BalanceInput): BalanceResult {
     return { send, receive, closed: false };
   }
 
-  // 1. single closer within the band
-  const single = closestSingle(pool, need, tol + 0.07);
+  // Soft aim: try the storyline's preferred pieces (youth / right pick tier)
+  // FIRST; only if none close the gap within the band do we fall to the full
+  // pool. This biases composition without ever blocking a fair deal.
+  const prefer = input.preferKeys;
+  const preferredPool =
+    prefer && prefer.size > 0 ? pool.filter((p) => prefer.has(p.key)) : [];
+
+  // 1. single closer within the band — preferred pieces first, then full pool.
+  const single =
+    closestSingle(preferredPool, need, tol + 0.07) ??
+    closestSingle(pool, need, tol + 0.07);
   if (single) {
     current.push(single);
     return { send, receive, closed: true };
   }
 
-  // 2. two-asset combo within the band (needs room for two)
+  // 2. two-asset combo within the band (needs room for two) — preferred first.
   if (room >= 2) {
-    const pair = closestPair(pool, need, tol + 0.04);
+    const pair =
+      closestPair(preferredPool, need, tol + 0.04) ??
+      closestPair(pool, need, tol + 0.04);
     if (pair) {
       current.push(pair[0], pair[1]);
       return { send, receive, closed: true };
     }
   }
 
-  // 3. best-effort near-miss: add the nearest single, flag not closed
-  const near = nearestSingle(pool, need);
+  // 3. best-effort near-miss: add the nearest single, flag not closed.
+  // Honor the aim here too — a near-miss should still be a preferred piece when
+  // one exists, so the slate doesn't fall back to an off-thesis vet.
+  const near = nearestSingle(preferredPool, need) ?? nearestSingle(pool, need);
   if (near) {
     current.push(near);
     return { send, receive, closed: false };

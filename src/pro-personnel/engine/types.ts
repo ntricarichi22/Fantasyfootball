@@ -94,6 +94,36 @@ export type Counterparty =
   | { mode: "open" }
   | { mode: "locked"; teamIds: string[] };
 
+// ─── Return aiming — what the RETURN should look like, not just its value ────
+//
+// Leans are gentle nudges; a ReturnAim is the storyline's actual demand on the
+// composition of what comes back. It is pushed all the way down into the
+// balance step, so the gap-closer pulls the RIGHT pieces, not merely the
+// nearest-value ones. This is what makes a build's stud sale come back as
+// youth + the pick tier the owner asked for instead of the highest-value vet
+// the math allows.
+//
+//   requireBackfill : a HARD constraint — the return MUST include a competent
+//                     starter at this bucket (passes the start-for test). The
+//                     harvest/sell-high case: ship a QB, you cannot drop below
+//                     two startable QBs, so a competent QB comes back first and
+//                     the rest of the package is built around it. No competent
+//                     piece on the partner → no deal with them (correct).
+//   preferYouth     : bias the fill toward young, non-stud players.
+//   preferPickTier  : bias the fill toward picks of this tier
+//                     (premium = round 1, future = down-the-road, any = all).
+//   strength        : "hard" filters the fill pool to aim-matching pieces only
+//                     (sell/harvest in a build — the return is youth+picks, full
+//                     stop). "soft" keeps the full pool but PREFERS aim-matching
+//                     pieces among the in-band candidates (consolidate — the
+//                     incoming player is the point, just tilt him young).
+export type ReturnAim = {
+  requireBackfill?: Bucket;
+  preferYouth?: boolean;
+  preferPickTier?: "premium" | "future" | "any";
+  strength?: "hard" | "soft";
+};
+
 export type DealRequest = {
   ourTeamId: string;
   // Whose personality shapes the offer. For us-initiated doors this is us; in
@@ -110,6 +140,9 @@ export type DealRequest = {
   // it only needs WHO and WHAT here.
   requiredCounterpartyKeys?: AssetKey[];
   leans: Lean[];
+  // The storyline's demand on what the return looks like (pushed into balance).
+  // Absent → the constructor balances to value as before (back-compat).
+  returnShape?: ReturnAim;
   aimAt: AimAt;
   // Marks a deal whose currency rules differ from a normal trade. "insurance"
   // means a contender buying depth: it must NOT pay with anyone who fills a
