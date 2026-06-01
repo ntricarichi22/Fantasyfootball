@@ -416,17 +416,21 @@ function requestForMatch(
 
     // we_buy: the anchor is the partner's piece we want. PER-POSITION GATE —
     // if this bucket carries a buy_young intent, the target itself MUST be
-    // young (kills an aging WR like McLaurin surfacing under a buy_young PC
-    // plan). Proven-acquire buckets (RB consolidate) accept any starter.
-    // CONSOLIDATE FLOOR — a consolidate turns depth into a real starter, so the
-    // target must be a league top-N impact player; otherwise it's a lateral.
+    // young (kills an aging WR like McLaurin under a buy_young PC plan).
+    // BUT youth is a BUILD-thesis concern: the engine win-now story is the
+    // contrarian "cash in for proven impact," so it must NOT inherit the youth
+    // constraint — otherwise it kills exactly the studs it wants (St. Brown,
+    // Adams). So youth only gates on a build_future timeline.
+    // CONSOLIDATE FLOOR — applies in every thesis: a consolidate must land a
+    // league top-N impact player, not a vet-liq scrub (Dowdle/Dobbins).
     if (match.narrativeArchetype === "consolidate" && !isImpactTarget(ec, match.anchorKey)) {
       return [];
     }
+    const buildThesis = timeline === "build_future";
     const buyBucket = bucketOf(
       ec.data.players.get(match.anchorKey)?.position ?? match.anchorBucket,
     );
-    const youthGate = youthBucketsFor(strat).includes(buyBucket);
+    const youthGate = buildThesis && youthBucketsFor(strat).includes(buyBucket);
     if (youthGate && !(isYoungPlayer(ec, match.anchorKey) && !isStudPlayer(ec, match.anchorKey))) {
       return []; // off-intent target — don't surface it
     }
