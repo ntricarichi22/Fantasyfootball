@@ -1,5 +1,5 @@
 import { construct, type EngineContext } from "@/pro-personnel/engine";
-import type { DealRequest, EngineOffer, Lean, Intent, ReturnAim, Bucket } from "@/pro-personnel/engine";
+import type { DealRequest, EngineOffer, Lean, Intent, ReturnAim, Bucket, Side } from "@/pro-personnel/engine";
 import type { ArchetypeName, Thesis } from "@/shared/team-narratives";
 import { isYoung } from "@/shared/asset-values";
 import type { BuyIntent, StrategyProfile } from "@/shared/league-data";
@@ -512,12 +512,22 @@ export type ThesisOffers = {
 const MAX_OFFERS_PER_SHAPE = 1;
 const MAX_OFFERS_PER_ANCHOR = 4;
 
-// The send-side anchor of an offer (the headline piece WE ship), used for the
-// per-anchor cap. Falls back to a sorted send signature when no single anchor.
-function sendAnchorKey(offer: EngineOffer): string {
-  const sends = offer.assets.filter((a) => a.side === "send");
-  if (sends.length === 0) return "none";
-  return sends[0].key;
+// The HEADLINE asset of an offer, used for the variety caps. Side-aware: a
+// sell's headline is the top-value piece WE ship (Mahomes), a buy's headline is
+// the top-value piece we ACQUIRE (the stud). Keying a buy on its send side is
+// wrong — pick-funded buys all "headline" the same future pick and collapse
+// into one slot. Picks score 0 here so a player wins the headline.
+function headlineKey(offer: EngineOffer, side: Match["side"], ec: EngineContext): string {
+  const wantSide: Side = side === "we_buy" ? "receive" : "send";
+  const cands = offer.assets.filter((a) => a.side === wantSide);
+  if (cands.length === 0) return "none";
+  let best = cands[0];
+  let bestV = -1;
+  for (const a of cands) {
+    const v = a.type === "player" ? ec.data.values.value.get(a.key) ?? 0 : 0;
+    if (v > bestV) { bestV = v; best = a; }
+  }
+  return best.key;
 }
 
 // Generate a team's offers, GROUPED BY THESIS, each constrained to its thesis's
@@ -541,7 +551,7 @@ export function generateOffersForTeam(
   const seen = new Set<string>();                // dedupe identical packages
   const shapeCount = new Map<string, number>();  // `${thesis}|${anchor}|${mode}`
   const anchorCount = new Map<string, number>(); // `${thesis}|${anchor}`
-  const usedReceived = new Map<string, Set<string>>(); // thesis → received player keys
+  const usedReceived = new Map<string, Set<string>>(); // (thesis|narrative|side) → received player keys
 
   const resolveThesisId = (match: Match): string =>
     match.thesisId && byId.has(match.thesisId) ? match.thesisId : intentThesis.id;
@@ -572,22 +582,27 @@ export function generateOffersForTeam(
         offer.assets.map((a) => `${a.side}:${a.key}`).sort().join(",");
       if (seen.has(sig)) continue;
 
-      const anchorK = thesisId + "|" + sendAnchorKey(offer);
+      const anchorK = thesisId + "|" + headlineKey(offer, meta.side, ec);
       const shapeK = anchorK + "|" + mode;
       if ((shapeCount.get(shapeK) ?? 0) >= MAX_OFFERS_PER_SHAPE) continue;
       if ((anchorCount.get(anchorK) ?? 0) >= MAX_OFFERS_PER_ANCHOR) continue;
 
-      // Variety: a received PLAYER may headline only one deal per thesis, so we
-      // don't surface the same body (e.g. Keon Coleman) across several offers.
+      // Variety: don't surface the same RECEIVED body (e.g. Keon Coleman) twice
+      // within the SAME narrative + side — three vet-liq sells rotate to
+      // different young WRs instead of all returning Keon. Scoped to
+      // (narrative, side) on purpose: a player legitimately appearing as a
+      // harvest return AND as a separate consolidate target is different
+      // storylines, and both should survive.
+      const dedupeK = thesisId + "|" + meta.archetype + "|" + meta.side;
       const recvPlayers = offer.assets
         .filter((a) => a.side === "receive" && a.type === "player")
         .map((a) => a.key);
-      const used = usedReceived.get(thesisId) ?? new Set<string>();
+      const used = usedReceived.get(dedupeK) ?? new Set<string>();
       if (recvPlayers.some((k) => used.has(k))) continue;
 
       seen.add(sig);
       for (const k of recvPlayers) used.add(k);
-      usedReceived.set(thesisId, used);
+      usedReceived.set(dedupeK, used);
       shapeCount.set(shapeK, (shapeCount.get(shapeK) ?? 0) + 1);
       anchorCount.set(anchorK, (anchorCount.get(anchorK) ?? 0) + 1);
       const arr = collected.get(thesisId) ?? [];
