@@ -1,6 +1,6 @@
 import { construct, type EngineContext } from "@/pro-personnel/engine";
 import type { DealRequest, EngineOffer, Lean, Intent } from "@/pro-personnel/engine";
-import type { ArchetypeName } from "@/shared/team-narratives";
+import type { ArchetypeName, Thesis } from "@/shared/team-narratives";
 import { isYoung } from "@/shared/asset-values";
 import type { BuyIntent, StrategyProfile } from "@/shared/league-data";
 import type { Match, TeamSlate } from "./types";
@@ -298,8 +298,10 @@ function requestForMatch(
 }
 
 export type GeneratedOffer = {
-  // Which match produced this, so the director can narrate under the storyline.
+  // Which narrative produced this, so the director can narrate under the story.
   narrativeArchetype: ArchetypeName;
+  // Which thesis (story) this offer belongs to. Offers are grouped by this.
+  thesisId: string;
   tier: Match["tier"];
   side: Match["side"];
   anchor: string;
@@ -307,51 +309,108 @@ export type GeneratedOffer = {
   offer: EngineOffer;
 };
 
-// Run every tier-1 match on a team's slate through the constructor and collect
-// the offers, tagged with the narrative that drove each one. De-duped by the
-// constructor's own slate logic per call; we just gather across matches.
+// A thesis with its generated, fence-respecting offers.
+export type ThesisOffers = {
+  thesis: Thesis;
+  offers: GeneratedOffer[];
+};
+
+// Per-anchor variety cap: no single asset may headline more than this many
+// offers within one thesis, so the slate samples breadth (many anchors, many
+// shapes) instead of five flavors of the same marquee name. Ordering is
+// value-tilted — higher-value anchors surface first, so each anchor's best
+// realistic deal lands before the cap bites.
+const MAX_OFFERS_PER_ANCHOR = 2;
+
+// The send-side anchor of an offer (the headline piece WE ship), used for the
+// per-anchor cap. Falls back to a sorted send signature when no single anchor.
+function sendAnchorKey(offer: EngineOffer): string {
+  const sends = offer.assets.filter((a) => a.side === "send");
+  if (sends.length === 0) return "none";
+  // Highest-value send is the de-facto headline; approximate by first listed
+  // (construct lists the anchor first). Stable enough for capping.
+  return sends[0].key;
+}
+
+// Generate a team's offers, GROUPED BY THESIS, each offer constrained to its
+// thesis's spendable fence. The pipeline still runs narrative-by-narrative
+// through the constructor (unchanged deal logic); the new work is (1) routing
+// each match's offers to its thesis, (2) dropping any offer whose SEND side
+// touches an asset that thesis holds sacred (post-filter — no constructor
+// surgery), and (3) the per-anchor variety cap. Two theses → two independent
+// offer lists, each playing by its own currency rule.
 export function generateOffersForTeam(
   slate: TeamSlate,
   ec: EngineContext
-): GeneratedOffer[] {
-  const out: GeneratedOffer[] = [];
-  // De-dupe identical packages: the same trade can arise from more than one
-  // match (e.g. consolidate + win-now on the same anchor, or a tier-1 narrative
-  // and a tier-2 floor row pointing at the same deal). Key on partner + the
-  // sorted asset keys so a human never sees the same trade twice.
-  const seen = new Set<string>();
+): ThesisOffers[] {
+  const bundle = ec.bundles?.get(slate.rosterId);
+  const theses = bundle?.theses ?? [];
+  if (theses.length === 0) return [];
 
-  const runMatch = (match: TeamSlate["tier1"][number]) => {
+  // The owner's intent thesis — where tier-2 floor matches (not narrative-
+  // driven) and any match missing a thesisId are routed.
+  const intentThesis = theses.find((t) => t.source === "intent") ?? theses[0];
+  const byId = new Map<string, Thesis>(theses.map((t) => [t.id, t]));
+  const spendableOf = (id: string): Set<string> =>
+    new Set(byId.get(id)?.spendable ?? []);
+
+  // Accumulators per thesis.
+  const collected = new Map<string, GeneratedOffer[]>();
+  const seen = new Set<string>();              // global dedupe within a thesis
+  const anchorCount = new Map<string, number>(); // `${thesisId}|${anchor}` → n
+
+  const resolveThesisId = (match: Match): string =>
+    match.thesisId && byId.has(match.thesisId) ? match.thesisId : intentThesis.id;
+
+  const runMatch = (match: Match) => {
+    const thesisId = resolveThesisId(match);
+    const spendable = spendableOf(thesisId);
+
     const reqs = requestForMatch(slate.rosterId, match, ec);
     for (const req of reqs) {
       const result = construct(req, ec);
       for (const offer of result.offers) {
-        // Locked counterparty should guarantee this, but be defensive.
         if (offer.partnerTeamId !== match.partnerRosterId) continue;
+
+        // FENCE: drop any offer that ships an asset this thesis holds sacred.
+        // The spendable set is the budget; a send outside it breaks the story.
+        const sends = offer.assets.filter((a) => a.side === "send");
+        if (sends.some((a) => !spendable.has(a.key))) continue;
+
+        // Dedupe identical packages within the thesis.
         const sig =
-          offer.partnerTeamId +
-          "|" +
-          offer.assets
-            .map((a) => `${a.side}:${a.key}`)
-            .sort()
-            .join(",");
+          thesisId + "|" + offer.partnerTeamId + "|" +
+          offer.assets.map((a) => `${a.side}:${a.key}`).sort().join(",");
         if (seen.has(sig)) continue;
+
+        // Per-anchor variety cap.
+        const anchorK = thesisId + "|" + sendAnchorKey(offer);
+        if ((anchorCount.get(anchorK) ?? 0) >= MAX_OFFERS_PER_ANCHOR) continue;
+
         seen.add(sig);
-        out.push({
+        anchorCount.set(anchorK, (anchorCount.get(anchorK) ?? 0) + 1);
+        const arr = collected.get(thesisId) ?? [];
+        arr.push({
           narrativeArchetype: match.narrativeArchetype,
+          thesisId,
           tier: match.tier,
           side: match.side,
           anchor: match.anchor,
           partnerTeam: match.partnerTeam,
           offer,
         });
+        collected.set(thesisId, arr);
       }
     }
   };
 
-  // Tier 1 first (narrative-driven), so a narrative offer wins the de-dupe over
-  // an identical bucket-driven floor offer and keeps its storyline label.
+  // Tier 1 first (narrative-driven) so a narrative offer wins the dedupe over an
+  // identical floor offer; floor fills in behind.
   for (const match of slate.tier1) runMatch(match);
   for (const match of slate.tier2) runMatch(match);
-  return out;
+
+  // Assemble in thesis order (intent stories first, per buildTheses ordering).
+  return theses
+    .map((t) => ({ thesis: t, offers: collected.get(t.id) ?? [] }))
+    .filter((to) => to.offers.length > 0);
 }

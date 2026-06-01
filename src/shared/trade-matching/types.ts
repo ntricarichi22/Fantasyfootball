@@ -34,6 +34,11 @@ export type Match = {
   // The active team's fired narrative that drives this match.
   narrativeArchetype: ArchetypeName;
   narrativeFlavor: Flavor;
+  // The thesis (story) this match belongs to, carried from the driving
+  // narrative. Lets offer-gen group offers by thesis and apply that thesis's
+  // currency fence. Tier-2 floor rows aren't narrative-driven; they carry the
+  // active owner's intent thesis id (the market floor is the owner's plan).
+  thesisId?: string;
   // The headline piece changing hands — a player name or a pick label.
   anchor: string;
   // The raw asset key for the anchor (player id or pick key), for offer-gen to

@@ -153,6 +153,15 @@ export function buildTheses(
       // Engine move on a DIFFERENT clock = a genuine alternative direction.
       key = `engine:${n.timeline}`;
     }
+    // Stamp the narrative with its thesis + the collapsed clock so (a) the
+    // matcher can carry the thesis onto matches, and (b) narrative.timeline no
+    // longer disagrees with the thesis it lives in (the win_now-tagged intent
+    // consolidate that actually sits in the build thesis). Mutates in place —
+    // bundle.firedNarratives and thesis.narratives share these refs, and this
+    // runs before the matcher consumes them.
+    const groupTimeline = key.split(":")[1] as TimelineKey;
+    n.thesisId = key;
+    n.timeline = groupTimeline;
     const arr = groups.get(key) ?? [];
     arr.push(n);
     groups.set(key, arr);

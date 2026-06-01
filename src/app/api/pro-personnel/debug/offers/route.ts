@@ -21,7 +21,7 @@ import type { EngineContext } from "@/pro-personnel/engine";
 export const dynamic = "force-dynamic";
 
 // Compact one generated offer down to the fields worth eyeballing.
-function summarize(g: ReturnType<typeof generateOffersForTeam>[number]) {
+function summarize(g: { narrativeArchetype: string; side: string; anchor: string; partnerTeam: string; offer: { grade: unknown; clears: unknown; partnerRead: unknown; ourScoreboard: { ratio: number }; assets: { side: string; name: string }[] } }) {
   const o = g.offer;
   return {
     narrative: g.narrativeArchetype,
@@ -56,13 +56,21 @@ export async function GET(req: Request) {
     const runOne = (rosterId: string) => {
       const slate = slates.get(rosterId);
       if (!slate) return null;
-      const offers = generateOffersForTeam(slate, ec);
+      const thesisOffers = generateOffersForTeam(slate, ec);
+      const flat = thesisOffers.flatMap((to) => to.offers);
       return {
         rosterId,
         team: slate.team,
         tier1Matches: slate.tier1.length,
-        offerCount: offers.length,
-        offers: offers.map(summarize),
+        offerCount: flat.length,
+        theses: thesisOffers.map((to) => ({
+          id: to.thesis.id,
+          source: to.thesis.source,
+          timeline: to.thesis.timeline,
+          headline: to.thesis.headline,
+          offerCount: to.offers.length,
+          offers: to.offers.map(summarize),
+        })),
       };
     };
 

@@ -185,6 +185,9 @@ export type FiredNarrative = {
   // Who drove this move — owner intent vs engine roster read. Phase B groups by
   // (source × timeline) into theses.
   source: NarrativeSource;
+  // The thesis this narrative was grouped into (set by buildTheses). Lets the
+  // matcher stamp matches, so offers can be grouped back to their story.
+  thesisId?: string;
   // For BUYER narratives: which bucket this narrative is shopping. Insurance
   // stamps the position it fired on (QB in superflex today) rather than relying
   // on a scarcity entry, since a depth/fragility need is not a listed scarcity.

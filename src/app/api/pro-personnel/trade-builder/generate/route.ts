@@ -46,9 +46,9 @@ export async function POST(req: Request) {
     const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };
 
     const slate = slates.get(teamId);
-    const generated = slate ? generateOffersForTeam(slate, ec) : [];
+    const thesisOffers = slate ? generateOffersForTeam(slate, ec) : [];
 
-    const offers = generated.map((g) => {
+    const mapOffer = (g: (typeof thesisOffers)[number]["offers"][number]) => {
       const o = g.offer;
       return {
         id: o.id,
@@ -70,14 +70,26 @@ export async function POST(req: Request) {
         prose: o.prose,
         narrative: g.narrativeArchetype,
       };
-    });
+    };
 
+    // Thesis-grouped: each story carries its own fenced offer list. The owner's
+    // intent thesis comes first, engine alternatives after (buildTheses order).
+    const theses = thesisOffers.map((to) => ({
+      id: to.thesis.id,
+      source: to.thesis.source,
+      timeline: to.thesis.timeline,
+      headline: to.thesis.headline,
+      pitch: to.thesis.pitch,
+      offers: to.offers.map(mapOffer),
+    }));
+
+    const totalOffers = theses.reduce((n, t) => n + t.offers.length, 0);
     // "no_strategy" when the user never set a strategy at all; otherwise the
     // pipeline either produced offers ("ok") or it didn't ("no_clean_offers").
     const hasStrategy = !!data.strategy.get(teamId);
-    const reason = offers.length > 0 ? "ok" : hasStrategy ? "no_clean_offers" : "no_strategy";
+    const reason = totalOffers > 0 ? "ok" : hasStrategy ? "no_clean_offers" : "no_strategy";
 
-    return NextResponse.json({ offers, generatedAt: new Date().toISOString(), reason });
+    return NextResponse.json({ theses, generatedAt: new Date().toISOString(), reason });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
