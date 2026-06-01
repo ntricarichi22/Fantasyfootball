@@ -76,6 +76,7 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
     out.push({
       archetype: "de_consolidate", role: "seller", flavor: "depth_cliff",
       timeline: baseTimeline(profile),
+      source: "engine",
       triggerScenario: `de_consolidate / depth_cliff: ${decoCliffs.map((c) => `${c.starterName}@${c.slot}`).join(", ")}`,
       evidence:
         `Slot-aware cliff test (2-deep cushion) flags ${decoCliffs.length} slot(s) where a high-value ` +
@@ -115,6 +116,7 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
     out.push({
       archetype: "de_consolidate", role: "seller", flavor: "surplus_of_quality",
       timeline: baseTimeline(profile),
+      source: "engine",
       triggerScenario: `de_consolidate / surplus_of_quality: ${excessStuds.map((id) => data.players.get(id)?.name ?? id).join(", ")}`,
       evidence:
         `Studs exceed starter slots, and our weakest optimal starter (${worst?.name} @ ${worst?.slot}, ` +
@@ -132,6 +134,7 @@ export function fireDeConsolidate(ctx: TriggerContext): FiredNarrative[] {
       out.push({
         archetype: "de_consolidate", role: "seller", flavor: "pick_trade_back",
         timeline: "retool",
+        source: "engine",
         triggerScenario: `de_consolidate / pick_trade_back: ${premiumPicks.map((p) => `${p.season} R${p.round}`).join(", ")}`,
         evidence:
           `Tier ${profile.tier} with ${rosterRead.scarcities.filter((s) => s.severity === "high").length} high-severity holes. ` +
@@ -183,6 +186,7 @@ export function fireReset(ctx: TriggerContext): FiredNarrative[] {
   return [{
     archetype: "reset", role: "seller", flavor: null,
     timeline: "retool",
+    source: "engine",
     triggerScenario: `reset [${pathLabel}]: ${studs.length} stud(s) (${studs.map((s) => s.name).join(", ")})`,
     evidence:
       `Window ${dossier.window}, trajectory ${profile.trajectory.direction}, avgStarterAge ${avgAge.toFixed(1)}, ` +
@@ -216,6 +220,7 @@ export function fireSellHighStar(ctx: TriggerContext): FiredNarrative[] {
   return [{
     archetype: "sell_high_star", role: "seller", flavor,
     timeline: flavor === "rebuilder" ? "retool" : baseTimeline(profile),
+    source: "engine",
     triggerScenario: `sell_high_star / ${flavor}: ${candidates.map((s) => s.name).join(", ")}`,
     evidence:
       `Aging star(s) past the positional line at non-need, non-buy position(s): ` +
@@ -246,9 +251,14 @@ export function fireVetLiquidation(ctx: TriggerContext): FiredNarrative[] {
   if (!sellingTier && !ownerSelling) return [];
   if (rosterRead.offTimelineVets.length === 0) return [];
 
+  // Timeline: an owner converting vets into youth/picks is funding a forward
+  // build (build_future); a tier teardown with no owner signal is a retool.
+  const vetTimeline: Timeline = ownerSelling && hasAccumulateSignal(intent) ? "build_future" : "retool";
+
   return [{
     archetype: "vet_liquidation", role: "seller", flavor: null,
-    timeline: "retool",
+    timeline: vetTimeline,
+    source: ownerSelling ? "intent" : "engine",
     triggerScenario: `vet_liquidation: ${rosterRead.offTimelineVets.length} off-timeline vet(s)`,
     evidence:
       `${ownerSelling && !sellingTier ? "Accumulate-minded" : profile.tier} team holding off-timeline vets: ` +
@@ -280,37 +290,19 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   const hasRealSurplus = rosterRead.surpluses.length > 0;
   const hasSell = hasSellMarket(strategy);
   const hasRealScarcity = rosterRead.scarcities.length > 0;
-  // The owner-driven "convert" intent: wanting a stud at any bucket, or
-  // explicitly consolidating depth at a bucket into one better player.
   const buckets: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
+  // Owner-driven convert: wants a stud somewhere, or is consolidating a position.
   const wantsConvert = buckets.some((b) => acquiresStudAt(intent, b) || consolidatesAt(intent, b));
   const futureFirsts = countFutureFirsts(ctx.rosterId, data);
   const hasContenderUpgrade = rosterRead.contenderUpgrades.length > 0;
-  const hasDestination = hasRealScarcity || hasBuyMarket(strategy) || wantsConvert || hasContenderUpgrade;
 
-  // Evaluate each path independently
-  const paths: string[] = [];
-  if (hasRealSurplus && hasDestination) {
-    paths.push(
-      `surplus at ${rosterRead.surpluses.map((s) => s.bucket).join(", ")} → destination ${rosterRead.scarcities.map((s) => s.bucket).join(", ") || (wantsConvert ? "owner wants upgrade" : "buy market")}`,
-    );
-  }
-  if (hasSell && hasDestination) {
-    paths.push(`sell market at ${sellMarketBuckets(strategy).join(", ")}`);
-  }
-  if (wantsConvert && hasRealScarcity && futureFirsts >= 1) {
-    paths.push(
-      `owner wants upgrade + scarcity at ${rosterRead.scarcities.map((s) => s.bucket).join(", ")} + ${futureFirsts} future first(s)`,
-    );
-  }
-  if (hasContenderUpgrade) {
-    paths.push(
-      `contender thesis: ${rosterRead.contenderUpgrades.map((u) => `${u.tierJump}-jump at ${u.bucket}`).join(", ")}`,
-    );
-  }
-  if (paths.length === 0) return [];
+  // Owner-intent destination (sell market / buy market / wants upgrade) vs the
+  // engine's own contender-thesis destination. Split deliberately: the intent
+  // consolidate "finishes the room" and protects the war chest; the engine
+  // consolidate "goes all in." Different philosophies, kept as separate moves.
+  const intentDestination = hasRealScarcity || hasBuyMarket(strategy) || wantsConvert;
 
-  // Build send-pool eligibility (currency the team would pay with)
+  // Shared send-pool eligibility (currency the team could pay with).
   const team = data.teams.find((t) => t.rosterId === ctx.rosterId);
   const sellBuckets = new Set(sellMarketBuckets(strategy));
   const inLineup = new Set(profile.strength.lineup.map((s) => s.playerId).filter((id): id is string => !!id));
@@ -324,8 +316,6 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
   }
   for (const by of rosterRead.buriedYoungPlayers) eligible.add(by.playerId);
 
-  // Bench-startable count = bench players (not in optimal lineup, not studs)
-  // with value >= STARTABLE_FLOOR. Mediocre bench QBs like Tua/Geno count here.
   let benchStartableCount = 0;
   if (team) {
     for (const p of team.players) {
@@ -337,24 +327,53 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
     }
   }
 
-  // Packaging capital — must have something tradeable
   const hasCapital = benchStartableCount >= 2 || futureFirsts >= 1;
   if (!hasCapital) return [];
 
   for (const pk of spendablePickKeys(ctx.rosterId, data)) eligible.add(pk);
+  const assets = Array.from(eligible);
 
-  return [{
-    archetype: "consolidate", role: "buyer", flavor: null,
-    timeline: wantsConvert || hasContenderUpgrade ? "win_now" : baseTimeline(profile),
-    triggerScenario: `consolidate (${paths.length} path${paths.length === 1 ? "" : "s"} fired)`,
-    evidence:
-      `${paths.length} consolidate trigger(s): ${paths.join(" | ")}. ` +
-      `Packaging capital: ${benchStartableCount} bench-startable piece(s), ${futureFirsts} future first(s).`,
-    assets: Array.from(eligible),
-    returnShape: hasContenderUpgrade
-      ? `Stud at ${rosterRead.contenderUpgrades.map((u) => u.bucket).join("/")} (the tier-jump position). Pay with bench pieces + picks.`
-      : `One impact starter at the destination position (anchor from the matched seller).`,
-  }];
+  const out: FiredNarrative[] = [];
+
+  // ── Intent-driven consolidate: finish the room from owner signals. ──────
+  if (intentDestination && (hasRealSurplus || hasSell || (wantsConvert && hasRealScarcity && futureFirsts >= 1))) {
+    const paths: string[] = [];
+    if (hasRealSurplus) paths.push(`surplus at ${rosterRead.surpluses.map((s) => s.bucket).join(", ")}`);
+    if (hasSell) paths.push(`sell market at ${sellMarketBuckets(strategy).join(", ")}`);
+    if (wantsConvert && hasRealScarcity && futureFirsts >= 1) {
+      paths.push(`owner wants upgrade + scarcity at ${rosterRead.scarcities.map((s) => s.bucket).join(", ")}`);
+    }
+    if (paths.length > 0) {
+      out.push({
+        archetype: "consolidate", role: "buyer", flavor: null,
+        timeline: wantsConvert ? "win_now" : baseTimeline(profile),
+        source: "intent",
+        triggerScenario: `consolidate / intent (${paths.length} path${paths.length === 1 ? "" : "s"})`,
+        evidence:
+          `Owner-driven: ${paths.join(" | ")}. Finish the room with depth/surplus — protect the war chest. ` +
+          `Capital: ${benchStartableCount} bench-startable piece(s), ${futureFirsts} future first(s).`,
+        assets,
+        returnShape: `One impact starter at the destination position (anchor from the matched seller). Pay with depth, not the core.`,
+      });
+    }
+  }
+
+  // ── Engine-driven consolidate: the contender thesis says go all in. ─────
+  if (hasContenderUpgrade) {
+    out.push({
+      archetype: "consolidate", role: "buyer", flavor: null,
+      timeline: "win_now",
+      source: "engine",
+      triggerScenario: `consolidate / engine: ${rosterRead.contenderUpgrades.map((u) => `${u.tierJump}-jump at ${u.bucket}`).join(", ")}`,
+      evidence:
+        `Engine read: simulated upgrade tier-jumps us — ${rosterRead.contenderUpgrades.map((u) => u.reason).join(" ")} ` +
+        `Going all in means spending future capital.`,
+      assets,
+      returnShape: `Stud at ${rosterRead.contenderUpgrades.map((u) => u.bucket).join("/")} (the tier-jump position). Pay with bench pieces + picks.`,
+    });
+  }
+
+  return out;
 }
 
 // ── Win-now push ──────────────────────────────────────────────────────────
@@ -376,6 +395,7 @@ export function fireWinNowPush(ctx: TriggerContext): FiredNarrative[] {
   return [{
     archetype: "win_now_push", role: "buyer", flavor: null,
     timeline: "win_now",
+    source: wantsStuds ? "intent" : "engine",
     triggerScenario: `win_now_push: ${profile.tier} contender, ${wantsStuds ? "wants studs" : "buy market"}`,
     evidence: `${profile.tier} tier, ${wantsStuds ? "owner wants studs" : "explicit buy market"}. Spend future + depth for present impact.`,
     assets: eligible,
@@ -405,6 +425,7 @@ export function fireInsurance(ctx: TriggerContext): FiredNarrative[] {
   return [{
     archetype: "insurance", role: "buyer", flavor: null,
     timeline: "win_now",
+    source: "engine",
     // Insurance fired on the QB room (superflex fragility). Stamp the bucket so
     // the matcher knows what position we're shopping without a scarcity entry.
     targetBucket: "QB",
@@ -431,6 +452,7 @@ export function fireStandPat(ctx: TriggerContext): FiredNarrative[] {
   return [{
     archetype: "stand_pat", role: "null_action", flavor: null,
     timeline: "build_future",
+    source: "intent",
     triggerScenario: `stand_pat: accumulate-minded ${profile.tier} team`,
     evidence: `Accumulate-leaning signals on a ${profile.tier} team. Patience is a real option; build through the draft.`,
     assets: [],

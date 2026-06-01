@@ -88,6 +88,15 @@ function legible(
         (p) => `[${p.rule}] ${p.description}`,
       ),
     },
+    theses: bundle.theses.map((t) => ({
+      id: t.id,
+      source: t.source,
+      timeline: t.timeline,
+      headline: t.headline,
+      moves: t.narratives.map((n) => n.flavor ? `${n.archetype}/${n.flavor}` : n.archetype),
+      sacred: resolve(t.sacred),
+      spendable: resolve(t.spendable),
+    })),
     crossNotes: bundle.crossNotes,
   };
 }
@@ -130,6 +139,7 @@ export async function GET(req: Request) {
         intent: b.intentSignals.silent ? "silent" : "active",
         fired: b.firedNarratives.map((n) => n.flavor ? `${n.archetype}/${n.flavor}` : n.archetype),
         timelines: b.firedNarratives.map((n) => n.timeline ?? "none"),
+        theses: b.theses.map((t) => t.id),
         count: b.firedNarratives.length,
       }))
       .sort((a, b) => b.count - a.count);

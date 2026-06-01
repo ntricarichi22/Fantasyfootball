@@ -157,3 +157,24 @@ export function wantsPremiumPicks(sig: IntentSignals): boolean {
 export function hasAccumulateSignal(sig: IntentSignals): boolean {
   return accumulatesPicks(sig) || BUCKETS.some((b) => acquiresYoungAt(sig, b));
 }
+
+// The owner's DOMINANT clock, derived from their signals — the single timeline
+// their whole stated plan runs on. Phase B collapses every intent-sourced move
+// into this one thesis so the plan coheres under one currency fence (e.g. a
+// build-minded owner's RB consolidate is part of the build, not a separate
+// win-now story). Engine-sourced moves are NOT collapsed — the engine genuinely
+// proposes different clocks.
+//
+//   build_future : any accumulate signal (get-younger buys, future-pick hoard)
+//                  and no premium-pick/stud win-now lean that outweighs it.
+//   win_now      : stud-hunting and/or premium-pick buying with no accumulate
+//                  signal — the owner is spending to win now.
+//   retool       : neither — only shedding (sell markets) with no build or
+//                  win-now destination stated.
+export function dominantTimeline(sig: IntentSignals): "win_now" | "build_future" | "retool" {
+  const accumulate = hasAccumulateSignal(sig);
+  const winNow = anyStudHunt(sig) || wantsPremiumPicks(sig);
+  if (accumulate) return "build_future"; // patience wins ties — stated youth/picks is a future plan
+  if (winNow) return "win_now";
+  return "retool";
+}

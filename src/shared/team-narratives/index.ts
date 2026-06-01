@@ -38,3 +38,4 @@ export {
   type TriggerContext,
 } from "./triggers";
 export { buildTeamNarratives } from "./builder";
+export { buildTheses } from "./thesis";

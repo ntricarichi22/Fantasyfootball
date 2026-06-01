@@ -75,6 +75,12 @@ export type { IntentSignals };
 
 export type Timeline = "win_now" | "build_future" | "retool" | null;
 
+// Who drove this move: the owner's stated intent, or the engine's own
+// roster-vs-league read. Phase B groups narratives into theses by (source ×
+// timeline), so the owner's "finish the room" and the engine's "go all in"
+// stay separate stories even when they touch the same position.
+export type NarrativeSource = "intent" | "engine";
+
 // ── Roster read ───────────────────────────────────────────────────────────
 
 export type SurplusPosition = {
@@ -172,6 +178,9 @@ export type FiredNarrative = {
   // The clock this move serves, for Phase B story grouping. Stamped at trigger
   // time from the team's tier/trajectory + the intent signal that fired it.
   timeline: Timeline;
+  // Who drove this move — owner intent vs engine roster read. Phase B groups by
+  // (source × timeline) into theses.
+  source: NarrativeSource;
   // For BUYER narratives: which bucket this narrative is shopping. Insurance
   // stamps the position it fired on (QB in superflex today) rather than relying
   // on a scarcity entry, since a depth/fragility need is not a listed scarcity.
@@ -185,6 +194,33 @@ export type FiredNarrative = {
 
 // ── The bundle ────────────────────────────────────────────────────────────
 
+// ── Thesis (Phase B) ──────────────────────────────────────────────────────
+//
+// A coherent team STORY: a set of fired narratives that share a source and a
+// timeline, plus the currency fence that story plays by. Intent-sourced theses
+// connect the dots the owner drew; engine-sourced theses surface directions the
+// owner did NOT state (read from roster-vs-league). One thesis per (source ×
+// timeline) that has at least one narrative; a team can have several.
+//
+// sacred / spendable are asset keys (player IDs + pick keys). They are the
+// per-story currency rule — the SAME asset can be sacred in one thesis (the
+// owner's build protects future firsts) and spendable in another (the engine's
+// win-now story cashes them). Phase B computes and attaches these; wiring the
+// matcher/offer path to honor them is the next step.
+
+export type ThesisSource = "intent" | "engine";
+
+export type Thesis = {
+  id: string;                  // `${source}:${timeline}` — stable within a bundle
+  source: ThesisSource;
+  timeline: "win_now" | "build_future" | "retool";
+  headline: string;            // director-facing one-liner (placeholder copy for now)
+  pitch: string;               // the longer director pitch (placeholder copy for now)
+  narratives: FiredNarrative[];
+  sacred: string[];            // asset keys this story will NOT trade away
+  spendable: string[];         // asset keys this story may package as currency
+};
+
 export type NarrativeBundle = {
   rosterId: string;
   teamName: string;
@@ -192,5 +228,6 @@ export type NarrativeBundle = {
   intentSignals: IntentSignals;
   rosterRead: RosterRead;
   firedNarratives: FiredNarrative[];
+  theses: Thesis[];
   crossNotes: string[];
 };

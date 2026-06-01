@@ -17,6 +17,7 @@ import type {
   ContenderUpgrade,
 } from "./types";
 import { readIntent, shedsAt, hasAccumulateSignal, type IntentSignals } from "./intent";
+import { buildTheses } from "./thesis";
 import { checkPhantomCliff } from "./phantoms";
 import { startsForCount } from "./cliff";
 import { fireAllArchetypes, type TriggerContext } from "./triggers";
@@ -399,6 +400,7 @@ export function buildTeamNarratives(
       rosterId, profile, dossier, needs: teamNeeds, strategy, intent: intentSignals, rosterRead, data,
     };
     const firedNarratives = fireAllArchetypes(triggerCtx);
+    const theses = buildTheses(rosterId, firedNarratives, intentSignals, data);
     const crossNotes = buildCrossNotes(firedNarratives);
     const identitySentence = buildIdentitySentence(
       profile, dossier, intentSignals, rosterRead,
@@ -406,7 +408,7 @@ export function buildTeamNarratives(
 
     result.set(rosterId, {
       rosterId, teamName: team.teamName, identitySentence,
-      intentSignals, rosterRead, firedNarratives, crossNotes,
+      intentSignals, rosterRead, firedNarratives, theses, crossNotes,
     });
   }
 
