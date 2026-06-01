@@ -11,6 +11,7 @@ export type ArchetypeName =
   | "reset"
   | "sell_high_star"
   | "vet_liquidation"
+  | "harvest_surplus"
   | "insurance"
   | "stand_pat";
 
@@ -21,6 +22,7 @@ export const ARCHETYPES: ArchetypeName[] = [
   "reset",
   "sell_high_star",
   "vet_liquidation",
+  "harvest_surplus",
   "insurance",
   "stand_pat",
 ];
@@ -34,6 +36,7 @@ export const ARCHETYPE_ROLE: Record<ArchetypeName, NarrativeRole> = {
   reset: "seller",
   sell_high_star: "seller",
   vet_liquidation: "seller",
+  harvest_surplus: "seller",
   insurance: "buyer",
   stand_pat: "null_action",
 };
@@ -47,13 +50,14 @@ export type Flavor =
   | null;
 
 export const ARCHETYPE_OPPOSITES: Record<ArchetypeName, ArchetypeName[]> = {
-  consolidate: ["de_consolidate", "reset", "sell_high_star", "vet_liquidation"],
+  consolidate: ["de_consolidate", "reset", "sell_high_star", "vet_liquidation", "harvest_surplus"],
   de_consolidate: ["consolidate", "win_now_push", "insurance"],
-  win_now_push: ["de_consolidate", "reset", "sell_high_star", "vet_liquidation"],
+  win_now_push: ["de_consolidate", "reset", "sell_high_star", "vet_liquidation", "harvest_surplus"],
   reset: ["consolidate", "win_now_push"],
   sell_high_star: ["consolidate", "win_now_push"],
   vet_liquidation: ["consolidate", "win_now_push", "insurance"],
-  insurance: ["de_consolidate", "vet_liquidation"],
+  harvest_surplus: ["consolidate", "win_now_push", "insurance"],
+  insurance: ["de_consolidate", "vet_liquidation", "harvest_surplus"],
   stand_pat: [],
 };
 

@@ -108,13 +108,18 @@ function fence(
     for (const k of young) sacred.add(k);
   }
 
+  // A harvest-surplus move explicitly chooses to cash a stud to fund the plan.
+  // That target can't also be untouchable — release it from sacred so the same
+  // story doesn't both protect and sell it. (Its assets are sell-targets, not a
+  // spend pool, so this is safe to treat specially.)
+  for (const n of narratives) {
+    if (n.archetype === "harvest_surplus") for (const a of n.assets) sacred.delete(a);
+  }
+
   // Spendable = in-play assets minus sacred.
   const spendable: string[] = [];
   for (const a of inPlay) if (!sacred.has(a)) spendable.push(a);
 
-  // Sacred list is only meaningful as the subset that's actually this team's
-  // (don't list assets we don't hold). inPlay ∪ holdings already covers it;
-  // keep sacred to the keys we computed from holdings.
   return { sacred: Array.from(sacred), spendable };
 }
 
@@ -134,8 +139,20 @@ export function buildTheses(
   const groups = new Map<string, FiredNarrative[]>();
   for (const n of firedNarratives) {
     if (n.timeline === null) continue;
-    const timeline = n.source === "intent" ? ownerClock : n.timeline;
-    const key = `${n.source}:${timeline}`;
+    let key: string;
+    if (n.source === "intent") {
+      // The owner's own moves always belong to the one plan, on their clock.
+      key = `intent:${ownerClock}`;
+    } else if (!intent.silent && n.timeline === ownerClock) {
+      // Engine move that serves the owner's clock = a RIFF on the plan (the
+      // engine accepting the direction and finding a move they didn't signal).
+      // Folds into the intent thesis; the narrative keeps source="engine" so
+      // the UI can mark it "engine's idea" within the plan.
+      key = `intent:${ownerClock}`;
+    } else {
+      // Engine move on a DIFFERENT clock = a genuine alternative direction.
+      key = `engine:${n.timeline}`;
+    }
     const arr = groups.get(key) ?? [];
     arr.push(n);
     groups.set(key, arr);

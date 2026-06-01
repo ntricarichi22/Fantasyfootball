@@ -11,7 +11,9 @@ import {
   anyShed,
   accumulatesPicks,
   hasAccumulateSignal,
+  dominantTimeline,
 } from "./intent";
+import { isYoung } from "@/shared/asset-values";
 import { detectSlotCliffs, type SlotCliff } from "./cliff";
 
 export type TriggerContext = {
@@ -460,6 +462,65 @@ export function fireStandPat(ctx: TriggerContext): FiredNarrative[] {
   }];
 }
 
+// ── Harvest surplus (engine riff on a build) ───────────────────────────────
+//
+// Engine-discovered move that serves the owner's BUILD. When every starting
+// slot at a position is already stud-grade, one of those studs is a luxury you
+// can convert: sell it for a youth/pick haul that funds the build, and backfill
+// the slot with a competent starter (no new void). Fires ONLY when the owner's
+// dominant clock is build_future — cashing a peak stud only makes sense if the
+// return supercharges a build, not a win-now push. Prefers to ship a non-young
+// stud (keep the young building block); falls back to a young stud if all are
+// young. Tagged source=engine + timeline=build_future, so the thesis layer
+// folds it INTO the owner's build thesis as a riff on the plan they didn't ask
+// for. The "competent backfill" floor reuses the start-for test, enforced on
+// the return at offer-gen time (stated here as the return contract).
+export function fireHarvestSurplus(ctx: TriggerContext): FiredNarrative[] {
+  const { intent, data } = ctx;
+  if (dominantTimeline(intent) !== "build_future") return [];
+
+  const team = data.teams.find((t) => t.rosterId === ctx.rosterId);
+  if (!team) return [];
+
+  const out: FiredNarrative[] = [];
+  const buckets: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
+  for (const bucket of buckets) {
+    // Slots-needed at the bucket — the same notion de_consolidate uses.
+    const required = bucket === "QB" ? 2 : bucket === "RB" ? 2 : 4;
+    const studs = team.players
+      .filter((p) => bucketOf(p.position) === bucket && isStud(p.id, data))
+      .map((p) => ({ id: p.id, v: valueOf(p.id, data), young: p.age !== null && isYoung(p.position, p.age) }))
+      .sort((a, b) => b.v - a.v);
+
+    // Redundant quality: at least as many studs as starting slots (every slot
+    // is stud-grade) AND at least 2 studs, so one can be cashed while a stud
+    // remains. QB-superflex (2 studs, 2 slots) is the canonical case.
+    if (studs.length < Math.max(2, required)) continue;
+
+    // Prefer to ship a NON-young stud — keep the young building block for the
+    // build. If every stud is young, the young studs are the candidates (the
+    // thesis fence will release them from sacred for this story).
+    const nonYoung = studs.filter((s) => !s.young);
+    const candidates = (nonYoung.length > 0 ? nonYoung : studs).map((s) => s.id);
+    const leadName = data.players.get(candidates[0])?.name ?? candidates[0];
+
+    out.push({
+      archetype: "harvest_surplus", role: "seller", flavor: null,
+      timeline: "build_future",
+      source: "engine",
+      triggerScenario: `harvest_surplus @ ${bucket}: ${studs.length} stud(s) for ${required} slot(s)`,
+      evidence:
+        `Every ${bucket} starting slot is stud-grade (${studs.length} studs, ${required} slots). One is a luxury: ` +
+        `cash ${leadName} for a youth/pick haul that funds the build, and run one stud plus a competent starter at ${bucket}.`,
+      assets: candidates,
+      returnShape:
+        `Premium youth + picks (funds the build). Return MUST include a competent ${bucket} backfill ` +
+        `(starts for >= 1 other team) so the downgraded slot isn't a new void.`,
+    });
+  }
+  return out;
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────────────
 
 export function fireAllArchetypes(ctx: TriggerContext): FiredNarrative[] {
@@ -468,6 +529,7 @@ export function fireAllArchetypes(ctx: TriggerContext): FiredNarrative[] {
     ...fireReset(ctx),
     ...fireSellHighStar(ctx),
     ...fireVetLiquidation(ctx),
+    ...fireHarvestSurplus(ctx),
     ...fireConsolidate(ctx),
     ...fireWinNowPush(ctx),
     ...fireInsurance(ctx),
