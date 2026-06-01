@@ -109,18 +109,25 @@ export type Counterparty =
 //                     two startable QBs, so a competent QB comes back first and
 //                     the rest of the package is built around it. No competent
 //                     piece on the partner → no deal with them (correct).
-//   preferYouth     : bias the fill toward young, non-stud players.
 //   preferPickTier  : bias the fill toward picks of this tier
 //                     (premium = round 1, future = down-the-road, any = all).
+//   preferBuckets   : the player position-buckets the fill may pull from. This
+//                     is what AIMS a shape: [RB] = "complete the RB room",
+//                     [PASS_CATCHER] = "young WR shape", [] = picks-only (no
+//                     players). undefined = any bucket.
+//   youthBuckets    : buckets whose RETURNED PLAYERS must be young + non-stud
+//                     to count — driven by the owner's per-position buy intent
+//                     (PC = buy_young → young PCs only; RB = consolidate →
+//                     proven RB is fine, so RB is NOT here).
 //   strength        : "hard" filters the fill pool to aim-matching pieces only
-//                     (sell/harvest in a build — the return is youth+picks, full
-//                     stop). "soft" keeps the full pool but PREFERS aim-matching
-//                     pieces among the in-band candidates (consolidate — the
-//                     incoming player is the point, just tilt him young).
+//                     (a build's sell IS youth/picks of the right shape). "soft"
+//                     keeps the full pool but PREFERS aim matches among in-band
+//                     candidates.
 export type ReturnAim = {
   requireBackfill?: Bucket;
-  preferYouth?: boolean;
   preferPickTier?: "premium" | "future" | "any";
+  preferBuckets?: Bucket[];
+  youthBuckets?: Bucket[];
   strength?: "hard" | "soft";
 };
 

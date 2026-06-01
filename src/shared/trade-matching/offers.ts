@@ -30,62 +30,61 @@ function leansFor(archetype: ArchetypeName): Lean[] {
   }
 }
 
-// The storyline's demand on the RETURN composition, pushed into construct's
-// balance step (see ReturnAim). Two independent parts:
-//
-//  1. Backfill (timeline-independent). A move that ships a needed starter must
-//     get a competent starter back at that bucket, or it's a teardown, not the
-//     owner's plan. Applies to harvest_surplus and the sell-high-of-a-starter —
-//     the canonical "sell one of two stud QBs, get a QB2 back" case.
-//  2. Youth / pick-tier aim (timeline-driven). On a BUILD, the return should be
-//     young players and picks of the tier the owner asked for — not the
-//     highest-value vet the math allows. HARD for outright sells (harvest /
-//     sell-high / vet-liq / reset: the package IS youth+picks); SOFT for
-//     consolidate (the incoming player is the point, just tilt him young). A
-//     WIN-NOW thesis wants the best proven piece, so no youth/pick aim there.
-function returnShapeFor(
-  match: Match,
-  thesis: Thesis | undefined,
-  strat: StrategyProfile | null,
-): ReturnAim | undefined {
-  const arch = match.narrativeArchetype;
-  const selling = match.side === "we_sell";
-  const bucket = match.anchorBucket as Bucket;
+// ── Per-position intent readers ──────────────────────────────────────────
+// The menu is built FROM these — the whole reason markets/intents are
+// position-specific. A bucket is a "young-acquire" bucket if the owner's buy
+// intent there is `young`; a "proven-acquire" bucket if they're chasing a
+// difference-maker OR consolidating depth into a better starter there.
 
-  let requireBackfill: Bucket | undefined;
-  if (
-    selling &&
-    bucket !== "PICK" &&
-    (arch === "harvest_surplus" || arch === "sell_high_star")
-  ) {
-    requireBackfill = bucket;
-  }
+type ABucket = Exclude<Bucket, "PICK">;
+const PLAYER_BUCKETS: ABucket[] = ["QB", "RB", "PASS_CATCHER"];
 
-  let preferYouth: boolean | undefined;
-  let preferPickTier: ReturnAim["preferPickTier"];
-  let strength: ReturnAim["strength"];
+function buyIntentsAt(strat: StrategyProfile | null, b: ABucket): BuyIntent[] {
+  if (!strat) return [];
+  return (b === "QB" ? strat.qbBuyIntent : b === "RB" ? strat.rbBuyIntent : strat.pcBuyIntent) ?? [];
+}
+function marketAt(strat: StrategyProfile | null, b: ABucket): string {
+  if (!strat) return "hold";
+  return b === "QB" ? strat.qbMarket : b === "RB" ? strat.rbMarket : strat.pcMarket;
+}
+function sellMovesAt(strat: StrategyProfile | null, b: ABucket): string[] {
+  if (!strat) return [];
+  return (b === "QB" ? strat.qbSellMove : b === "RB" ? strat.rbSellMove : strat.pcSellMove) ?? [];
+}
 
-  const tl = thesis?.timeline;
-  const youthAimArch =
-    arch === "harvest_surplus" ||
-    arch === "sell_high_star" ||
-    arch === "vet_liquidation" ||
-    arch === "reset" ||
-    arch === "consolidate";
+// Buckets whose RETURNS must be young (PC = buy_young).
+function youthBucketsFor(strat: StrategyProfile | null): ABucket[] {
+  return PLAYER_BUCKETS.filter((b) => buyIntentsAt(strat, b).includes("young"));
+}
+// Buckets where the owner wants a PROVEN better starter back — a difference-
+// maker buy, OR a sell→consolidate (ship depth, land one better). Youth N/A.
+function provenAcquireBucketsFor(strat: StrategyProfile | null): ABucket[] {
+  return PLAYER_BUCKETS.filter((b) => {
+    const buys = buyIntentsAt(strat, b);
+    if (buys.includes("difference_maker")) return true;
+    return marketAt(strat, b) === "sell" && sellMovesAt(strat, b).includes("consolidate");
+  });
+}
+// The pick tier the owner is collecting (premium > future), else a build's
+// default of future capital.
+function pickTierFor(strat: StrategyProfile | null): "premium" | "future" {
+  const kinds = strat?.picksBuyKind ?? [];
+  if (kinds.includes("premium")) return "premium";
+  return "future";
+}
 
-  if (tl === "build_future" && youthAimArch) {
-    preferYouth = true;
-    const kinds = strat?.picksBuyKind ?? [];
-    preferPickTier = kinds.includes("premium")
-      ? "premium"
-      : kinds.includes("future")
-        ? "future"
-        : "future"; // a build banks future capital by default
-    strength = arch === "consolidate" ? "soft" : "hard";
-  }
-
-  if (!requireBackfill && !preferYouth && !preferPickTier) return undefined;
-  return { requireBackfill, preferYouth, preferPickTier, strength };
+function bucketOf(position: string): ABucket {
+  const p = position.toUpperCase();
+  if (p === "QB") return "QB";
+  if (p === "RB") return "RB";
+  return "PASS_CATCHER";
+}
+function isYoungPlayer(ec: EngineContext, id: string): boolean {
+  const p = ec.data.players.get(id);
+  return p ? isYoung(p.position, p.age) : false;
+}
+function isStudPlayer(ec: EngineContext, id: string): boolean {
+  return ec.data.values.isStud.get(id) ?? false;
 }
 
 // One match → one DealRequest, locked to the single matched partner and aimed
@@ -257,51 +256,165 @@ function buyTargetsForIntent(
   return out;
 }
 
+// A request plus the SHAPE label that produced it, so the slate can cap per
+// (anchor × shape) — letting Mahomes show a picks shape AND a young-WR shape
+// AND an RB-room shape, instead of two clones of whatever balanced first.
+type ShapedRequest = { req: DealRequest; mode: string };
+
+function base(
+  activeRosterId: string,
+  partnerId: string,
+  intent: Intent,
+): Omit<DealRequest, "anchors" | "leans"> {
+  return {
+    ourTeamId: activeRosterId,
+    offeringTeamId: activeRosterId,
+    intent,
+    counterparty: { mode: "locked", teamIds: [partnerId] },
+    aimAt: "us",
+  };
+}
+
+// The menu of return SHAPES for selling a headline asset on a BUILD. Each shape
+// is a tightly-scoped ReturnAim, all keeping the same-position backfill when one
+// is required. Driven entirely by per-position intent:
+//   • picks            — the future-capital shape (no players, just the right tier)
+//   • young_<bucket>   — one per buy_young position (PC) — young bodies only
+//   • room_<bucket>    — one per proven-acquire position (RB consolidate) — a
+//                        proven starter to complete that room
+function sellMenu(
+  activeRosterId: string,
+  match: Match,
+  ec: EngineContext,
+  withBackfill: boolean,
+): ShapedRequest[] {
+  const strat = ec.data.strategy.get(activeRosterId) ?? null;
+  const bucket = match.anchorBucket as Bucket;
+  const requireBackfill = withBackfill && bucket !== "PICK" ? bucket : undefined;
+  const tier = pickTierFor(strat);
+  const send = [{ key: match.anchorKey, side: "send" as const }];
+  const out: ShapedRequest[] = [];
+
+  // 1) picks shape — future capital, no players.
+  out.push({
+    mode: "picks",
+    req: {
+      ...base(activeRosterId, match.partnerRosterId, "shop"),
+      anchors: send,
+      leans: [],
+      returnShape: {
+        requireBackfill,
+        preferPickTier: tier,
+        preferBuckets: [],
+        youthBuckets: [],
+        strength: "hard",
+      },
+    },
+  });
+
+  // 2) a young-bodies shape per buy_young bucket.
+  for (const y of youthBucketsFor(strat)) {
+    out.push({
+      mode: `young_${y}`,
+      req: {
+        ...base(activeRosterId, match.partnerRosterId, "shop"),
+        anchors: send,
+        leans: [],
+        returnShape: {
+          requireBackfill,
+          preferBuckets: [y],
+          youthBuckets: [y],
+          strength: "hard",
+        },
+      },
+    });
+  }
+
+  // 3) a complete-the-room shape per proven-acquire bucket (RB consolidate).
+  for (const p of provenAcquireBucketsFor(strat)) {
+    if (p === bucket) continue; // don't "complete" the room you're selling from
+    out.push({
+      mode: `room_${p}`,
+      req: {
+        ...base(activeRosterId, match.partnerRosterId, "shop"),
+        anchors: send,
+        leans: [],
+        returnShape: {
+          requireBackfill,
+          preferBuckets: [p],
+          youthBuckets: [],
+          strength: "hard",
+        },
+      },
+    });
+  }
+
+  return out;
+}
+
 function requestForMatch(
   activeRosterId: string,
   match: Match,
-  ec: EngineContext
-): DealRequest[] {
+  ec: EngineContext,
+  timeline: Thesis["timeline"],
+): ShapedRequest[] {
   // Pick-anchored sells aren't matched today (deferred to pick-for-pick logic).
   if (match.anchorBucket === "PICK") return [];
+
+  const strat = ec.data.strategy.get(activeRosterId) ?? null;
 
   // ── Tier 1: narrative-driven, anchored on a named player. ────────────────
   if (match.tier === 1) {
     if (match.side === "we_sell") {
+      const arch = match.narrativeArchetype;
+      const build = timeline === "build_future";
+      const needsBackfill = arch === "harvest_surplus" || arch === "sell_high_star";
+
+      // On a build, a headline sell gets the full MENU of aimed shapes.
+      if (build && (needsBackfill || arch === "vet_liquidation")) {
+        return sellMenu(activeRosterId, match, ec, needsBackfill);
+      }
+
+      // Off-build (or reset / de-consolidate): a single request, backfill-only
+      // when the move can't open a hole; existing leans otherwise.
+      const bucket = match.anchorBucket as Bucket;
       return [{
-        ourTeamId: activeRosterId,
-        offeringTeamId: activeRosterId,
-        intent: "shop" as Intent,
-        anchors: [{ key: match.anchorKey, side: "send" }],
-        counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
-        leans: leansFor(match.narrativeArchetype),
-        aimAt: "us",
+        mode: "single",
+        req: {
+          ...base(activeRosterId, match.partnerRosterId, "shop"),
+          anchors: [{ key: match.anchorKey, side: "send" }],
+          leans: leansFor(arch),
+          ...(needsBackfill ? { returnShape: { requireBackfill: bucket } } : {}),
+        },
       }];
     }
-    // we_buy: the anchor is the partner's piece we want.
+
+    // we_buy: the anchor is the partner's piece we want. PER-POSITION GATE —
+    // if this bucket carries a buy_young intent, the target itself MUST be
+    // young (kills an aging WR like McLaurin surfacing under a buy_young PC
+    // plan). Proven-acquire buckets (RB consolidate) accept any starter.
+    const buyBucket = bucketOf(
+      ec.data.players.get(match.anchorKey)?.position ?? match.anchorBucket,
+    );
+    const youthGate = youthBucketsFor(strat).includes(buyBucket);
+    if (youthGate && !(isYoungPlayer(ec, match.anchorKey) && !isStudPlayer(ec, match.anchorKey))) {
+      return []; // off-intent target — don't surface it
+    }
     return [{
-      ourTeamId: activeRosterId,
-      offeringTeamId: activeRosterId,
-      intent: "acquire" as Intent,
-      anchors: [{ key: match.anchorKey, side: "receive" }],
-      counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
-      leans: leansFor(match.narrativeArchetype),
-      aimAt: "us",
-      ...(match.narrativeArchetype === "insurance" ? { dealKind: "insurance" as const } : {}),
+      mode: "buy",
+      req: {
+        ...base(activeRosterId, match.partnerRosterId, "acquire"),
+        anchors: [{ key: match.anchorKey, side: "receive" }],
+        leans: leansFor(match.narrativeArchetype),
+        ...(youthGate ? { returnShape: { youthBuckets: [buyBucket], strength: "soft" } } : {}),
+        ...(match.narrativeArchetype === "insurance" ? { dealKind: "insurance" as const } : {}),
+      },
     }];
   }
 
   // ── Tier 2: stated-market floor, anchored on a BUCKET, not a player. ──────
-  // The match says "we buy/sell this position with this partner" off the
-  // owner's market toggle. There's no narrative and no named anchor, so we
-  // translate the bucket into a concrete request the constructor can run.
   if (match.side === "we_buy") {
-    const strat = ec.data.strategy.get(activeRosterId) ?? null;
     const intents = buyIntentForBucket(strat, match.anchorBucket);
-
-    // Intent stated → honor it: anchor the matching target(s) off this partner.
-    // Realistic-only: a partner with nothing matching yields no offer (rather
-    // than a generic grab that ignores what the owner asked for).
     if (intents.length > 0) {
       const targets = buyTargetsForIntent(
         activeRosterId,
@@ -311,47 +424,37 @@ function requestForMatch(
         ec
       );
       return targets.map((t) => ({
-        ourTeamId: activeRosterId,
-        offeringTeamId: activeRosterId,
-        intent: "acquire" as Intent,
-        anchors: [{ key: t.key, side: "receive" as const }],
-        counterparty: { mode: "locked" as const, teamIds: [match.partnerRosterId] },
-        leans: [],
-        aimAt: "us" as const,
-        ...(t.insurance ? { dealKind: "insurance" as const } : {}),
+        mode: "floor_buy",
+        req: {
+          ...base(activeRosterId, match.partnerRosterId, "acquire"),
+          anchors: [{ key: t.key, side: "receive" as const }],
+          leans: [],
+          ...(t.insurance ? { dealKind: "insurance" as const } : {}),
+        },
       }));
     }
-
-    // No intent set → the constructor discovers the best-fit target at a
-    // position we have demand for, on this partner. Exactly the existing
-    // buy-side discovery path — unchanged behavior when no intent is stated.
     return [{
-      ourTeamId: activeRosterId,
-      offeringTeamId: activeRosterId,
-      intent: "acquire" as Intent,
-      anchors: [],
-      counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
-      leans: [],
-      aimAt: "us",
+      mode: "floor_buy",
+      req: {
+        ...base(activeRosterId, match.partnerRosterId, "acquire"),
+        anchors: [],
+        leans: [],
+      },
     }];
   }
 
-  // we_sell floor: the constructor has no "discover what of OURS to ship" path,
-  // so the adapter seeds the anchor. We spread across our sheddable depth at the
-  // bucket (up to TIER2_SELL_PIECES) so the floor shops different players to a
-  // partner instead of cloning one piece into every deal.
+  // we_sell floor: seed our sheddable depth at the bucket.
   const sellKeys = sheddableAtBucket(activeRosterId, match.anchorBucket, ec).slice(
     0,
     TIER2_SELL_PIECES
   );
   return sellKeys.map((sellKey) => ({
-    ourTeamId: activeRosterId,
-    offeringTeamId: activeRosterId,
-    intent: "shop" as Intent,
-    anchors: [{ key: sellKey, side: "send" }],
-    counterparty: { mode: "locked", teamIds: [match.partnerRosterId] },
-    leans: [],
-    aimAt: "us",
+    mode: "floor_sell",
+    req: {
+      ...base(activeRosterId, match.partnerRosterId, "shop"),
+      anchors: [{ key: sellKey, side: "send" }],
+      leans: [],
+    },
   }));
 }
 
@@ -373,30 +476,25 @@ export type ThesisOffers = {
   offers: GeneratedOffer[];
 };
 
-// Per-anchor variety cap: no single asset may headline more than this many
-// offers within one thesis, so the slate samples breadth (many anchors, many
-// shapes) instead of five flavors of the same marquee name. Ordering is
-// value-tilted — higher-value anchors surface first, so each anchor's best
-// realistic deal lands before the cap bites.
-const MAX_OFFERS_PER_ANCHOR = 2;
+// Variety caps. One offer per distinct SHAPE of an anchor (so a shape doesn't
+// clone across partners), and a ceiling on how many shapes one headline anchor
+// may show — enough for the menu (picks / young / room) without flooding.
+const MAX_OFFERS_PER_SHAPE = 1;
+const MAX_OFFERS_PER_ANCHOR = 4;
 
 // The send-side anchor of an offer (the headline piece WE ship), used for the
 // per-anchor cap. Falls back to a sorted send signature when no single anchor.
 function sendAnchorKey(offer: EngineOffer): string {
   const sends = offer.assets.filter((a) => a.side === "send");
   if (sends.length === 0) return "none";
-  // Highest-value send is the de-facto headline; approximate by first listed
-  // (construct lists the anchor first). Stable enough for capping.
   return sends[0].key;
 }
 
-// Generate a team's offers, GROUPED BY THESIS, each offer constrained to its
-// thesis's spendable fence. The pipeline still runs narrative-by-narrative
-// through the constructor (unchanged deal logic); the new work is (1) routing
-// each match's offers to its thesis, (2) dropping any offer whose SEND side
-// touches an asset that thesis holds sacred (post-filter — no constructor
-// surgery), and (3) the per-anchor variety cap. Two theses → two independent
-// offer lists, each playing by its own currency rule.
+// Generate a team's offers, GROUPED BY THESIS, each constrained to its thesis's
+// spendable fence. Per match the adapter now emits a MENU of aimed shapes
+// (picks / young-<pos> / room-<pos>), each a tightly-scoped ReturnAim the
+// constructor honors in its balance step. We route each to its thesis, drop any
+// send that breaks the fence, and cap per (anchor × shape).
 export function generateOffersForTeam(
   slate: TeamSlate,
   ec: EngineContext
@@ -405,73 +503,127 @@ export function generateOffersForTeam(
   const theses = bundle?.theses ?? [];
   if (theses.length === 0) return [];
 
-  // The owner's intent thesis — where tier-2 floor matches (not narrative-
-  // driven) and any match missing a thesisId are routed.
   const intentThesis = theses.find((t) => t.source === "intent") ?? theses[0];
   const byId = new Map<string, Thesis>(theses.map((t) => [t.id, t]));
-  const spendableOf = (id: string): Set<string> =>
-    new Set(byId.get(id)?.spendable ?? []);
+  const spendableOf = (id: string): Set<string> => new Set(byId.get(id)?.spendable ?? []);
 
-  // Accumulators per thesis.
   const collected = new Map<string, GeneratedOffer[]>();
-  const seen = new Set<string>();              // global dedupe within a thesis
-  const anchorCount = new Map<string, number>(); // `${thesisId}|${anchor}` → n
+  const seen = new Set<string>();                // dedupe identical packages
+  const shapeCount = new Map<string, number>();  // `${thesis}|${anchor}|${mode}`
+  const anchorCount = new Map<string, number>(); // `${thesis}|${anchor}`
 
   const resolveThesisId = (match: Match): string =>
     match.thesisId && byId.has(match.thesisId) ? match.thesisId : intentThesis.id;
 
-  const strat = ec.data.strategy.get(slate.rosterId) ?? null;
-
-  const runMatch = (match: Match) => {
-    const thesisId = resolveThesisId(match);
+  // Build + collect one offer set for a request, tagging it with its shape mode
+  // and the storyline it belongs to. expectedPartner locks the partner for a
+  // matched (locked-counterparty) request; null lets an open request (the
+  // packaging pass) keep whatever partner the constructor found.
+  const runRequest = (
+    thesisId: string,
+    req: DealRequest,
+    mode: string,
+    meta: { archetype: ArchetypeName; tier: Match["tier"]; side: Match["side"]; anchor: string },
+    expectedPartner: string | null,
+  ) => {
     const spendable = spendableOf(thesisId);
+    const result = construct(req, ec);
+    for (const offer of result.offers) {
+      if (expectedPartner && offer.partnerTeamId !== expectedPartner) continue;
 
-    const reqs = requestForMatch(slate.rosterId, match, ec);
-    const shape = returnShapeFor(match, byId.get(thesisId), strat);
-    for (const req of reqs) {
-      if (shape) req.returnShape = shape;
-      const result = construct(req, ec);
-      for (const offer of result.offers) {
-        if (offer.partnerTeamId !== match.partnerRosterId) continue;
+      // Fence: no sacred asset may leave under this thesis.
+      const sends = offer.assets.filter((a) => a.side === "send");
+      if (sends.some((a) => !spendable.has(a.key))) continue;
 
-        // FENCE: drop any offer that ships an asset this thesis holds sacred.
-        // The spendable set is the budget; a send outside it breaks the story.
-        const sends = offer.assets.filter((a) => a.side === "send");
-        if (sends.some((a) => !spendable.has(a.key))) continue;
+      const sig =
+        thesisId + "|" + offer.partnerTeamId + "|" +
+        offer.assets.map((a) => `${a.side}:${a.key}`).sort().join(",");
+      if (seen.has(sig)) continue;
 
-        // Dedupe identical packages within the thesis.
-        const sig =
-          thesisId + "|" + offer.partnerTeamId + "|" +
-          offer.assets.map((a) => `${a.side}:${a.key}`).sort().join(",");
-        if (seen.has(sig)) continue;
+      const anchorK = thesisId + "|" + sendAnchorKey(offer);
+      const shapeK = anchorK + "|" + mode;
+      if ((shapeCount.get(shapeK) ?? 0) >= MAX_OFFERS_PER_SHAPE) continue;
+      if ((anchorCount.get(anchorK) ?? 0) >= MAX_OFFERS_PER_ANCHOR) continue;
 
-        // Per-anchor variety cap.
-        const anchorK = thesisId + "|" + sendAnchorKey(offer);
-        if ((anchorCount.get(anchorK) ?? 0) >= MAX_OFFERS_PER_ANCHOR) continue;
-
-        seen.add(sig);
-        anchorCount.set(anchorK, (anchorCount.get(anchorK) ?? 0) + 1);
-        const arr = collected.get(thesisId) ?? [];
-        arr.push({
-          narrativeArchetype: match.narrativeArchetype,
-          thesisId,
-          tier: match.tier,
-          side: match.side,
-          anchor: match.anchor,
-          partnerTeam: match.partnerTeam,
-          offer,
-        });
-        collected.set(thesisId, arr);
-      }
+      seen.add(sig);
+      shapeCount.set(shapeK, (shapeCount.get(shapeK) ?? 0) + 1);
+      anchorCount.set(anchorK, (anchorCount.get(anchorK) ?? 0) + 1);
+      const arr = collected.get(thesisId) ?? [];
+      arr.push({
+        narrativeArchetype: meta.archetype,
+        thesisId,
+        tier: meta.tier,
+        side: meta.side,
+        anchor: meta.anchor,
+        partnerTeam: offer.partnerTeamName,
+        offer,
+      });
+      collected.set(thesisId, arr);
     }
   };
 
-  // Tier 1 first (narrative-driven) so a narrative offer wins the dedupe over an
-  // identical floor offer; floor fills in behind.
+  const runMatch = (match: Match) => {
+    const thesisId = resolveThesisId(match);
+    const timeline = byId.get(thesisId)?.timeline ?? "build_future";
+    for (const { req, mode } of requestForMatch(slate.rosterId, match, ec, timeline)) {
+      runRequest(
+        thesisId,
+        req,
+        mode,
+        { archetype: match.narrativeArchetype, tier: match.tier, side: match.side, anchor: match.anchor },
+        match.partnerRosterId,
+      );
+    }
+  };
+
+  // Tier 1 first (narrative wins the dedupe), then the floor.
   for (const match of slate.tier1) runMatch(match);
   for (const match of slate.tier2) runMatch(match);
 
-  // Assemble in thesis order (intent stories first, per buildTheses ordering).
+  // ── Vet-liquidation packaging pass ────────────────────────────────────────
+  // Low-value vets fetch little solo. On a build, also offer them PACKAGED one-
+  // per-position (Mason RB + Shaheed WR) into a single pick return, in OPEN
+  // counterparty mode so the constructor finds whatever pick-rich team bites.
+  const buildThesis = theses.find((t) => t.source === "intent" && t.timeline === "build_future");
+  if (buildThesis) {
+    const spendable = spendableOf(buildThesis.id);
+    // One vet-liq anchor per bucket (highest value), only fence-spendable ones.
+    const byBucket = new Map<ABucket, { key: string; value: number; name: string }>();
+    for (const m of slate.tier1) {
+      if (m.side !== "we_sell" || m.narrativeArchetype !== "vet_liquidation") continue;
+      if (m.anchorBucket === "PICK" || !spendable.has(m.anchorKey)) continue;
+      const b = m.anchorBucket as ABucket;
+      const value = ec.data.values.value.get(m.anchorKey) ?? 0;
+      const cur = byBucket.get(b);
+      if (!cur || value > cur.value) {
+        byBucket.set(b, { key: m.anchorKey, value, name: ec.data.players.get(m.anchorKey)?.name ?? m.anchorKey });
+      }
+    }
+    const anchors = [...byBucket.values()];
+    const tier = pickTierFor(ec.data.strategy.get(slate.rosterId) ?? null);
+    for (let i = 0; i < anchors.length; i++) {
+      for (let j = i + 1; j < anchors.length; j++) {
+        const a = anchors[i], b = anchors[j];
+        runRequest(
+          buildThesis.id,
+          {
+            ourTeamId: slate.rosterId,
+            offeringTeamId: slate.rosterId,
+            intent: "shop",
+            anchors: [{ key: a.key, side: "send" }, { key: b.key, side: "send" }],
+            counterparty: { mode: "open" },
+            leans: [],
+            aimAt: "us",
+            returnShape: { preferPickTier: tier, preferBuckets: [], youthBuckets: [], strength: "hard" },
+          },
+          `pkg_${a.key}_${b.key}`,
+          { archetype: "vet_liquidation", tier: 1, side: "we_sell", anchor: `${a.name} + ${b.name}` },
+          null,
+        );
+      }
+    }
+  }
+
   return theses
     .map((t) => ({ thesis: t, offers: collected.get(t.id) ?? [] }))
     .filter((to) => to.offers.length > 0);

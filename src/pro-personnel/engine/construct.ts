@@ -512,7 +512,19 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const legacyPreferPicks = !shape && (req.leans ?? []).includes("prefer_picks");
 
       const pickTier = shape?.preferPickTier ?? (legacyPreferPicks ? "any" : undefined);
-      const wantYouth = shape?.preferYouth ?? legacyPreferPicks;
+      // Buckets the fill may pull players from. undefined = any. Empty array =
+      // NO players (picks-only shape).
+      const preferBuckets = shape?.preferBuckets;
+      // Buckets whose returned players must be young. Legacy prefer_picks meant
+      // youth everywhere.
+      const youthBuckets = new Set<Bucket>(
+        shape?.youthBuckets ?? (legacyPreferPicks ? ["QB", "RB", "PASS_CATCHER"] : []),
+      );
+      const hasAim =
+        !!pickTier ||
+        youthBuckets.size > 0 ||
+        preferBuckets !== undefined ||
+        legacyPreferPicks;
 
       const pickMatchesTier = (r: Resolved): boolean => {
         if (r.type !== "pick" || !r.pick) return false;
@@ -523,20 +535,22 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       };
       const aimMatch = (r: Resolved): boolean => {
         if (r.type === "pick") return pickMatchesTier(r);
-        if (!wantYouth) return false;
-        if (r.isStud) return false;
-        return isYoung(r.position, data.players.get(r.key)?.age ?? null);
+        // Player: must sit in an allowed bucket (if preferBuckets restricts it),
+        // and must be young when its bucket carries a youth intent.
+        if (preferBuckets !== undefined && !preferBuckets.includes(r.bucket)) return false;
+        if (youthBuckets.has(r.bucket)) {
+          if (r.isStud) return false;
+          return isYoung(r.position, data.players.get(r.key)?.age ?? null);
+        }
+        return true;
       };
 
       const aimKeys = new Set(recvResolvedPool.filter(aimMatch).map((r) => r.key));
       const hard = shape?.strength === "hard" || legacyPreferPicks;
 
       // Hard aim filters the pool; soft aim passes preferKeys to the balancer.
-      const recvFillPool =
-        hard && (wantYouth || pickTier)
-          ? recvPool.filter((a) => aimKeys.has(a.key))
-          : recvPool;
-      const preferKeys = !hard && (wantYouth || pickTier) ? aimKeys : undefined;
+      const recvFillPool = hard && hasAim ? recvPool.filter((a) => aimKeys.has(a.key)) : recvPool;
+      const preferKeys = !hard && hasAim ? aimKeys : undefined;
 
       // Opening ratio is from the offering team's seat; translate to OUR seat
       // (balance always reads receive/send from our seat).
