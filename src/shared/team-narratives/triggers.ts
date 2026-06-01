@@ -14,7 +14,8 @@ import {
   dominantTimeline,
 } from "./intent";
 import { isYoung } from "@/shared/asset-values";
-import { detectSlotCliffs, type SlotCliff } from "./cliff";
+import { detectSlotCliffs, startsForAtLeast, type SlotCliff } from "./cliff";
+import { STARTER_COUNTS } from "./phantoms";
 
 export type TriggerContext = {
   rosterId: string;
@@ -375,10 +376,46 @@ export function fireConsolidate(ctx: TriggerContext): FiredNarrative[] {
     });
   }
 
+  // ── Engine safety net: silent contender with a REAL premium hole ────────
+  // A contender that stated nothing AND didn't trip the tier-jump sim can go
+  // completely silent even with a genuine hole — then it can't even be matched
+  // as a buyer (Brokepark: real QB2 hole behind Bo Nix, deep WR room to pay
+  // with, fires nothing). Fire an engine buyer story when: we're a contender,
+  // nothing else fired, we have capital, and a HIGH scarcity is a REAL hole.
+  // "Real hole" uses the league-relative start-for test (no magic number): the
+  // Nth-best body at the bucket (N = starters required) would NOT start for a
+  // single other team. That cleanly separates Brokepark's Tua-as-QB2 (starts
+  // for nobody → hole) from Ridgeville's Ward-as-QB2 (starts widely → set),
+  // and scales per position against the real league starter pool.
+  const isContender = profile.tier === "championship" || profile.tier === "playoff";
+  if (isContender && out.length === 0 && hasCapital && team) {
+    const realHole = (b: NeedBucket): boolean => {
+      const bodies = team.players
+        .filter((p) => bucketOf(p.position) === b)
+        .map((p) => ({ p, v: valueOf(p.id, data) }))
+        .sort((a, z) => z.v - a.v);
+      const nth = bodies[STARTER_COUNTS[b] - 1]; // the body filling the last slot
+      if (!nth) return true; // fewer bodies than slots → definitely a hole
+      return !startsForAtLeast(nth.p.id, nth.p.position as Position, nth.v, ctx.rosterId, data, 1);
+    };
+    const holes = rosterRead.scarcities.filter((s) => s.severity === "high" && realHole(s.bucket));
+    if (holes.length > 0) {
+      out.push({
+        archetype: "consolidate", role: "buyer", flavor: null,
+        timeline: "win_now",
+        source: "engine",
+        triggerScenario: `consolidate / engine safety-net: real hole at ${holes.map((h) => h.bucket).join(", ")}`,
+        evidence:
+          `Engine read: contender with an unaddressed ${holes.map((h) => h.bucket).join("/")} hole and the depth to fix it. ` +
+          `Owner stated nothing here, so this is the engine's pitch — go get a starter.`,
+        assets,
+        returnShape: `An impact starter at ${holes.map((h) => h.bucket).join("/")}. Pay with surplus depth + picks.`,
+      });
+    }
+  }
+
   return out;
 }
-
-// ── Win-now push ──────────────────────────────────────────────────────────
 
 export function fireWinNowPush(ctx: TriggerContext): FiredNarrative[] {
   const { profile, strategy, intent, data } = ctx;

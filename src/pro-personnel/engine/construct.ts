@@ -418,6 +418,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       // youth / picks the storyline actually wants. Partner has no competent
       // piece there → no deal with them (correct: they can't satisfy the move).
       let recvKeysEff = recvKeys;
+      let backfillKey: string | null = null;
       const backfillBucket = req.returnShape?.requireBackfill;
       if (backfillBucket) {
         const positions = bucketPositions(backfillBucket);
@@ -433,6 +434,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
             )
             .sort((a, b) => a.value - b.value)[0]; // cheapest competent
           if (!cand) return null; // partner can't backfill the hole → no deal
+          backfillKey = cand.p.id;
           recvKeysEff = [cand.p.id, ...recvKeys];
         }
       }
@@ -491,7 +493,16 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         .filter((k) => !anchored.has(k))
         .map(resolve)
         .filter((r): r is Resolved => !!r)
-        .filter((r) => wantsToAcquire(r.bucket, ourStrategy ?? null, ourNeeds ?? null).ok)
+        // We'd take it if our normal demand says so — OR if the storyline is
+        // explicitly aiming at this bucket. A sell→consolidate ("ship RB depth
+        // to land ONE better RB") sets preferBuckets:[RB] even though our RB
+        // market is "sell", and the consolidation TARGET must be exempt from
+        // the don't-buy-what-you-sell gate or the shape can never fill.
+        .filter(
+          (r) =>
+            wantsToAcquire(r.bucket, ourStrategy ?? null, ourNeeds ?? null).ok ||
+            (req.returnShape?.preferBuckets?.includes(r.bucket) ?? false),
+        )
         // Partner won't ship a player at a position they're buying (collecting).
         .filter((r) => !(r.type === "player" && marketFor(partnerStrategy, r.bucket) === "buy"));
 
@@ -584,6 +595,12 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
 
       // Need a real two-sided deal.
       if (sendVA.length === 0 || recvVA.length === 0) return null;
+
+      // A backfill is the COST of the downgrade, not the return. If the only
+      // thing coming back is the backfill piece, the move buys nothing for the
+      // storyline (a stud-for-stud lateral) — drop it. Real value must come
+      // back elsewhere: picks or players at the intent-cued positions.
+      if (backfillKey && !recvVA.some((a) => a.key !== backfillKey)) return null;
 
       const assets: EngineOfferAsset[] = [
         ...sendVA.map((a) => ({ key: a.key, name: a.name, type: a.type, side: "send" as Side })),
