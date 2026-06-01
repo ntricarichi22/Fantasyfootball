@@ -558,6 +558,7 @@ export function generateOffersForTeam(
     expectedPartner: string | null,
   ) => {
     const spendable = spendableOf(thesisId);
+    req.spendable = spendable; // fence is authoritative over posture pick-protection
     const result = construct(req, ec);
     for (const offer of result.offers) {
       if (expectedPartner && offer.partnerTeamId !== expectedPartner) continue;

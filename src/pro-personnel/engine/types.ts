@@ -150,6 +150,12 @@ export type DealRequest = {
   // The storyline's demand on what the return looks like (pushed into balance).
   // Absent → the constructor balances to value as before (back-compat).
   returnShape?: ReturnAim;
+  // The thesis's currency fence: the set of OUR asset keys this story permits
+  // on the send side. When present it is AUTHORITATIVE over posture-based pick
+  // protection — a future 1st sacred to the build is spendable to the win-now
+  // story, and only this set decides which picks can leave. Absent → the
+  // constructor falls back to posture-derived protection (other doors).
+  spendable?: Set<string>;
   aimAt: AimAt;
   // Marks a deal whose currency rules differ from a normal trade. "insurance"
   // means a contender buying depth: it must NOT pay with anyone who fills a

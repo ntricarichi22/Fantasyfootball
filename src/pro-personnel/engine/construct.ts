@@ -187,16 +187,21 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
   // OUR deal-thesis — the judgment that steers everything below.
   const thesis: Thesis = buildThesis(ourTeamId, data, ourProfile, ourDossier, ourNeeds ?? null);
 
-  // Which of our picks are protected (war chest) per posture. accumulate →
-  // shield all; non_first → shield 1sts; all → shield none. Protected picks
-  // stay out of the send filler pool (they can still be explicit anchors).
+  // Which of our picks are protected (war chest). When the request carries a
+  // thesis fence (req.spendable), THAT is authoritative: a pick is protected
+  // iff it's not in the spendable set — so the win-now story can spend the
+  // future 1sts the build holds sacred. Without a fence, fall back to posture:
+  // accumulate → shield all; non_first → shield 1sts; all → shield none.
+  // Protected picks stay out of the send filler pool (still allowed as anchors).
   const ourPicks = data.pickOwnership.get(ourTeamId) ?? [];
   const protectedPickKeys = new Set<string>(
-    thesis.pickSpend === "all"
-      ? []
-      : ourPicks
-          .filter((p) => (thesis.pickSpend === "none" ? true : p.round === 1))
-          .map((p) => p.key),
+    req.spendable
+      ? ourPicks.filter((p) => !req.spendable!.has(p.key)).map((p) => p.key)
+      : thesis.pickSpend === "all"
+        ? []
+        : ourPicks
+            .filter((p) => (thesis.pickSpend === "none" ? true : p.round === 1))
+            .map((p) => p.key),
   );
 
   // Resolve any asset key to its facts.
