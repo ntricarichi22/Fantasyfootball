@@ -11,4 +11,7 @@ export {
   getLeagueData,
 } from "./accessors";
 
+export { getPlayoffHistory } from "./season-records";
+export type { SeasonRecord, PlayoffHistory } from "./season-records";
+
 export { teamNickname } from "./nicknames";
