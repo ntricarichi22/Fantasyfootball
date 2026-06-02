@@ -51,8 +51,6 @@ import { priceDeal, type PricingInput } from "./pricing";
 import { bucketForPosition, wantsToAcquire, isUntouchable, shippingPickIsFriction, isBlindSpot } from "./gates";
 import { shapeKnobsFor } from "./shapes";
 import { balanceDeal, type ValuedAsset } from "./balance";
-import { buildThesis, buildPartnerFit, type Thesis, type PartnerFit } from "./thesis";
-
 // ─── The input bundle the route assembles (engine never hits the DB) ─────────
 
 export type EngineContext = {
@@ -134,6 +132,58 @@ function needScore(level: NeedLevel | null): number {
   return level === "high" ? 2 : level === "med" ? 1 : 0;
 }
 
+// ─── Inline ranking reads (formerly engine/thesis, now killed) ────────────────
+// These are pure roster-truth ranking signals — they make NO direction call and
+// do NOT compete with the brain's storyline thesis. They only ORDER the offers
+// the constructor surfaces: how badly we need a bucket, and how natural a
+// counterparty a partner is. Stripped of the old posture/wantsMore/archetype
+// baggage that used to ride along in the thesis folder.
+
+const NEED_BUCKETS: Bucket[] = ["QB", "RB", "PASS_CATCHER"];
+const WIN_NOW_WINDOWS = new Set(["contending", "closing"]);
+
+// Our relative-need severity (0..1) at a bucket — the ranking weight on a
+// received piece. Was thesis.buy[].severity; it's just the need score.
+function needSeverity(needs: TeamNeeds | undefined, bucket: Bucket): number {
+  if (!needs) return 0;
+  if (bucket === "QB") return needs.qb.score;
+  if (bucket === "RB") return needs.rb.score;
+  if (bucket === "PASS_CATCHER") return needs.passCatcher.score;
+  return 0;
+}
+
+// How natural a counterparty this partner is for us: a win-now window buys what
+// others sell, and need/surplus mirroring (thin where we're deep, deep where
+// we're thin) makes a clean swap. Was buildPartnerFit.fitScore.
+function partnerFitScore(
+  partnerWindow: string,
+  partnerNeeds: TeamNeeds | null,
+  ourNeeds: TeamNeeds | undefined,
+): number {
+  let s = 0;
+  if (WIN_NOW_WINDOWS.has(partnerWindow)) s += 1.5;
+  for (const b of NEED_BUCKETS) {
+    const theirs = partnerNeeds ? needSeverity(partnerNeeds, b) : null;
+    const ours = ourNeeds ? needSeverity(ourNeeds, b) : null;
+    if (theirs === null || ours === null) continue;
+    if (theirs >= 0.6 && ours <= 0.4) s += 1; // we sell into their thin spot
+    if (theirs <= 0.4 && ours >= 0.6) s += 1; // we buy from their surplus
+  }
+  return s;
+}
+
+// Desperation premium: a win-now partner who is genuinely THIN at a bucket we're
+// selling will pay above flat value. Was buildPartnerFit.premiumFires. (The old
+// "not if accumulate-posture" guard is dropped — it read the retired wantsMore.)
+function premiumFiresFor(
+  bucket: Bucket,
+  partnerWindow: string,
+  partnerNeeds: TeamNeeds | null,
+): boolean {
+  if (!WIN_NOW_WINDOWS.has(partnerWindow)) return false;
+  return needLevel(partnerNeeds ?? undefined, bucket) === "high";
+}
+
 function marketFor(strat: StrategyProfile | undefined, bucket: Bucket): string {
   if (!strat) return "unknown";
   if (bucket === "QB") return strat.qbMarket;
@@ -180,28 +230,18 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
   const rosterPositions = data.settings.rosterPositions;
   const ourBaseStarter = computeStrength(ourTeam, data.values, rosterPositions).starterValue;
 
-  // Index profiles/needs by id for the thesis + partner-fit.
-  const profileById = new Map(ec.profiles.map((p) => [p.rosterId, p]));
-  const ourProfile = profileById.get(ourTeamId) ?? null;
-
-  // OUR deal-thesis — the judgment that steers everything below.
-  const thesis: Thesis = buildThesis(ourTeamId, data, ourProfile, ourDossier, ourNeeds ?? null);
-
-  // Which of our picks are protected (war chest). When the request carries a
-  // thesis fence (req.spendable), THAT is authoritative: a pick is protected
-  // iff it's not in the spendable set — so the win-now story can spend the
-  // future 1sts the build holds sacred. Without a fence, fall back to posture:
-  // accumulate → shield all; non_first → shield 1sts; all → shield none.
-  // Protected picks stay out of the send filler pool (still allowed as anchors).
+  // Which of our picks are protected (war chest). The thesis fence
+  // (req.spendable) is authoritative: a pick is protected iff it's not in the
+  // spendable set — so the win-now story can spend the future 1sts the build
+  // holds sacred. Our offers pipeline always passes a fence; a fence-less caller
+  // (a raw door with no storyline) protects nothing extra here and relies on its
+  // own anchors. Protected picks stay out of the send filler pool (still allowed
+  // as anchors).
   const ourPicks = data.pickOwnership.get(ourTeamId) ?? [];
   const protectedPickKeys = new Set<string>(
     req.spendable
       ? ourPicks.filter((p) => !req.spendable!.has(p.key)).map((p) => p.key)
-      : thesis.pickSpend === "all"
-        ? []
-        : ourPicks
-            .filter((p) => (thesis.pickSpend === "none" ? true : p.round === 1))
-            .map((p) => p.key),
+      : [],
   );
 
   // Resolve any asset key to its facts.
@@ -326,24 +366,18 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
     const partnerDossier = dossierById.get(partnerId) ?? null;
     const partnerStrategy = data.strategy.get(partnerId);
     const partnerPersona = normalizePersona(partnerDossier?.persona);
-    const partnerProfile = profileById.get(partnerId) ?? null;
     const partnerNeeds = ec.needs.get(partnerId) ?? null;
+    const partnerWindow = partnerDossier?.window ?? "unknown";
 
-    // Partner-fit: how natural a counterparty this is for our thesis, plus the
-    // per-position desperation-premium read.
-    const fit: PartnerFit = buildPartnerFit(
-      partnerId,
-      data,
-      partnerProfile,
-      partnerDossier,
-      partnerNeeds,
-      ourNeeds ?? null,
-    );
+    // Partner-fit: how natural a counterparty this is (window complementarity +
+    // need/surplus mirroring) — a pure ranking read, no direction call.
+    const fitScore = partnerFitScore(partnerWindow, partnerNeeds, ourNeeds);
 
-    // In open acquire mode, skip clearly poor-fit partners (same window/wants
-    // as us, no need-mirroring) so we call the right teams instead of everyone.
-    // Locked counterparties (Studio/Scouting targets) are always honored.
-    if (req.counterparty.mode === "open" && req.intent === "acquire" && fit.fitScore <= 0) {
+    // In open acquire mode, skip clearly poor-fit partners (same window, no
+    // need-mirroring) so we call the right teams instead of everyone. Locked
+    // counterparties (our offers pipeline, Studio/Scouting targets) are always
+    // honored.
+    if (req.counterparty.mode === "open" && req.intent === "acquire" && fitScore <= 0) {
       continue;
     }
 
@@ -631,7 +665,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const sellingBuckets = new Set(
         sendVA.map((a) => resolve(a.key)?.bucket).filter((b): b is Bucket => !!b && b !== "PICK"),
       );
-      const premiumOn = [...sellingBuckets].some((b) => fit.premiumFires(b));
+      const premiumOn = [...sellingBuckets].some((b) => premiumFiresFor(b, partnerWindow, partnerNeeds));
       if (premiumOn) {
         theirBand = { ...theirBand, min: Math.max(HARD_FLOOR, theirBand.min - PARTNER_STRETCH) };
       }
@@ -656,7 +690,11 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
 
       // Ranking.
       const recvResolved = recvKeysAll.map(resolve).filter((r): r is Resolved => !!r);
-      const sevByBucket = new Map(thesis.buy.map((b) => [b.bucket, b.severity]));
+      // Relative-need severity per bucket, straight from our needs (was the
+      // engine thesis's buy list — same numbers, no archetype baggage).
+      const sevByBucket = new Map<Bucket, number>(
+        NEED_BUCKETS.map((b) => [b, needSeverity(ourNeeds, b)]),
+      );
       let needFit = 0;
       let motivation = 0;
       for (const r of recvResolved) {
@@ -691,7 +729,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         W_VOR * vorNorm +
         W_AIM * aimScore +
         W_LIKELY * (partnerRead === "likely" ? 1 : 0) +
-        W_PARTNERFIT * fit.fitScore +
+        W_PARTNERFIT * fitScore +
         W_PREMIUM * (premiumOn ? 1 : 0) +
         W_MOTIVATION * motivation +
         W_COMPLEMENT * complement -

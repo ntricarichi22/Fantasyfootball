@@ -2,14 +2,14 @@
 // GET /api/pro-personnel/debug/matching?team_id=3   → one team's slate
 //
 // DEBUG ONLY. Runs the full ingest (league data -> profiles -> needs ->
-// dossiers -> narratives) once, then the matching layer on top, and dumps the
-// per-team slates: tier-1 narrative matches (ranked, with the why) plus the
-// tier-2 value-fit floor when tier 1 is thin.
+// dossiers -> theses) once, then the goal-level matcher on top, and dumps each
+// team's slate: every goal↔asset match across the league, with the two-sided
+// check (partnerGoalSatisfied) and the why.
 //
 // Delete this (and the debug folder) before the engine ships.
 
 import { NextResponse } from "next/server";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives } from "@/shared/team-narratives";
@@ -27,7 +27,8 @@ export async function GET(req: Request) {
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
-    const bundles = buildTeamNarratives(data, profiles, dossiers, needs);
+    const playoffHistory = await getPlayoffHistory();
+    const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
 
     const slates = buildMatchSlates({ data, profiles, needs, dossiers, bundles });
 
@@ -42,11 +43,17 @@ export async function GET(req: Request) {
           { status: 400 }
         );
       }
-      return NextResponse.json(slate, { status: 200 });
+      return NextResponse.json({ ...slate, matchCount: slate.matches.length }, { status: 200 });
     }
 
     const ordered = [...slates.values()].sort((a, b) => Number(a.rosterId) - Number(b.rosterId));
-    return NextResponse.json({ teamCount: ordered.length, slates: ordered }, { status: 200 });
+    return NextResponse.json(
+      {
+        teamCount: ordered.length,
+        slates: ordered.map((s) => ({ ...s, matchCount: s.matches.length })),
+      },
+      { status: 200 }
+    );
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     const stack = err instanceof Error ? err.stack : undefined;

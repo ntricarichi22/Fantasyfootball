@@ -7,12 +7,11 @@ import type { NeedBucket } from "@/shared/team-profiles";
 // global checkboxes into ONE direction (accumulate | convert) because the input
 // couldn't hold positions. Per-position intent can, so there is no global
 // posture here at all — the brain reads the specific signal for the specific
-// position each trigger cares about. Multiple directions coexist by design
+// position each goal cares about. Multiple directions coexist by design
 // (sell RB while buying young PC while hoarding picks is coherent, not noise).
 //
-// readIntent() resolves a StrategyProfile into this structure once; the trigger
-// layer consumes it through the predicate helpers below. See trade_brain.docx
-// Section 7 + the per-position-intent design.
+// readIntent() resolves a StrategyProfile into this structure once; the goal
+// layer consumes it through the predicate helpers below.
 
 export type PositionIntent = {
   market: MarketStance;        // buy | hold | sell | unknown
@@ -30,8 +29,7 @@ export type IntentSignals = {
   byBucket: Map<NeedBucket, PositionIntent>;
   picks: PicksIntent;
   // True when the owner set nothing actionable anywhere — every market is
-  // hold/unknown with no intent. The brain falls back to a pure roster read,
-  // exactly the old empty-wants behavior (the silent-owner backbone).
+  // hold/unknown with no intent. The brain falls back to a pure roster read.
   silent: boolean;
 };
 
@@ -70,8 +68,6 @@ export function readIntent(strategy: StrategyProfile | null | undefined): Intent
     sellMove: strategy.picksSellMove ?? [],
   };
 
-  // Silent = nothing actionable. A market of buy/sell anywhere, or any intent
-  // array populated, counts as a live signal.
   const anyLiveMarket =
     BUCKETS.some((b) => {
       const m = byBucket.get(b)!.market;
@@ -82,11 +78,7 @@ export function readIntent(strategy: StrategyProfile | null | undefined): Intent
   return { byBucket, picks, silent };
 }
 
-// ── Predicates (the trigger layer reads these, never the global posture) ───
-//
-// All position-keyed predicates default to "no signal" for a bucket the owner
-// never set, so a silent owner makes every predicate false and the roster read
-// does all the work.
+// ── Predicates (the goal layer reads these, never a global posture) ─────────
 
 function pos(sig: IntentSignals, bucket: NeedBucket): PositionIntent {
   return sig.byBucket.get(bucket) ?? EMPTY_POSITION;
@@ -111,8 +103,7 @@ export function acquiresStudAt(sig: IntentSignals, bucket: NeedBucket): boolean 
 // Owner is SHEDDING at this bucket. Two routes:
 //   • explicit sell market, OR
 //   • buy market + young intent → "get younger here," which makes the
-//     non-young pieces already on the roster expendable (the DJ Moore dot:
-//     wanting young PCs is a signal the aging PCs can go).
+//     non-young pieces already on the roster expendable.
 export function shedsAt(sig: IntentSignals, bucket: NeedBucket): boolean {
   const p = pos(sig, bucket);
   return p.market === "sell" || acquiresYoungAt(sig, bucket);
@@ -130,7 +121,7 @@ export function fillsNeedAt(sig: IntentSignals, bucket: NeedBucket): boolean {
   return p.market === "sell" && p.sellMove.includes("fill_need");
 }
 
-// Any bucket the owner is buying studs at, or buying picks for win-now value.
+// Any bucket the owner is buying studs at.
 export function anyStudHunt(sig: IntentSignals): boolean {
   return BUCKETS.some((b) => acquiresStudAt(sig, b));
 }
@@ -141,8 +132,7 @@ export function anyShed(sig: IntentSignals): boolean {
 }
 
 // Owner is stockpiling FUTURE draft capital (picks buy + future kind, or picks
-// buy with no kind specified = all future). Distinct from premium/day2, which
-// are this-year win-now-ish capital.
+// buy with no kind specified = all future).
 export function accumulatesPicks(sig: IntentSignals): boolean {
   return sig.picks.market === "buy" && (sig.picks.buyKind.length === 0 || sig.picks.buyKind.includes("future"));
 }
@@ -153,28 +143,25 @@ export function wantsPremiumPicks(sig: IntentSignals): boolean {
 }
 
 // Accumulate-type posture present anywhere: any get-younger buy, any future-pick
-// stockpiling. Used by stand-pat (patient-build) and as a build_future tell.
+// stockpiling. A build_future tell.
 export function hasAccumulateSignal(sig: IntentSignals): boolean {
   return accumulatesPicks(sig) || BUCKETS.some((b) => acquiresYoungAt(sig, b));
 }
 
 // The owner's DOMINANT clock, derived from their signals — the single timeline
-// their whole stated plan runs on. Phase B collapses every intent-sourced move
-// into this one thesis so the plan coheres under one currency fence (e.g. a
-// build-minded owner's RB consolidate is part of the build, not a separate
-// win-now story). Engine-sourced moves are NOT collapsed — the engine genuinely
-// proposes different clocks.
+// their whole stated plan runs on. The intent thesis collapses onto this clock
+// so the plan coheres under one currency fence. Engine theses are NOT collapsed.
 //
-//   build_future : any accumulate signal (get-younger buys, future-pick hoard)
-//                  and no premium-pick/stud win-now lean that outweighs it.
+//   build_future : any accumulate signal (get-younger buys, future-pick hoard).
 //   win_now      : stud-hunting and/or premium-pick buying with no accumulate
 //                  signal — the owner is spending to win now.
-//   retool       : neither — only shedding (sell markets) with no build or
-//                  win-now destination stated.
-export function dominantTimeline(sig: IntentSignals): "win_now" | "build_future" | "retool" {
+//   build_future : the default for everything else (e.g. a pure seller with no
+//                  stated destination — patience is the safe read). There is no
+//                  retool timeline.
+export function dominantTimeline(sig: IntentSignals): "win_now" | "build_future" {
   const accumulate = hasAccumulateSignal(sig);
   const winNow = anyStudHunt(sig) || wantsPremiumPicks(sig);
   if (accumulate) return "build_future"; // patience wins ties — stated youth/picks is a future plan
   if (winNow) return "win_now";
-  return "retool";
+  return "build_future"; // patient default (replaces the old retool fallback)
 }

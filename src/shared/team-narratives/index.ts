@@ -11,14 +11,9 @@ export {
   accumulatesPicks,
   wantsPremiumPicks,
   hasAccumulateSignal,
+  dominantTimeline,
 } from "./intent";
-export {
-  STARTER_COUNTS,
-  DEPTH_CLIFF_THRESHOLD,
-  checkPhantomCliff,
-  checkPhantomSurplusFromAging,
-  checkPhantomHighValueIsNotSurplus,
-} from "./phantoms";
+export { isRealHole, STARTER_COUNTS } from "./scarcity";
 export {
   detectSlotCliffs,
   startsForCount,
@@ -27,17 +22,5 @@ export {
   CLIFF_MIN_STARTER_VALUE,
   type SlotCliff,
 } from "./cliff";
-export {
-  fireAllArchetypes,
-  fireConsolidate,
-  fireDeConsolidate,
-  fireWinNowPush,
-  fireReset,
-  fireSellHighStar,
-  fireVetLiquidation,
-  fireInsurance,
-  fireStandPat,
-  type TriggerContext,
-} from "./triggers";
+export { buildThesesForTeam, engineTimelines } from "./goals";
 export { buildTeamNarratives } from "./builder";
-export { buildTheses } from "./thesis";

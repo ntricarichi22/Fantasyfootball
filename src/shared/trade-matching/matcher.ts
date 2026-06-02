@@ -1,361 +1,226 @@
 import type { LeagueData, PlayerInfo } from "@/shared/league-data";
 import type { NeedBucket } from "@/shared/team-profiles";
-import {
-  bucketOf,
-  sellMarketBuckets,
-  buyMarketBuckets,
-} from "@/shared/team-profiles";
-import type { Window } from "@/shared/team-dossier";
+import { bucketOf } from "@/shared/team-profiles";
 import { isYoung } from "@/shared/asset-values";
 import {
-  ARCHETYPE_OPPOSITES,
-  ARCHETYPE_ROLE,
+  ACQUIRE_GOAL_KINDS,
+  type Goal,
   type NarrativeBundle,
-  type FiredNarrative,
 } from "@/shared/team-narratives";
 
-import type {
-  AnchorBucket,
-  CurrencyMatch,
-  Match,
-  MatchInput,
-  RankReasons,
-  TeamSlate,
-  WindowComplement,
-} from "./types";
+import type { AnchorBucket, GoalRef, Match, MatchInput, RankReasons, TeamSlate } from "./types";
 
-// ── small read helpers (no recomputation — straight reads off the layers) ──
+// Insurance wants a cheap proven backup — above legitimate backup arms, below
+// franchise starters. League-relative impact bars (top-N by value at a bucket).
+const INSURANCE_TARGET_CEILING = 200;
+const IMPACT_TOPN: Record<NeedBucket, number> = { QB: 20, RB: 20, PASS_CATCHER: 40 };
 
 function bucketKey(bucket: NeedBucket): "qb" | "rb" | "passCatcher" {
   return bucket === "QB" ? "qb" : bucket === "RB" ? "rb" : "passCatcher";
 }
-
-// FiredNarrative.assets carries player IDs and pick keys (not display names),
-// so resolve players against the global id->PlayerInfo map. Anything not found
-// there is a pick key (e.g. "pick:2027:1").
-function resolvePlayer(data: LeagueData, asset: string): PlayerInfo | null {
-  return data.players.get(asset) ?? null;
+function isPickKey(key: string): boolean {
+  return key.startsWith("pick:");
+}
+function resolvePlayer(data: LeagueData, key: string): PlayerInfo | null {
+  return data.players.get(key) ?? null;
+}
+function valueOf(data: LeagueData, key: string): number {
+  return data.values.value.get(key) ?? 0;
+}
+function isStud(data: LeagueData, key: string): boolean {
+  return data.values.isStud.get(key) ?? false;
+}
+function assetBucket(data: LeagueData, key: string): AnchorBucket | null {
+  if (isPickKey(key)) return "PICK";
+  const p = resolvePlayer(data, key);
+  return p ? bucketOf(p.position) : null;
+}
+function assetLabel(data: LeagueData, key: string): string {
+  return resolvePlayer(data, key)?.name ?? key;
+}
+function findPick(data: LeagueData, rosterId: string, key: string) {
+  return (data.pickOwnership.get(rosterId) ?? []).find((p) => p.key === key);
 }
 
-// The bucket of a headline piece. Players resolve through the shared
-// position->bucket mapper; pick keys (and anything unresolvable) are "PICK".
-function anchorBucketOf(data: LeagueData, asset: string): AnchorBucket | null {
-  const info = resolvePlayer(data, asset);
-  if (!info) return "PICK";
-  return bucketOf(info.position);
-}
-
-// Human-readable label for an asset — the player's name, or the raw key.
-function anchorLabel(data: LeagueData, asset: string): string {
-  return resolvePlayer(data, asset)?.name ?? asset;
-}
-
-function scarcityBuckets(bundle: NarrativeBundle): Set<NeedBucket> {
-  return new Set(bundle.rosterRead.scarcities.map((s) => s.bucket));
-}
-
-function surplusBuckets(bundle: NarrativeBundle): Set<NeedBucket> {
-  return new Set(bundle.rosterRead.surpluses.map((s) => s.bucket));
-}
-
-function needScore(needs: MatchInput["needs"], rosterId: string, bucket: NeedBucket): number | null {
-  const nd = needs.get(rosterId);
-  return nd ? nd[bucketKey(bucket)].score : null;
-}
-
-// Contender <-> rebuilder is the clean pair. Same broad window gets the downbump.
-function broadWindow(w: Window): "win" | "build" {
-  return w === "contending" || w === "closing" ? "win" : "build";
-}
-
-function windowComplement(a: Window, b: Window): WindowComplement {
-  return broadWindow(a) === broadWindow(b) ? "same_window" : "clean";
-}
-
-// Coarse read of what a partner can pay with — enough to rank, not to price.
-// Strong = holds a future first; partial = holds any pick or a young body;
-// weak = neither. Real pricing happens later in offer generation.
-function currencyFor(data: LeagueData, rosterId: string): CurrencyMatch {
-  const picks = data.pickOwnership.get(rosterId) ?? [];
-  const hasFirst = picks.some((pk) => pk.round === 1);
-  if (hasFirst) return "strong";
-  const hasAnyPick = picks.length > 0;
-  const roster = data.teams.find((t) => t.rosterId === rosterId);
-  const hasYouth = !!roster && roster.players.some((p) => isYoung(p.position, p.age));
-  return hasAnyPick || hasYouth ? "partial" : "weak";
-}
-
-const CURRENCY_RANK: Record<CurrencyMatch, number> = { strong: 2, partial: 1, weak: 0 };
-const WINDOW_RANK: Record<WindowComplement, number> = { clean: 1, same_window: 0 };
-
-// Insurance buys a cheap backup, not a starter. A QB worth more than this is
-// too good to sit on a bench — that's a real win-now acquisition, not
-// insurance — so insurance matches are capped at this target value. Set above
-// legitimate backup arms (Jones/Willis ~142, Murray ~179) but below franchise
-// starters (Lawrence ~302), so the "scrounge a self-respecting backup"
-// storyline can't pull in a player who's plainly a starter elsewhere.
-const INSURANCE_TARGET_CEILING = 200;
-
-// Order matches: need severity first (the desperate buyer leads), then
-// currency, then window. All three stay visible on each match; this only
-// decides the sequence.
-function sortBySeverity(matches: Match[]): Match[] {
-  return matches.slice().sort((x, y) => {
-    const sx = x.reasons.needSeverity ?? -1;
-    const sy = y.reasons.needSeverity ?? -1;
-    if (sy !== sx) return sy - sx;
-    const cx = CURRENCY_RANK[x.reasons.currencyMatch];
-    const cy = CURRENCY_RANK[y.reasons.currencyMatch];
-    if (cy !== cx) return cy - cx;
-    return WINDOW_RANK[y.reasons.windowComplement] - WINDOW_RANK[x.reasons.windowComplement];
-  });
-}
-
-// ── tier 1 — narrative-driven matching ────────────────────────────────────
-
-// Our seller narrative ships an anchor. A partner qualifies if (a) they fire
-// the opposite buyer archetype AND (b) they genuinely need the anchor's bucket.
-function matchSellNarrative(
-  active: NarrativeBundle,
-  fired: FiredNarrative,
-  input: MatchInput,
-  windowByRoster: Map<string, Window>
-): Match[] {
-  const out: Match[] = [];
-  const opposites = ARCHETYPE_OPPOSITES[fired.archetype];
-
-  for (const asset of fired.assets) {
-    const bk = anchorBucketOf(input.data, asset);
-    // Pick anchors (e.g. trade-back) need pick-for-pick logic that lives in
-    // offer generation, not here — skip them at the matching layer for now.
-    if (bk === null || bk === "PICK") continue;
-    const label = anchorLabel(input.data, asset);
-
-    for (const [partnerId, partnerBundle] of input.bundles) {
-      if (partnerId === active.rosterId) continue;
-
-      const partnerBuyers = partnerBundle.firedNarratives.filter(
-        (fn) => opposites.includes(fn.archetype) && ARCHETYPE_ROLE[fn.archetype] === "buyer"
-      );
-      if (partnerBuyers.length === 0) continue; // hard gate: opposite buyer archetype must actually fire
-
-      // They must want this position: a real scarcity at the bucket, OR a buyer
-      // narrative explicitly shopping it (insurance stamps QB even though a
-      // depth/fragility need is not a listed scarcity).
-      const wantsBucket =
-        scarcityBuckets(partnerBundle).has(bk) || partnerBuyers.some((fn) => fn.targetBucket === bk);
-      if (!wantsBucket) continue;
-
-      // Prefer the buyer narrative explicitly shopping this bucket.
-      const partnerOpp = partnerBuyers.find((fn) => fn.targetBucket === bk) ?? partnerBuyers[0];
-
-      const sev = needScore(input.needs, partnerId, bk);
-      const cur = currencyFor(input.data, partnerId);
-      const win = windowComplement(
-        windowByRoster.get(active.rosterId)!,
-        windowByRoster.get(partnerId)!
-      );
-
-      const reasons: RankReasons = { needSeverity: sev, currencyMatch: cur, windowComplement: win };
-      out.push({
-        tier: 1,
-        side: "we_sell",
-        narrativeArchetype: fired.archetype,
-        narrativeFlavor: fired.flavor,
-        thesisId: fired.thesisId,
-        anchor: label,
-        anchorKey: asset,
-        anchorBucket: bk,
-        partnerRosterId: partnerId,
-        partnerTeam: partnerBundle.teamName,
-        partnerArchetype: partnerOpp.archetype,
-        reasons,
-        why: `${partnerBundle.teamName} needs ${bk} (${sev ?? "?"}) and fires ${partnerOpp.archetype}; currency ${cur}, window ${win}.`,
-      });
+// Precompute the league top-N impact set per bucket once (avoids an O(players)
+// scan per candidate). A player is "impact" if he's top-N by value at his bucket.
+function buildImpactSets(data: LeagueData): Map<NeedBucket, Set<string>> {
+  const byBucket = new Map<NeedBucket, Array<{ id: string; v: number }>>();
+  for (const t of data.teams) {
+    for (const pid of t.playerIds) {
+      const p = data.players.get(pid);
+      if (!p) continue;
+      const b = bucketOf(p.position);
+      if (!b) continue;
+      const arr = byBucket.get(b) ?? [];
+      arr.push({ id: pid, v: data.values.value.get(pid) ?? 0 });
+      byBucket.set(b, arr);
     }
   }
-
-  return sortBySeverity(out);
+  const out = new Map<NeedBucket, Set<string>>();
+  for (const [b, arr] of byBucket) {
+    arr.sort((x, y) => y.v - x.v);
+    out.set(b, new Set(arr.slice(0, IMPACT_TOPN[b]).map((x) => x.id)));
+  }
+  return out;
 }
 
-// Our buyer narrative shops at our scarcity buckets. A partner qualifies if
-// they fire an opposite seller archetype AND are shipping a piece at one of
-// those buckets. Ranked by the piece's value (best fit on top) since the
-// desperation here is ours and doesn't separate partners.
-function matchBuyNarrative(
-  active: NarrativeBundle,
-  fired: FiredNarrative,
-  input: MatchInput,
-  windowByRoster: Map<string, Window>
-): Match[] {
-  const out: Array<{ match: Match; value: number }> = [];
-  const opposites = ARCHETYPE_OPPOSITES[fired.archetype];
-  // A buyer narrative shops at its stamped target bucket when it has one
-  // (insurance -> QB); otherwise it shops at our roster scarcities.
-  const targets = fired.targetBucket ? new Set<NeedBucket>([fired.targetBucket]) : scarcityBuckets(active);
+// Does `assetKey` (owned by `ownerRosterId`) satisfy `goal`'s returnSpec? This
+// is the single predicate used BOTH to find partner assets that fill our goal
+// AND to check whether our payment fills one of their goals. `shed` is not an
+// acquire goal, so it never matches here.
+function assetFitsGoal(
+  data: LeagueData,
+  impactSets: Map<NeedBucket, Set<string>>,
+  assetKey: string,
+  goal: Goal,
+  ownerRosterId: string,
+): boolean {
+  switch (goal.kind) {
+    case "accumulate_picks": {
+      if (!isPickKey(assetKey)) return false;
+      const pick = findPick(data, ownerRosterId, assetKey);
+      if (!pick) return false;
+      const tier = goal.pickTier ?? "any";
+      if (tier === "premium") return pick.round === 1;
+      if (tier === "future") return pick.kind === "future";
+      return true;
+    }
+    case "add_youth":
+    case "fill_need": {
+      const p = resolvePlayer(data, assetKey);
+      if (!p) return false;
+      if (goal.bucket && bucketOf(p.position) !== goal.bucket) return false;
+      // youth-aimed fills require a young, non-stud body
+      if ((goal.returnSpec.youthBuckets?.length ?? 0) > 0) {
+        return isYoung(p.position, p.age) && !isStud(data, assetKey);
+      }
+      return true;
+    }
+    case "acquire_impact": {
+      const p = resolvePlayer(data, assetKey);
+      if (!p) return false;
+      const b = bucketOf(p.position);
+      if (!b) return false;
+      if (goal.bucket && b !== goal.bucket) return false;
+      return impactSets.get(b)?.has(assetKey) ?? false;
+    }
+    case "insurance": {
+      const p = resolvePlayer(data, assetKey);
+      if (!p || p.position !== "QB") return false;
+      const v = valueOf(data, assetKey);
+      return !isStud(data, assetKey) && !isYoung(p.position, p.age) && v > 0 && v <= INSURANCE_TARGET_CEILING;
+    }
+    default:
+      return false;
+  }
+}
 
-  for (const [partnerId, partnerBundle] of input.bundles) {
-    if (partnerId === active.rosterId) continue;
-
-    for (const fn of partnerBundle.firedNarratives) {
-      if (!opposites.includes(fn.archetype) || ARCHETYPE_ROLE[fn.archetype] !== "seller") continue;
-
-      for (const asset of fn.assets) {
-        const bk = anchorBucketOf(input.data, asset);
-        if (bk === null || bk === "PICK" || !targets.has(bk)) continue;
-
-        const info = resolvePlayer(input.data, asset);
-        const value = info ? input.data.values.value.get(info.id) ?? 0 : 0;
-        // Insurance wants a cheap, PROVEN veteran backup — skip targets too
-        // valuable to be one (a starter, not insurance) AND skip young players
-        // (a 23-year-old arm is a developmental asset, a different storyline,
-        // not the self-respecting vet backup insurance is after).
-        if (fired.archetype === "insurance" && value > INSURANCE_TARGET_CEILING) continue;
-        if (fired.archetype === "insurance" && info && isYoung(info.position, info.age)) continue;
-        const cur = currencyFor(input.data, partnerId);
-        const win = windowComplement(
-          windowByRoster.get(active.rosterId)!,
-          windowByRoster.get(partnerId)!
-        );
-
-        out.push({
-          value,
-          match: {
-            tier: 1,
-            side: "we_buy",
-            narrativeArchetype: fired.archetype,
-            narrativeFlavor: fired.flavor,
-            thesisId: fired.thesisId,
-            anchor: anchorLabel(input.data, asset),
-            anchorKey: asset,
-            anchorBucket: bk,
-            partnerRosterId: partnerId,
-            partnerTeam: partnerBundle.teamName,
-            partnerArchetype: fn.archetype,
-            // needSeverity null on buy-side; we rank by piece value instead.
-            reasons: { needSeverity: null, currencyMatch: cur, windowComplement: win },
-            why: `${partnerBundle.teamName} is shipping ${anchorLabel(input.data, asset)} (${bk}, val ${value}) via ${fn.archetype} — fills our ${bk} hole.`,
-          },
-        });
+// Two-sided check: does any asset in OUR spendable pool (for this thesis)
+// satisfy one of the PARTNER's acquire goals? Returns the first match — the
+// reason they'd bite — or null (one-sided / long-shot).
+function findPartnerGoalSatisfied(
+  data: LeagueData,
+  impactSets: Map<NeedBucket, Set<string>>,
+  ourSpendable: Set<string>,
+  partner: NarrativeBundle,
+  ourRosterId: string,
+): GoalRef | null {
+  for (const pThesis of partner.theses) {
+    for (const pGoal of pThesis.goals) {
+      if (!ACQUIRE_GOAL_KINDS.has(pGoal.kind)) continue;
+      for (const ourAsset of ourSpendable) {
+        if (assetFitsGoal(data, impactSets, ourAsset, pGoal, ourRosterId)) {
+          return { rosterId: partner.rosterId, thesisId: pThesis.id, goalId: pGoal.id, kind: pGoal.kind };
+        }
       }
     }
   }
-
-  // Buy-side: order by the headline piece's value (best stud first).
-  return out.sort((a, b) => b.value - a.value).map((o) => o.match);
+  return null;
 }
-
-// ── tier 2 — the value-fit floor (symmetric stated-market rule) ────────────
-//
-// A stated SELL at a position matches a partner who has stated BUY there OR a
-// genuine need there. A stated BUY at a position matches a partner who has
-// stated SELL there OR a genuine surplus there. Only built when tier 1 is thin.
-
-function buildFloor(
-  active: NarrativeBundle,
-  input: MatchInput,
-  windowByRoster: Map<string, Window>
-): Match[] {
-  const out: Match[] = [];
-  const strat = input.data.strategy.get(active.rosterId) ?? null;
-  const ourSells = sellMarketBuckets(strat);
-  const ourBuys = buyMarketBuckets(strat);
-
-  for (const [partnerId, partnerBundle] of input.bundles) {
-    if (partnerId === active.rosterId) continue;
-    const pStrat = input.data.strategy.get(partnerId) ?? null;
-    const pBuys = new Set(buyMarketBuckets(pStrat));
-    const pSells = new Set(sellMarketBuckets(pStrat));
-    const pNeeds = scarcityBuckets(partnerBundle);
-    const pSurplus = surplusBuckets(partnerBundle);
-    const win = windowComplement(windowByRoster.get(active.rosterId)!, windowByRoster.get(partnerId)!);
-
-    // Our stated sells -> partner buys there OR needs there.
-    for (const bk of ourSells) {
-      if (!(pBuys.has(bk) || pNeeds.has(bk))) continue;
-      const sev = needScore(input.needs, partnerId, bk);
-      const reason = pBuys.has(bk) ? "stated buy" : `need ${sev ?? "?"}`;
-      out.push(
-        floorMatch("we_sell", bk, partnerId, partnerBundle.teamName, sev, currencyFor(input.data, partnerId), win,
-          `We're shopping ${bk}; ${partnerBundle.teamName} has a ${reason} there.`)
-      );
-    }
-    // Our stated buys -> partner sells there OR has surplus there.
-    for (const bk of ourBuys) {
-      if (!(pSells.has(bk) || pSurplus.has(bk))) continue;
-      const reason = pSells.has(bk) ? "stated sell" : "surplus";
-      out.push(
-        floorMatch("we_buy", bk, partnerId, partnerBundle.teamName, null, currencyFor(input.data, partnerId), win,
-          `We want ${bk}; ${partnerBundle.teamName} has a ${reason} there.`)
-      );
-    }
-  }
-
-  return sortBySeverity(out);
-}
-
-function floorMatch(
-  side: Match["side"],
-  bk: NeedBucket,
-  partnerId: string,
-  partnerTeam: string,
-  sev: number | null,
-  cur: CurrencyMatch,
-  win: WindowComplement,
-  why: string
-): Match {
-  return {
-    tier: 2,
-    side,
-    narrativeArchetype: "stand_pat", // floor isn't driven by one of our narratives
-    narrativeFlavor: null,
-    anchor: `(${bk} — value-fit)`,
-    anchorKey: "",
-    anchorBucket: bk,
-    partnerRosterId: partnerId,
-    partnerTeam,
-    partnerArchetype: null,
-    reasons: { needSeverity: sev, currencyMatch: cur, windowComplement: win },
-    why,
-  };
-}
-
-// ── public entry ───────────────────────────────────────────────────────────
 
 export function buildMatchSlates(input: MatchInput): Map<string, TeamSlate> {
-  const windowByRoster = new Map<string, Window>();
-  for (const d of input.dossiers) windowByRoster.set(d.rosterId, d.window);
-
+  const { data, needs, bundles } = input;
+  const impactSets = buildImpactSets(data);
   const slates = new Map<string, TeamSlate>();
 
-  for (const [rosterId, active] of input.bundles) {
-    const tier1: Match[] = [];
+  for (const [rosterId, active] of bundles) {
+    const matches: Match[] = [];
+    const seen = new Set<string>(); // dedupe (goal|partner|asset)
 
-    for (const fired of active.firedNarratives) {
-      const role = ARCHETYPE_ROLE[fired.archetype];
-      if (role === "null_action") continue; // stand-pat produces no offers
+    for (const ourThesis of active.theses) {
+      const ourSpendable = ourThesis.spendable;
 
-      if (role === "seller") {
-        tier1.push(...matchSellNarrative(active, fired, input, windowByRoster));
-      } else {
-        tier1.push(...matchBuyNarrative(active, fired, input, windowByRoster));
+      for (const goal of ourThesis.goals) {
+        if (!ACQUIRE_GOAL_KINDS.has(goal.kind)) continue;
+
+        for (const [partnerId, partner] of bundles) {
+          if (partnerId === rosterId) continue;
+
+          // Partner assets their storyline is willing to move, deduped across
+          // their theses (an asset spendable in two of their stories is one
+          // asset). Record the first thesis it appeared in.
+          const partnerAssets = new Map<string, string>(); // assetKey -> partnerThesisId
+          for (const pThesis of partner.theses) {
+            for (const a of pThesis.spendable) {
+              if (!partnerAssets.has(a)) partnerAssets.set(a, pThesis.id);
+            }
+          }
+
+          for (const [assetKey, partnerThesisId] of partnerAssets) {
+            if (!assetFitsGoal(data, impactSets, assetKey, goal, partnerId)) continue;
+
+            const dedupe = `${goal.id}|${partnerId}|${assetKey}`;
+            if (seen.has(dedupe)) continue;
+            seen.add(dedupe);
+
+            const partnerGoalSatisfied = findPartnerGoalSatisfied(
+              data,
+              impactSets,
+              ourSpendable,
+              partner,
+              rosterId,
+            );
+
+            const bk = assetBucket(data, assetKey);
+            const partnerNeedSeverity =
+              bk && bk !== "PICK" ? needs.get(partnerId)?.[bucketKey(bk)].score ?? null : null;
+            const fillValue = valueOf(data, assetKey);
+
+            const rankReasons: RankReasons = {
+              bothSidesSatisfied: partnerGoalSatisfied !== null,
+              partnerNeedSeverity,
+              fillValue,
+            };
+
+            const label = assetLabel(data, assetKey);
+            const why =
+              partnerGoalSatisfied !== null
+                ? `${partner.teamName} will move ${label} (fills our ${goal.kind}); we can pay into their ${partnerGoalSatisfied.kind}.`
+                : `${partner.teamName} will move ${label} (fills our ${goal.kind}); great for us, but they have no clear reason to bite yet.`;
+
+            matches.push({
+              ourRosterId: rosterId,
+              ourThesisId: ourThesis.id,
+              ourGoalId: goal.id,
+              ourGoalKind: goal.kind,
+              ourBucket: goal.bucket ?? (goal.kind === "accumulate_picks" ? "PICK" : null),
+              partnerRosterId: partnerId,
+              partnerTeam: partner.teamName,
+              partnerThesisId,
+              partnerAssetKey: assetKey,
+              partnerAssetLabel: label,
+              fillsOurGoal: true,
+              partnerGoalSatisfied,
+              rankReasons,
+              why,
+            });
+          }
+        }
       }
     }
 
-    // Matching surfaces every valid pairing; the downstream ranking, universal
-    // filters, and offer generation do the trimming. No tier-1 count gate — an
-    // explicit buy/sell toggle must always surface offers, even when tier 1 is
-    // already full. The tier label is kept so the director can still tell
-    // narrative-driven deals from value-fit ones.
-    const tier2 = buildFloor(active, input, windowByRoster);
-
-    slates.set(rosterId, {
-      rosterId,
-      team: active.teamName,
-      tier1Count: tier1.length,
-      tier1,
-      tier2,
-    });
+    slates.set(rosterId, { rosterId, team: active.teamName, matches });
   }
 
   return slates;

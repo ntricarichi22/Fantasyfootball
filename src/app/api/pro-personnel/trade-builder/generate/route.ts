@@ -1,27 +1,31 @@
 // POST /api/pro-personnel/trade-builder/generate
 //
-// Builder ("Build a Trade") generation — runs the full narrative pipeline: the
-// brain fires each team's storylines, the matcher pairs them across the league,
-// and offer generation builds a real offer per match. This is the SAME pipeline
-// the debug/offers route exercises — the production door and the smoke test now
-// run identical logic. The client request contract is unchanged (POST team_id
-// + rosters; rosters are ignored, the engine reads roster truth from shared).
-// Everything the engine needs is loaded SERVER-SIDE here and handed in via
-// EngineContext; the engine itself touches no database.
+// Builder ("Build a Trade") generation — runs the full storyline pipeline: the
+// brain derives each team's theses + goals, the matcher pairs our goals against
+// other teams' spendable pools, and offer generation builds a real offer per
+// way. This is the SAME pipeline the debug/offers route exercises — production
+// door and smoke test run identical logic. Client request contract is unchanged
+// (POST team_id + rosters; rosters are ignored, the engine reads roster truth
+// from shared). Everything the engine needs is loaded SERVER-SIDE here and
+// handed in via EngineContext; the engine touches no database.
 //
-// Response shape is frozen, with one additive field: { offers, generatedAt,
-// reason } where each offer is { id, partnerTeam:{id,name,persona}, sendAssets,
-// receiveAssets, gap, grade, verdict, prose, narrative }. reason is "ok" |
-// "no_strategy" | "no_clean_offers". narrative is the storyline that drove the
-// offer, added so the door can group by storyline; existing consumers ignore
-// unknown fields.
+// Response shape is frozen: { theses, generatedAt, reason } where each thesis
+// carries { id, source, timeline, headline, pitch, offers } and each offer is
+// { id, partnerTeam:{id,name,persona}, sendAssets, receiveAssets, gap, grade,
+// verdict, prose, narrative }. narrative now carries the GOAL the offer serves
+// (the sub-objective inside the storyline); existing consumers ignore unknown
+// fields. reason is "ok" | "no_strategy" | "no_clean_offers".
 
 import { NextResponse } from "next/server";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives } from "@/shared/team-narratives";
-import { buildMatchSlates, generateOffersForTeam } from "@/shared/trade-matching";
+import {
+  buildMatchSlates,
+  generateOffersForTeam,
+  type GeneratedOffer,
+} from "@/shared/trade-matching";
 import { buildValuationContext } from "@/shared/asset-values";
 import { type EngineContext } from "@/pro-personnel/engine";
 
@@ -39,7 +43,8 @@ export async function POST(req: Request) {
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
-    const bundles = buildTeamNarratives(data, profiles, dossiers, needs);
+    const playoffHistory = await getPlayoffHistory();
+    const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
     const slates = buildMatchSlates({ data, profiles, needs, dossiers, bundles });
     const ctx = await buildValuationContext();
 
@@ -48,7 +53,7 @@ export async function POST(req: Request) {
     const slate = slates.get(teamId);
     const thesisOffers = slate ? generateOffersForTeam(slate, ec) : [];
 
-    const mapOffer = (g: (typeof thesisOffers)[number]["offers"][number]) => {
+    const mapOffer = (g: GeneratedOffer) => {
       const o = g.offer;
       return {
         id: o.id,
@@ -68,24 +73,23 @@ export async function POST(req: Request) {
         grade: { label: o.grade.label, color: o.grade.color },
         verdict: o.ourScoreboard.verdict,
         prose: o.prose,
-        narrative: g.narrativeArchetype,
+        narrative: g.goalKind,
+        bothSidesSatisfied: g.bothSidesSatisfied,
       };
     };
 
-    // Thesis-grouped: each story carries its own fenced offer list. The owner's
-    // intent thesis comes first, engine alternatives after (buildTheses order).
+    // Thesis-grouped: each storyline carries its own fenced offer list (its
+    // goals' offers, flattened). Intent thesis first, engine alternatives after.
     const theses = thesisOffers.map((to) => ({
       id: to.thesis.id,
       source: to.thesis.source,
       timeline: to.thesis.timeline,
       headline: to.thesis.headline,
       pitch: to.thesis.pitch,
-      offers: to.offers.map(mapOffer),
+      offers: to.goals.flatMap((go) => go.offers).map(mapOffer),
     }));
 
     const totalOffers = theses.reduce((n, t) => n + t.offers.length, 0);
-    // "no_strategy" when the user never set a strategy at all; otherwise the
-    // pipeline either produced offers ("ok") or it didn't ("no_clean_offers").
     const hasStrategy = !!data.strategy.get(teamId);
     const reason = totalOffers > 0 ? "ok" : hasStrategy ? "no_clean_offers" : "no_strategy";
 

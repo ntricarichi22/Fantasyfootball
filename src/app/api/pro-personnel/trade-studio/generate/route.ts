@@ -1,9 +1,9 @@
 // POST /api/pro-personnel/trade-studio/generate
 //
-// Trade Studio generation — now on the unified engine. Request contract is
-// unchanged (team_id + shop_list_keys + optional anchor_partner_id; rosters are
-// still accepted but ignored, since the engine reads roster truth from shared).
-// All engine inputs load SERVER-SIDE here; the engine touches no database.
+// Trade Studio generation — on the unified engine. Request contract is unchanged
+// (team_id + shop_list_keys + optional anchor_partner_id; rosters are still
+// accepted but ignored, since the engine reads roster truth from shared). All
+// engine inputs load SERVER-SIDE here; the engine touches no database.
 //
 // Response shape is frozen: { offers: StudioOffer[], totalCandidatesEvaluated,
 // isFallback }, where StudioOffer = { id, partnerTeamId, partnerTeamName,
@@ -12,7 +12,7 @@
 // lives in the advisor prose.
 
 import { NextResponse } from "next/server";
-import { getLeagueData, type LeagueData } from "@/shared/league-data";
+import { getLeagueData, getPlayoffHistory, type LeagueData } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives } from "@/shared/team-narratives";
@@ -68,7 +68,8 @@ export async function POST(req: Request) {
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
-    const bundles = buildTeamNarratives(data, profiles, dossiers, needs);
+    const playoffHistory = await getPlayoffHistory();
+    const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
     const ctx = await buildValuationContext();
 
     const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };

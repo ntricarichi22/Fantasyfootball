@@ -1,6 +1,6 @@
-import type { LeagueData, PlayerInfo, Position } from "@/shared/league-data";
+import type { LeagueData, PlayerInfo, PlayoffHistory, Position } from "@/shared/league-data";
 import type { TeamProfile, TeamNeeds, NeedBucket, NeedDetail } from "@/shared/team-profiles";
-import { slotEligibility, bucketOf } from "@/shared/team-profiles";
+import { bucketOf, slotEligibility } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
 import { isYoung, isAging } from "@/shared/asset-values";
 
@@ -13,14 +13,26 @@ import type {
   AgingStarAtPeak,
   OffTimelineVet,
   BuriedYoungPlayer,
-  PhantomCorrection,
   ContenderUpgrade,
+  Competitiveness,
+  CoreAge,
 } from "./types";
 import { readIntent, shedsAt, hasAccumulateSignal, type IntentSignals } from "./intent";
-import { buildTheses } from "./thesis";
-import { checkPhantomCliff } from "./phantoms";
 import { startsForCount } from "./cliff";
-import { fireAllArchetypes, type TriggerContext } from "./triggers";
+import { isRealHole } from "./scarcity";
+import { buildThesesForTeam } from "./goals";
+
+// ── tunable knobs ────────────────────────────────────────────────────────────
+const SURPLUS_STARTS_FOR_TEAMS = 2;
+const VET_STARTS_FOR_TEAMS = 1;
+const VET_DEV_WINDOW_YEARS = 3;
+const STAR_VALUE_FLOOR = 180;
+// Two-axis thresholds (locked against the league dry run):
+const AGING_AGE_FLOOR = 27.0;       // avg starter age >= this => aging core
+const YOUNG_AGE_CEILING = 25.5;     // avg starter age <= this => young core
+const WEAK_ROSTER_FRACTION = 0.8;   // starterValue < this * playoffCut => weak
+
+const BUCKETS: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
 
 function bucketKey(bucket: NeedBucket): "qb" | "rb" | "passCatcher" {
   return bucket === "QB" ? "qb" : bucket === "RB" ? "rb" : "passCatcher";
@@ -29,40 +41,23 @@ function needDetailFor(needs: TeamNeeds, bucket: NeedBucket): NeedDetail {
   return needs[bucketKey(bucket)];
 }
 function canonicalPositionForBucket(bucket: NeedBucket): Position {
-  // Use the dominant position for slot-eligibility simulation. PASS_CATCHER
-  // bucket uses WR because stud WRs are more common than stud TEs; the
-  // simulation is directional, not exact.
   return bucket === "QB" ? "QB" : bucket === "RB" ? "RB" : "WR";
 }
 
-const SURPLUS_STARTS_FOR_TEAMS = 2;
-// Vet-liquidation: a cashable piece must be startable for at least this many
-// OTHER teams (the start-for test already excludes this team's own roster).
-const VET_STARTS_FOR_TEAMS = 1;
-// On a rebuilder, a prime piece within this many years of experience is still
-// developing — part of the rebuild core, not a vet to cash.
-const VET_DEV_WINDOW_YEARS = 3;
-
-// ── League stats (computed once per request, shared across teams) ─────────
-//
-// Tier cuts and per-bucket stud benchmarks. Used by the contender-thesis
-// simulation in each team's roster read.
-
+// ── League stats (computed once per request, shared across teams) ────────────
 type LeagueStats = {
-  playoffCut: number;          // 6th highest starterValue (6 teams make playoffs)
-  championshipCut: number;     // 2nd highest starterValue (top 2 = championship contenders)
+  playoffCut: number;        // 6th-highest starterValue (6 teams make playoffs)
+  championshipCut: number;   // 2nd-highest starterValue
   medianStudByBucket: Map<NeedBucket, number>;
 };
 
 function buildLeagueStats(profiles: TeamProfile[], data: LeagueData): LeagueStats {
-  const sorted = profiles
-    .map((p) => p.strength.starterValue)
-    .sort((a, b) => b - a);
+  const sorted = profiles.map((p) => p.strength.starterValue).sort((a, b) => b - a);
   const playoffCut = sorted[5] ?? 0;
   const championshipCut = sorted[1] ?? 0;
 
   const medianStudByBucket = new Map<NeedBucket, number>();
-  for (const bucket of ["QB", "RB", "PASS_CATCHER"] as NeedBucket[]) {
+  for (const bucket of BUCKETS) {
     const studValues: number[] = [];
     for (const team of data.teams) {
       for (const p of team.players) {
@@ -75,29 +70,45 @@ function buildLeagueStats(profiles: TeamProfile[], data: LeagueData): LeagueStat
     studValues.sort((a, b) => a - b);
     medianStudByBucket.set(bucket, studValues[Math.floor(studValues.length / 2)]);
   }
-
   return { playoffCut, championshipCut, medianStudByBucket };
 }
 
-// ── Roster read construction ──────────────────────────────────────────────
-
+// ── Roster read construction ─────────────────────────────────────────────────
 function buildRosterRead(
   rosterId: string,
   profile: TeamProfile,
   needs: TeamNeeds,
   data: LeagueData,
   leagueStats: LeagueStats,
+  playoffHistory: PlayoffHistory | null,
 ): RosterRead {
+  const weakFloor = leagueStats.playoffCut * WEAK_ROSTER_FRACTION;
+  const sv = profile.strength.starterValue;
+  const competitiveness: Competitiveness = {
+    starterValue: sv,
+    playoffCut: leagueStats.playoffCut,
+    championshipCut: leagueStats.championshipCut,
+    weakFloor,
+    isContender: sv >= leagueStats.playoffCut,
+    isEliteContender: sv >= leagueStats.championshipCut,
+    isWeakRoster: sv < weakFloor,
+  };
+
   const team = data.teams.find((t) => t.rosterId === rosterId);
   if (!team) {
     return {
-      surpluses: [], scarcities: [], worstOptimalStarter: null,
-      agingStarsAtPeak: [], offTimelineVets: [], buriedYoungPlayers: [],
-      contenderUpgrades: [], phantomCorrections: [],
+      surpluses: [],
+      scarcities: [],
+      worstOptimalStarter: null,
+      agingStarsAtPeak: [],
+      offTimelineVets: [],
+      buriedYoungPlayers: [],
+      contenderUpgrades: [],
+      competitiveness,
+      coreAge: { avgStarterAge: profile.strength.avgStarterAge, agingCore: false, youngCore: false },
+      playoffHistory,
     };
   }
-
-  const phantoms: PhantomCorrection[] = [];
 
   const byBucket = new Map<NeedBucket, PlayerInfo[]>();
   for (const p of team.players) {
@@ -107,26 +118,16 @@ function buildRosterRead(
     arr.push(p);
     byBucket.set(b, arr);
   }
-  const studCountByBucket = new Map<NeedBucket, number>();
-  for (const [bucket, players] of byBucket) {
-    let c = 0;
-    for (const p of players) if (data.values.isStud.get(p.id)) c++;
-    studCountByBucket.set(bucket, c);
-  }
 
   const inOptimalLineup = new Set<string>();
   for (const slot of profile.strength.lineup) if (slot.playerId) inOptimalLineup.add(slot.playerId);
 
-  const buckets: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
-
-  // Scarcities
+  // Scarcities — a loud dial only counts if it's a REAL hole (start-for test).
   const scarcities: ScarcityPosition[] = [];
-  for (const bucket of buckets) {
+  for (const bucket of BUCKETS) {
     const need = needDetailFor(needs, bucket);
     if (need.level === "low") continue;
-    const studCount = studCountByBucket.get(bucket) ?? 0;
-    const phantom = checkPhantomCliff(bucket, need.depthNorm, studCount);
-    if (phantom) { phantoms.push(phantom); continue; }
+    if (!isRealHole(bucket, rosterId, data)) continue;
     const currentStarterIds = profile.strength.lineup
       .filter((s) => s.position && bucketOf(s.position) === bucket && s.playerId)
       .map((s) => s.playerId!)
@@ -135,24 +136,20 @@ function buildRosterRead(
       bucket,
       severity: need.level === "high" ? "high" : "med",
       currentStarterIds,
-      reason:
-        `${bucket} need ${need.score.toFixed(2)} (starterNorm ${need.starterNorm.toFixed(2)}, ` +
-        `depthNorm ${need.depthNorm.toFixed(2)}) — real hole, not a dial artifact.`,
+      reason: `${bucket} need ${need.score.toFixed(2)} — real hole: can't field required startable starters.`,
     });
   }
   const scarcityBuckets = new Set(scarcities.map((s) => s.bucket));
 
-  // Surpluses
+  // Surpluses — bench pieces who would start for >= 2 other teams.
   const surpluses: SurplusPosition[] = [];
-  for (const bucket of buckets) {
+  for (const bucket of BUCKETS) {
     if (scarcityBuckets.has(bucket)) continue;
     const players = byBucket.get(bucket) ?? [];
     const surplusPieces = players
       .filter((p) => !inOptimalLineup.has(p.id))
       .map((p) => ({ p, v: data.values.value.get(p.id) ?? 0 }))
-      .filter(({ p, v }) =>
-        startsForCount(p.id, p.position, v, rosterId, data) >= SURPLUS_STARTS_FOR_TEAMS,
-      )
+      .filter(({ p, v }) => startsForCount(p.id, p.position, v, rosterId, data) >= SURPLUS_STARTS_FOR_TEAMS)
       .sort((a, b) => b.v - a.v);
     if (surplusPieces.length === 0) continue;
     surpluses.push({
@@ -164,7 +161,7 @@ function buildRosterRead(
     });
   }
 
-  // Worst optimal-lineup starter
+  // Worst optimal-lineup starter.
   let worst: WorstOptimalStarter = null;
   for (const slot of profile.strength.lineup) {
     if (!slot.playerId || !slot.position || !slot.name) continue;
@@ -173,8 +170,7 @@ function buildRosterRead(
     }
   }
 
-  // Aging stars at peak
-  const STAR_VALUE_FLOOR = 180;
+  // Aging stars at peak.
   const agingStarsAtPeak: AgingStarAtPeak[] = [];
   for (const p of team.players) {
     if (p.age === null) continue;
@@ -185,21 +181,8 @@ function buildRosterRead(
   }
   agingStarsAtPeak.sort((a, b) => b.value - a.value);
 
-  // Off-timeline vets
-  // Vet-liquidation candidates. ALWAYS eligible: aging, non-stud pieces. PLUS,
-  // on a rebuilding (teardown) team only, prime non-studs too — nobody prime is
-  // sacred during a rebuild, so a serviceable starter like a stopgap QB is fair
-  // game; retooling teams (reloading to contend) keep their prime core and shed
-  // only aging pieces. "Startable for 1+ OTHER team" is the market proving the
-  // piece fetches a real return (the test already excludes this roster), which
-  // replaces the old flat value floor.
+  // Off-timeline vets (liquidation candidates).
   const isRebuildingTier = profile.tier === "rebuilding";
-  // Owner intent override, now PER POSITION: a shed signal at a bucket (an
-  // explicit sell market, or a get-younger buy that makes the older guys there
-  // expendable — the DJ Moore dot) opens that bucket's prime non-studs to
-  // liquidation even on a contender, the same way a rebuilding teardown opens
-  // every bucket. The dev-window + startability fence below still protects the
-  // young core and untouchable studs.
   const intent = readIntent(data.strategy.get(rosterId) ?? null);
   const offTimelineVets: OffTimelineVet[] = [];
   for (const p of team.players) {
@@ -207,8 +190,6 @@ function buildRosterRead(
     if (data.values.isStud.get(p.id)) continue;
     const aging = isAging(p.position, p.age);
     const prime = !aging && !isYoung(p.position, p.age);
-    // Prime guys still in their development window stay off the block — a
-    // rebuilder keeps its young ascending core, only the established ones go.
     const stillDeveloping = p.exp !== null && p.exp <= VET_DEV_WINDOW_YEARS;
     const bucket = bucketOf(p.position);
     const ownerShedsHere = bucket ? shedsAt(intent, bucket) : false;
@@ -220,7 +201,7 @@ function buildRosterRead(
   }
   offTimelineVets.sort((a, b) => b.value - a.value);
 
-  // Buried young players
+  // Buried young players (young, below the worst starter at their bucket).
   const worstByBucket = new Map<NeedBucket, number>();
   for (const slot of profile.strength.lineup) {
     if (!slot.position) continue;
@@ -244,21 +225,16 @@ function buildRosterRead(
   }
   buriedYoungPlayers.sort((a, b) => b.value - a.value);
 
-  // ── Contender upgrade thesis ────────────────────────────────────────────
-  // For each scarcity, simulate: replace the weakest bucket-eligible starter
-  // with a league-median stud at that bucket. Does the new lineup value cross
-  // a tier cut? If yes, the upgrade thesis is viable at that bucket.
+  // Contender upgrade simulation (tier-jump potential, used as a competitiveness
+  // signal and a win-now target hint).
   const contenderUpgrades: ContenderUpgrade[] = [];
   const currentLineupValue = profile.strength.starterValue;
-  // Skip teams already above the championship bar — no upgrade thesis applies.
   if (currentLineupValue < leagueStats.championshipCut) {
     for (const scarcity of scarcities) {
       const medianStud = leagueStats.medianStudByBucket.get(scarcity.bucket);
       if (medianStud === undefined) continue;
       const stretchPosition = canonicalPositionForBucket(scarcity.bucket);
 
-      // Find the weakest current starter whose slot is eligible for the stud's
-      // position — that's who the stud displaces.
       let weakestReplaceable: { name: string; value: number } | null = null;
       for (const slot of profile.strength.lineup) {
         if (!slot.playerId) continue;
@@ -298,21 +274,34 @@ function buildRosterRead(
         reason:
           `Adding a league-median stud at ${scarcity.bucket} (value ${medianStud.toFixed(0)}) ` +
           `displaces ${weakestReplaceable.name} (value ${weakestReplaceable.value.toFixed(0)}) — ` +
-          `lineup ${currentLineupValue.toFixed(0)} → ${hypothetical.toFixed(0)}, ` +
-          `crosses ${tierJump} cut at ${cut.toFixed(0)}.`,
+          `lineup ${currentLineupValue.toFixed(0)} → ${hypothetical.toFixed(0)}, crosses ${tierJump} cut at ${cut.toFixed(0)}.`,
       });
     }
   }
 
+  // Core age (the second axis).
+  const avg = profile.strength.avgStarterAge;
+  const coreAge: CoreAge = {
+    avgStarterAge: avg,
+    agingCore: (avg !== null && avg >= AGING_AGE_FLOOR) || agingStarsAtPeak.length > 0,
+    youngCore: avg !== null && avg <= YOUNG_AGE_CEILING,
+  };
+
   return {
-    surpluses, scarcities, worstOptimalStarter: worst,
-    agingStarsAtPeak, offTimelineVets, buriedYoungPlayers,
-    contenderUpgrades, phantomCorrections: phantoms,
+    surpluses,
+    scarcities,
+    worstOptimalStarter: worst,
+    agingStarsAtPeak,
+    offTimelineVets,
+    buriedYoungPlayers,
+    contenderUpgrades,
+    competitiveness,
+    coreAge,
+    playoffHistory,
   };
 }
 
-// ── Identity sentence + cross notes ───────────────────────────────────────
-
+// ── Identity sentence ────────────────────────────────────────────────────────
 function buildIdentitySentence(
   profile: TeamProfile,
   dossier: TeamDossier,
@@ -321,64 +310,32 @@ function buildIdentitySentence(
 ): string {
   const tier = profile.tierLabel.toLowerCase();
   const window = dossier.window;
-  const traj = profile.trajectory.direction;
-  let headline = "no dominant signal";
-  if (read.contenderUpgrades.length > 0) {
-    headline = `${read.contenderUpgrades[0].tierJump}-jump thesis viable at ${read.contenderUpgrades[0].bucket}`;
-  } else if (read.scarcities.length > 0 && read.surpluses.length > 0) {
-    headline = `surplus at ${read.surpluses[0].bucket}, scarcity at ${read.scarcities[0].bucket}`;
-  } else if (read.scarcities.length > 0) {
-    headline = `${read.scarcities[0].bucket} hole as the loudest gap`;
-  } else if (read.surpluses.length > 0) {
-    headline = `surplus at ${read.surpluses[0].bucket}`;
-  } else if (read.agingStarsAtPeak.length > 0) {
-    headline = `aging star ${read.agingStarsAtPeak[0].name} at peak value`;
-  } else if (read.offTimelineVets.length > 0) {
-    headline = `off-timeline vets ripe for liquidation`;
-  }
+  const comp = read.competitiveness.isContender
+    ? "contender"
+    : read.competitiveness.isWeakRoster
+      ? "weak roster"
+      : "fringe";
+  const age = read.coreAge.agingCore ? "aging core" : read.coreAge.youngCore ? "young core" : "balanced core";
+  const hist = read.playoffHistory?.summary ?? "no recent playoff history";
   const intentClause = intent.silent
-    ? `no stated intent — roster does the work`
+    ? "no stated intent — roster does the work"
     : hasAccumulateSignal(intent)
-      ? `owner leans accumulate (youth/picks)`
-      : `owner has active market signals`;
-  return `${tier}, ${window}, ${traj}; ${intentClause}; ${headline}.`;
+      ? "owner leans accumulate (youth/picks)"
+      : "owner has active market signals";
+  return `${tier}, ${window}; ${comp}, ${age}; ${hist}; ${intentClause}.`;
 }
 
-function buildCrossNotes(firedNarratives: ReturnType<typeof fireAllArchetypes>): string[] {
-  const notes: string[] = [];
-  const names = new Set(firedNarratives.map((n) => n.archetype));
-  if (names.has("reset") && names.has("insurance")) {
-    notes.push(
-      "Reset argues for shipping a stud QB; insurance argues for keeping QB depth. Present as a fork.",
-    );
-  }
-  if (names.has("reset") && names.has("consolidate")) {
-    notes.push(
-      "Two-fork team: reset (blow it up for a haul) vs. consolidate (they think they can still compete). " +
-        "Surface both branches.",
-    );
-  }
-  if (names.has("stand_pat") && firedNarratives.some((n) => n.archetype !== "stand_pat")) {
-    notes.push(
-      "Stand-pat alongside other narratives — dominant posture is patience, but tactical moves still on the table.",
-    );
-  }
-  const resetAnchors = firedNarratives.find((n) => n.archetype === "reset")?.assets.length ?? 0;
-  if (resetAnchors >= 2) {
-    notes.push(
-      `Reset has ${resetAnchors} anchor candidates. Each ships in a SEPARATE deal to a different buyer.`,
-    );
-  }
-  return notes;
-}
-
-// ── Top-level builder ─────────────────────────────────────────────────────
-
+// ── Top-level builder ─────────────────────────────────────────────────────────
+//
+// One pass over the league. Playoff history is passed in (the route fetches it
+// alongside the league data) so the brain reads it like every other layer and
+// never recomputes it.
 export function buildTeamNarratives(
   data: LeagueData,
   profiles: TeamProfile[],
   dossiers: TeamDossier[],
   needs: Map<string, TeamNeeds>,
+  playoffHistory: Map<string, PlayoffHistory>,
 ): Map<string, NarrativeBundle> {
   const profileById = new Map(profiles.map((p) => [p.rosterId, p]));
   const dossierById = new Map(dossiers.map((d) => [d.rosterId, d]));
@@ -391,24 +348,21 @@ export function buildTeamNarratives(
     const dossier = dossierById.get(rosterId);
     const teamNeeds = needs.get(rosterId);
     if (!profile || !dossier || !teamNeeds) continue;
+
     const strategy = data.strategy.get(rosterId) ?? null;
-
     const intentSignals = readIntent(strategy);
-    const rosterRead = buildRosterRead(rosterId, profile, teamNeeds, data, leagueStats);
-
-    const triggerCtx: TriggerContext = {
-      rosterId, profile, dossier, needs: teamNeeds, strategy, intent: intentSignals, rosterRead, data,
-    };
-    const firedNarratives = fireAllArchetypes(triggerCtx);
-    const theses = buildTheses(rosterId, firedNarratives, intentSignals, data);
-    const crossNotes = buildCrossNotes(firedNarratives);
-    const identitySentence = buildIdentitySentence(
-      profile, dossier, intentSignals, rosterRead,
-    );
+    const history = playoffHistory.get(rosterId) ?? null;
+    const rosterRead = buildRosterRead(rosterId, profile, teamNeeds, data, leagueStats, history);
+    const theses = buildThesesForTeam(rosterId, rosterRead, intentSignals, data);
+    const identitySentence = buildIdentitySentence(profile, dossier, intentSignals, rosterRead);
 
     result.set(rosterId, {
-      rosterId, teamName: team.teamName, identitySentence,
-      intentSignals, rosterRead, firedNarratives, theses, crossNotes,
+      rosterId,
+      teamName: team.teamName,
+      identitySentence,
+      intentSignals,
+      rosterRead,
+      theses,
     });
   }
 

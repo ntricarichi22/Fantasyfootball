@@ -1,15 +1,15 @@
 // GET /api/pro-personnel/debug/narratives            → all 12 bundles
 // GET /api/pro-personnel/debug/narratives?team_id=2   → one team, full detail
 //
-// DEBUG ONLY. Runs the new team-narratives module against the live league and
-// dumps the NarrativeBundle(s) so we can smoke-test that the right archetypes
-// fire on the right teams (Founders multi-narrative, Kush single high-conviction,
-// Matzo fork, Brokepark two, Freaks restraint) before building matching on top.
+// DEBUG ONLY. Runs the team-narratives brain against the live league and dumps
+// each NarrativeBundle so we can smoke-test the new model: the two-axis engine
+// read (competitiveness × core-age + playoff history), the validated roster
+// read, and the derived theses with their goals and sacred/spendable fences.
 //
 // Delete this (and the debug folder) before the engine ships.
 
 import { NextResponse } from "next/server";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives, type NarrativeBundle } from "@/shared/team-narratives";
@@ -17,12 +17,8 @@ import { buildTeamNarratives, type NarrativeBundle } from "@/shared/team-narrati
 export const dynamic = "force-dynamic";
 
 // Resolve player IDs and pick keys to readable names so the dump is legible.
-function nameForAsset(
-  asset: string,
-  playerName: (id: string) => string,
-): string {
+function nameForAsset(asset: string, playerName: (id: string) => string): string {
   if (asset.startsWith("pick:")) {
-    // pick:2027-1-2  →  "2027 R1 (pick)"
     const body = asset.slice("pick:".length);
     const parts = body.split("-");
     if (parts.length >= 2) return `${parts[0]} R${parts[1]} (pick)`;
@@ -32,11 +28,9 @@ function nameForAsset(
 }
 
 // Trim a full bundle to a legible shape with names resolved.
-function legible(
-  bundle: NarrativeBundle,
-  playerName: (id: string) => string,
-) {
+function legible(bundle: NarrativeBundle, playerName: (id: string) => string) {
   const resolve = (ids: string[]) => ids.map((a) => nameForAsset(a, playerName));
+  const rr = bundle.rosterRead;
   return {
     team: bundle.teamName,
     rosterId: bundle.rosterId,
@@ -46,46 +40,42 @@ function legible(
       picks: bundle.intentSignals.picks,
       byBucket: Object.fromEntries(bundle.intentSignals.byBucket),
     },
-    firedNarratives: bundle.firedNarratives.map((n) => ({
-      archetype: n.archetype,
-      role: n.role,
-      flavor: n.flavor,
-      timeline: n.timeline,
-      trigger: n.triggerScenario,
-      evidence: n.evidence,
-      assets: resolve(n.assets),
-      returnShape: n.returnShape,
-    })),
     rosterRead: {
-      surpluses: bundle.rosterRead.surpluses.map((s) => ({
+      competitiveness: rr.competitiveness,
+      coreAge: rr.coreAge,
+      playoffHistory: rr.playoffHistory,
+      surpluses: rr.surpluses.map((s) => ({
         bucket: s.bucket,
         players: resolve(s.surplusPlayerIds),
         reason: s.reason,
       })),
-      scarcities: bundle.rosterRead.scarcities.map((s) => ({
+      scarcities: rr.scarcities.map((s) => ({
         bucket: s.bucket,
         severity: s.severity,
         currentStarters: resolve(s.currentStarterIds),
         reason: s.reason,
       })),
-      worstOptimalStarter: bundle.rosterRead.worstOptimalStarter
+      worstOptimalStarter: rr.worstOptimalStarter
         ? {
-            name: bundle.rosterRead.worstOptimalStarter.name,
-            slot: bundle.rosterRead.worstOptimalStarter.slot,
-            value: Math.round(bundle.rosterRead.worstOptimalStarter.value),
+            name: rr.worstOptimalStarter.name,
+            slot: rr.worstOptimalStarter.slot,
+            value: Math.round(rr.worstOptimalStarter.value),
           }
         : null,
-      agingStarsAtPeak: bundle.rosterRead.agingStarsAtPeak.map(
+      agingStarsAtPeak: rr.agingStarsAtPeak.map(
         (a) => `${a.name} (${a.position}, ${a.age}, val ${Math.round(a.value)})`,
       ),
-      offTimelineVets: bundle.rosterRead.offTimelineVets.map(
+      offTimelineVets: rr.offTimelineVets.map(
         (v) => `${v.name} (${v.position}, ${v.age}, val ${Math.round(v.value)})`,
       ),
-      buriedYoungPlayers: bundle.rosterRead.buriedYoungPlayers.map(
+      buriedYoungPlayers: rr.buriedYoungPlayers.map(
         (b) => `${b.name} (${b.position}, ${b.age}, val ${Math.round(b.value)})`,
       ),
-      phantomCorrections: bundle.rosterRead.phantomCorrections.map(
-        (p) => `[${p.rule}] ${p.description}`,
+      contenderUpgrades: rr.contenderUpgrades.map(
+        (c) =>
+          `${c.bucket} → ${c.tierJump} (stud ${Math.round(c.studValueUsed)}, lineup ${Math.round(
+            c.currentLineupValue,
+          )}→${Math.round(c.hypotheticalValue)}, cut ${Math.round(c.cutCrossed)}): ${c.reason}`,
       ),
     },
     theses: bundle.theses.map((t) => ({
@@ -93,11 +83,19 @@ function legible(
       source: t.source,
       timeline: t.timeline,
       headline: t.headline,
-      moves: t.narratives.map((n) => n.flavor ? `${n.archetype}/${n.flavor}` : n.archetype),
-      sacred: resolve(t.sacred),
-      spendable: resolve(t.spendable),
+      pitch: t.pitch,
+      goals: t.goals.map((g) => ({
+        id: g.id,
+        kind: g.kind,
+        bucket: g.bucket ?? null,
+        pickTier: g.pickTier ?? null,
+        impact: g.impact ?? null,
+        returnSpec: g.returnSpec,
+        evidence: g.evidence,
+      })),
+      sacred: resolve([...t.sacred]),
+      spendable: resolve([...t.spendable]),
     })),
-    crossNotes: bundle.crossNotes,
   };
 }
 
@@ -111,11 +109,11 @@ export async function GET(req: Request) {
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
-    const bundles = buildTeamNarratives(data, profiles, dossiers, needs);
+    const playoffHistory = await getPlayoffHistory();
+    const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
 
     const playerName = (id: string) => data.players.get(id)?.name ?? id;
 
-    // Single-team detail.
     if (teamId) {
       const bundle = bundles.get(teamId);
       if (!bundle) {
@@ -130,19 +128,21 @@ export async function GET(req: Request) {
       return NextResponse.json(legible(bundle, playerName), { status: 200 });
     }
 
-    // All teams — a compact firing summary plus the full legible bundles.
+    // All teams — a compact thesis summary plus the full legible bundles.
     const all = Array.from(bundles.values());
     const summary = all
       .map((b) => ({
         team: b.teamName,
         rosterId: b.rosterId,
         intent: b.intentSignals.silent ? "silent" : "active",
-        fired: b.firedNarratives.map((n) => n.flavor ? `${n.archetype}/${n.flavor}` : n.archetype),
-        timelines: b.firedNarratives.map((n) => n.timeline ?? "none"),
-        theses: b.theses.map((t) => t.id),
-        count: b.firedNarratives.length,
+        contender: b.rosterRead.competitiveness.isContender,
+        agingCore: b.rosterRead.coreAge.agingCore,
+        youngCore: b.rosterRead.coreAge.youngCore,
+        theses: b.theses.map((t) => `${t.id} [${t.goals.length} goals]`),
+        thesisCount: b.theses.length,
+        goalCount: b.theses.reduce((n, t) => n + t.goals.length, 0),
       }))
-      .sort((a, b) => b.count - a.count);
+      .sort((a, b) => b.thesisCount - a.thesisCount || Number(a.rosterId) - Number(b.rosterId));
 
     return NextResponse.json(
       {

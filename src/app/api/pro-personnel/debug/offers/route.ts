@@ -2,32 +2,35 @@
 // GET /api/pro-personnel/debug/offers              → all teams (heavier)
 //
 // DEBUG ONLY. Runs the full pipeline (league data -> profiles -> needs ->
-// dossiers -> narratives -> matching) then feeds each tier-1 match through the
-// existing deal constructor to produce concrete offers. This is the offer-gen
-// smoke test: it shows the actual players/picks the engine assembles for each
-// matched narrative pair.
+// dossiers -> theses -> goal-level matching) then points each thesis's spendable
+// pool at each goal and runs the deal constructor. Output is grouped
+// thesis → goal → ranked offers — the actual players/picks the engine assembles
+// for each goal, with the both-sides-satisfied flag the director will narrate.
 //
 // Delete this (and the debug folder) before the engine ships.
 
 import { NextResponse } from "next/server";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives } from "@/shared/team-narratives";
-import { buildMatchSlates, generateOffersForTeam } from "@/shared/trade-matching";
+import {
+  buildMatchSlates,
+  generateOffersForTeam,
+  type GeneratedOffer,
+} from "@/shared/trade-matching";
 import { buildValuationContext } from "@/shared/asset-values";
 import type { EngineContext } from "@/pro-personnel/engine";
 
 export const dynamic = "force-dynamic";
 
 // Compact one generated offer down to the fields worth eyeballing.
-function summarize(g: { narrativeArchetype: string; side: string; anchor: string; partnerTeam: string; offer: { grade: unknown; clears: unknown; partnerRead: unknown; ourScoreboard: { ratio: number }; assets: { side: string; name: string }[] } }) {
+function summarize(g: GeneratedOffer) {
   const o = g.offer;
   return {
-    narrative: g.narrativeArchetype,
-    side: g.side,
-    anchor: g.anchor,
+    goalKind: g.goalKind,
     partner: g.partnerTeam,
+    bothSides: g.bothSidesSatisfied,
     grade: o.grade,
     clears: o.clears,
     partnerRead: o.partnerRead,
@@ -47,7 +50,8 @@ export async function GET(req: Request) {
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
-    const bundles = buildTeamNarratives(data, profiles, dossiers, needs);
+    const playoffHistory = await getPlayoffHistory();
+    const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
     const slates = buildMatchSlates({ data, profiles, needs, dossiers, bundles });
 
     const ctx = await buildValuationContext();
@@ -57,19 +61,28 @@ export async function GET(req: Request) {
       const slate = slates.get(rosterId);
       if (!slate) return null;
       const thesisOffers = generateOffersForTeam(slate, ec);
-      const flat = thesisOffers.flatMap((to) => to.offers);
+      const offerCount = thesisOffers.reduce(
+        (n, to) => n + to.goals.reduce((m, go) => m + go.offers.length, 0),
+        0,
+      );
       return {
         rosterId,
         team: slate.team,
-        tier1Matches: slate.tier1.length,
-        offerCount: flat.length,
+        matchCount: slate.matches.length,
+        offerCount,
         theses: thesisOffers.map((to) => ({
           id: to.thesis.id,
           source: to.thesis.source,
           timeline: to.thesis.timeline,
           headline: to.thesis.headline,
-          offerCount: to.offers.length,
-          offers: to.offers.map(summarize),
+          goals: to.goals.map((go) => ({
+            kind: go.goal.kind,
+            bucket: go.goal.bucket ?? null,
+            pickTier: go.goal.pickTier ?? null,
+            evidence: go.goal.evidence,
+            offerCount: go.offers.length,
+            offers: go.offers.map(summarize),
+          })),
         })),
       };
     };
