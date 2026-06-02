@@ -23,6 +23,7 @@ export type SeasonRecord = {
   wins: number;
   losses: number;
   ties: number;
+  pointsFor: number;
   madePlayoffs: boolean;
   madeConferenceFinal: boolean;
   madeChampionship: boolean;
@@ -90,7 +91,7 @@ export async function getPlayoffHistory(): Promise<Map<string, PlayoffHistory>> 
   const { data } = await admin.client
     .from("llm_season_records")
     .select(
-      "franchise_id, season_year, seed, final_rank, wins, losses, ties, made_playoffs, made_conference_final, made_championship, won_title"
+      "franchise_id, season_year, seed, final_rank, wins, losses, ties, points_for, made_playoffs, made_conference_final, made_championship, won_title"
     )
     .in("franchise_id", franchiseIds);
 
@@ -108,6 +109,7 @@ export async function getPlayoffHistory(): Promise<Map<string, PlayoffHistory>> 
       wins: num(row.wins),
       losses: num(row.losses),
       ties: num(row.ties),
+      pointsFor: num(row.points_for),
       madePlayoffs: row.made_playoffs === true,
       madeConferenceFinal: row.made_conference_final === true,
       madeChampionship: row.made_championship === true,
