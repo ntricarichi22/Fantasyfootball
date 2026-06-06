@@ -203,7 +203,9 @@ function intentGoals(timeline: Timeline, thesisId: string, intent: IntentSignals
         sourceThesisId: thesisId,
         bucket: b,
         returnSpec: { preferBuckets: [], preferPickTier: "any", strength: "soft" },
-        evidence: `Owner is shedding at ${b} — feeds the spendable pool (picks or youth back).`,
+        evidence: acquiresYoungAt(intent, b)
+          ? `Buying young at ${b} makes the veteran ${b}s expendable — feeds the spendable pool (picks or youth back).`
+          : `Owner is selling at ${b} — feeds the spendable pool (picks or youth back).`,
       });
     }
   }
