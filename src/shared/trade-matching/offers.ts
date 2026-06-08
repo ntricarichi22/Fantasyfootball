@@ -1,6 +1,6 @@
 import { construct, type EngineContext } from "@/pro-personnel/engine";
 import type { DealRequest, EngineOffer, ReturnAim, Bucket } from "@/pro-personnel/engine";
-import { valueAsset } from "@/shared/asset-values";
+import { valueAsset, isYoung } from "@/shared/asset-values";
 import type { Goal, ReturnSpec, SurplusPosition, Thesis } from "@/shared/team-narratives";
 import type { NeedBucket, ScrubSets } from "@/shared/team-profiles";
 import { bucketOf, buildScrubSets, buildImpactSets } from "@/shared/team-profiles";
@@ -171,6 +171,10 @@ function teardownSellable(thesis: Thesis, ec: EngineContext, scrubSets: ScrubSet
     const b = bucketOf(p.position);
     if (!b) continue;
     if (scrubSets.get(b)?.has(key)) continue; // no market for a scrub
+    // A young building block is NEVER a teardown piece — you tear DOWN by cashing the
+    // old guard FOR youth + picks, not by shipping youth. (Young spendable depth is
+    // consolidation / add_youth currency, surfaced under those goals instead.)
+    if (isYoung(p.position, p.age, p.exp)) continue;
     out.push({ key, value: ec.data.values.value.get(key) ?? 0 });
   }
   out.sort((a, b) => b.value - a.value);
