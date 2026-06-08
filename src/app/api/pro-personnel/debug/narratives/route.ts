@@ -55,6 +55,9 @@ function legible(bundle: NarrativeBundle, playerName: (id: string) => string) {
         currentStarters: resolve(s.currentStarterIds),
         reason: s.reason,
       })),
+      needBuckets: rr.needBuckets,
+      insuranceBuckets: rr.insuranceBuckets,
+      starterSetBuckets: rr.starterSetBuckets,
       worstOptimalStarter: rr.worstOptimalStarter
         ? {
             name: rr.worstOptimalStarter.name,

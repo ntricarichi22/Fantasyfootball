@@ -1,6 +1,6 @@
 import type { LeagueData, PlayerInfo } from "@/shared/league-data";
-import type { NeedBucket } from "@/shared/team-profiles";
-import { bucketOf } from "@/shared/team-profiles";
+import type { NeedBucket, ImpactSets, ScrubSets } from "@/shared/team-profiles";
+import { bucketOf, buildImpactSets, buildScrubSets } from "@/shared/team-profiles";
 import { isYoung } from "@/shared/asset-values";
 import {
   ACQUIRE_GOAL_KINDS,
@@ -11,9 +11,9 @@ import {
 import type { AnchorBucket, GoalRef, Match, MatchInput, RankReasons, TeamSlate } from "./types";
 
 // Insurance wants a cheap proven backup — above legitimate backup arms, below
-// franchise starters. League-relative impact bars (top-N by value at a bucket).
+// franchise starters. The league-relative impact bar (top-N by value at a
+// bucket) is the shared definition in team-profiles (buildImpactSets).
 const INSURANCE_TARGET_CEILING = 200;
-const IMPACT_TOPN: Record<NeedBucket, number> = { QB: 20, RB: 20, PASS_CATCHER: 40 };
 
 function bucketKey(bucket: NeedBucket): "qb" | "rb" | "passCatcher" {
   return bucket === "QB" ? "qb" : bucket === "RB" ? "rb" : "passCatcher";
@@ -42,36 +42,14 @@ function findPick(data: LeagueData, rosterId: string, key: string) {
   return (data.pickOwnership.get(rosterId) ?? []).find((p) => p.key === key);
 }
 
-// Precompute the league top-N impact set per bucket once (avoids an O(players)
-// scan per candidate). A player is "impact" if he's top-N by value at his bucket.
-function buildImpactSets(data: LeagueData): Map<NeedBucket, Set<string>> {
-  const byBucket = new Map<NeedBucket, Array<{ id: string; v: number }>>();
-  for (const t of data.teams) {
-    for (const pid of t.playerIds) {
-      const p = data.players.get(pid);
-      if (!p) continue;
-      const b = bucketOf(p.position);
-      if (!b) continue;
-      const arr = byBucket.get(b) ?? [];
-      arr.push({ id: pid, v: data.values.value.get(pid) ?? 0 });
-      byBucket.set(b, arr);
-    }
-  }
-  const out = new Map<NeedBucket, Set<string>>();
-  for (const [b, arr] of byBucket) {
-    arr.sort((x, y) => y.v - x.v);
-    out.set(b, new Set(arr.slice(0, IMPACT_TOPN[b]).map((x) => x.id)));
-  }
-  return out;
-}
-
 // Does `assetKey` (owned by `ownerRosterId`) satisfy `goal`'s returnSpec? This
 // is the single predicate used BOTH to find partner assets that fill our goal
 // AND to check whether our payment fills one of their goals. `shed` is not an
 // acquire goal, so it never matches here.
 function assetFitsGoal(
   data: LeagueData,
-  impactSets: Map<NeedBucket, Set<string>>,
+  impactSets: ImpactSets,
+  scrubSets: ScrubSets,
   assetKey: string,
   goal: Goal,
   ownerRosterId: string,
@@ -93,7 +71,7 @@ function assetFitsGoal(
       if (goal.bucket && bucketOf(p.position) !== goal.bucket) return false;
       // youth-aimed fills require a young, non-stud body
       if ((goal.returnSpec.youthBuckets?.length ?? 0) > 0) {
-        return isYoung(p.position, p.age) && !isStud(data, assetKey);
+        return isYoung(p.position, p.age, p.exp) && !isStud(data, assetKey);
       }
       return true;
     }
@@ -107,9 +85,29 @@ function assetFitsGoal(
     }
     case "insurance": {
       const p = resolvePlayer(data, assetKey);
-      if (!p || p.position !== "QB") return false;
+      if (!p) return false;
+      const b = bucketOf(p.position);
+      if (!b || (goal.bucket && b !== goal.bucket)) return false;
+      // "A proven guy who'd step in and start" = a real backup-TIER body: NOT a
+      // scrub (inside the league startable depth, so clipboard guys are out), not a
+      // stud, not a young building block. Upper bound differs by position: QB depth
+      // matters in superflex (QB2 is a starter), so a low-end starter (Murray/Darnold,
+      // value <= ceiling) still counts; for RB/PC a backup is simply NON-impact
+      // (outside the starting tier).
+      if (scrubSets.get(b)?.has(assetKey)) return false;
+      if (isStud(data, assetKey) || isYoung(p.position, p.age, p.exp)) return false;
       const v = valueOf(data, assetKey);
-      return !isStud(data, assetKey) && !isYoung(p.position, p.age) && v > 0 && v <= INSURANCE_TARGET_CEILING;
+      if (v <= 0) return false;
+      if (b === "QB") return v <= INSURANCE_TARGET_CEILING;
+      return !(impactSets.get(b)?.has(assetKey) ?? false);
+    }
+    case "teardown": {
+      // Cashing a stud for a haul: the bounty is partner PICKS, optionally a young
+      // non-stud building block.
+      if (isPickKey(assetKey)) return true;
+      const p = resolvePlayer(data, assetKey);
+      if (!p) return false;
+      return isYoung(p.position, p.age, p.exp) && !isStud(data, assetKey);
     }
     default:
       return false;
@@ -121,7 +119,8 @@ function assetFitsGoal(
 // reason they'd bite — or null (one-sided / long-shot).
 function findPartnerGoalSatisfied(
   data: LeagueData,
-  impactSets: Map<NeedBucket, Set<string>>,
+  impactSets: ImpactSets,
+  scrubSets: ScrubSets,
   ourSpendable: Set<string>,
   partner: NarrativeBundle,
   ourRosterId: string,
@@ -130,7 +129,7 @@ function findPartnerGoalSatisfied(
     for (const pGoal of pThesis.goals) {
       if (!ACQUIRE_GOAL_KINDS.has(pGoal.kind)) continue;
       for (const ourAsset of ourSpendable) {
-        if (assetFitsGoal(data, impactSets, ourAsset, pGoal, ourRosterId)) {
+        if (assetFitsGoal(data, impactSets, scrubSets, ourAsset, pGoal, ourRosterId)) {
           return { rosterId: partner.rosterId, thesisId: pThesis.id, goalId: pGoal.id, kind: pGoal.kind };
         }
       }
@@ -142,6 +141,7 @@ function findPartnerGoalSatisfied(
 export function buildMatchSlates(input: MatchInput): Map<string, TeamSlate> {
   const { data, needs, bundles } = input;
   const impactSets = buildImpactSets(data);
+  const scrubSets = buildScrubSets(data);
   const slates = new Map<string, TeamSlate>();
 
   for (const [rosterId, active] of bundles) {
@@ -168,7 +168,7 @@ export function buildMatchSlates(input: MatchInput): Map<string, TeamSlate> {
           }
 
           for (const [assetKey, partnerThesisId] of partnerAssets) {
-            if (!assetFitsGoal(data, impactSets, assetKey, goal, partnerId)) continue;
+            if (!assetFitsGoal(data, impactSets, scrubSets, assetKey, goal, partnerId)) continue;
 
             const dedupe = `${goal.id}|${partnerId}|${assetKey}`;
             if (seen.has(dedupe)) continue;
@@ -177,6 +177,7 @@ export function buildMatchSlates(input: MatchInput): Map<string, TeamSlate> {
             const partnerGoalSatisfied = findPartnerGoalSatisfied(
               data,
               impactSets,
+              scrubSets,
               ourSpendable,
               partner,
               rosterId,

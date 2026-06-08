@@ -162,7 +162,10 @@ export type DealRequest = {
   // real role (optimal-lineup starter OR a needed backup), only with picks plus
   // genuinely-excess players (the brain's surplus / buried-young lists). The
   // constructor reads that excess set from ec.bundles for ourTeamId.
-  dealKind?: "insurance";
+  // "teardown" means a rebuilder cashing a win-now stud: it values the future
+  // haul (picks + youth) over flat value, so it accepts below its usual floor —
+  // an elite stud is worth more pick capital than any one buyer can pay.
+  dealKind?: "insurance" | "teardown";
 };
 
 // ─── Pricing — two scoreboards ─────────────────────────────────────────────

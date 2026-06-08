@@ -1,6 +1,6 @@
 import type { LeagueData, PlayerInfo, PlayoffHistory, Position } from "@/shared/league-data";
-import type { TeamProfile, TeamNeeds, NeedBucket, NeedDetail } from "@/shared/team-profiles";
-import { bucketOf, slotEligibility } from "@/shared/team-profiles";
+import type { TeamProfile, TeamNeeds, NeedBucket, NeedDetail, ImpactSets, ScrubSets } from "@/shared/team-profiles";
+import { bucketOf, slotEligibility, buildImpactSets, buildScrubSets } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
 import { isYoung, isAging } from "@/shared/asset-values";
 
@@ -9,6 +9,7 @@ import type {
   RosterRead,
   SurplusPosition,
   ScarcityPosition,
+  NeedPosition,
   WorstOptimalStarter,
   AgingStarAtPeak,
   OffTimelineVet,
@@ -73,6 +74,61 @@ function buildLeagueStats(profiles: TeamProfile[], data: LeagueData): LeagueStat
   return { playoffCut, championshipCut, medianStudByBucket };
 }
 
+// The starter-slot count per position the league actually plays: QB2 (SF), RB2,
+// PC4 (2 WR + 2 REC_FLEX). A team with this many IMPACT bodies at a bucket is
+// "set" there — extra impact has no starting slot (see the starterSet gate).
+const STARTER_SLOTS: Record<NeedBucket, number> = { QB: 2, RB: 2, PASS_CATCHER: 4 };
+
+// ── Slot-by-slot need read ───────────────────────────────────────────────────
+//
+// Instead of one combined positional value, rank each team's players within a
+// position (RB1, RB2 / PC1..PC4 / QB1, QB2) and compare EACH starter slot to the
+// league's distribution AT THAT SLOT. A weak RB2 next to an elite RB1 shows up
+// here (the combined dial would hide it). The position's need = its weakest
+// starter slot, measured by RANK (the fraction of teams stronger at that slot) —
+// rank, not min-max, so a few elite outliers can't make a genuinely top-3 slot
+// read "weak" (the Brunswick-PC4 false positive).
+const SLOT_NEED_HIGH = 0.66; // weakness (frac of teams stronger) >= -> high (~bottom third)
+const SLOT_NEED_MED = 0.34; // >= -> med, else low
+
+function computeSlotNeedBuckets(data: LeagueData): Map<string, NeedPosition[]> {
+  // Each team's values per bucket, sorted desc.
+  const sorted = new Map<string, Map<NeedBucket, number[]>>();
+  for (const team of data.teams) {
+    const m = new Map<NeedBucket, number[]>(BUCKETS.map((b) => [b, [] as number[]]));
+    for (const p of team.players) {
+      const b = bucketOf(p.position);
+      if (b) m.get(b)!.push(data.values.value.get(p.id) ?? 0);
+    }
+    for (const b of BUCKETS) m.get(b)!.sort((x, y) => y - x);
+    sorted.set(team.rosterId, m);
+  }
+  const rids = [...sorted.keys()];
+  const out = new Map<string, NeedPosition[]>();
+  for (const bucket of BUCKETS) {
+    const K = STARTER_SLOTS[bucket];
+    const weakness = new Map<string, number>(rids.map((r) => [r, 0]));
+    const denom = Math.max(1, rids.length - 1);
+    for (let n = 0; n < K; n++) {
+      const slot = rids.map((rid) => ({ rid, v: sorted.get(rid)!.get(bucket)![n] ?? 0 }));
+      for (const { rid, v } of slot) {
+        const better = slot.filter((s) => s.v > v).length; // teams stronger at this slot
+        weakness.set(rid, Math.max(weakness.get(rid)!, better / denom)); // worst slot drives the need
+      }
+    }
+    for (const rid of rids) {
+      const w = weakness.get(rid)!;
+      const severity: NeedDetail["level"] = w >= SLOT_NEED_HIGH ? "high" : w >= SLOT_NEED_MED ? "med" : "low";
+      if (severity !== "low") {
+        const arr = out.get(rid) ?? [];
+        arr.push({ bucket, severity });
+        out.set(rid, arr);
+      }
+    }
+  }
+  return out;
+}
+
 // ── Roster read construction ─────────────────────────────────────────────────
 function buildRosterRead(
   rosterId: string,
@@ -80,6 +136,9 @@ function buildRosterRead(
   needs: TeamNeeds,
   data: LeagueData,
   leagueStats: LeagueStats,
+  scrubSets: ScrubSets,
+  impactSets: ImpactSets,
+  needBuckets: NeedPosition[],
   playoffHistory: PlayoffHistory | null,
 ): RosterRead {
   const weakFloor = leagueStats.playoffCut * WEAK_ROSTER_FRACTION;
@@ -95,10 +154,37 @@ function buildRosterRead(
   };
 
   const team = data.teams.find((t) => t.rosterId === rosterId);
+
+  // Insurance: a position needs a backup when it lacks a competent body behind its
+  // starters — fewer than (startCount + 1) NON-scrub players (QB3 / RB3 / PC5). A
+  // team already that deep at a position is covered for an injury.
+  const insuranceBuckets: NeedBucket[] = BUCKETS.filter((b) => {
+    const scrubs = scrubSets.get(b) ?? new Set<string>();
+    const competent = (team?.players ?? []).filter(
+      (p) => bucketOf(p.position) === b && !scrubs.has(p.id),
+    ).length;
+    return competent < STARTER_SLOTS[b] + 1;
+  });
+
+  // Set at a position: the team already has enough IMPACT (top-N) bodies to fill
+  // its starting slots there (QB2 / RB2 / PC4), so an extra impact body has no
+  // slot. A dial that reads "need" at such a position is really a depth/quality
+  // ask, not a starter hole — the win-now acquire is suppressed unless the team
+  // ALSO holds a surplus there (then it can consolidate up). Generalizes the QB
+  // logic that worked (and handles the young-QB-set case the dial can't).
+  const starterSetBuckets: NeedBucket[] = BUCKETS.filter((b) => {
+    const imp = impactSets.get(b) ?? new Set<string>();
+    const count = (team?.players ?? []).filter((p) => bucketOf(p.position) === b && imp.has(p.id)).length;
+    return count >= STARTER_SLOTS[b];
+  });
+
   if (!team) {
     return {
       surpluses: [],
       scarcities: [],
+      needBuckets,
+      insuranceBuckets,
+      starterSetBuckets,
       worstOptimalStarter: null,
       agingStarsAtPeak: [],
       offTimelineVets: [],
@@ -189,7 +275,7 @@ function buildRosterRead(
     if (p.age === null) continue;
     if (data.values.isStud.get(p.id)) continue;
     const aging = isAging(p.position, p.age);
-    const prime = !aging && !isYoung(p.position, p.age);
+    const prime = !aging && !isYoung(p.position, p.age, p.exp);
     const stillDeveloping = p.exp !== null && p.exp <= VET_DEV_WINDOW_YEARS;
     const bucket = bucketOf(p.position);
     const ownerShedsHere = bucket ? shedsAt(intent, bucket) : false;
@@ -213,7 +299,7 @@ function buildRosterRead(
   const buriedYoungPlayers: BuriedYoungPlayer[] = [];
   for (const p of team.players) {
     if (p.age === null) continue;
-    if (!isYoung(p.position, p.age)) continue;
+    if (!isYoung(p.position, p.age, p.exp)) continue;
     if (inOptimalLineup.has(p.id)) continue;
     const b = bucketOf(p.position);
     if (!b) continue;
@@ -279,17 +365,24 @@ function buildRosterRead(
     }
   }
 
-  // Core age (the second axis).
+  // Core age (the second axis). An aging CORE means the nucleus is old: a high
+  // average starter age, OR a critical mass of aging cornerstones — roughly a
+  // third of the starting lineup (3 of ~9). One or two aging stars are just
+  // win-now pieces on a contender, not a core in decline, and must not flip a
+  // genuine contender into a builder.
   const avg = profile.strength.avgStarterAge;
   const coreAge: CoreAge = {
     avgStarterAge: avg,
-    agingCore: (avg !== null && avg >= AGING_AGE_FLOOR) || agingStarsAtPeak.length > 0,
+    agingCore: (avg !== null && avg >= AGING_AGE_FLOOR) || agingStarsAtPeak.length >= 3,
     youngCore: avg !== null && avg <= YOUNG_AGE_CEILING,
   };
 
   return {
     surpluses,
     scarcities,
+    needBuckets,
+    insuranceBuckets,
+    starterSetBuckets,
     worstOptimalStarter: worst,
     agingStarsAtPeak,
     offTimelineVets,
@@ -340,6 +433,13 @@ export function buildTeamNarratives(
   const profileById = new Map(profiles.map((p) => [p.rosterId, p]));
   const dossierById = new Map(dossiers.map((d) => [d.rosterId, d]));
   const leagueStats = buildLeagueStats(profiles, data);
+  // The league-relative impact top-N, computed once and read by the fence
+  // (value-and-role core). Same shared definition the matcher uses.
+  const impactSets: ImpactSets = buildImpactSets(data);
+  // The league scrub set, read by the QB-insurance gate (competent backups only).
+  const scrubSets: ScrubSets = buildScrubSets(data);
+  // Per-team needs from the slot-by-slot read (RB1/RB2, PC1..PC4, QB1/QB2).
+  const slotNeedByTeam = computeSlotNeedBuckets(data);
   const result = new Map<string, NarrativeBundle>();
 
   for (const team of data.teams) {
@@ -352,8 +452,18 @@ export function buildTeamNarratives(
     const strategy = data.strategy.get(rosterId) ?? null;
     const intentSignals = readIntent(strategy);
     const history = playoffHistory.get(rosterId) ?? null;
-    const rosterRead = buildRosterRead(rosterId, profile, teamNeeds, data, leagueStats, history);
-    const theses = buildThesesForTeam(rosterId, rosterRead, intentSignals, data);
+    const rosterRead = buildRosterRead(
+      rosterId,
+      profile,
+      teamNeeds,
+      data,
+      leagueStats,
+      scrubSets,
+      impactSets,
+      slotNeedByTeam.get(rosterId) ?? [],
+      history,
+    );
+    const theses = buildThesesForTeam(rosterId, rosterRead, intentSignals, data, impactSets);
     const identitySentence = buildIdentitySentence(profile, dossier, intentSignals, rosterRead);
 
     result.set(rosterId, {

@@ -11,6 +11,14 @@ export {
 export { buildTeamProfiles } from "./profiler";
 export { computeNeeds } from "./needs";
 export {
+  IMPACT_TOPN,
+  SCRUB_RANK_FLOOR,
+  buildImpactSets,
+  buildScrubSets,
+  type ImpactSets,
+  type ScrubSets,
+} from "./impact";
+export {
   POSITION_TO_BUCKET,
   bucketOf,
   hasSellMarket,

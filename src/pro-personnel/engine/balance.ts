@@ -174,7 +174,37 @@ export function balanceDeal(input: BalanceInput): BalanceResult {
     }
   }
 
-  // 3. best-effort near-miss: add the nearest single, flag not closed.
+  // 3. greedy multi-piece fill toward `need` — for a big haul a single or pair
+  // can't reach (a teardown bounty of picks). Add the largest pieces that don't
+  // overshoot the band until we're inside it or out of room. Preferred (aim)
+  // pieces are tried first so the haul stays on-aim.
+  if (room >= 2) {
+    const ordered =
+      prefer && prefer.size > 0
+        ? [...pool].sort((a, b) => {
+            const pa = prefer.has(a.key) ? 1 : 0;
+            const pb = prefer.has(b.key) ? 1 : 0;
+            return pb - pa || b.value - a.value;
+          })
+        : [...pool].sort((a, b) => b.value - a.value);
+    const chosen: ValuedAsset[] = [];
+    let acc = 0;
+    const hi = need * (1 + tol);
+    const lo = need * (1 - tol);
+    for (const a of ordered) {
+      if (chosen.length >= room) break;
+      if (acc + a.value > hi) continue; // would overshoot the band
+      chosen.push(a);
+      acc += a.value;
+      if (acc >= lo) break; // inside the band
+    }
+    if (chosen.length > 1 && acc >= lo) {
+      current.push(...chosen);
+      return { send, receive, closed: true };
+    }
+  }
+
+  // 4. best-effort near-miss: add the nearest single, flag not closed.
   // Honor the aim here too — a near-miss should still be a preferred piece when
   // one exists, so the slate doesn't fall back to an off-thesis vet.
   const near = nearestSingle(preferredPool, need) ?? nearestSingle(pool, need);

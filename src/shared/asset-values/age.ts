@@ -11,6 +11,12 @@
 //   RB:     young <= 23,  aging >= 27
 //   WR/TE:  young <= 24,  aging >= 30
 // Everything between the two edges is "prime".
+//
+// "Young" also has an EXPERIENCE path: a player early in his career (<= 3 seasons
+// of NFL experience) is a young/ascending building block even if a year or two
+// past the positional age line — a 24yo RB or 26yo QB in year 1-4 is still on his
+// rookie-deal trajectory. Age-only missed these (e.g. a 24yo 2nd-year RB). The
+// experience OR applies to `isYoung` only; `ageBucket`/`isAging` stay age-pure.
 
 import type { Position } from "@/shared/league-data";
 
@@ -46,7 +52,16 @@ export function ageBucket(position: string, age: number | null | undefined): Age
   return "prime";
 }
 
-export function isYoung(position: string, age: number | null | undefined): boolean {
+// Early-career cutoff: <= this many seasons of experience reads as young, regardless
+// of age. Rookie deals run 4 years (exp 0-3), the "still ascending" window.
+const YOUNG_EXP_MAX = 3;
+
+export function isYoung(
+  position: string,
+  age: number | null | undefined,
+  exp?: number | null,
+): boolean {
+  if (exp != null && exp <= YOUNG_EXP_MAX) return true;
   return ageBucket(position, age) === "young";
 }
 

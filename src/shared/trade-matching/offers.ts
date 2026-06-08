@@ -1,8 +1,9 @@
 import { construct, type EngineContext } from "@/pro-personnel/engine";
 import type { DealRequest, EngineOffer, ReturnAim, Bucket } from "@/pro-personnel/engine";
-import type { Goal, ReturnSpec, Thesis } from "@/shared/team-narratives";
-import type { NeedBucket } from "@/shared/team-profiles";
-import { bucketOf } from "@/shared/team-profiles";
+import { valueAsset } from "@/shared/asset-values";
+import type { Goal, ReturnSpec, SurplusPosition, Thesis } from "@/shared/team-narratives";
+import type { NeedBucket, ScrubSets } from "@/shared/team-profiles";
+import { bucketOf, buildScrubSets, buildImpactSets } from "@/shared/team-profiles";
 import type { Match, TeamSlate } from "./types";
 
 // Offer generation = the bridge from goal-level matches to the deal
@@ -14,6 +15,14 @@ import type { Match, TeamSlate } from "./types";
 
 // Per-goal variety: don't clone a received body across ways; cap the slate.
 const MAX_OFFERS_PER_GOAL = 8;
+// For a consolidation, how many distinct depth pieces to lead with per target, so
+// the same upgrade surfaces several funding shapes (Tuten->X, Harvey->X, picks->X).
+const MAX_ANCHORS_PER_TARGET = 3;
+// A teardown cashes EVERY crown jewel, not just the most valuable one — so each
+// stud gets its own independent slate (a few buyer options apiece) instead of the
+// top stud eating the whole goal cap. Overall ceiling keeps a deep fire-sale legible.
+const TEARDOWN_OFFERS_PER_STUD = 2;
+const MAX_TEARDOWN_OFFERS = 30;
 
 // Goals funded by LIQUIDATING our own pieces (cash vets for picks / young
 // bodies). These are the ones whose SEND side we rotate across our vet currency
@@ -54,7 +63,7 @@ function base(
 // as a send ANCHOR also bypasses construct's "don't ship a position you're
 // buying" fill-pool gate, which otherwise filters out every pass-catcher when
 // the PC market is buy — the reason an aging WR never surfaced as currency.
-function liquidationCurrency(thesis: Thesis, ec: EngineContext): string[] {
+function liquidationCurrency(thesis: Thesis, ec: EngineContext, scrubSets: ScrubSets): string[] {
   const buckets = new Set<NeedBucket>();
   for (const g of thesis.goals) {
     if ((g.kind === "add_youth" || g.kind === "shed") && g.bucket) buckets.add(g.bucket);
@@ -66,6 +75,102 @@ function liquidationCurrency(thesis: Thesis, ec: EngineContext): string[] {
     if (!p) continue; // picks aren't currency for the vet flip
     const b = bucketOf(p.position);
     if (!b || !buckets.has(b)) continue;
+    // Never headline a deal with a scrub (outside his position's startable depth) —
+    // a dead-weight body has no market.
+    if (scrubSets.get(b)?.has(key)) continue;
+    out.push({ key, value: ec.data.values.value.get(key) ?? 0 });
+  }
+  out.sort((a, b) => b.value - a.value);
+  return out.map((x) => x.key);
+}
+
+
+// Same-bucket spendable depth (non-scrub), best value first — the consolidation
+// currency for an `acquire_impact` goal at a bucket we are DEEP in. Seeding one as
+// a send anchor makes the package lead with our OWN depth (ship Tuten for a better
+// RB; ship a spare QB for a better QB) instead of whatever nearest-value body the
+// balancer would otherwise grab.
+function consolidationDepth(
+  bucket: NeedBucket,
+  thesis: Thesis,
+  ec: EngineContext,
+  scrubSets: ScrubSets,
+): string[] {
+  const scrubs = scrubSets.get(bucket);
+  const out: Array<{ key: string; value: number }> = [];
+  for (const key of thesis.spendable) {
+    const p = ec.data.players.get(key);
+    if (!p || bucketOf(p.position) !== bucket) continue;
+    if (scrubs?.has(key)) continue;
+    out.push({ key, value: ec.data.values.value.get(key) ?? 0 });
+  }
+  out.sort((a, b) => b.value - a.value);
+  return out.map((x) => x.key);
+}
+
+// Send-anchor candidates for an `acquire_impact` goal — the pieces we lead with to
+// fund the upgrade, in priority order:
+//   1. same-bucket depth, but only when we are DEEP there (a consolidation: ship a
+//      position-mate up — Tuten for a better RB, a spare QB for a better QB);
+//   2. our surplus at OTHER buckets (fuel — e.g. an RB-deep, QB-needy team spends
+//      its RB surplus to land a QB).
+// Picks fund the rest (the `null` job). Rotating these gives several funding shapes
+// per target instead of one nearest-value guess.
+function acquireSpendAnchors(
+  bucket: NeedBucket,
+  thesis: Thesis,
+  ec: EngineContext,
+  surpluses: SurplusPosition[],
+  scrubSets: ScrubSets,
+): string[] {
+  const keys: string[] = [];
+  const deepHere = surpluses.some((s) => s.bucket === bucket);
+  if (deepHere) keys.push(...consolidationDepth(bucket, thesis, ec, scrubSets));
+  for (const s of surpluses) {
+    if (s.bucket === bucket) continue;
+    for (const id of s.surplusPlayerIds) {
+      if (thesis.spendable.has(id) && !(scrubSets.get(s.bucket)?.has(id))) keys.push(id);
+    }
+  }
+  return [...new Set(keys)];
+}
+
+// Spendable PREMIUM pieces, best value first — the crown jewels a teardown cashes
+// AND the premium an accumulate-picks rebuild consolidates into a haul of capital.
+// Premium = an elite-flagged stud OR an impact-tier producer (top-N by value at
+// his bucket); young building blocks are sacred, so an impact-tier player in the
+// spendable pool is a vet worth liquidating (e.g. a rebuild's off-timeline stud
+// QB). One per offer; the loop fans them across buyers.
+function premiumSpendable(thesis: Thesis, ec: EngineContext): string[] {
+  const impactSets = buildImpactSets(ec.data);
+  const out: Array<{ key: string; value: number }> = [];
+  for (const key of thesis.spendable) {
+    const p = ec.data.players.get(key);
+    if (!p) continue; // players only
+    const isStud = ec.data.values.isStud.get(key) ?? false;
+    const b = bucketOf(p.position);
+    const isImpact = !!b && (impactSets.get(b)?.has(key) ?? false);
+    if (!isStud && !isImpact) continue;
+    out.push({ key, value: ec.data.values.value.get(key) ?? 0 });
+  }
+  out.sort((a, b) => b.value - a.value);
+  return out.map((x) => x.key);
+}
+
+// EVERY sellable player in the teardown's spendable pool, best value first — a
+// teardown liquidates the whole roster, not only the crown jewels. The bound is the
+// scrub bar: a body outside his position's startable depth has no trade market, so
+// he's not worth a teardown slate (young building blocks are already sacred, hence
+// absent from spendable). This surfaces the aging stars whose value has slipped below
+// the impact bar (Doylestown's Henry/Adams/Diggs) that premiumSpendable would miss.
+function teardownSellable(thesis: Thesis, ec: EngineContext, scrubSets: ScrubSets): string[] {
+  const out: Array<{ key: string; value: number }> = [];
+  for (const key of thesis.spendable) {
+    const p = ec.data.players.get(key);
+    if (!p) continue; // players only
+    const b = bucketOf(p.position);
+    if (!b) continue;
+    if (scrubSets.get(b)?.has(key)) continue; // no market for a scrub
     out.push({ key, value: ec.data.values.value.get(key) ?? 0 });
   }
   out.sort((a, b) => b.value - a.value);
@@ -105,6 +210,34 @@ function receivedPlayerKeys(offer: EngineOffer): string[] {
   return offer.assets.filter((a) => a.side === "receive" && a.type === "player").map((a) => a.key);
 }
 
+// Total neutral pick value on one side of an offer.
+function pickValueOnSide(offer: EngineOffer, side: "send" | "receive", ec: EngineContext): number {
+  let sum = 0;
+  for (const a of offer.assets) {
+    if (a.side !== side || a.type !== "pick") continue;
+    sum += valueAsset({ type: "pick", key: a.key }, ec.ctx);
+  }
+  return sum;
+}
+
+// Round number from a pick key ("pick:YYYY-R-..."), or null.
+function pickRound(key: string): number | null {
+  if (!key.startsWith("pick:")) return null;
+  const r = parseInt(key.slice(5).split("-")[1] ?? "", 10);
+  return Number.isNaN(r) ? null : r;
+}
+
+// The best (lowest) pick round on a side, or Infinity if none.
+function bestPickRound(offer: EngineOffer, side: "send" | "receive"): number {
+  let best = Infinity;
+  for (const a of offer.assets) {
+    if (a.side !== side || a.type !== "pick") continue;
+    const r = pickRound(a.key);
+    if (r != null) best = Math.min(best, r);
+  }
+  return best;
+}
+
 // A display-level signature: same pieces by NAME on each side reads as the same
 // deal to the user even when the underlying keys differ (e.g. two distinct
 // 2027 1sts both render "2027 1st"). Used to kill look-alike duplicates.
@@ -142,6 +275,7 @@ function requestForMatch(
   goal: Goal,
   thesis: Thesis,
   sendAnchorKey: string | null,
+  aimSpec?: ReturnSpec,
 ): DealRequest {
   const anchors: DealRequest["anchors"] = [{ key: match.partnerAssetKey, side: "receive" }];
   if (sendAnchorKey && sendAnchorKey !== match.partnerAssetKey) {
@@ -151,16 +285,31 @@ function requestForMatch(
     ...base(match.ourRosterId, match.partnerRosterId),
     anchors,
     leans: [],
-    returnShape: toReturnAim(goal.returnSpec),
+    returnShape: toReturnAim(aimSpec ?? goal.returnSpec),
     spendable: thesis.spendable, // authoritative over posture pick-protection
     ...(goal.kind === "insurance" ? { dealKind: "insurance" as const } : {}),
+    ...(goal.kind === "teardown" ? { dealKind: "teardown" as const } : {}),
   };
 }
+
+// The haul aim for CONSOLIDATING a premium spendable vet into future capital — the
+// rebuild's accumulate move. Same shape as a teardown bounty (picks + young
+// non-stud building blocks), because a single buyer never holds enough PICK capital
+// alone to balance a premium QB; the young pieces fill the gap. Labeled
+// accumulate_picks (a rebuild stockpiles), and still gated to NET pick capital.
+const PREMIUM_ACCUMULATE_AIM: ReturnSpec = {
+  preferBuckets: ["QB", "RB", "PASS_CATCHER"],
+  preferPickTier: "any",
+  youthBuckets: ["QB", "RB", "PASS_CATCHER"],
+  strength: "hard",
+};
 
 export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): ThesisOffers[] {
   const bundle = ec.bundles?.get(slate.rosterId);
   const theses = bundle?.theses ?? [];
   if (theses.length === 0) return [];
+
+  const scrubSets = buildScrubSets(ec.data);
 
   // Group matches by thesis → goal.
   const matchesByGoal = new Map<string, Match[]>(); // key = `${thesisId}|${goalId}`
@@ -189,43 +338,141 @@ export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): Thes
         return b.rankReasons.fillValue - a.rankReasons.fillValue;
       });
 
-      // Liquidation-funded goals rotate a vet across the send side.
-      const currency = LIQUIDATION_FUNDED.has(goal.kind) ? liquidationCurrency(thesis, ec) : [];
+      // An acquire goal leads each offer with aimed send fuel — same-bucket depth
+      // when we're deep there (a consolidation), else our other-bucket surplus —
+      // and varies it across pieces so the send targets the goal, not a random
+      // high-value body, and several funding shapes surface per target.
+      const isAcquire = goal.kind === "acquire_impact";
+      const liquidation = LIQUIDATION_FUNDED.has(goal.kind);
+      const surpluses = bundle?.rosterRead.surpluses ?? [];
+      const anchorPool = liquidation
+        ? liquidationCurrency(thesis, ec, scrubSets)
+        : isAcquire && goal.bucket
+          ? acquireSpendAnchors(goal.bucket, thesis, ec, surpluses, scrubSets)
+          : [];
+
+      // One (match, sendAnchor) job per offer attempt. Liquidation rotates one vet
+      // per match; an acquire tries several aimed anchors (+ a pick-funded variant)
+      // per target for variety; a teardown ships ONE stud per buyer (the bounty is
+      // assembled on the receive side); everything else lets construct fund freely.
+      const jobs: Array<{ match: Match; anchorKey: string | null; aim?: ReturnSpec }> = [];
       let rot = 0;
+      // Per-goal offer ceiling. A teardown scales with how many crown jewels it
+      // cashes (each stud gets its own quota); everything else uses the flat cap.
+      let goalCap = MAX_OFFERS_PER_GOAL;
+      if (goal.kind === "teardown") {
+        const studs = teardownSellable(thesis, ec, scrubSets);
+        goalCap = Math.min(MAX_TEARDOWN_OFFERS, studs.length * TEARDOWN_OFFERS_PER_STUD);
+        // Best (highest-value) pick/young anchor per partner, partners best-first.
+        const byPartner = new Map<string, Match>();
+        for (const m of ordered) {
+          const cur = byPartner.get(m.partnerRosterId);
+          if (!cur || m.rankReasons.fillValue > cur.rankReasons.fillValue) byPartner.set(m.partnerRosterId, m);
+        }
+        const partnerMatches = [...byPartner.values()].sort(
+          (a, b) => b.rankReasons.fillValue - a.rankReasons.fillValue,
+        );
+        // Stud-major order: all of a stud's buyers before the next stud. The
+        // per-stud quota in the collection loop then guarantees each stud surfaces
+        // (a few buyers apiece) rather than the top stud taking every slot.
+        for (const stud of studs) {
+          for (const m of partnerMatches) jobs.push({ match: m, anchorKey: stud });
+        }
+      } else if (goal.kind === "accumulate_picks") {
+        // TRUE accumulation: lead by CONSOLIDATING a premium spendable piece (a
+        // rebuild's off-timeline stud — e.g. a vet QB) into a haul of picks, one
+        // premium piece per buyer, fanned across buyers (construct assembles the
+        // multi-pick return). Then the plain pick-ladder shape (anchorKey null:
+        // trade lower picks UP a round, or shed cheap currency for capital) for the
+        // smaller gains. Premium-anchored hauls come first so they survive the cap.
+        const premium = premiumSpendable(thesis, ec);
+        const byPartner = new Map<string, Match>();
+        for (const m of ordered) {
+          const cur = byPartner.get(m.partnerRosterId);
+          if (!cur || m.rankReasons.fillValue > cur.rankReasons.fillValue) byPartner.set(m.partnerRosterId, m);
+        }
+        const partnerMatches = [...byPartner.values()].sort(
+          (a, b) => b.rankReasons.fillValue - a.rankReasons.fillValue,
+        );
+        for (const piece of premium) {
+          for (const m of partnerMatches) jobs.push({ match: m, anchorKey: piece, aim: PREMIUM_ACCUMULATE_AIM });
+        }
+        for (const match of ordered) jobs.push({ match, anchorKey: null });
+      } else {
+        for (const match of ordered) {
+          if (isAcquire && anchorPool.length > 0) {
+            for (const a of anchorPool.slice(0, MAX_ANCHORS_PER_TARGET)) jobs.push({ match, anchorKey: a });
+            jobs.push({ match, anchorKey: null });
+          } else if (liquidation && anchorPool.length > 0) {
+            jobs.push({ match, anchorKey: anchorPool[rot++ % anchorPool.length] });
+          } else {
+            jobs.push({ match, anchorKey: null });
+          }
+        }
+      }
 
       const collected: GeneratedOffer[] = [];
       const usedReceived = new Set<string>(); // per-goal received-player dedupe
       const seenSignature = new Set<string>(); // per-goal look-alike dedupe
+      const perAnchorCount = new Map<string, number>(); // teardown: offers per stud
 
-      for (const match of ordered) {
-        if (collected.length >= MAX_OFFERS_PER_GOAL) break;
+      for (const { match, anchorKey, aim } of jobs) {
+        if (collected.length >= goalCap) break;
+        // Teardown per-stud quota: once a stud has its allotment, skip its
+        // remaining buyers so the next crown jewel gets the floor.
+        if (goal.kind === "teardown" && anchorKey &&
+            (perAnchorCount.get(anchorKey) ?? 0) >= TEARDOWN_OFFERS_PER_STUD) {
+          continue;
+        }
 
-        // Rotate the send anchor so a different chip headlines each offer.
-        const sendAnchorKey = currency.length > 0 ? currency[rot % currency.length] : null;
-        if (currency.length > 0) rot++;
-
-        const req = requestForMatch(match, goal, thesis, sendAnchorKey);
+        const req = requestForMatch(match, goal, thesis, anchorKey, aim);
         const result = construct(req, ec);
 
         for (const offer of result.offers) {
-          if (collected.length >= MAX_OFFERS_PER_GOAL) break;
+          if (collected.length >= goalCap) break;
           // Lock to the matched partner.
           if (offer.partnerTeamId !== match.partnerRosterId) continue;
           // Fence: no sacred asset may leave (defensive; construct already has it).
           if (offer.assets.some((a) => a.side === "send" && !thesis.spendable.has(a.key))) continue;
+          // A teardown offer MUST ship the seeded stud (the whole point of the deal).
+          if (goal.kind === "teardown" && !offer.assets.some((a) => a.side === "send" && a.key === anchorKey)) {
+            continue;
+          }
+          // A premium-anchored accumulate offer MUST ship the seeded piece (else it
+          // collapses back into the cheap-currency shape we're trying to escape).
+          if (goal.kind === "accumulate_picks" && anchorKey && !offer.assets.some((a) => a.side === "send" && a.key === anchorKey)) {
+            continue;
+          }
           // Win-now starter guard rail.
           if (goal.returnSpec.winNowStarterUpgrade && !passesStarterUpgrade(offer, ec, slate.rosterId)) {
             continue;
           }
-          // Variety: drop look-alike deals (same pieces by name on each side).
-          const sig = displaySignature(offer);
+          // Accumulate picks must NET pick capital — never ship a pick of equal/
+          // greater value than what comes back. AND a PURE pick-for-pick deal must
+          // trade UP a round (two 3rds -> a 2nd is good; two 3rds -> a 3rd, or a
+          // 2nd -> a 2nd, is a pointless same-round shuffle).
+          if (goal.kind === "accumulate_picks") {
+            if (pickValueOnSide(offer, "receive", ec) <= pickValueOnSide(offer, "send", ec)) continue;
+            const purePicks = !offer.assets.some((a) => a.type === "player");
+            if (purePicks && bestPickRound(offer, "receive") >= bestPickRound(offer, "send")) continue;
+          }
+          // Variety dedupe is SCOPED PER STUD for a teardown: each crown jewel is an
+          // independent sale, so two different studs may each come back for overlapping
+          // young pieces (Burrow->Pearsall+picks AND Allen->Pearsall+picks are distinct
+          // menu options). For every other goal the scope is the whole goal.
+          const scope = goal.kind === "teardown" && anchorKey ? `${anchorKey}|` : "";
+          const sig = scope + displaySignature(offer);
           if (seenSignature.has(sig)) continue;
-          // Variety: don't surface the same received body twice within the goal.
+          // Don't surface the same received body twice — EXCEPT for an acquire, where
+          // showing several funding shapes for the same upgrade is the point.
           const recv = receivedPlayerKeys(offer);
-          if (recv.some((k) => usedReceived.has(k))) continue;
+          if (!isAcquire && recv.some((k) => usedReceived.has(scope + k))) continue;
 
           seenSignature.add(sig);
-          for (const k of recv) usedReceived.add(k);
+          for (const k of recv) usedReceived.add(scope + k);
+          if (goal.kind === "teardown" && anchorKey) {
+            perAnchorCount.set(anchorKey, (perAnchorCount.get(anchorKey) ?? 0) + 1);
+          }
 
           collected.push({
             thesisId: thesis.id,

@@ -27,7 +27,7 @@
 
 import type { LeagueData, StrategyProfile, RosteredTeam, PlayerInfo, OwnedPick, Position } from "@/shared/league-data";
 import type { TeamProfile, TeamNeeds, NeedLevel } from "@/shared/team-profiles";
-import { computeStrength } from "@/shared/team-profiles";
+import { computeStrength, bucketOf, buildScrubSets } from "@/shared/team-profiles";
 import type { TeamDossier } from "@/shared/team-dossier";
 import type { NarrativeBundle } from "@/shared/team-narratives";
 import { startsForAtLeast } from "@/shared/team-narratives";
@@ -243,6 +243,21 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       ? ourPicks.filter((p) => !req.spendable!.has(p.key)).map((p) => p.key)
       : [],
   );
+
+  // Scrub guard: a player ranked beyond his position's startable depth by league
+  // value (a QB outside the top 35, an RB outside the top 40, a pass-catcher
+  // outside the top 75) is a dead-weight body with no trade market. We keep such
+  // players OUT of the auto-balancer fill pool, so a gap closes with a pick (a
+  // late 2nd / 3rd) or a real piece, never a worthless makeweight. They stay
+  // usable as an explicit ANCHOR (a deliberate "cash this guy" move), just never
+  // as silent filler.
+  const scrubSets = buildScrubSets(data);
+  const isScrub = (key: string): boolean => {
+    const p = data.players.get(key);
+    if (!p) return false;
+    const b = bucketOf(p.position);
+    return b ? scrubSets.get(b)?.has(key) ?? false : false;
+  };
 
   // Resolve any asset key to its facts.
   function resolve(key: string): Resolved | null {
@@ -518,20 +533,50 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         .filter((k) => !anchored.has(k))
         .map(resolve)
         .filter((r): r is Resolved => !!r)
+        // Teardown ships ONLY the anchored stud — never bundle a second player and
+        // never give away our own picks. The whole haul is assembled on the RECEIVE
+        // side, so the send fill pool is empty. Without this the balancer pairs two
+        // studs to match a pricey young anchor (a 2-for-1 that isn't a teardown) and
+        // mishandles the highest-value studs.
+        .filter(() => req.dealKind !== "teardown")
         .filter((r) => !isUntouchable(r.key, ourAttachment))
         .filter((r) => !(r.type === "pick" && protectedPickKeys.has(r.key)))
+        // Fence is authoritative for PLAYERS too (not just picks): a sacred
+        // player never funds a deal. Without this the balancer reaches for the
+        // nearest-value body — often a core player — and the offer is built then
+        // discarded downstream, starving the goal of any deal.
+        .filter((r) => !(r.type === "player" && !!req.spendable && !req.spendable.has(r.key)))
+        // Scrubs (outside their position's startable depth) never fill a gap — picks do.
+        .filter((r) => !(r.type === "player" && isScrub(r.key)))
         .filter((r) => !(r.type === "player" && marketFor(ourStrategy, r.bucket) === "buy"))
         // Partner won't accept a player at a position they're selling.
         .filter((r) => !(r.type === "player" && marketFor(partnerStrategy, r.bucket) === "sell"))
-        // Insurance: players must be genuinely excess; picks always allowed.
-        .filter((r) => !insuranceCurrencyKeys || r.type === "pick" || insuranceCurrencyKeys.has(r.key))
+        // Insurance: players must be genuinely excess; picks may fund it but
+        // NEVER a 1st — a depth backup is not worth a premium pick (the brain's
+        // insurance promise is "a proven backup, never for a 1st").
+        .filter((r) => !insuranceCurrencyKeys || (r.type === "pick" ? (r.pick?.round ?? 1) >= 2 : insuranceCurrencyKeys.has(r.key)))
         .map((r) => valued(r, "send", aim, pId));
+
+      // The PARTNER's fence: we can only RECEIVE what their storyline will move —
+      // the union of their theses' spendable pools. Without this the fill pool
+      // pulls a partner's SACRED body (a young building block / future 1st) into
+      // the return, an unreal haul. Anchors are already matched against this; this
+      // gates the pieces construct ADDS. No bundle for them → no extra fence.
+      const partnerSpendable: Set<string> | null = (() => {
+        const pb = ec.bundles?.get(pId);
+        if (!pb) return null;
+        const s = new Set<string>();
+        for (const th of pb.theses) for (const k of th.spendable) s.add(k);
+        return s;
+      })();
 
       const recvResolvedPool = partnerTeam!.playerIds
         .concat((data.pickOwnership.get(pId) ?? []).map((p) => p.key))
         .filter((k) => !anchored.has(k))
         .map(resolve)
         .filter((r): r is Resolved => !!r)
+        // Only what the partner's storyline will actually part with.
+        .filter((r) => !partnerSpendable || partnerSpendable.has(r.key))
         // We'd take it if our normal demand says so — OR if the storyline is
         // explicitly aiming at this bucket. A sell→consolidate ("ship RB depth
         // to land ONE better RB") sets preferBuckets:[RB] even though our RB
@@ -590,7 +635,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         if (preferBuckets !== undefined && !preferBuckets.includes(r.bucket)) return false;
         if (youthBuckets.has(r.bucket)) {
           if (r.isStud) return false;
-          return isYoung(r.position, data.players.get(r.key)?.age ?? null);
+          return isYoung(r.position, data.players.get(r.key)?.age ?? null, data.players.get(r.key)?.exp);
         }
         return true;
       };
@@ -612,7 +657,9 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         sendPool,
         receivePool: recvFillPool,
         targetRatio,
-        maxPerSide: knobs.maxPerSide,
+        // A teardown haul is many small picks for one big stud — it needs more
+        // room per side than a normal deal to assemble the bounty.
+        maxPerSide: req.dealKind === "teardown" ? Math.max(knobs.maxPerSide, 6) : knobs.maxPerSide,
         preferKeys,
       });
 
@@ -649,15 +696,27 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const sendKeys = sendVA.map((a) => a.key);
       const recvKeysAll = recvVA.map((a) => a.key);
 
-      // Post-trade safety — never gut our own lineup.
-      if (!survivesSafety(sendKeys, recvKeysAll)) return null;
+      // Post-trade safety — never gut our own lineup. EXCEPT a teardown, whose
+      // whole intent is to cash a starter (an aging stud QB/RB/WR) for future
+      // capital: the starter-value drop IS the point, not an accident. The teardown
+      // band (ourBand.min = HARD_FLOOR) already guarantees a fair haul of picks +
+      // youth comes back, so value isn't given away — we just accept the present-
+      // lineup hit. Applying the 12% floor here silently killed every teardown that
+      // ships a true starter (Doylestown's Lamar, Founders' studs → 0 offers).
+      if (req.dealKind !== "teardown" && !survivesSafety(sendKeys, recvKeysAll)) return null;
 
       // Real two-scoreboard pricing.
       const pricing: PricingInput = { ourTeamId, partnerTeamId: pId, assets, ctx };
       const { ours, theirs } = priceDeal(pricing);
 
-      const ourBand = effectiveBand(ourTeamId, ourPersona);
+      let ourBand = effectiveBand(ourTeamId, ourPersona);
       let theirBand = effectiveBand(pId, partnerPersona);
+      // NB: a teardown gets NO value-floor discount. We never surface a deal where
+      // WE take a meaningful haircut (sub-persona-floor, ~0.85-0.90) — teardown or
+      // not. A mega-stud no single buyer can pay fair value for (a 626 QB) simply
+      // doesn't produce a surfaceable offer; better to hold him than dump at 80
+      // cents on the dollar. The teardown's only special-casing is the post-trade
+      // SAFETY exemption above (the lineup hit is intended) — not the value band.
       // Desperation premium: if we're shipping a position this partner is
       // win-now desperate for, they'll pay above flat value — model that by
       // lowering their effective floor toward the locked stretch floor, so a

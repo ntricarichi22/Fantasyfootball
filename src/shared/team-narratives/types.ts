@@ -1,5 +1,5 @@
 import type { Position, PlayoffHistory } from "@/shared/league-data";
-import type { NeedBucket } from "@/shared/team-profiles";
+import type { NeedBucket, NeedLevel } from "@/shared/team-profiles";
 import type { IntentSignals } from "./intent";
 
 // ── Timeline + source ──────────────────────────────────────────────────────
@@ -45,6 +45,7 @@ export type GoalKind =
   | "fill_need"
   | "acquire_impact"
   | "insurance"
+  | "teardown"
   | "shed";
 
 export type Goal = {
@@ -67,6 +68,7 @@ export const ACQUIRE_GOAL_KINDS: ReadonlySet<GoalKind> = new Set<GoalKind>([
   "fill_need",
   "acquire_impact",
   "insurance",
+  "teardown",
 ]);
 
 // ── Thesis — a storyline (source × timeline) ─────────────────────────────────
@@ -96,6 +98,10 @@ export type ScarcityPosition = {
   severity: "med" | "high";
   currentStarterIds: string[];
   reason: string;
+};
+export type NeedPosition = {
+  bucket: NeedBucket;
+  severity: NeedLevel; // "med" | "high" (low buckets are not needs)
 };
 export type WorstOptimalStarter = {
   playerId: string;
@@ -156,6 +162,16 @@ export type CoreAge = {
 export type RosterRead = {
   surpluses: SurplusPosition[];
   scarcities: ScarcityPosition[];        // already validated as REAL holes
+  needBuckets: NeedPosition[];           // dial reads MED or HIGH — the positions
+                                         // a win-now thesis should upgrade, funded
+                                         // from the whole spend pool
+  insuranceBuckets: NeedBucket[];        // positions lacking a competent backup
+                                         // behind the starters (QB3 / RB3 / PC5) —
+                                         // thin depth, an injury would crater it
+  starterSetBuckets: NeedBucket[];       // positions where the team already has
+                                         // enough impact starters (QB2/RB2/PC4) —
+                                         // an extra impact body has no slot, so it
+                                         // won't chase an acquire there w/o surplus
   worstOptimalStarter: WorstOptimalStarter;
   agingStarsAtPeak: AgingStarAtPeak[];
   offTimelineVets: OffTimelineVet[];
