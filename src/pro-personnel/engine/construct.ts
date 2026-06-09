@@ -528,11 +528,38 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         return keys;
       })();
 
+      // Acquiring a QB? Ship at most ONE, never a stack. In superflex QB is the
+      // scarcest position — bundling 2-3 QBs to land one is positionally absurd (you
+      // gut your own QB room), so the balancer must close the gap with OTHER-bucket
+      // depth + picks. The one allowed QB is either the anchored consolidation chip
+      // (a deep team shipping a spare arm) or, when no anchor is a QB, the single most
+      // valuable spendable QB — the incumbent the new starter displaces (e.g. Buffalo
+      // shipping Goff). Detected off the receive aim (preferBuckets exactly [QB]);
+      // RB/PC consolidations, which legitimately bundle depth, are untouched.
+      const aimBuckets = req.returnShape?.preferBuckets;
+      const qbAcquire =
+        req.intent === "acquire" && aimBuckets?.length === 1 && aimBuckets[0] === "QB";
+      const anchorHasQB =
+        qbAcquire && sendAnchors.map(resolve).some((r) => r?.type === "player" && r.bucket === "QB");
+      const allowedFillQB: string | null = (() => {
+        if (!qbAcquire || anchorHasQB) return null; // anchor already supplies the one QB
+        const cands = ourTeam!.playerIds
+          .filter((k) => !anchored.has(k))
+          .map(resolve)
+          .filter((r): r is Resolved => !!r && r.type === "player" && r.bucket === "QB")
+          .filter((r) => !(!!req.spendable && !req.spendable.has(r.key)))
+          .filter((r) => !isScrub(r.key))
+          .sort((a, b) => (data.values.value.get(b.key) ?? 0) - (data.values.value.get(a.key) ?? 0));
+        return cands[0]?.key ?? null;
+      })();
+
       const sendPool = ourTeam!.playerIds
         .concat((data.pickOwnership.get(ourTeamId) ?? []).map((p) => p.key))
         .filter((k) => !anchored.has(k))
         .map(resolve)
         .filter((r): r is Resolved => !!r)
+        // QB acquire ships at most ONE QB: keep only the allowed chip, drop the rest.
+        .filter((r) => !(qbAcquire && r.type === "player" && r.bucket === "QB" && r.key !== allowedFillQB))
         // Teardown ships ONLY the anchored stud — never bundle a second player and
         // never give away our own picks. The whole haul is assembled on the RECEIVE
         // side, so the send fill pool is empty. Without this the balancer pairs two
