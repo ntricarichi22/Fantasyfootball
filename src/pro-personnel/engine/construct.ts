@@ -685,8 +685,12 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         receivePool: recvFillPool,
         targetRatio,
         // A teardown haul is many small picks for one big stud — it needs more
-        // room per side than a normal deal to assemble the bounty.
-        maxPerSide: req.dealKind === "teardown" ? Math.max(knobs.maxPerSide, 6) : knobs.maxPerSide,
+        // room per side than a normal deal to assemble the bounty. A fire sale
+        // assembles smaller multi-pick returns (two 2nds, a 2nd + 3rd) and may
+        // bundle a couple of role players, so it gets a modest bump.
+        maxPerSide: req.dealKind === "teardown" ? Math.max(knobs.maxPerSide, 6)
+          : req.dealKind === "fire_sale" ? Math.max(knobs.maxPerSide, 4)
+          : knobs.maxPerSide,
         preferKeys,
       });
 
@@ -736,7 +740,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const pricing: PricingInput = { ourTeamId, partnerTeamId: pId, assets, ctx };
       const { ours, theirs } = priceDeal(pricing);
 
-      let ourBand = effectiveBand(ourTeamId, ourPersona);
+      const ourBand = effectiveBand(ourTeamId, ourPersona);
       let theirBand = effectiveBand(pId, partnerPersona);
       // NB: a teardown gets NO value-floor discount. We never surface a deal where
       // WE take a meaningful haircut (sub-persona-floor, ~0.85-0.90) — teardown or
@@ -765,7 +769,11 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         //    single source of truth now — no separate grade-bucket gate. We do
         //    NOT cap on our ceiling; a steal for us is fine and gets killed by
         //    the partner floor below anyway.
-        if (ours.ratio < ourBand.min) return null;
+        //    EXCEPTION — fire_sale: we're clearing role players for picks and
+        //    knowingly take a discount, so the floor drops to the universal
+        //    HARD_FLOOR (a true fleecing still never surfaces).
+        const ourFloor = req.dealKind === "fire_sale" ? HARD_FLOOR : ourBand.min;
+        if (ours.ratio < ourFloor) return null;
         // 2) Not fantasy for them: within their stretch. long_shot = past the
         //    stretch (or below the hard floor) → don't surface.
         if (partnerRead === "long_shot") return null;

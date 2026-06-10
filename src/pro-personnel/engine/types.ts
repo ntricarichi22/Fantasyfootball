@@ -165,7 +165,11 @@ export type DealRequest = {
   // "teardown" means a rebuilder cashing a win-now stud: it values the future
   // haul (picks + youth) over flat value, so it accepts below its usual floor —
   // an elite stud is worth more pick capital than any one buyer can pay.
-  dealKind?: "insurance" | "teardown";
+  // "fire_sale" means a rebuilder clearing non-core role players for picks of
+  // any round: the seller accepts a discount (floor drops to the universal
+  // hard floor) because converting a body the rebuild won't keep into ANY
+  // draft capital beats holding him.
+  dealKind?: "insurance" | "teardown" | "fire_sale";
 };
 
 // ─── Pricing — two scoreboards ─────────────────────────────────────────────

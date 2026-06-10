@@ -206,6 +206,15 @@ function depthSpec(bucket: NeedBucket): ReturnSpec {
   // dealKind) since a rotation starter is worth more than a clipboard backup.
   return { preferBuckets: [bucket], strength: "soft" };
 }
+function fireSaleSpec(): ReturnSpec {
+  // PICKS ONLY back — a fire sale converts role players into draft capital,
+  // whatever the round (a 1st, two 2nds, a 2nd + 3rd, a lone 3rd). HARD with an
+  // empty preferBuckets list restricts construct's fill pool to picks, so the
+  // return never collapses into a player swap. Offer-gen stamps dealKind
+  // "fire_sale", which relaxes OUR value floor — we accept a discount to move
+  // the body.
+  return { preferBuckets: [], preferPickTier: "any", strength: "hard" };
+}
 function teardownSpec(): ReturnSpec {
   // The haul for cashing a stud: picks + YOUNG non-stud building blocks, never
   // another stud. HARD restricts construct's fill pool to picks and young non-stud
@@ -457,6 +466,19 @@ function buildThesis(
   );
   const { sacred, spendable } = computeFence(timeline, rosterId, data, read, impactSets, acquireBuckets);
   goals.push(...teardownGoals(source, timeline, id, read, intent, data, rosterId, spendable, impactSets));
+  // Fire sale — EVERY build_future storyline (intent or engine) clears its
+  // non-core role players (non-stud, non-impact; young non-core included) for
+  // whatever pick capital the market pays. Premium pieces sell via teardown /
+  // consolidation; this moves the rest of the shelf, discount accepted.
+  if (timeline === "build_future") {
+    goals.push({
+      id: `${id}:fire_sale`,
+      kind: "fire_sale",
+      sourceThesisId: id,
+      returnSpec: fireSaleSpec(),
+      evidence: `Fire sale — clear non-core role players for picks; any round beats holding a body the rebuild doesn't keep.`,
+    });
+  }
   return { id, source, timeline, headline, pitch, goals, sacred, spendable };
 }
 

@@ -47,6 +47,7 @@ export type GoalKind =
   | "insurance"
   | "depth"
   | "teardown"
+  | "fire_sale"
   | "shed";
 
 export type Goal = {
@@ -71,6 +72,7 @@ export const ACQUIRE_GOAL_KINDS: ReadonlySet<GoalKind> = new Set<GoalKind>([
   "insurance",
   "depth",
   "teardown",
+  "fire_sale",
 ]);
 
 // ── Thesis — a storyline (source × timeline) ─────────────────────────────────

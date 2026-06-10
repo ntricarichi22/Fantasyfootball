@@ -93,6 +93,7 @@ const GOAL_KIND_PHRASE: Record<string, string> = {
   insurance: "adding insurance behind their starter",
   depth: "rounding out their rotation with a startable piece",
   teardown: "selling a veteran for a rebuild haul",
+  fire_sale: "clearing out role players for draft capital",
   shed: "shedding a piece",
 };
 

@@ -124,6 +124,11 @@ export function assetFitsGoal(
       if (!p) return false;
       return isYoung(p.position, p.age, p.exp) && !isStud(data, assetKey);
     }
+    case "fire_sale": {
+      // Clearing role players for capital: ANY pick fills it — a 1st, a 2nd, a
+      // 3rd. The whole point is taking what the market pays.
+      return isPickKey(assetKey);
+    }
     default:
       return false;
   }

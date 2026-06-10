@@ -25,6 +25,10 @@ const MAX_ANCHORS_PER_TARGET = 3;
 // top stud eating the whole goal cap. Overall ceiling keeps a deep fire-sale legible.
 const TEARDOWN_OFFERS_PER_STUD = 2;
 const MAX_TEARDOWN_OFFERS = 30;
+// A fire sale shops every role player; each body gets its own small slate (the
+// best couple of pick packages that survive), capped so the goal stays legible.
+const FIRE_SALE_OFFERS_PER_VET = 2;
+const MAX_FIRE_SALE_OFFERS = 12;
 
 // Goals funded by LIQUIDATING our own pieces (cash vets for picks / young
 // bodies). These are the ones whose SEND side we rotate across our vet currency
@@ -154,6 +158,29 @@ function premiumSpendable(thesis: Thesis, ec: EngineContext): string[] {
     const isImpact = !!b && (impactSets.get(b)?.has(key) ?? false);
     if (!isStud && !isImpact) continue;
     out.push({ key, value: ec.data.values.value.get(key) ?? 0 });
+  }
+  out.sort((a, b) => b.value - a.value);
+  return out.map((x) => x.key);
+}
+
+// Fire-sale shelf: every NON-premium spendable player with a real market —
+// non-stud, non-impact (the crown jewels sell via teardown/consolidation), not
+// a scrub (no market), young ALLOWED (a young non-core role player is exactly
+// what a rebuild clears for capital). Best value first.
+function fireSaleSellable(thesis: Thesis, ec: EngineContext, scrubSets: ScrubSets): string[] {
+  const impactSets = buildImpactSets(ec.data);
+  const out: Array<{ key: string; value: number }> = [];
+  for (const key of thesis.spendable) {
+    const p = ec.data.players.get(key);
+    if (!p) continue; // players only
+    const b = bucketOf(p.position);
+    if (!b) continue;
+    if (scrubSets.get(b)?.has(key)) continue;
+    if (ec.data.values.isStud.get(key) ?? false) continue;
+    if (impactSets.get(b)?.has(key) ?? false) continue;
+    const v = ec.data.values.value.get(key) ?? 0;
+    if (v <= 0) continue;
+    out.push({ key, value: v });
   }
   out.sort((a, b) => b.value - a.value);
   return out.map((x) => x.key);
@@ -303,6 +330,7 @@ function requestForMatch(
     spendable: thesis.spendable, // authoritative over posture pick-protection
     ...(goal.kind === "insurance" ? { dealKind: "insurance" as const } : {}),
     ...(goal.kind === "teardown" ? { dealKind: "teardown" as const } : {}),
+    ...(goal.kind === "fire_sale" ? { dealKind: "fire_sale" as const } : {}),
   };
 }
 
@@ -381,6 +409,9 @@ function partnerGoalForPackage(
       if (g.kind === "accumulate_picks" && partnerPickNet <= 0) continue;
       // Don't credit a teardown unless we're buying their stud.
       if (g.kind === "teardown" && !weBuyTheirStud) continue;
+      // Don't credit THEIR fire sale unless they're actually selling a body for
+      // net pick capital (they ship a player, come out ahead on picks).
+      if (g.kind === "fire_sale" && (partnerPickNet <= 0 || partnerShipsBuckets.size === 0)) continue;
       for (const k of sendKeys) {
         if (assetFitsGoal(ec.data, impactSets, scrubSets, k, g, ourRosterId)) {
           return { rosterId: partnerBundle.rosterId, thesisId: t.id, goalId: g.id, kind: g.kind };
@@ -486,6 +517,31 @@ export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): Thes
           for (const m of partnerMatches) jobs.push({ match: m, anchorKey: piece, aim: PREMIUM_ACCUMULATE_AIM });
         }
         for (const match of ordered) jobs.push({ match, anchorKey: null });
+      } else if (goal.kind === "fire_sale") {
+        // Fire sale: shop each role player individually for the best pick package
+        // the market pays. Anchor every body on each partner's best pick PER ROUND,
+        // richest anchor first — so construct tries "a 1st" before "a 2nd" before
+        // "a 3rd" — and the balancer assembles the rest (extra picks on their side
+        // → two 2nds / a 2nd + 3rd; our small pick or a second body on ours → the
+        // "Mason + a 2nd for a 1st" combos). Vet-major order + the per-anchor quota
+        // below guarantee each body surfaces with its best couple of shapes instead
+        // of the top vet eating the cap.
+        const bodies = fireSaleSellable(thesis, ec, scrubSets);
+        goalCap = Math.min(MAX_FIRE_SALE_OFFERS, bodies.length * FIRE_SALE_OFFERS_PER_VET);
+        const byPartnerRound = new Map<string, Match>();
+        for (const m of ordered) {
+          const rnd = pickRound(m.partnerAssetKey);
+          if (rnd == null) continue;
+          const k = `${m.partnerRosterId}|${rnd}`;
+          const cur = byPartnerRound.get(k);
+          if (!cur || m.rankReasons.fillValue > cur.rankReasons.fillValue) byPartnerRound.set(k, m);
+        }
+        const anchorMatches = [...byPartnerRound.values()].sort(
+          (a, b) => b.rankReasons.fillValue - a.rankReasons.fillValue,
+        );
+        for (const body of bodies) {
+          for (const m of anchorMatches) jobs.push({ match: m, anchorKey: body });
+        }
       } else {
         for (const match of ordered) {
           if (isAcquire && anchorPool.length > 0) {
@@ -507,9 +563,14 @@ export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): Thes
       for (const { match, anchorKey, aim } of jobs) {
         if (collected.length >= goalCap) break;
         // Teardown per-stud quota: once a stud has its allotment, skip its
-        // remaining buyers so the next crown jewel gets the floor.
+        // remaining buyers so the next crown jewel gets the floor. A fire sale
+        // gets the same treatment per role player (its own, smaller quota).
         if (goal.kind === "teardown" && anchorKey &&
             (perAnchorCount.get(anchorKey) ?? 0) >= TEARDOWN_OFFERS_PER_STUD) {
+          continue;
+        }
+        if (goal.kind === "fire_sale" && anchorKey &&
+            (perAnchorCount.get(anchorKey) ?? 0) >= FIRE_SALE_OFFERS_PER_VET) {
           continue;
         }
 
@@ -522,8 +583,10 @@ export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): Thes
           if (offer.partnerTeamId !== match.partnerRosterId) continue;
           // Fence: no sacred asset may leave (defensive; construct already has it).
           if (offer.assets.some((a) => a.side === "send" && !thesis.spendable.has(a.key))) continue;
-          // A teardown offer MUST ship the seeded stud (the whole point of the deal).
-          if (goal.kind === "teardown" && !offer.assets.some((a) => a.side === "send" && a.key === anchorKey)) {
+          // A teardown offer MUST ship the seeded stud (the whole point of the
+          // deal); a fire-sale offer likewise must ship the seeded role player.
+          if ((goal.kind === "teardown" || goal.kind === "fire_sale") &&
+              anchorKey && !offer.assets.some((a) => a.side === "send" && a.key === anchorKey)) {
             continue;
           }
           // A premium-anchored accumulate offer MUST ship the seeded piece (else it
@@ -544,24 +607,16 @@ export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): Thes
             const purePicks = !offer.assets.some((a) => a.type === "player");
             if (purePicks && bestPickRound(offer, "receive") >= bestPickRound(offer, "send")) continue;
           }
+          // A fire sale must also NET pick capital — shipping a body AND a 2nd to
+          // get a 2nd back is a donation, not a sale.
+          if (goal.kind === "fire_sale" &&
+              pickValueOnSide(offer, "receive", ec) <= pickValueOnSide(offer, "send", ec)) {
+            continue;
+          }
           // Variety dedupe is SCOPED PER STUD for a teardown: each crown jewel is an
           // independent sale, so two different studs may each come back for overlapping
           // young pieces (Burrow->Pearsall+picks AND Allen->Pearsall+picks are distinct
           // menu options). For every other goal the scope is the whole goal.
-          const scope = goal.kind === "teardown" && anchorKey ? `${anchorKey}|` : "";
-          const sig = scope + displaySignature(offer);
-          if (seenSignature.has(sig)) continue;
-          // Don't surface the same received body twice — EXCEPT for an acquire, where
-          // showing several funding shapes for the same upgrade is the point.
-          const recv = receivedPlayerKeys(offer);
-          if (!isAcquire && recv.some((k) => usedReceived.has(scope + k))) continue;
-
-          seenSignature.add(sig);
-          for (const k of recv) usedReceived.add(scope + k);
-          if (goal.kind === "teardown" && anchorKey) {
-            perAnchorCount.set(anchorKey, (perAnchorCount.get(anchorKey) ?? 0) + 1);
-          }
-
           // Asset-accurate partner fit, derived from the actual package (not the
           // matcher's pool guess). This is the consolidated single source of truth
           // for bothSidesSatisfied + the partner goal the deal serves.
@@ -573,6 +628,25 @@ export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): Thes
             impactSets,
             scrubSets,
           );
+          // A fire sale only collects deals a REAL buyer wants — the body must
+          // serve one of the partner's goals. Without this, the per-vet quota
+          // fills with shapes from whichever partner has the richest picks, all
+          // of which the realism gate then drops.
+          if (goal.kind === "fire_sale" && pkgGoal === null) continue;
+
+          const scope = (goal.kind === "teardown" || goal.kind === "fire_sale") && anchorKey ? `${anchorKey}|` : "";
+          const sig = scope + displaySignature(offer);
+          if (seenSignature.has(sig)) continue;
+          // Don't surface the same received body twice — EXCEPT for an acquire, where
+          // showing several funding shapes for the same upgrade is the point.
+          const recv = receivedPlayerKeys(offer);
+          if (!isAcquire && recv.some((k) => usedReceived.has(scope + k))) continue;
+
+          seenSignature.add(sig);
+          for (const k of recv) usedReceived.add(scope + k);
+          if ((goal.kind === "teardown" || goal.kind === "fire_sale") && anchorKey) {
+            perAnchorCount.set(anchorKey, (perAnchorCount.get(anchorKey) ?? 0) + 1);
+          }
           collected.push({
             thesisId: thesis.id,
             goalId: goal.id,
