@@ -99,6 +99,58 @@ Information reveals in stages, never all at once:
 
 ---
 
+## Doors — one room, multiple entry intents
+
+The office is ONE chat surface; what differs is the **door** you came through.
+Each door has its own defined opening shape:
+
+- **The office door** (org-chart "ENTER →"): the POV-headline opening above —
+  greeting + up to three intel headlines.
+- **A workroom door** (e.g. "Build a Trade"): a guided, task-shaped opening
+  (see below). Same room, same character, different script.
+- **A memo's play button** (future): opens the room mid-conversation, seeded
+  with the memo's subject.
+
+## The "Build a Trade" door (Pro Personnel)
+
+Clicking "Build a Trade" lands in the Personnel director's chat — NOT a landing
+page. The old Builder landing folds into this room as a drawer.
+
+**Opening, single-storyline team:** the director explains the one storyline and
+why he has conviction in it, then presents that storyline's **goals as CTAs**.
+
+**Opening, two-storyline team:** "I think there are genuinely two ways we could
+go from here…" — he argues each (preserving the intent-vs-engine flavor:
+"here's your plan, and here's what the roster is telling me"), then surfaces
+one CTA per storyline. Picking one gets his read on the goals that achieve that
+vision, then proceeds like a single-storyline team.
+
+**Rules:**
+- A goal CTA only surfaces if **real offers survive behind it** — the director
+  never advertises an empty door.
+- Tapping a goal opens the **offer drawer**: the OfferCard carousel scoped to
+  that goal's offers (Pass / Edit / Make this offer all carry over).
+- **PASS is on the deal, not the framing** — an offer passed under one goal is
+  hidden everywhere it appears.
+- The user can always **pivot or build their own** — a persistent escape hatch
+  routes to the manual trade machine (the existing `?seed=fresh` flow).
+- **Latency choreography:** the room opens instantly on the narrative bundle
+  (storylines/pitches are cheap); the offer slate generates in the background
+  while the director "makes calls." Goal CTAs light up when the slate lands;
+  clicking early gets a "still working the phones" state.
+- **Conviction prose:** storyline framing uses the LLM (builder voice, fed the
+  bundle's evidence), not the templated pitch strings.
+
+## Drawers
+
+- **Desktop:** drawer slides in from the RIGHT at ~50% page width; the chat
+  collapses to the left ~50% and stays interactive (the room remains present).
+- **Mobile:** the drawer is a **bottom sheet** — slides up from the bottom,
+  near-full height (~92%), drag handle + overlay-tap to dismiss, a sliver of
+  the chat visible behind. Follow the existing `MobileBottomSheet` pattern
+  (`src/scouting/draft-room/mobile/MobileBottomSheet.tsx`); chrome per
+  DESIGN_SYSTEM.md "Modals / Drawers".
+
 ## Adapting per director
 
 The template is identical; the **intel sources** and **lanes** differ.
