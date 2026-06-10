@@ -46,7 +46,7 @@ function findPick(data: LeagueData, rosterId: string, key: string) {
 // is the single predicate used BOTH to find partner assets that fill our goal
 // AND to check whether our payment fills one of their goals. `shed` is not an
 // acquire goal, so it never matches here.
-function assetFitsGoal(
+export function assetFitsGoal(
   data: LeagueData,
   impactSets: ImpactSets,
   scrubSets: ScrubSets,
@@ -82,6 +82,21 @@ function assetFitsGoal(
       if (!b) return false;
       if (goal.bucket && b !== goal.bucket) return false;
       return impactSets.get(b)?.has(assetKey) ?? false;
+    }
+    case "depth": {
+      // A startable rotational piece at the bucket: inside the league's startable
+      // depth (not a clipboard scrub), but NOT a stud/impact anchor (that's
+      // acquire_impact). UNLIKE insurance, a YOUNG startable body counts — a young
+      // flex starter is depth, not just injury cover. This is the rotation slot
+      // (RB3 / PC5) that actually plays via the flex.
+      const p = resolvePlayer(data, assetKey);
+      if (!p) return false;
+      const b = bucketOf(p.position);
+      if (!b || (goal.bucket && b !== goal.bucket)) return false;
+      if (scrubSets.get(b)?.has(assetKey)) return false;
+      if (isStud(data, assetKey)) return false;
+      if (impactSets.get(b)?.has(assetKey)) return false;
+      return valueOf(data, assetKey) > 0;
     }
     case "insurance": {
       const p = resolvePlayer(data, assetKey);

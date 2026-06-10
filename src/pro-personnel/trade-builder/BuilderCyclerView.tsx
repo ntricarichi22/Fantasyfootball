@@ -40,10 +40,34 @@ type BuilderOffer = {
   grade?: { label: string; color: string };
   verdict?: string;
   prose?: string;
+  // Partner acceptance read from the engine's two-scorecard pricing. Passed to
+  // the advisor in builder mode so its accept-vs-counter framing stays consistent.
+  partnerRead?: "likely" | "needs_selling" | "long_shot";
+  // The partner's storyline + the goal this deal closes (engine reasoning), so
+  // the director can advocate "why they'd do it" from real logic, not inference.
+  partnerAngle?: {
+    storylineHeadline: string | null;
+    goalKind: string | null;
+    goalEvidence: string | null;
+  };
+};
+
+// The generate API returns offers grouped by thesis (storyline). Each thesis
+// carries its own fenced offer list. The cycler is flat, so we flatten these
+// into a single list on the client.
+type BuilderThesis = {
+  id: string;
+  source?: string;
+  timeline?: string;
+  headline?: string;
+  pitch?: string;
+  offers: BuilderOffer[];
 };
 
 type BuilderSlateResponse = {
-  offers: BuilderOffer[];
+  theses?: BuilderThesis[];
+  // Legacy flat shape — tolerated if the API ever returns a top-level list.
+  offers?: BuilderOffer[];
   generatedAt?: string;
   reason: "ok" | "no_strategy" | "no_clean_offers";
 };
@@ -133,7 +157,18 @@ export default function BuilderCyclerView() {
         });
         const slateJson = await slateRes.json() as BuilderSlateResponse;
         if (cancelled) return;
-        setOffers(Array.isArray(slateJson.offers) ? slateJson.offers : []);
+        // Flatten thesis-grouped offers (intent thesis first, engine
+        // alternatives after) into the flat cycler list. Fall back to a legacy
+        // top-level `offers` array if present. Dedupe by offer id so an offer
+        // surfaced under multiple theses only shows once.
+        const flat = Array.isArray(slateJson.theses)
+          ? slateJson.theses.flatMap((t) => t.offers ?? [])
+          : Array.isArray(slateJson.offers)
+            ? slateJson.offers
+            : [];
+        const seen = new Set<string>();
+        const deduped = flat.filter((o) => o && !seen.has(o.id) && (seen.add(o.id), true));
+        setOffers(deduped);
         setReason(slateJson.reason ?? "no_clean_offers");
       } catch {
         if (!cancelled) setReason("error");
@@ -190,6 +225,13 @@ export default function BuilderCyclerView() {
         other_team_ids: [offer.partnerTeam.id],
         deal_assets: dealAssets,
         rosters: advisorRosterPayload,
+        // Builder voice: present this vetted package (why they'd do it +
+        // accept-vs-counter), no sweetener coaching. partner_read keeps the
+        // accept read aligned with the engine's pricing; partner_angle hands the
+        // director the engine's real reasoning for why it fits the partner.
+        mode: "builder",
+        partner_read: offer.partnerRead ?? null,
+        partner_angle: offer.partnerAngle ?? null,
       }),
     })
       .then(r => r.json())
@@ -384,8 +426,8 @@ export default function BuilderCyclerView() {
                 partnerPersona={currentOffer.partnerTeam.persona}
                 sendAssets={currentOffer.sendAssets.map(toCardAsset)}
                 receiveAssets={currentOffer.receiveAssets.map(toCardAsset)}
-                verdict={currentAdvisor?.grade ?? currentOffer.grade?.label ?? currentOffer.verdict ?? ""}
-                verdictColor={currentAdvisor?.gradeColor ?? currentOffer.grade?.color ?? "#019942"}
+                verdict={currentOffer.grade?.label ?? currentAdvisor?.grade ?? currentOffer.verdict ?? ""}
+                verdictColor={currentOffer.grade?.color ?? currentAdvisor?.gradeColor ?? "#019942"}
                 prose={currentAdvisor?.prose ?? currentOffer.prose ?? "Reading the matchup…"}
                 proseLoading={!!currentAdvisor?.loading}
                 onPass={handlePass}

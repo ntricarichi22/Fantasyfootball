@@ -14,7 +14,14 @@ import {
   type PersonaKey,
 } from "@/pro-personnel/trade-engine/advisor/engine";
 import { getPersonality } from "@/pro-personnel/trade-engine/advisor/personality";
-import { SYSTEM_PROMPT, buildUserPrompt } from "@/pro-personnel/trade-engine/advisor/prompt";
+import {
+  SYSTEM_PROMPT,
+  buildUserPrompt,
+  BUILDER_SYSTEM_PROMPT,
+  buildBuilderUserPrompt,
+  goalKindPhrase,
+  type PartnerAngle,
+} from "@/pro-personnel/trade-engine/advisor/prompt";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -26,6 +33,17 @@ type RequestBody = {
   other_team_ids?: string[];
   deal_assets?: DealAsset[];
   rosters?: Record<string, RosterAsset[]>;
+  // "studio" (default) → coaching voice that suggests sweeteners to balance a
+  // deal the user is building. "builder" → presents a pre-vetted package: why
+  // the partner would do it + accept-vs-counter read, no sweetener suggestions.
+  mode?: "studio" | "builder";
+  // Engine partner acceptance read, passed through in builder mode so the
+  // accept-vs-counter framing matches the Builder's own two-scorecard pricing.
+  partner_read?: string | null;
+  // Engine partner reasoning (builder mode): the partner's storyline + the goal
+  // this deal closes, so the director advocates "why they'd do it" from real
+  // logic instead of inferring it from strategy/roster alone.
+  partner_angle?: PartnerAngle | null;
 };
 
 function getCFCYear(): number {
@@ -65,7 +83,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { my_team_id, other_team_ids, deal_assets, rosters } = body;
+  const { my_team_id, other_team_ids, deal_assets, rosters, partner_read, partner_angle } = body;
+  const mode = body.mode === "builder" ? "builder" : "studio";
   if (!my_team_id || !other_team_ids?.length) {
     return NextResponse.json({ error: "team IDs required" }, { status: 400 });
   }
@@ -162,13 +181,24 @@ export async function POST(request: NextRequest) {
   const cfcYear = getCFCYear();
 
   // ── PROMPT ASSEMBLY ────────────────────────────────────────────────────
-  const userPrompt = buildUserPrompt({
-    myTeamName, myProfile, myRoster,
-    otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster, otherTeamMode,
-    dealAssets, myTeamId: my_team_id, otherTeamId,
-    gap, suggestions, warnings, shapeMismatch,
-    cfcYear, behaviorSummary,
-  });
+  // Builder presents a vetted package (no sweetener coaching); Studio coaches
+  // the user through a deal they're assembling. Same context, different posture.
+  const systemPrompt = mode === "builder" ? BUILDER_SYSTEM_PROMPT : SYSTEM_PROMPT;
+  const userPrompt = mode === "builder"
+    ? buildBuilderUserPrompt({
+        myTeamName, myProfile, myRoster,
+        otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster, otherTeamMode,
+        dealAssets, myTeamId: my_team_id, otherTeamId,
+        gap, suggestions, warnings, shapeMismatch,
+        cfcYear, behaviorSummary, partnerRead: partner_read, partnerAngle: partner_angle,
+      })
+    : buildUserPrompt({
+        myTeamName, myProfile, myRoster,
+        otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster, otherTeamMode,
+        dealAssets, myTeamId: my_team_id, otherTeamId,
+        gap, suggestions, warnings, shapeMismatch,
+        cfcYear, behaviorSummary,
+      });
 
   // ── AI CALL ────────────────────────────────────────────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -181,7 +211,7 @@ export async function POST(request: NextRequest) {
         body: JSON.stringify({
           model: ANTHROPIC_MODEL,
           max_tokens: 350,
-          system: SYSTEM_PROMPT,
+          system: systemPrompt,
           messages: [{ role: "user", content: userPrompt }],
         }),
       });
@@ -194,6 +224,17 @@ export async function POST(request: NextRequest) {
           .trim();
       }
     } catch { /* fall through to deterministic prose */ }
+  }
+
+  // Builder fallback — present the vetted deal with an accept/counter read,
+  // grounded in the partner's goal when we have it. Never coaches sweeteners
+  // (that's Studio's job, below).
+  if (!prose && mode === "builder") {
+    const phrase = goalKindPhrase(partner_angle?.goalKind);
+    const fit = phrase ? ` — it fits their plan of ${phrase}` : " — it fits what they're after";
+    prose = partner_read === "likely"
+      ? `${otherTeamName} should take this close to as-is${fit}. Make the call.`
+      : `${otherTeamName} won't jump at this, but it's fair enough to get them to the table${fit}. Send it and expect a light counter.`;
   }
 
   // Deterministic fallback prose by verdict — used if AI call fails or for empty deals

@@ -1,10 +1,12 @@
 import { construct, type EngineContext } from "@/pro-personnel/engine";
 import type { DealRequest, EngineOffer, ReturnAim, Bucket } from "@/pro-personnel/engine";
 import { valueAsset, isYoung } from "@/shared/asset-values";
-import type { Goal, ReturnSpec, SurplusPosition, Thesis } from "@/shared/team-narratives";
-import type { NeedBucket, ScrubSets } from "@/shared/team-profiles";
+import type { Goal, GoalKind, ReturnSpec, SurplusPosition, Thesis, NarrativeBundle } from "@/shared/team-narratives";
+import { ACQUIRE_GOAL_KINDS } from "@/shared/team-narratives";
+import type { NeedBucket, ScrubSets, ImpactSets } from "@/shared/team-profiles";
 import { bucketOf, buildScrubSets, buildImpactSets } from "@/shared/team-profiles";
-import type { Match, TeamSlate } from "./types";
+import type { Match, TeamSlate, GoalRef } from "./types";
+import { assetFitsGoal } from "./matcher";
 
 // Offer generation = the bridge from goal-level matches to the deal
 // constructor. A match already decided WHICH goal, WHICH partner, and the asset
@@ -258,6 +260,14 @@ export type GeneratedOffer = {
   partnerTeam: string;
   bothSidesSatisfied: boolean;
   offer: EngineOffer;
+  // Partner-side reasoning, carried through so the Builder director can advocate
+  // from the engine's actual logic (why THIS deal serves one of THEIR storylines)
+  // instead of re-inferring it. partnerThesisId points into the partner's
+  // narrative bundle; partnerGoalSatisfied is the specific goal of theirs the deal
+  // closes; why is the matcher's one-line narration.
+  partnerThesisId: string;
+  partnerGoalSatisfied: GoalRef | null;
+  why: string;
 };
 
 export type GoalOffers = {
@@ -308,12 +318,86 @@ const PREMIUM_ACCUMULATE_AIM: ReturnSpec = {
   strength: "hard",
 };
 
+// CONSOLIDATION: the single source of truth for "does this deal serve the
+// partner?" is the CONSTRUCTED PACKAGE, not a pool-wide guess. We ask: does any
+// asset the partner actually RECEIVES (our send side) satisfy one of their
+// acquire goals? Returns that goal (the honest "why they'd do it") or null —
+// null means the package hands them nothing they want, so it isn't a real
+// two-sided deal and the Builder gate drops it. The matcher's pool-based flag is
+// now only a pre-construction ranking heuristic, never the surfaced truth.
+// Goals that ADD a body at a position. You don't take depth / insurance / youth /
+// fill at a position while shipping OUT a player at that SAME position — that's a
+// lateral, not a need filled; it must be paid from other positions and/or picks.
+// (Consolidation — sending lesser pieces at a position to land one better — is an
+// acquire_impact play, which is intentionally NOT in this set.)
+const SAME_POSITION_ADD_GOALS = new Set<GoalKind>(["depth", "insurance", "fill_need", "add_youth"]);
+
+function bucketOfKey(ec: EngineContext, key: string): NeedBucket | null {
+  const p = ec.data.players.get(key);
+  return p ? (bucketOf(p.position) as NeedBucket | null) : null; // picks resolve to null
+}
+
+function isPremiumPlayerKey(ec: EngineContext, impactSets: ImpactSets, key: string): boolean {
+  const p = ec.data.players.get(key);
+  if (!p) return false; // picks aren't players
+  if (ec.data.values.isStud.get(key) ?? false) return true;
+  const b = bucketOf(p.position);
+  return !!b && (impactSets.get(b)?.has(key) ?? false);
+}
+
+function partnerGoalForPackage(
+  offer: EngineOffer,
+  partnerBundle: NarrativeBundle | undefined,
+  ourRosterId: string,
+  ec: EngineContext,
+  impactSets: ImpactSets,
+  scrubSets: ScrubSets,
+): GoalRef | null {
+  if (!partnerBundle) return null;
+  const sendKeys = offer.assets.filter((a) => a.side === "send").map((a) => a.key);
+  // What the partner SHIPS US (our receive side). A same-position add goal is
+  // void if they're shipping out a player at that bucket.
+  const partnerShipsBuckets = new Set(
+    offer.assets
+      .filter((a) => a.side === "receive")
+      .map((a) => bucketOfKey(ec, a.key))
+      .filter((b): b is NeedBucket => b !== null),
+  );
+  // Partner's NET pick value (picks they receive from us − picks they ship us).
+  // A pick-accumulation goal is only served if they come out ahead on picks.
+  const partnerPickNet = pickValueOnSide(offer, "send", ec) - pickValueOnSide(offer, "receive", ec);
+  // Their teardown is only served if we're actually BUYING their stud (we
+  // receive a premium player from them) — picks/young we send are the haul, not
+  // the trigger. Without it, an incidental pick we send falsely credits teardown.
+  const weBuyTheirStud = offer.assets.some((a) => a.side === "receive" && isPremiumPlayerKey(ec, impactSets, a.key));
+  for (const t of partnerBundle.theses) {
+    for (const g of t.goals) {
+      if (!ACQUIRE_GOAL_KINDS.has(g.kind)) continue;
+      // Don't "fill depth" at a position they're simultaneously selling.
+      if (SAME_POSITION_ADD_GOALS.has(g.kind) && g.bucket && partnerShipsBuckets.has(g.bucket)) {
+        continue;
+      }
+      // Don't credit pick accumulation when they net-LOSE pick capital.
+      if (g.kind === "accumulate_picks" && partnerPickNet <= 0) continue;
+      // Don't credit a teardown unless we're buying their stud.
+      if (g.kind === "teardown" && !weBuyTheirStud) continue;
+      for (const k of sendKeys) {
+        if (assetFitsGoal(ec.data, impactSets, scrubSets, k, g, ourRosterId)) {
+          return { rosterId: partnerBundle.rosterId, thesisId: t.id, goalId: g.id, kind: g.kind };
+        }
+      }
+    }
+  }
+  return null;
+}
+
 export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): ThesisOffers[] {
   const bundle = ec.bundles?.get(slate.rosterId);
   const theses = bundle?.theses ?? [];
   if (theses.length === 0) return [];
 
   const scrubSets = buildScrubSets(ec.data);
+  const impactSets = buildImpactSets(ec.data);
 
   // Group matches by thesis → goal.
   const matchesByGoal = new Map<string, Match[]>(); // key = `${thesisId}|${goalId}`
@@ -478,13 +562,27 @@ export function generateOffersForTeam(slate: TeamSlate, ec: EngineContext): Thes
             perAnchorCount.set(anchorKey, (perAnchorCount.get(anchorKey) ?? 0) + 1);
           }
 
+          // Asset-accurate partner fit, derived from the actual package (not the
+          // matcher's pool guess). This is the consolidated single source of truth
+          // for bothSidesSatisfied + the partner goal the deal serves.
+          const pkgGoal = partnerGoalForPackage(
+            offer,
+            ec.bundles?.get(match.partnerRosterId),
+            slate.rosterId,
+            ec,
+            impactSets,
+            scrubSets,
+          );
           collected.push({
             thesisId: thesis.id,
             goalId: goal.id,
             goalKind: goal.kind,
             partnerTeam: match.partnerTeam,
-            bothSidesSatisfied: match.rankReasons.bothSidesSatisfied,
+            bothSidesSatisfied: pkgGoal !== null,
             offer,
+            partnerThesisId: pkgGoal?.thesisId ?? match.partnerThesisId,
+            partnerGoalSatisfied: pkgGoal,
+            why: match.why,
           });
         }
       }

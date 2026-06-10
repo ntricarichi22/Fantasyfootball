@@ -1,5 +1,5 @@
 export * from "./types";
-export { buildMatchSlates } from "./matcher";
+export { buildMatchSlates, assetFitsGoal } from "./matcher";
 export {
   generateOffersForTeam,
   type GeneratedOffer,

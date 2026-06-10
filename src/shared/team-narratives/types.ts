@@ -45,6 +45,7 @@ export type GoalKind =
   | "fill_need"
   | "acquire_impact"
   | "insurance"
+  | "depth"
   | "teardown"
   | "shed";
 
@@ -68,6 +69,7 @@ export const ACQUIRE_GOAL_KINDS: ReadonlySet<GoalKind> = new Set<GoalKind>([
   "fill_need",
   "acquire_impact",
   "insurance",
+  "depth",
   "teardown",
 ]);
 

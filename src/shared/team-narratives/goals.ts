@@ -199,6 +199,13 @@ function insuranceSpec(bucket: NeedBucket): ReturnSpec {
   // never pays a 1st. Soft so the fill pool isn't over-constrained.
   return { preferBuckets: [bucket], strength: "soft" };
 }
+function depthSpec(bucket: NeedBucket): ReturnSpec {
+  // A startable rotational piece at the bucket — a flex/matchup starter, not just
+  // injury cover. Soft so the fill pool isn't over-constrained. Unlike insurance,
+  // a young startable body counts, and it funds like a normal acquire (no special
+  // dealKind) since a rotation starter is worth more than a clipboard backup.
+  return { preferBuckets: [bucket], strength: "soft" };
+}
 function teardownSpec(): ReturnSpec {
   // The haul for cashing a stud: picks + YOUNG non-stud building blocks, never
   // another stud. HARD restricts construct's fill pool to picks and young non-stud
@@ -312,18 +319,33 @@ function engineGoals(
           : `Need at ${need.bucket} (${need.severity}); win-now impact target — fund from depth / surplus / picks.`,
       });
     }
-    // Depth insurance — at each position where we lack a competent backup behind
-    // the starters (QB3 / RB3 / PC5). A proven body who'd step in if a starter goes
-    // down; a cheap depth add, never for a 1st. A team already deep there skips it.
+    // The slot behind the starters (QB3 / RB3 / PC5) is thin. Which goal it
+    // becomes depends on whether that slot STARTS when everyone's healthy:
+    //   - QB: superflex starts 2 QBs, so QB3 never starts unless someone's hurt
+    //     → INSURANCE (a proven backup, floor protection, never for a 1st).
+    //   - RB / WR / TE: the FLEX means the body behind the locked starters DOES
+    //     start (matchup rotation) → DEPTH (a startable rotational piece, raises
+    //     the weekly ceiling; a young startable body counts).
     for (const bucket of read.insuranceBuckets) {
-      goals.push({
-        id: `${thesisId}:insurance:${bucket}`,
-        kind: "insurance",
-        sourceThesisId: thesisId,
-        bucket,
-        returnSpec: insuranceSpec(bucket),
-        evidence: `${bucket} depth insurance — thin behind the starters; a proven backup, never for a 1st.`,
-      });
+      if (bucket === "QB") {
+        goals.push({
+          id: `${thesisId}:insurance:${bucket}`,
+          kind: "insurance",
+          sourceThesisId: thesisId,
+          bucket,
+          returnSpec: insuranceSpec(bucket),
+          evidence: `${bucket} insurance — thin behind the starters; a proven backup who'd start only on injury, never for a 1st.`,
+        });
+      } else {
+        goals.push({
+          id: `${thesisId}:depth:${bucket}`,
+          kind: "depth",
+          sourceThesisId: thesisId,
+          bucket,
+          returnSpec: depthSpec(bucket),
+          evidence: `${bucket} rotation depth — a startable body to round out the rotation (flex/matchup starter), not just injury cover.`,
+        });
+      }
     }
   } else {
     // build_future: picks + youth are the priority.
