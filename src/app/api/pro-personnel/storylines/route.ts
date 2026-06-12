@@ -1,0 +1,180 @@
+// GET /api/pro-personnel/storylines?team_id=X
+//
+// The FAST half of the Build-a-Trade door (see director_office.md). Returns the
+// team's storylines (theses) + their acquire goals straight from the narrative
+// bundle — no offer construction — so the director's chat opens immediately
+// while the slow slate (trade-builder/generate) runs in the background.
+//
+// Also composes the director's conviction prose: how he frames the one clear
+// path (single thesis) or the genuine fork ("your plan" vs "what the roster is
+// telling me"). Uses the LLM in his builder voice when a key is present;
+// otherwise a deterministic composition from the bundle's own language.
+//
+// Response: {
+//   identity, teamName,
+//   theses: [{ id, source, timeline, headline, pitch,
+//              goals: [{ id, kind, bucket, label, teaser }] }],
+//   director: { opening, args: Record<thesisId, string> },
+// }
+
+import { NextRequest, NextResponse } from "next/server";
+import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
+import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
+import { buildTeamDossiers } from "@/shared/team-dossier";
+import { buildTeamNarratives, ACQUIRE_GOAL_KINDS, type Thesis, type Goal } from "@/shared/team-narratives";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+
+const BUCKET_LABEL: Record<string, string> = {
+  QB: "QB",
+  RB: "RB",
+  PASS_CATCHER: "pass catcher",
+};
+
+// Director-voice CTA label per goal. These are the buttons in his chat.
+function goalLabel(g: Goal): string {
+  const b = g.bucket ? BUCKET_LABEL[g.bucket] ?? g.bucket : "";
+  switch (g.kind) {
+    case "acquire_impact": return b ? `Land an impact ${b}` : "Land an impact player";
+    case "accumulate_picks": return "Stockpile draft capital";
+    case "add_youth": return b ? `Get younger at ${b}` : "Get younger";
+    case "fill_need": return b ? `Fill the hole at ${b}` : "Fill the hole";
+    case "insurance": return b ? `Add ${b} insurance` : "Add insurance";
+    case "depth": return b ? `Add startable ${b} depth` : "Add startable depth";
+    case "teardown": return "Cash a star for a haul";
+    case "fire_sale": return "Run the fire sale";
+    default: return g.kind;
+  }
+}
+
+type DirectorProse = { opening: string; args: Record<string, string> };
+
+// Deterministic composition — the bundle's own language, no numbers.
+function fallbackProse(theses: Thesis[], identity: string): DirectorProse {
+  const args: Record<string, string> = {};
+  if (theses.length <= 1) {
+    const t = theses[0];
+    return {
+      opening: t
+        ? `Made my calls around the league, boss. The way I see it there's one clear path for us: ${t.headline.toLowerCase().replace(/ — .*$/, "")}. ${t.pitch} Pick a lane below and I'll show you the deals I've already got lined up.`
+        : "Made my calls around the league, boss. Nothing's jumping off the board yet — but the phones are always open.",
+      args,
+    };
+  }
+  for (const t of theses) {
+    args[t.id] =
+      t.source === "intent"
+        ? `${t.headline.replace(/ — .*$/, "")} — this is your plan. ${t.pitch}`
+        : `${t.headline.replace(/ — .*$/, "")} — this one's the roster talking. ${t.pitch}`;
+  }
+  return {
+    opening:
+      "Been on the phones all week, boss, and honestly? I think there are genuinely two ways we could go from here. Hear me out on both, then pick a direction — I've got real deals lined up behind each one.",
+    args,
+  };
+}
+
+const LLM_SYSTEM = `You are the Pro Personnel Director of a 12-team Superflex dynasty fantasy football franchise, talking to your GM in the office. You scanned the league and prepared trade directions ("storylines") for the team.
+
+Hard rules:
+1. NEVER mention point values, ratios, percentages, or any numbers about value.
+2. "We" and "us" — you work for this franchise. Direct, confident, like a real scout. No filler, no sycophancy.
+3. Output ONLY valid JSON, no markdown fences, matching exactly: {"opening": string, "args": {<thesisId>: string, ...}}.
+4. "opening": 2-3 sentences greeting the GM and framing the situation. If there are two storylines, say there are genuinely two ways to go and that you'll make the case for each. If one, state the path with conviction.
+5. "args": for EACH storyline id given, 1-2 sentences arguing that direction with conviction. A storyline marked source=intent is the GM's OWN stated plan — frame it as "your plan". A storyline marked source=engine is what the roster evidence says — frame it as the roster making its own case. Never wishy-washy.`;
+
+async function llmProse(
+  theses: Thesis[],
+  identity: string,
+  teamName: string,
+): Promise<DirectorProse | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey || theses.length === 0) return null;
+  const summary = theses.map(t => ({
+    id: t.id,
+    source: t.source,
+    timeline: t.timeline,
+    headline: t.headline,
+    pitch: t.pitch,
+    goals: t.goals.filter(g => ACQUIRE_GOAL_KINDS.has(g.kind)).map(g => ({ kind: g.kind, evidence: g.evidence })),
+  }));
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 600,
+        system: LLM_SYSTEM,
+        messages: [{
+          role: "user",
+          content: `TEAM: ${teamName}\nIDENTITY: ${identity}\nSTORYLINES:\n${JSON.stringify(summary, null, 2)}\n\nWrite the JSON.`,
+        }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text = (data.content ?? [])
+      .filter((b: { type: string }) => b.type === "text")
+      .map((b: { text: string }) => b.text)
+      .join("")
+      .trim();
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.opening === "string" && parsed.opening.length > 0) {
+      return { opening: parsed.opening, args: parsed.args ?? {} };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function GET(req: NextRequest) {
+  const teamId = req.nextUrl.searchParams.get("team_id")?.trim();
+  if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
+
+  const data = await getLeagueData();
+  if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
+
+  const profiles = buildTeamProfiles(data);
+  const needs = computeNeeds(data);
+  const dossiers = buildTeamDossiers(profiles, data);
+  const playoffHistory = await getPlayoffHistory();
+  const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
+
+  const bundle = bundles.get(teamId);
+  if (!bundle) return NextResponse.json({ error: `unknown team: ${teamId}` }, { status: 404 });
+
+  const theses = bundle.theses.map(t => ({
+    id: t.id,
+    source: t.source,
+    timeline: t.timeline,
+    headline: t.headline,
+    pitch: t.pitch,
+    goals: t.goals
+      .filter(g => ACQUIRE_GOAL_KINDS.has(g.kind))
+      .map(g => ({
+        id: g.id,
+        kind: g.kind,
+        bucket: g.bucket ?? null,
+        label: goalLabel(g),
+        // Evidence strings are engine-facing and can leak bucket enums —
+        // translate them for the GM's eyes.
+        teaser: g.evidence.replace(/PASS_CATCHER/g, "pass catcher"),
+      })),
+  }));
+
+  const director =
+    (await llmProse(bundle.theses, bundle.identitySentence, bundle.teamName)) ??
+    fallbackProse(bundle.theses, bundle.identitySentence);
+
+  return NextResponse.json({
+    teamName: bundle.teamName,
+    identity: bundle.identitySentence,
+    theses,
+    director,
+  });
+}

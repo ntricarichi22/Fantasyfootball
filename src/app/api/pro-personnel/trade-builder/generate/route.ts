@@ -96,6 +96,10 @@ export async function POST(req: Request) {
         verdict: o.ourScoreboard.verdict,
         prose: o.prose,
         narrative: g.goalKind,
+        // Exact goal this offer serves (ids match the narrative bundle's goal
+        // ids) — the trade-door chat scopes its drawer per goal; goalKind alone
+        // collides when a thesis runs the same kind at two buckets.
+        goalId: g.goalId,
         bothSidesSatisfied: g.bothSidesSatisfied,
         // Partner acceptance read on THEIR scoreboard: "likely" (takes it as-is)
         // vs "needs_selling" (fair enough to get them to the table, expect a

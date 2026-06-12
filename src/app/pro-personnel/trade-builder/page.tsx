@@ -4,19 +4,21 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import TradeBuilder from "@/pro-personnel/trade-builder/TradeBuilder";
-import BuilderCyclerView from "@/pro-personnel/trade-builder/BuilderCyclerView";
+import TradeDoor from "@/pro-personnel/trade-door/TradeDoor";
 import type { DealAsset } from "@/pro-personnel/trade-builder/DealCard";
 
 // /pro-personnel/trade-builder page wrapper.
 //
 // Routes between three modes based on the ?seed= query param:
 //
-//   (no seed)     → BuilderCyclerView   — cycle through computed targets
+//   (no seed)     → TradeDoor           — the director's chat: storylines →
+//                                         goals → offer drawer (the "Build a
+//                                         Trade" door per director_office.md)
 //   ?seed=studio  → TradeBuilder seeded from sessionStorage[cfc_studio_seed_deal]
 //                                       — Studio Edit handoff
 //   ?seed=cycler  → TradeBuilder seeded from sessionStorage[cfc_builder_seed_deal]
-//                                       — Builder cycler Edit handoff
-//   ?seed=fresh   → TradeBuilder empty  — PHONES ARE OPEN flow from cycler
+//                                       — offer-drawer Edit handoff
+//   ?seed=fresh   → TradeBuilder empty  — PHONES ARE OPEN flow from the door
 //
 // The sessionStorage seed key is read once on mount and then cleared so
 // that a page refresh doesn't re-trigger the seeded editor (the user lands
@@ -146,7 +148,7 @@ function TradeBuilderPageInner() {
     );
   }
 
-  return <BuilderCyclerView />;
+  return <TradeDoor />;
 }
 
 export default function TradeBuilderPage() {
