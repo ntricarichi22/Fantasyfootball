@@ -42,7 +42,7 @@ export function HomeScreen() {
   // must POST the complete profile with only gm_persona changed.
   const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null)
 
-  // Single shared ticker interval so all directors stay in sync
+  // Single shared ticker interval so all door teasers stay in sync
   useEffect(() => {
     const id = setInterval(() => setTickerTick((t) => t + 1), TICKER_INTERVAL_MS)
     return () => clearInterval(id)
@@ -71,13 +71,13 @@ export function HomeScreen() {
     }
   }, [])
 
-  // Fetch inbox unread count for the GM door panel
+  // Fetch inbox unread count for the GM door status
   useEffect(() => {
     fetch("/api/inbox/unread-count")
       .then((r) => (r.ok ? r.json() : { count: 0 }))
       .then((d) => setUnreadCount(d?.count ?? 0))
       .catch(() => {
-        // silent - the door panel just stays at 0
+        // silent - the door just stays at "all caught up"
       })
   }, [])
 
@@ -144,140 +144,176 @@ export function HomeScreen() {
     />
   ))
 
-  return (
-    <div style={{ background: "#F5F0E6", minHeight: "100vh" }}>
-      <HomeTopbar teamName={teamName} />
+  const hero = (
+    <div style={{ textAlign: "center", padding: "10px 24px", flexShrink: 0 }}>
+      <h1
+        style={{
+          fontWeight: 800,
+          fontSize: isMobile ? 30 : 34,
+          letterSpacing: "-0.02em",
+          textTransform: "uppercase",
+          lineHeight: 1,
+          margin: 0,
+        }}
+      >
+        {teamName}
+      </h1>
+      <p
+        style={{
+          fontFamily: "Georgia, serif",
+          fontStyle: "italic",
+          fontSize: 14,
+          color: "#8C7E6A",
+          margin: "4px 0 0",
+          fontWeight: 400,
+        }}
+      >
+        Organizational Chart
+      </p>
+    </div>
+  )
 
-      {/* Hero - compact */}
-      <div style={{ textAlign: "center", padding: "14px 24px 14px" }}>
-        <h1
+  const personaModal = personaModalOpen && (
+    <div
+      onClick={() => setPersonaModalOpen(false)}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(26,26,26,0.6)",
+        zIndex: 100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#F5F0E6",
+          border: "3px solid #1A1A1A",
+          boxShadow: "6px 6px 0 #1A1A1A",
+          padding: 24,
+          maxWidth: 720,
+          width: "100%",
+          maxHeight: "90vh",
+          overflowY: "auto",
+        }}
+      >
+        <div
           style={{
-            fontWeight: 800,
-            fontSize: isMobile ? 32 : 42,
-            letterSpacing: "-0.02em",
-            textTransform: "uppercase",
-            lineHeight: 1,
-            margin: 0,
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: 8,
           }}
         >
-          {teamName}
-        </h1>
-        <p
-          style={{
-            fontFamily: "Georgia, serif",
-            fontStyle: "italic",
-            fontSize: 16,
-            color: "#8C7E6A",
-            margin: "6px 0 0",
-            fontWeight: 400,
-          }}
-        >
-          Organizational Chart
-        </p>
+          <button
+            type="button"
+            onClick={() => setPersonaModalOpen(false)}
+            aria-label="Close"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "#1A1A1A",
+              padding: 0,
+              display: "flex",
+              alignItems: "center",
+            }}
+          >
+            <Icon name="x" size={20} />
+          </button>
+        </div>
+        <PersonaPicker value={persona} onChange={savePersona} />
       </div>
+    </div>
+  )
 
-      {/* Org chart */}
+  if (isMobile) {
+    return (
+      <div style={{ background: "#F5F0E6", minHeight: "100vh" }}>
+        <HomeTopbar teamName={teamName} />
+        {hero}
+        <div
+          style={{
+            maxWidth: 1280,
+            margin: "0 auto",
+            padding: "0 24px 20px",
+            display: "flex",
+            flexDirection: "column",
+            gap: GRID_GAP,
+          }}
+        >
+          {gmCard}
+          {directorBoxes}
+        </div>
+        {personaModal}
+      </div>
+    )
+  }
+
+  // Desktop: the whole org chart is locked to the viewport - no page
+  // scroll. The two card rows split the leftover height evenly, and the
+  // headshots inside the cards absorb the flex, so every card is the
+  // exact same height on any screen.
+  return (
+    <div
+      style={{
+        background: "#F5F0E6",
+        height: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
+      <HomeTopbar teamName={teamName} />
+      {hero}
+
       <div
         style={{
           maxWidth: 1280,
+          width: "100%",
           margin: "0 auto",
-          padding: "0 24px 20px",
+          padding: "0 24px 18px",
+          boxSizing: "border-box",
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
         }}
       >
-        {isMobile ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: GRID_GAP,
-            }}
-          >
-            {gmCard}
-            {directorBoxes}
-          </div>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gap: GRID_GAP,
-              }}
-            >
-              <div style={{ gridColumn: 2 }}>{gmCard}</div>
-            </div>
-
-            <OrgChartLines gap={GRID_GAP} />
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                gap: GRID_GAP,
-              }}
-            >
-              {directorBoxes}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Persona picker modal (same overlay pattern as InnerTopbar settings) */}
-      {personaModalOpen && (
         <div
-          onClick={() => setPersonaModalOpen(false)}
           style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(26,26,26,0.6)",
-            zIndex: 100,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 20,
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: GRID_GAP,
+            flex: 1,
+            minHeight: 0,
           }}
         >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "#F5F0E6",
-              border: "3px solid #1A1A1A",
-              boxShadow: "6px 6px 0 #1A1A1A",
-              padding: 24,
-              maxWidth: 720,
-              width: "100%",
-              maxHeight: "90vh",
-              overflowY: "auto",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "flex-end",
-                marginBottom: 8,
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => setPersonaModalOpen(false)}
-                aria-label="Close"
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "#1A1A1A",
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
-                }}
-              >
-                <Icon name="x" size={20} />
-              </button>
-            </div>
-            <PersonaPicker value={persona} onChange={savePersona} />
-          </div>
+          <div style={{ gridColumn: 2, minHeight: 0 }}>{gmCard}</div>
         </div>
-      )}
+
+        <OrgChartLines gap={GRID_GAP} />
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr 1fr",
+            gap: GRID_GAP,
+            flex: 1,
+            minHeight: 0,
+          }}
+        >
+          {directorBoxes.map((box, i) => (
+            <div key={DIRECTORS[i].key} style={{ minHeight: 0 }}>
+              {box}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {personaModal}
     </div>
   )
 }

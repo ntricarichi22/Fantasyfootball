@@ -17,10 +17,11 @@ export type GMPersonCardProps = {
 }
 
 /**
- * The GM on the home org chart, rendered as a person card with the
- * same anatomy as the director cards: avatar and door panel both open
- * the inbox (the GM's "office"), attributes listed as rows below.
- * Only the persona row is clickable - it opens the persona picker.
+ * The GM on the home org chart - same anatomy as the director cards.
+ * The headshot and "Your Office" door both open the inbox; the door's
+ * status line mirrors the directors: pulsing yellow dot with the unread
+ * count, or steady green when caught up. Attributes ledger below, with
+ * only the persona row clickable.
  */
 export function GMPersonCard({
   name,
@@ -33,59 +34,52 @@ export function GMPersonCard({
   isMobile = false,
   inboxHref = "/inbox",
 }: GMPersonCardProps) {
-  const openInbox = () => {
-    window.location.href = inboxHref
-  }
-
   const hasUnread = unreadCount > 0
 
   return (
     <OrgPersonCard
       name={name}
-      subtitle="General Manager"
       avatarSrc="/avatars/gm.png"
       avatarAlt={name}
       frameColor="#B89968"
       avatarFallback={
         <span style={{ color: "#1A1A1A", lineHeight: 0 }}>
-          <PersonaIcon persona={persona} size={120} />
+          <PersonaIcon persona={persona} size={64} />
         </span>
       }
-      onAvatarClick={openInbox}
-      avatarAriaLabel={`Open inbox, ${unreadCount} unread`}
-      avatarAspect={isMobile ? "2 / 1" : "1 / 1"}
+      onAvatarClick={() => {
+        window.location.href = inboxHref
+      }}
+      avatarAriaLabel={`Enter your office, ${unreadCount} unread`}
       door={{
-        label: "Inbox",
-        onClick: openInbox,
+        label: "Your Office",
+        href: inboxHref,
         notice: {
           active: hasUnread,
           text: hasUnread
-            ? `${unreadCount} new message${unreadCount === 1 ? "" : "s"}`
-            : "All clear",
+            ? `${unreadCount} unread message${unreadCount === 1 ? "" : "s"} in your inbox`
+            : "Desk is clear — you're all caught up",
         },
-        ariaLabel: `Open inbox, ${unreadCount} unread`,
+        ariaLabel: `Enter your office, ${unreadCount} unread`,
       }}
       sectionLabel="Attributes"
       rows={[
         {
           key: "persona",
           label: `Persona · ${personaLabel}`,
-          accentColor: "#B89968",
           onClick: onPersonaClick,
           ariaLabel: "Change persona",
         },
         {
           key: "championships",
           label: `Championships · ${championships}`,
-          accentColor: "#B89968",
         },
         {
           key: "tenure",
           label: `Tenure · Year ${years}`,
-          accentColor: "#B89968",
         },
       ]}
-      fillHeight={false}
+      isMobile={isMobile}
     />
   )
 }
