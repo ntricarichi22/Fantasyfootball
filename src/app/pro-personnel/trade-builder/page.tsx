@@ -26,17 +26,31 @@ import type { DealAsset } from "@/pro-personnel/trade-builder/DealCard";
 // per Next.js 15+ static-generation requirements. The inner component
 // reads the param; the default export provides the boundary.
 
+type SeedAdvisor = {
+  prose: string;
+  grade: string;
+  gradeColor: string;
+};
+
 type SeedDeal = {
   partner_team_id: string;
   partner_team_name: string;
   send: Array<{ key: string; name: string; type?: string }>;
   receive: Array<{ key: string; name: string; type?: string }>;
+  // The director's take from the card the user tapped Edit on — carried into
+  // the editor so the handoff reads as one continuous conversation.
+  advisor?: SeedAdvisor;
 };
 
 type RouteMode =
   | { kind: "loading" }
   | { kind: "cycler" }
-  | { kind: "editor"; initialTeams: Array<{ id: string; name: string }>; initialDealAssets: DealAsset[] };
+  | {
+      kind: "editor";
+      initialTeams: Array<{ id: string; name: string }>;
+      initialDealAssets: DealAsset[];
+      initialAdvisor?: SeedAdvisor;
+    };
 
 function LoadingScreen() {
   return (
@@ -102,6 +116,7 @@ function TradeBuilderPageInner() {
         kind: "editor",
         initialTeams: [{ id: data.partner_team_id, name: data.partner_team_name }],
         initialDealAssets: dealAssets,
+        initialAdvisor: data.advisor && data.advisor.prose ? data.advisor : undefined,
       });
 
       // Clear so refresh doesn't re-trigger the seeded editor
@@ -123,9 +138,9 @@ function TradeBuilderPageInner() {
   if (mode.kind === "editor") {
     return (
       <TradeBuilder
-        initialCart={[]}
         initialTeams={mode.initialTeams}
         initialDealAssets={mode.initialDealAssets}
+        initialAdvisor={mode.initialAdvisor}
         onBack={handleBack}
       />
     );

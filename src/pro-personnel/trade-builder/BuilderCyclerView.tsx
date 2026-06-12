@@ -270,16 +270,27 @@ export default function BuilderCyclerView() {
   const handleEdit = useCallback(() => {
     const offer = offers[activeIndex];
     if (!offer) return;
+    const adv = advisorByOffer[offer.id];
     try {
       sessionStorage.setItem("cfc_builder_seed_deal", JSON.stringify({
         partner_team_id: offer.partnerTeam.id,
         partner_team_name: offer.partnerTeam.name,
         send: offer.sendAssets,
         receive: offer.receiveAssets,
+        // The director's take from THIS card, carried into the editor so the
+        // Edit handoff reads as one continuous conversation. The editor shows
+        // it with a bridge line, then the live Studio advisor takes over on
+        // the first change.
+        // Mirror the card exactly: chip = engine grade first, prose = advisor's.
+        advisor: {
+          prose: adv?.prose || offer.prose || "",
+          grade: offer.grade?.label ?? adv?.grade ?? "",
+          gradeColor: offer.grade?.color ?? adv?.gradeColor ?? "#019942",
+        },
       }));
     } catch {}
     window.location.href = "/pro-personnel/trade-builder?seed=cycler";
-  }, [offers, activeIndex]);
+  }, [offers, activeIndex, advisorByOffer]);
 
   const handleMakeOffer = useCallback(async () => {
     const offer = offers[activeIndex];

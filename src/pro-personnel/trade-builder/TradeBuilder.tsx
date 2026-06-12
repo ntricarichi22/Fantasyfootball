@@ -2,22 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
+import TradeBalanceChip from "@/shared/ui/TradeBalanceChip";
 import { teamNick } from "@/shared/util/teamNick";
 import DealCard, { type DealAsset } from "@/pro-personnel/trade-builder/DealCard";
 import AIAdvisor, { type AdvisorSuggestion } from "@/pro-personnel/trade-builder/AIAdvisor";
 import PlayerRow, { AVAILABILITY_CHIPS } from "@/pro-personnel/trade-builder/PlayerRow";
 import TierDivider from "@/pro-personnel/trade-builder/TierDivider";
 import RoutingPopup from "@/pro-personnel/trade-builder/RoutingPopup";
-import TeamPickerModal from "@/pro-personnel/trade-builder/TeamPickerModal";
-import type { CartItem } from "@/components/trade/CartSidebar";
+import TeamPickerModal, { type PartnerFit } from "@/pro-personnel/trade-builder/TeamPickerModal";
 
 type Team = { id: string; name: string };
 type Props = {
-  initialCart: CartItem[];
   initialTeams: Team[];
-  // When provided and non-empty, takes precedence over initialCart.
-  // Used by the Studio Edit handoff to seed both sides of a deal at once.
+  // Seeds both sides of a deal at once (Edit handoffs from the cycler/Studio).
   initialDealAssets?: DealAsset[];
+  // The director's take on the seeded deal, carried over from the card the
+  // user tapped Edit on — shown verbatim (plus a bridge line) so the handoff
+  // reads as one continuous conversation. The live Studio advisor takes over
+  // on the first change to the deal.
+  initialAdvisor?: { prose: string; grade: string; gradeColor: string };
   onBack: () => void;
 };
 type RosterPlayer = {
@@ -37,7 +41,11 @@ const POS_SECTIONS = [
   { key: "PICK", label: "Draft Picks" },
 ];
 
-export default function TradeBuilder({ initialCart, initialTeams, initialDealAssets, onBack }: Props) {
+// Bridge line appended to carried-over director prose: he knows you came to
+// tweak the deal, and hands you to the live re-grading flow.
+const EDIT_BRIDGE = "Want to work it? Make your changes — I'll re-grade as we go and flag what balances it.";
+
+export default function TradeBuilder({ initialTeams, initialDealAssets, initialAdvisor, onBack }: Props) {
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
   const myTeamId = rosterId;
 
@@ -46,26 +54,30 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
     return [me, ...initialTeams.filter(t => t.id !== myTeamId)];
   });
 
-  const [dealAssets, setDealAssets] = useState<DealAsset[]>(() => {
-    if (initialDealAssets && initialDealAssets.length > 0) {
-      return initialDealAssets;
-    }
-    return initialCart.map(c => ({
-      key: c.key, name: c.name,
-      fromTeamId: c.teamId, toTeamId: myTeamId,
-      fromTeamName: c.teamName, toTeamName: myTeamName || `Team ${myTeamId}`,
-    }));
-  });
+  const [dealAssets, setDealAssets] = useState<DealAsset[]>(() => initialDealAssets ?? []);
   const [activeTab, setActiveTab] = useState(myTeamId);
   const [rosters, setRosters] = useState<Record<string, RosterPlayer[]>>({});
   const [allTeamsList, setAllTeamsList] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
+  // Engine-ranked partner fit (who the director found deals with) — fetched in
+  // the background; the picker orders its team list by it when available.
+  const [fitRanking, setFitRanking] = useState<PartnerFit[] | null>(null);
   const [routingPopup, setRoutingPopup] = useState<{ key: string; name: string; fromTeamId: string } | null>(null);
   const [pickerMode, setPickerMode] = useState<"swap" | "add" | null>(null);
+  // Whether the CURRENT picker session offers cross-roster player search.
+  // Captured when the picker opens (no partner yet) so the first search-pick —
+  // which creates the partner — doesn't yank search out from under the modal.
+  const [pickerSearch, setPickerSearch] = useState(false);
+  // Mobile: the roster panel renders as a bottom sheet; this holds the teamId
+  // whose roster the sheet shows (null = closed). Inert on desktop.
+  const [sheetOpen, setSheetOpen] = useState<string | null>(null);
+  const isMobile = useIsMobile();
 
-  const [advisorProse, setAdvisorProse] = useState("Add assets to both sides to get my take on this deal.");
-  const [advisorGrade, setAdvisorGrade] = useState("");
-  const [advisorGradeColor, setAdvisorGradeColor] = useState("#8C7E6A");
+  const [advisorProse, setAdvisorProse] = useState(() =>
+    initialAdvisor ? `${initialAdvisor.prose} ${EDIT_BRIDGE}` : "Add assets to both sides to get my take on this deal.",
+  );
+  const [advisorGrade, setAdvisorGrade] = useState(() => initialAdvisor?.grade ?? "");
+  const [advisorGradeColor, setAdvisorGradeColor] = useState(() => initialAdvisor?.gradeColor ?? "#8C7E6A");
   const [advisorSuggestions, setAdvisorSuggestions] = useState<AdvisorSuggestion[]>([]);
   const [advisorLoading, setAdvisorLoading] = useState(false);
 
@@ -78,11 +90,23 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
   // roster"), we open the team picker and stash the intended add here so it
   // completes right after they choose.
   const pendingAddRef = useRef<{ key: string; name: string } | null>(null);
+  // While the carried-over director take is on screen, hold the live advisor
+  // back until the deal actually changes (the effect also re-fires when the
+  // async roster fetch lands — that must not clobber his words).
+  const initialDealRef = useRef(dealAssets);
+  const carriedProseRef = useRef(!!initialAdvisor);
 
   const threeTeam = teams.length > 2;
   const dealKeys = useMemo(() => new Set(dealAssets.map(a => a.key)), [dealAssets]);
   const otherTeams = useMemo(() => teams.filter(t => t.id !== myTeamId), [teams, myTeamId]);
   const flash = useCallback((m: string) => { setToast(m); setTimeout(() => setToast(""), 3000); }, []);
+
+  // All swap-picker opens route through here so the session's search mode is
+  // captured consistently.
+  const openSwapPicker = useCallback(() => {
+    setPickerSearch(otherTeams.length === 0);
+    setPickerMode("swap");
+  }, [otherTeams.length]);
 
   useEffect(() => {
     if (!myTeamId) return;
@@ -113,6 +137,16 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
       .finally(() => setLoading(false));
   }, [myTeamId]);
 
+  // Background fetch of the engine's partner-fit ranking — non-blocking, the
+  // picker works unranked until it lands.
+  useEffect(() => {
+    if (!myTeamId) return;
+    fetch(`/api/pro-personnel/partner-fit?team_id=${encodeURIComponent(myTeamId)}`)
+      .then(r => r.json())
+      .then(j => { if (Array.isArray(j.teams)) setFitRanking(j.teams); })
+      .catch(() => {});
+  }, [myTeamId]);
+
   // Fresh entry has no partner — prompt for one as soon as the team list is
   // ready, so the builder is never a dead end. Closing the picker is fine;
   // any partner-needing action re-opens it.
@@ -121,11 +155,21 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
     if (loading || promptedRef.current) return;
     if (teams.length === 1 && allTeamsList.length > 0) {
       promptedRef.current = true;
-      setPickerMode("swap");
+      openSwapPicker();
     }
-  }, [loading, teams.length, allTeamsList.length]);
+  }, [loading, teams.length, allTeamsList.length, openSwapPicker]);
 
+  // While the mobile roster sheet is open we only need the live chip — the
+  // grade is deterministic math, so skip the LLM (fast + cheap) and use a
+  // short debounce. When the sheet closes the effect re-fires and fetches the
+  // full prose for the card.
+  const gradeOnly = !!(isMobile && sheetOpen);
   useEffect(() => {
+    // Carried director take stays up until the user edits the deal.
+    if (carriedProseRef.current) {
+      if (dealAssets === initialDealRef.current) return;
+      carriedProseRef.current = false;
+    }
     if (advisorTimer.current) clearTimeout(advisorTimer.current);
     if (!dealAssets.length) {
       setAdvisorProse("Add players or picks to both sides to get my take.");
@@ -145,11 +189,12 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
             other_team_ids: otherTeams.map(t => t.id),
             deal_assets: dealAssets,
             rosters,
+            ...(gradeOnly ? { skip_prose: true } : {}),
           }),
         });
         if (res.ok) {
           const j = await res.json();
-          if (j.prose) setAdvisorProse(j.prose);
+          if (!gradeOnly && j.prose) setAdvisorProse(j.prose);
           setAdvisorGrade(j.grade ?? "");
           setAdvisorGradeColor(j.gradeColor ?? "#8C7E6A");
           setAdvisorSuggestions(Array.isArray(j.suggestions) ? j.suggestions : []);
@@ -157,9 +202,9 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
       } catch {} finally {
         setAdvisorLoading(false);
       }
-    }, 1500);
+    }, gradeOnly ? 450 : 1500);
     return () => { if (advisorTimer.current) clearTimeout(advisorTimer.current); };
-  }, [dealAssets, myTeamId, otherTeams, rosters]);
+  }, [dealAssets, myTeamId, otherTeams, rosters, gradeOnly]);
 
   const removeDealAsset = useCallback((key: string) => {
     setDealAssets(prev => prev.filter(a => a.key !== key));
@@ -198,12 +243,12 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
       } else {
         // No partner yet (fresh entry): pick one, then complete this add.
         pendingAddRef.current = { key, name };
-        setPickerMode("swap");
+        openSwapPicker();
       }
     } else {
       addDealAsset(key, name, activeTab, myTeamId);
     }
-  }, [activeTab, threeTeam, myTeamId, otherTeams, dealKeys, addDealAsset, removeDealAsset]);
+  }, [activeTab, threeTeam, myTeamId, otherTeams, dealKeys, addDealAsset, removeDealAsset, openSwapPicker]);
 
   const handleRoutingSelect = useCallback((toTeamId: string) => {
     if (!routingPopup) return;
@@ -216,12 +261,13 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
       setRoutingPopup({ key: "__browse__", name: "", fromTeamId: "__universal__" });
     } else if (!teamId) {
       // "+ Add from their roster" with no partner yet — pick one first.
-      setPickerMode("swap");
+      openSwapPicker();
     } else {
       setActiveTab(teamId);
       setRosterSearch("");
+      setSheetOpen(teamId); // mobile: open the roster sheet (inert on desktop)
     }
-  }, []);
+  }, [openSwapPicker]);
 
   const handleUniversalBrowse = useCallback((teamId: string) => {
     setRoutingPopup(null);
@@ -284,6 +330,7 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
         // They were browsing their own roster — keep them there.
       } else {
         setActiveTab(newTeamId);
+        setSheetOpen(newTeamId); // mobile: show their roster right away
       }
       setRosterSearch("");
       return;
@@ -308,7 +355,40 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
       ];
     });
     setActiveTab(newTeamId);
+    setSheetOpen(newTeamId); // mobile: show the new partner's roster
     setRosterSearch("");
+  }, [myTeamId, myTeamName, otherTeams, allTeamsList]);
+
+  // Player tapped inside the picker's cross-roster search (fresh build, no
+  // partner yet). Locks the partner to his team, completes any pending add
+  // from our roster, and adds him to our receive side. The picker stays open
+  // (same-team browsing) until the user hits Done.
+  const handlePickerPlayer = useCallback((teamId: string, key: string, name: string) => {
+    if (teamId === myTeamId) return;
+    const teamName = allTeamsList.find(t => t.id === teamId)?.name ?? `Team ${teamId}`;
+    const myName = myTeamName || `Team ${myTeamId}`;
+    if (!otherTeams[0]) {
+      const pending = pendingAddRef.current;
+      pendingAddRef.current = null;
+      setTeams(prev => {
+        const me = prev.find(t => t.id === myTeamId);
+        return [me ?? { id: myTeamId, name: myName }, { id: teamId, name: teamName }];
+      });
+      if (pending) {
+        setDealAssets(prev => prev.some(a => a.key === pending.key) ? prev : [...prev, {
+          key: pending.key, name: pending.name,
+          fromTeamId: myTeamId, toTeamId: teamId,
+          fromTeamName: myName, toTeamName: teamName,
+        }]);
+      }
+    } else if (otherTeams[0].id !== teamId) {
+      return; // search is constrained to the partner once one exists
+    }
+    setDealAssets(prev => prev.some(a => a.key === key) ? prev : [...prev, {
+      key, name,
+      fromTeamId: teamId, toTeamId: myTeamId,
+      fromTeamName: teamName, toTeamName: myName,
+    }]);
   }, [myTeamId, myTeamName, otherTeams, allTeamsList]);
 
   const handleAddTeam = useCallback((newTeamId: string) => {
@@ -407,13 +487,154 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
     return null;
   }, [pickerMode, allTeamsList, myTeamId, otherTeams, teams, handleSwapTeam, handleAddTeam]);
 
+  // ── Shared render pieces (desktop column / mobile sheet) ────────────────
+  const rosterSearchInput = (
+    <input
+      type="text"
+      placeholder={`Search ${teamNick(teams.find(t => t.id === activeTab)?.name ?? "")} roster…`}
+      value={rosterSearch}
+      onChange={e => setRosterSearch(e.target.value)}
+      style={{ width: "100%", border: "2px solid #1A1A1A", padding: "6px 10px", fontSize: 11, background: "#FEFCF9", fontFamily: F, outline: "none", boxSizing: "border-box" }}
+    />
+  );
+
+  const rosterListContent = loading ? (
+    <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>Loading roster…</div>
+  ) : posSections.length === 0 ? (
+    <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>No players found.</div>
+  ) : (
+    posSections.map(sec => (
+      <div key={sec.key}>
+        <TierDivider label={sec.label} />
+        {sec.items.map(p => (
+          <PlayerRow key={p.key} name={p.name} meta={p.rosterMeta} selected={dealKeys.has(p.key)} onToggle={() => handleRosterTap(p.key, p.name)} chip={AVAILABILITY_CHIPS[p.tier]} />
+        ))}
+      </div>
+    ))
+  );
+
+  const modals = (
+    <>
+      {routingPopup && routingPopup.key === "__browse__" ? (
+        <RoutingPopup teams={teams} onSelect={handleUniversalBrowse} onClose={() => setRoutingPopup(null)} />
+      ) : routingPopup ? (
+        <RoutingPopup teams={teams.filter(t => t.id !== routingPopup.fromTeamId)} onSelect={handleRoutingSelect} onClose={() => setRoutingPopup(null)} />
+      ) : null}
+      {pickerProps && (
+        <TeamPickerModal
+          title={pickerProps.title}
+          subtitle={pickerProps.subtitle}
+          teams={pickerProps.teams}
+          excludeIds={pickerProps.excludeIds}
+          onSelect={pickerProps.onSelect}
+          onClose={() => { pendingAddRef.current = null; setPickerMode(null); }}
+          fitRanking={fitRanking}
+          // Player search only for sessions opened with no partner — once one
+          // exists the roster panel/sheet is the add surface; the picker is
+          // pure swap. Captured at open so the first pick doesn't yank it.
+          rosters={pickerSearch ? rosters : undefined}
+          onSelectPlayer={pickerSearch ? handlePickerPlayer : undefined}
+          selectedKeys={dealKeys}
+        />
+      )}
+    </>
+  );
+
+  const sendButton = (
+    <div onClick={canSend ? handleSendOffer : undefined} style={{ background: canSend ? "#185FA5" : "#C8C3B8", color: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: canSend ? "3px 3px 0 #1A1A1A" : "none", padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: 14, cursor: canSend ? "pointer" : "not-allowed", textTransform: "uppercase", letterSpacing: "0.04em", opacity: canSend ? 1 : 0.5 }}>
+      {sending ? "Sending…" : "Send offer"}
+    </div>
+  );
+
+  const toastEl = toast ? (
+    <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 120, background: "#3366CC", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A", whiteSpace: "nowrap" }}>
+      {toast}
+    </div>
+  ) : null;
+
+  // Viewport not yet known (first client render) — paint the canvas only.
+  if (isMobile === null) {
+    return <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6" }} />;
+  }
+
+  // ── MOBILE: stacked card + advisor; roster panel as a bottom sheet with a
+  // sticky deal summary + live grade chip. Two-team only (no +Add team).
+  if (isMobile) {
+    const mySendNames = dealAssets.filter(a => a.fromTeamId === myTeamId).map(a => a.name).join(", ");
+    const myRecvNames = dealAssets.filter(a => a.toTeamId === myTeamId).map(a => a.name).join(", ");
+    const closeSheet = () => setSheetOpen(null);
+    return (
+      <div style={{ height: "calc(100dvh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        {toastEl}
+        <div style={{ background: "#F5F0E6", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <div onClick={onBack} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer", flexShrink: 0 }}>← Back</div>
+            <div style={{ width: 1, height: 14, background: "#C8C3B8", flexShrink: 0 }} />
+            <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
+          </div>
+          <div onClick={openSwapPicker} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 8px", letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0 }}>Change team</div>
+        </div>
+        <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 8px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
+          <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={false} />
+          <AIAdvisor
+            grade={advisorGrade}
+            gradeColor={advisorGradeColor}
+            prose={advisorProse}
+            suggestions={advisorSuggestions}
+            onTapSuggestion={handleSuggestionTap}
+            loading={advisorLoading}
+          />
+        </div>
+        <div style={{ padding: "10px 14px", borderTop: "2px solid #1A1A1A", flexShrink: 0, background: "#F5F0E6" }}>
+          {sendButton}
+        </div>
+
+        {sheetOpen && (
+          <>
+            <div onClick={closeSheet} style={{ position: "fixed", inset: 0, background: "rgba(26,26,26,0.45)", zIndex: 60 }} aria-hidden="true" />
+            <div role="dialog" aria-modal="true" style={{ position: "fixed", left: 0, right: 0, bottom: 0, height: "82dvh", background: "#FEFCF9", borderTop: "2.5px solid #1A1A1A", zIndex: 61, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              {/* Drag handle (visual affordance; overlay tap / Done closes) */}
+              <div style={{ padding: "8px 0 4px", display: "flex", justifyContent: "center", flexShrink: 0 }} onClick={closeSheet}>
+                <div style={{ width: 44, height: 5, background: "#C8C3B8", borderRadius: 3 }} />
+              </div>
+              {/* Sticky deal summary + LIVE grade chip — the "am I out of
+                  whack" signal while the full card is hidden behind the sheet. */}
+              <div style={{ padding: "4px 14px 10px", borderBottom: "2px solid #1A1A1A", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <span style={{ fontWeight: 700, letterSpacing: "0.06em" }}>SEND</span> {mySendNames || "—"}
+                  </div>
+                  <div style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: 2 }}>
+                    <span style={{ fontWeight: 700, letterSpacing: "0.06em" }}>GET</span> {myRecvNames || "—"}
+                  </div>
+                </div>
+                {advisorGrade ? (
+                  <div style={{ flexShrink: 0 }}>
+                    <TradeBalanceChip label={advisorGrade} color={advisorGradeColor} />
+                  </div>
+                ) : null}
+                <div onClick={closeSheet} style={{ flexShrink: 0, fontFamily: FH, fontWeight: 800, fontSize: 11, background: "#185FA5", color: "#FEFCF9", border: "2px solid #1A1A1A", boxShadow: "2px 2px 0 #1A1A1A", padding: "6px 12px", cursor: "pointer", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Done
+                </div>
+              </div>
+              <div style={{ padding: "8px 14px", borderBottom: "1.5px solid #C8C3B8", flexShrink: 0 }}>
+                {rosterSearchInput}
+              </div>
+              <div style={{ flex: 1, overflowY: "auto", padding: "0 14px", minHeight: 0 }}>
+                {rosterListContent}
+                <div style={{ height: 12 }} />
+              </div>
+            </div>
+          </>
+        )}
+        {modals}
+      </div>
+    );
+  }
+
   return (
     <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {toast && (
-        <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#3366CC", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>
-          {toast}
-        </div>
-      )}
+      {toastEl}
       <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div onClick={onBack} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back</div>
@@ -421,7 +642,7 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
           <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div onClick={() => setPickerMode("swap")} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Change team</div>
+          <div onClick={openSwapPicker} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Change team</div>
           {teams.length < 3 && (
             <div onClick={() => setPickerMode("add")} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>+ Add team</div>
           )}
@@ -441,9 +662,7 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
             />
           </div>
           <div style={{ padding: "12px 20px", borderTop: "2px solid #1A1A1A", flexShrink: 0, background: "#F5F0E6" }}>
-            <div onClick={canSend ? handleSendOffer : undefined} style={{ background: canSend ? "#185FA5" : "#C8C3B8", color: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: canSend ? "3px 3px 0 #1A1A1A" : "none", padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: 14, cursor: canSend ? "pointer" : "not-allowed", textTransform: "uppercase", letterSpacing: "0.04em", opacity: canSend ? 1 : 0.5 }}>
-              {sending ? "Sending…" : "Send offer"}
-            </div>
+            {sendButton}
           </div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", background: "#FEFCF9", overflow: "hidden" }}>
@@ -461,48 +680,15 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
             })}
           </div>
           <div style={{ padding: "8px 14px", borderBottom: "1.5px solid #C8C3B8", flexShrink: 0 }}>
-            <input
-              type="text"
-              placeholder={`Search ${teamNick(teams.find(t => t.id === activeTab)?.name ?? "")} roster…`}
-              value={rosterSearch}
-              onChange={e => setRosterSearch(e.target.value)}
-              style={{ width: "100%", border: "2px solid #1A1A1A", padding: "6px 10px", fontSize: 11, background: "#FEFCF9", fontFamily: F, outline: "none", boxSizing: "border-box" }}
-            />
+            {rosterSearchInput}
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "0 14px", minHeight: 0 }}>
-            {loading ? (
-              <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>Loading roster…</div>
-            ) : posSections.length === 0 ? (
-              <div style={{ textAlign: "center", fontFamily: FM, fontSize: 11, color: "#8C7E6A", padding: "20px 0" }}>No players found.</div>
-            ) : (
-              posSections.map(sec => (
-                <div key={sec.key}>
-                  <TierDivider label={sec.label} />
-                  {sec.items.map(p => (
-                    <PlayerRow key={p.key} name={p.name} meta={p.rosterMeta} selected={dealKeys.has(p.key)} onToggle={() => handleRosterTap(p.key, p.name)} chip={AVAILABILITY_CHIPS[p.tier]} />
-                  ))}
-                </div>
-              ))
-            )}
+            {rosterListContent}
             <div style={{ height: 12 }} />
           </div>
         </div>
       </div>
-      {routingPopup && routingPopup.key === "__browse__" ? (
-        <RoutingPopup teams={teams} onSelect={handleUniversalBrowse} onClose={() => setRoutingPopup(null)} />
-      ) : routingPopup ? (
-        <RoutingPopup teams={teams.filter(t => t.id !== routingPopup.fromTeamId)} onSelect={handleRoutingSelect} onClose={() => setRoutingPopup(null)} />
-      ) : null}
-      {pickerProps && (
-        <TeamPickerModal
-          title={pickerProps.title}
-          subtitle={pickerProps.subtitle}
-          teams={pickerProps.teams}
-          excludeIds={pickerProps.excludeIds}
-          onSelect={pickerProps.onSelect}
-          onClose={() => { pendingAddRef.current = null; setPickerMode(null); }}
-        />
-      )}
+      {modals}
     </div>
   );
 }

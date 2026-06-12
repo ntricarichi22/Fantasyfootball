@@ -44,6 +44,10 @@ type RequestBody = {
   // this deal closes, so the director advocates "why they'd do it" from real
   // logic instead of inferring it from strategy/roster alone.
   partner_angle?: PartnerAngle | null;
+  // Grade-only fast path: skip the LLM prose call and return the deterministic
+  // grade/suggestions immediately. Used for the live chip while the mobile
+  // roster sheet is open — the chip is pure math; prose waits for sheet close.
+  skip_prose?: boolean;
 };
 
 function getCFCYear(): number {
@@ -203,7 +207,7 @@ export async function POST(request: NextRequest) {
   // ── AI CALL ────────────────────────────────────────────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   let prose = "";
-  if (apiKey && gap.verdict !== "EMPTY") {
+  if (apiKey && gap.verdict !== "EMPTY" && !body.skip_prose) {
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",

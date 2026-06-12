@@ -1,4 +1,4 @@
-// src/components/trade/shared/TradeBalanceChip.tsx
+// src/shared/ui/TradeBalanceChip.tsx
 //
 // Shared grade chip. Renders a fixed-width pill with the grade label
 // (e.g. "In the range", "You're ahead", "Way off") on a colored background.
