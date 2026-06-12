@@ -7,6 +7,7 @@
 // pull that franchise's history across prior seasons by its stable franchise_id.
 
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { ttlMemo } from "@/infrastructure/ttlCache";
 import { getSleeperLeagueId } from "./sleeper";
 
 // How many recent seasons we surface as the signal. Two, per the design.
@@ -76,7 +77,13 @@ function summarize(seasons: SeasonRecord[]): string {
 }
 
 // Public accessor: rosterId -> PlayoffHistory for the last HISTORY_WINDOW seasons.
-export async function getPlayoffHistory(): Promise<Map<string, PlayoffHistory>> {
+// Cached for an hour — season records change once a year; this was re-queried
+// on every pipeline pass.
+export function getPlayoffHistory(): Promise<Map<string, PlayoffHistory>> {
+  return ttlMemo("league-data:playoff-history", 3_600_000, loadPlayoffHistory);
+}
+
+async function loadPlayoffHistory(): Promise<Map<string, PlayoffHistory>> {
   const out = new Map<string, PlayoffHistory>();
   const admin = getSupabaseAdminClient();
   if (!admin.client) return out;

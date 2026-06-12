@@ -171,9 +171,11 @@ export async function GET(request: NextRequest) {
     client.from("cfc_trade_values_current").select("sleeper_player_id, display_name, cfc_value, elite_multiplier_applied, age_multiplier_applied"),
     client.from("draft_log").select("pick_number, submitted_at").not("submitted_at", "is", null),
     client.from("trade_offers").select("from_team_id, to_team_id, asset_summary").eq("league_id", league_id).eq("status", "accepted"),
-    LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/rosters`).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
-    LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/traded_picks`).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
-    LEAGUE_ID_ENV ? fetch("https://api.sleeper.app/v1/players/nfl").then(r => r.ok ? r.json() : {}).catch(() => ({})) : Promise.resolve({}),
+    LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/rosters`, { next: { revalidate: 300 } }).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
+    LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/traded_picks`, { next: { revalidate: 300 } }).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
+    // The full players dictionary is ~5MB and changes ~daily — this was being
+    // re-downloaded uncached on every targets call.
+    LEAGUE_ID_ENV ? fetch("https://api.sleeper.app/v1/players/nfl", { next: { revalidate: 86400 } }).then(r => r.ok ? r.json() : {}).catch(() => ({})) : Promise.resolve({}),
   ]);
 
   const attachments = (attachRes.data ?? []) as AttachRow[];

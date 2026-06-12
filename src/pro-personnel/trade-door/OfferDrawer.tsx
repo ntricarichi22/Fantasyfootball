@@ -9,7 +9,7 @@
 // advisor (engine partner angle + accept read), PASS / EDIT / MAKE THIS OFFER,
 // and the Edit handoff that carries the director's take into the editor.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import type { PersonaKey } from "@/pro-personnel/trade-engine/studio/persona";
 
@@ -221,21 +221,21 @@ export default function OfferDrawer({
 
   const body = (
     <>
-      {/* Drawer header */}
-      <div style={{ padding: "10px 16px", borderBottom: "2px solid #1A1A1A", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: "#FEFCF9" }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, letterSpacing: "0.14em", color: "#8C7E6A", textTransform: "uppercase" }}>The deals I've got for</div>
-          <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15, textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{goalLabel}</div>
-        </div>
-        <div onClick={onClose} style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: "#8C7E6A", cursor: "pointer", border: "1.5px solid #C8C3B8", padding: "5px 10px", textTransform: "uppercase", flexShrink: 0 }}>
-          {isMobile ? "Back to the room" : "Close ✕"}
-        </div>
+      {/* No header — the chat already narrated what's on the board. Just a
+          minimal close, with the card vertically centered below. */}
+      <div
+        onClick={onClose}
+        aria-label="Close"
+        style={{ position: "absolute", top: 10, right: 12, zIndex: 5, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "#FEFCF9", border: "2px solid #1A1A1A", boxShadow: "2px 2px 0 #1A1A1A", cursor: "pointer", fontFamily: FM, fontSize: 13, fontWeight: 700, color: "#1A1A1A" }}
+      >
+        ✕
       </div>
 
-      {/* Carousel */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", minHeight: 0 }}>
+      {/* Carousel — margin:auto centers the card vertically when it fits and
+          falls back to normal scrolling when it doesn't. */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", minHeight: 0, display: "flex", flexDirection: "column" }}>
         {currentOffer ? (
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, margin: "auto 0", width: "100%" }}>
             <OfferCard
               partnerName={currentOffer.partnerTeam.name}
               partnerPersona={currentOffer.partnerTeam.persona}
@@ -267,9 +267,9 @@ export default function OfferDrawer({
             )}
           </div>
         ) : (
-          <div style={{ border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", background: "#FEFCF9", padding: "22px 24px" }}>
-            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 16, marginBottom: 6 }}>That's the slate for this one.</div>
-            <div style={{ fontSize: 13, lineHeight: 1.5, fontFamily: F }}>You've worked through everything I had lined up here. Head back to the room and pick another angle.</div>
+          <div style={{ border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", background: "#FEFCF9", padding: "22px 24px", margin: "auto 0" }}>
+            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 16, marginBottom: 6 }}>{"That's the slate for this one."}</div>
+            <div style={{ fontSize: 13, lineHeight: 1.5, fontFamily: F }}>{"You've worked through everything I had lined up here. Head back to the room and pick another angle."}</div>
           </div>
         )}
       </div>
@@ -280,18 +280,20 @@ export default function OfferDrawer({
     return (
       <>
         <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(26,26,26,0.45)", zIndex: 60 }} aria-hidden="true" />
-        <div role="dialog" aria-modal="true" style={{ position: "fixed", left: 0, right: 0, bottom: 0, height: "92dvh", background: "#F5F0E6", borderTop: "2.5px solid #1A1A1A", zIndex: 61, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <div style={{ padding: "8px 0 4px", display: "flex", justifyContent: "center", flexShrink: 0, background: "#FEFCF9" }} onClick={onClose}>
+        <div role="dialog" aria-modal="true" aria-label={goalLabel} style={{ position: "fixed", left: 0, right: 0, bottom: 0, height: "92dvh", background: "#F5F0E6", borderTop: "2.5px solid #1A1A1A", zIndex: 61, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          <div style={{ padding: "8px 0 4px", display: "flex", justifyContent: "center", flexShrink: 0 }} onClick={onClose}>
             <div style={{ width: 44, height: 5, background: "#C8C3B8", borderRadius: 3 }} />
           </div>
-          {body}
+          <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+            {body}
+          </div>
         </div>
       </>
     );
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", borderLeft: "2px solid #1A1A1A", background: "#F5F0E6", overflow: "hidden", minHeight: 0 }}>
+    <div aria-label={goalLabel} style={{ position: "relative", display: "flex", flexDirection: "column", borderLeft: "2px solid #1A1A1A", background: "#F5F0E6", overflow: "hidden", minHeight: 0 }}>
       {body}
     </div>
   );

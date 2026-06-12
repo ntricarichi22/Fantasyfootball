@@ -77,22 +77,34 @@ function fallbackProse(theses: Thesis[], identity: string): DirectorProse {
   };
 }
 
-const LLM_SYSTEM = `You are the Pro Personnel Director of a 12-team Superflex dynasty fantasy football franchise, talking to your GM in the office. You scanned the league and prepared trade directions ("storylines") for the team.
+const LLM_SYSTEM = `You are the Pro Personnel Director of a 12-team Superflex dynasty fantasy football franchise, talking to your GM in the office. You scanned the league and prepared trade directions ("storylines") for the team. You are PITCHING your boss: you believe in this work and you want him to act on it — persuade, don't recite. Confident and direct, never sycophantic, never overdone.
 
 Hard rules:
 1. NEVER mention point values, ratios, percentages, or any numbers about value.
-2. "We" and "us" — you work for this franchise. Direct, confident, like a real scout. No filler, no sycophancy.
+2. "We" and "us" — you work for this franchise. Talk like a real scout. No filler.
 3. Output ONLY valid JSON, no markdown fences, matching exactly: {"opening": string, "args": {<thesisId>: string, ...}}.
 4. "opening": 2-3 sentences greeting the GM and framing the situation. If there are two storylines, say there are genuinely two ways to go and that you'll make the case for each. If one, state the path with conviction.
-5. "args": for EACH storyline id given, 1-2 sentences arguing that direction with conviction. A storyline marked source=intent is the GM's OWN stated plan — frame it as "your plan". A storyline marked source=engine is what the roster evidence says — frame it as the roster making its own case. Never wishy-washy.`;
+5. "args": for EACH storyline id given, 1-2 sentences SELLING that direction — the strongest honest case for it, grounded in the goals/evidence provided. A storyline marked source=intent is the GM's OWN stated plan — frame it as "your plan" and show him you've built on it. A storyline marked source=engine is what the roster evidence says — frame it as the roster making its own case. Never wishy-washy.`;
+
+// The LLM prose is cached per team so repeat door-opens are instant, and the
+// call is hard-capped at a few seconds — past that the deterministic fallback
+// ships and the room opens anyway. Nulls are never cached.
+const proseCache = new Map<string, { v: DirectorProse; exp: number }>();
+const PROSE_TTL = 10 * 60_000;
+const LLM_TIMEOUT_MS = 4_000;
 
 async function llmProse(
+  teamId: string,
   theses: Thesis[],
   identity: string,
   teamName: string,
 ): Promise<DirectorProse | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey || theses.length === 0) return null;
+
+  const hit = proseCache.get(teamId);
+  if (hit && hit.exp > Date.now()) return hit.v;
+
   const summary = theses.map(t => ({
     id: t.id,
     source: t.source,
@@ -105,6 +117,7 @@ async function llmProse(
     const res = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
         max_tokens: 600,
@@ -124,7 +137,9 @@ async function llmProse(
       .trim();
     const parsed = JSON.parse(text);
     if (typeof parsed?.opening === "string" && parsed.opening.length > 0) {
-      return { opening: parsed.opening, args: parsed.args ?? {} };
+      const v = { opening: parsed.opening, args: parsed.args ?? {} };
+      proseCache.set(teamId, { v, exp: Date.now() + PROSE_TTL });
+      return v;
     }
     return null;
   } catch {
@@ -168,7 +183,7 @@ export async function GET(req: NextRequest) {
   }));
 
   const director =
-    (await llmProse(bundle.theses, bundle.identitySentence, bundle.teamName)) ??
+    (await llmProse(teamId, bundle.theses, bundle.identitySentence, bundle.teamName)) ??
     fallbackProse(bundle.theses, bundle.identitySentence);
 
   return NextResponse.json({

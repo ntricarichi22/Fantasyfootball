@@ -44,6 +44,18 @@ export type ActionItem = {
     successText: string;
   };
   respondAs?: string;
+  // ── Play-sheet rendering (optional) ──────────────────────────────────
+  // number + sublabel turn the row into a numbered play: blue number block,
+  // headline at prose weight, the "why" underneath, and a board count on the
+  // right (a number, or "pending" while the slate is still generating).
+  number?: number;
+  sublabel?: string;
+  board?: number | "pending";
+  // divider renders the item as the GM's OWN move: an "OR" rule, then a
+  // centered reply button (with an optional Tabler icon) — visually distinct
+  // from the director's recommendations above it.
+  divider?: boolean;
+  icon?: string;
 };
 
 export type Message =
@@ -56,6 +68,9 @@ export type Message =
       transition?: string;
       povs: POV[];
       closing: string;
+      // Optional GM's-own-move row (OR divider + centered reply button),
+      // rendered after the closing line.
+      reply?: ActionItem;
     }
   | {
       kind: "director_response";
@@ -65,6 +80,7 @@ export type Message =
       action?: {
         type: InlineActionType;
         items: ActionItem[];
+        label?: string; // eyebrow above the group; defaults to "Your call:"
       };
       committedActionIds?: string[];
     }
@@ -248,6 +264,158 @@ export function CommitConfirmation({ successText }: { successText: string }) {
   );
 }
 
+// A numbered play on the director's board: blue number block, headline at
+// conversation weight, the reasoning underneath, board count on the right
+// (verdict-underline treatment; "ON THE PHONES…" while the slate generates).
+export function PlayRow({
+  item,
+  onTap,
+}: {
+  item: ActionItem;
+  onTap: (item: ActionItem) => void;
+}) {
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onTap(item)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onTap(item);
+        }
+      }}
+      onMouseEnter={(e) => {
+        const el = e.currentTarget as HTMLDivElement;
+        el.style.transform = "translate(-2px, -2px)";
+        el.style.boxShadow = `5px 5px 0 ${COLORS.ink}`;
+      }}
+      onMouseLeave={(e) => {
+        const el = e.currentTarget as HTMLDivElement;
+        el.style.transform = "none";
+        el.style.boxShadow = `3px 3px 0 ${COLORS.ink}`;
+      }}
+      style={{
+        border: `3px solid ${COLORS.ink}`,
+        background: COLORS.paper,
+        boxShadow: `3px 3px 0 ${COLORS.ink}`,
+        display: "flex",
+        alignItems: "stretch",
+        cursor: "pointer",
+        transition: "transform .12s, box-shadow .12s",
+      }}
+    >
+      <div style={{
+        flexShrink: 0,
+        width: 46,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "#185FA5",
+        color: COLORS.paper,
+        fontFamily: FH,
+        fontWeight: 900,
+        fontSize: 19,
+      }}>
+        {item.number}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, padding: "11px 14px" }}>
+        <div style={{ fontFamily: F, fontWeight: 700, fontSize: 14, color: COLORS.ink }}>{item.label}</div>
+        {item.sublabel && (
+          <div style={{ fontFamily: F, fontSize: 13, color: COLORS.mutedDark, marginTop: 2, lineHeight: 1.5 }}>
+            {item.sublabel}
+          </div>
+        )}
+      </div>
+      {item.board !== undefined && (
+        <div style={{ flexShrink: 0, display: "flex", alignItems: "center", padding: "0 16px" }}>
+          {item.board === "pending" ? (
+            <span style={{ fontFamily: FM, fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", color: COLORS.muted }}>
+              ON THE PHONES…
+            </span>
+          ) : (
+            <span style={{
+              fontFamily: FM,
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              color: COLORS.ink,
+              textDecoration: "underline",
+              textDecorationColor: "#185FA5",
+              textDecorationThickness: 4,
+              textUnderlineOffset: 5,
+              whiteSpace: "nowrap",
+            }}>
+              {item.board} ON THE BOARD
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// The GM's OWN move — an "OR" rule, then a centered reply button. Spaced and
+// shaped so it reads as you answering the director, not another recommendation.
+export function DividerReply({
+  item,
+  onTap,
+}: {
+  item: ActionItem;
+  onTap: (item: ActionItem) => void;
+}) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "20px 0 14px" }}>
+        <div style={{ flex: 1, borderTop: "2px solid #C8C3B8" }} />
+        <div style={{ fontFamily: FM, fontSize: 11, letterSpacing: "0.18em", color: COLORS.muted, fontWeight: 700 }}>OR</div>
+        <div style={{ flex: 1, borderTop: "2px solid #C8C3B8" }} />
+      </div>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => onTap(item)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onTap(item);
+            }
+          }}
+          onMouseEnter={(e) => {
+            const el = e.currentTarget as HTMLDivElement;
+            el.style.transform = "translate(-2px, -2px)";
+            el.style.boxShadow = `5px 5px 0 ${COLORS.ink}`;
+          }}
+          onMouseLeave={(e) => {
+            const el = e.currentTarget as HTMLDivElement;
+            el.style.transform = "none";
+            el.style.boxShadow = `3px 3px 0 ${COLORS.ink}`;
+          }}
+          style={{
+            border: `2.5px solid ${COLORS.ink}`,
+            background: COLORS.paper,
+            boxShadow: `3px 3px 0 ${COLORS.ink}`,
+            padding: "10px 18px",
+            fontFamily: F,
+            fontSize: 14,
+            fontWeight: 500,
+            color: COLORS.ink,
+            display: "flex",
+            alignItems: "center",
+            gap: 9,
+            cursor: "pointer",
+            transition: "transform .12s, box-shadow .12s",
+          }}
+        >
+          {item.icon && <i className={`ti ${item.icon}`} style={{ fontSize: 16, color: COLORS.ink }} aria-hidden="true" />}
+          {item.label}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ActionBox({
   item,
   onTap,
@@ -259,6 +427,14 @@ export function ActionBox({
 }) {
   if (confirmed && item.commit) {
     return <CommitConfirmation successText={item.commit.successText} />;
+  }
+
+  if (item.divider) {
+    return <DividerReply item={item} onTap={onTap} />;
+  }
+
+  if (item.number !== undefined) {
+    return <PlayRow item={item} onTap={onTap} />;
   }
 
   return (
@@ -306,10 +482,12 @@ export function ActionGroup({
   items,
   committedIds,
   onTap,
+  label = "Your call:",
 }: {
   items: ActionItem[];
   committedIds?: string[];
   onTap: (item: ActionItem) => void;
+  label?: string;
 }) {
   return (
     <div style={{ marginTop: 16 }}>
@@ -322,7 +500,7 @@ export function ActionGroup({
         marginBottom: 10,
         textTransform: "uppercase",
       }}>
-        Your call:
+        {label}
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {items.map((item) => (
@@ -357,9 +535,11 @@ const closingStyle: CSSProperties = {
 export function DirectorOpening({
   message,
   onPOVClick,
+  onReplyTap,
 }: {
   message: Extract<Message, { kind: "director_opening" }>;
   onPOVClick: (pov: POV) => void;
+  onReplyTap?: (item: ActionItem) => void;
 }) {
   const hasPOVs = message.povs.length > 0;
   const hasClosing = message.closing.trim().length > 0;
@@ -386,6 +566,10 @@ export function DirectorOpening({
         <p style={{ ...paraStyle, ...closingStyle, marginBottom: 0 }}>
           {message.closing}
         </p>
+      )}
+
+      {message.reply && onReplyTap && (
+        <DividerReply item={message.reply} onTap={onReplyTap} />
       )}
     </DirectorBubble>
   );
@@ -416,6 +600,7 @@ function DirectorResponse({
           items={message.action.items}
           committedIds={message.committedActionIds}
           onTap={onActionTap}
+          label={message.action.label}
         />
       )}
     </DirectorBubble>
@@ -520,7 +705,7 @@ export function DirectorChat({
       <div ref={threadRef} style={{ flex: 1, overflowY: "auto", padding: "14px 26px 26px 26px" }}>
         {thread.map((m, i) => {
           if (m.kind === "director_opening") {
-            return <DirectorOpening key={i} message={m} onPOVClick={handlePOVClick} />;
+            return <DirectorOpening key={i} message={m} onPOVClick={handlePOVClick} onReplyTap={handleActionTap} />;
           }
           if (m.kind === "director_response") {
             return <DirectorResponse key={i} message={m} onActionTap={handleActionTap} />;

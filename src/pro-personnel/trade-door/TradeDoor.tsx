@@ -176,32 +176,39 @@ export default function TradeDoor() {
   const goalAnchor = (g: StoryGoal) => `Show me: ${g.label}.`;
   const thesisAnchor = (t: StoryThesis) => `Let's ${headlineShort(t.headline).toLowerCase()}.`;
 
+  // The GM's own move — OR divider + centered reply, distinct from the
+  // director's recommendations. Rides on the opening AND every play sheet.
+  const buildOwnReply: ActionItem = useMemo(() => ({
+    id: "__build_own__",
+    label: "Thanks, but I'll make my own deal.",
+    kind: "navigate",
+    href: "/pro-personnel/trade-builder?seed=fresh",
+    divider: true,
+    icon: "ti-phone",
+  }), []);
+
   const opening = useMemo<Opening | null>(() => {
     if (!story) return null;
     const multi = story.theses.length > 1;
 
     if (!multi) {
       const t = story.theses[0];
-      const povs: POV[] = (t?.goals ?? []).map((g, i) => ({
-        id: g.id,
-        number: i + 1,
-        text: `${g.label} — ${g.teaser}`,
-        anchor: goalAnchor(g),
-      }));
-      povs.push({
-        id: "__build_own__",
-        number: povs.length + 1,
-        text: "Build my own trade — get me on the phones and I'll work it with you live.",
-        anchor: BUILD_OWN_ANCHOR,
-      });
+      // Single clear path: he states it with conviction; one tap gets the
+      // continuation beat + the play sheet (with live counts).
+      const povs: POV[] = t ? [{
+        id: t.id,
+        number: 1,
+        text: story.director.args[t.id] ?? t.pitch,
+        anchor: thesisAnchor(t),
+      }] : [];
       return {
         kind: "director_opening",
         directorRole: "personnel",
         directorLabel: DIRECTOR_LABEL,
         welcome: story.director.opening,
-        transition: t ? "Here's how I'd attack it:" : undefined,
         povs,
-        closing: "Tap one, or tell me what's on your mind.",
+        closing: t ? "Tap it and I'll lay out the board, or tell me what's on your mind." : "Tell me what's on your mind.",
+        reply: buildOwnReply,
       };
     }
 
@@ -211,12 +218,6 @@ export default function TradeDoor() {
       text: story.director.args[t.id] ?? t.pitch,
       anchor: thesisAnchor(t),
     }));
-    povs.push({
-      id: "__build_own__",
-      number: povs.length + 1,
-      text: "Or skip the storylines — build my own trade and I'll work it with you live.",
-      anchor: BUILD_OWN_ANCHOR,
-    });
     return {
       kind: "director_opening",
       directorRole: "personnel",
@@ -224,35 +225,43 @@ export default function TradeDoor() {
       welcome: story.director.opening,
       povs,
       closing: "Pick a direction, or tell me what's on your mind.",
+      reply: buildOwnReply,
     };
-  }, [story]);
+  }, [story, buildOwnReply]);
 
   // ── Chat brain: anchors → responses; goal taps → the drawer ─────────────
 
-  const respond = useCallback((prose: string[], items?: ActionItem[]): Response => ({
+  const respond = useCallback((prose: string[], items?: ActionItem[], label?: string): Response => ({
     kind: "director_response",
     directorRole: "personnel",
     directorLabel: DIRECTOR_LABEL,
     prose,
-    ...(items && items.length > 0 ? { action: { type: "multi_option" as const, items } } : {}),
+    ...(items && items.length > 0 ? { action: { type: "multi_option" as const, items, ...(label ? { label } : {}) } } : {}),
   }), []);
 
+  // The play sheet: numbered rows with the why on each, board counts on the
+  // right, and the GM's own reply riding under an OR divider.
   const goalItems = useCallback((t: StoryThesis): ActionItem[] => {
     const ready = slateRef.current.reason !== "loading";
     const items: ActionItem[] = [];
+    let n = 0;
     for (const g of t.goals) {
-      const n = liveOffersFor(g.id).length;
-      if (ready && n === 0) continue; // never advertise an empty door
+      const count = liveOffersFor(g.id).length;
+      if (ready && count === 0) continue; // never advertise an empty door
+      n += 1;
       items.push({
         id: g.id,
-        label: ready ? `${g.label} — ${n} ${n === 1 ? "deal" : "deals"} on the board` : `${g.label} — working the phones…`,
+        label: g.label,
         kind: "respond",
         respondAs: goalAnchor(g),
+        number: n,
+        sublabel: g.teaser,
+        board: ready ? count : "pending",
       });
     }
-    items.push({ id: "__build_own__", label: "Build my own trade", kind: "navigate", href: "/pro-personnel/trade-builder?seed=fresh" });
+    items.push(buildOwnReply);
     return items;
-  }, [liveOffersFor]);
+  }, [liveOffersFor, buildOwnReply]);
 
   const handleUserMessage = useCallback(async (text: string): Promise<Response | null> => {
     if (!story) return null;
@@ -263,7 +272,10 @@ export default function TradeDoor() {
       return null;
     }
 
-    // Storyline pick (fork)
+    // Storyline pick — the CONTINUATION beat. He just pitched the storylines;
+    // the GM picked one. He responds fresh (LLM in his pitching voice, fed his
+    // opening + the pick + the plays with live counts), never replaying the
+    // card text, and lays the board beneath it.
     const thesis = story.theses.find(t => thesisAnchor(t) === text);
     if (thesis) {
       if (slateRef.current.reason === "no_strategy") {
@@ -272,15 +284,35 @@ export default function TradeDoor() {
           [{ id: "__owners_box__", label: "Open the Owner's Box", kind: "navigate", href: "/owners-box" }],
         );
       }
-      const arg = story.director.args[thesis.id] ?? thesis.pitch;
+      if (slateRef.current.reason === "loading") {
+        return respond(["Good — give me a few seconds, I'm still on the phones lining the deals up. Pick the direction again in a moment and the board will be live."]);
+      }
       const items = goalItems(thesis);
-      if (slateRef.current.reason !== "loading" && items.length <= 1) {
+      const playItems = items.filter(i => !i.divider);
+      if (playItems.length === 0) {
         return respond([
-          `${arg}`,
-          "Straight with you though — nothing clean came back behind it today. Look at the other direction, or get me on the phones and we'll build something ourselves.",
+          "Straight with you, boss — nothing clean came back behind that one today. Look at the other direction, or get me on the phones and we'll build something ourselves.",
         ], items);
       }
-      return respond([arg, "Here's how I'd attack it:"], items);
+      let prose: string[];
+      try {
+        const j = await (await fetch("/api/pro-personnel/door-beat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            team_id: rosterId,
+            headline: thesis.headline,
+            source: thesis.source,
+            opening: story.director.opening,
+            prior_arg: story.director.args[thesis.id] ?? thesis.pitch,
+            goals: thesis.goals.map(g => ({ label: g.label, evidence: g.teaser, count: liveOffersFor(g.id).length })),
+          }),
+        })).json();
+        prose = [j.prose ?? "Here's how I'd attack it:"];
+      } catch {
+        prose = ["Good call. Here's how I'd attack it — my reasoning's on every play:"];
+      }
+      return respond(prose, items, "The board:");
     }
 
     // Goal pick → open the drawer

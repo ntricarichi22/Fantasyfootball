@@ -1,4 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { ttlMemo } from "@/infrastructure/ttlCache";
 import { withComputedDraftPicks, type DraftPick, type TradedPick } from "@/infrastructure/picks";
 import {
   fetchPlayers,
@@ -437,8 +438,21 @@ export async function getLastSeasonResults(): Promise<{
 }
 
 // ── the full bundle ────────────────────────────────────────────────────────
+//
+// Cached for a short TTL: the trade door fires three pipeline endpoints in
+// parallel and each was rebuilding this bundle (including the ~5MB Sleeper
+// players download) from scratch. Errors are never cached.
 
 export async function getLeagueData(): Promise<LeagueData | { error: string }> {
+  const result = await ttlMemo("league-data:bundle", 60_000, loadLeagueData);
+  if ("error" in result) {
+    // Don't let a transient failure stick for the TTL — retry next call.
+    return loadLeagueData();
+  }
+  return result;
+}
+
+async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   const leagueId = getSleeperLeagueId();
   if (!leagueId) return { error: "NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set" };
 

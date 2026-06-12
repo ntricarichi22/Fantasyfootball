@@ -1,4 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { ttlMemo } from "@/infrastructure/ttlCache";
 import {
   getLeagueData,
   getPickValues,
@@ -71,7 +72,12 @@ async function loadAdjusted(leagueId: string): Promise<Map<string, number>> {
   return map;
 }
 
-export async function buildValuationContext(): Promise<ValuationContext> {
+// Cached briefly — the door/editor endpoints each rebuilt this per request.
+export function buildValuationContext(): Promise<ValuationContext> {
+  return ttlMemo("asset-values:context", 60_000, buildValuationContextUncached);
+}
+
+async function buildValuationContextUncached(): Promise<ValuationContext> {
   const league = await getLeagueData();
   const [values, ladder] = await Promise.all([getValues(), getPickValues()]);
 

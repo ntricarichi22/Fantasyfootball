@@ -24,6 +24,13 @@ export default function RootLayout({
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&family=Syne:wght@700;800&display=swap"
         />
+        {/* Tabler icon webfont — `ti ti-*` classes (persona icons on the offer
+            cards, the phone on the trade door's reply button, etc.). These
+            classes were referenced app-wide but the font was never loaded. */}
+        <link
+          rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.31.0/dist/tabler-icons.min.css"
+        />
       </head>
       <body className="antialiased bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
         {children}
