@@ -73,6 +73,11 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
   const [toast, setToast] = useState("");
   const [rosterSearch, setRosterSearch] = useState("");
   const advisorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Fresh entry (?seed=fresh) starts with NO partner team. When the user takes
+  // an action that needs one (tapping their own player, "+ Add from their
+  // roster"), we open the team picker and stash the intended add here so it
+  // completes right after they choose.
+  const pendingAddRef = useRef<{ key: string; name: string } | null>(null);
 
   const threeTeam = teams.length > 2;
   const dealKeys = useMemo(() => new Set(dealAssets.map(a => a.key)), [dealAssets]);
@@ -107,6 +112,18 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [myTeamId]);
+
+  // Fresh entry has no partner — prompt for one as soon as the team list is
+  // ready, so the builder is never a dead end. Closing the picker is fine;
+  // any partner-needing action re-opens it.
+  const promptedRef = useRef(false);
+  useEffect(() => {
+    if (loading || promptedRef.current) return;
+    if (teams.length === 1 && allTeamsList.length > 0) {
+      promptedRef.current = true;
+      setPickerMode("swap");
+    }
+  }, [loading, teams.length, allTeamsList.length]);
 
   useEffect(() => {
     if (advisorTimer.current) clearTimeout(advisorTimer.current);
@@ -176,7 +193,13 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
     if (threeTeam) { setRoutingPopup({ key, name, fromTeamId: activeTab }); return; }
     if (activeTab === myTeamId) {
       const o = otherTeams[0];
-      if (o) addDealAsset(key, name, myTeamId, o.id);
+      if (o) {
+        addDealAsset(key, name, myTeamId, o.id);
+      } else {
+        // No partner yet (fresh entry): pick one, then complete this add.
+        pendingAddRef.current = { key, name };
+        setPickerMode("swap");
+      }
     } else {
       addDealAsset(key, name, activeTab, myTeamId);
     }
@@ -191,6 +214,9 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
   const handleAddFromTeam = useCallback((teamId: string) => {
     if (teamId === "__universal__") {
       setRoutingPopup({ key: "__browse__", name: "", fromTeamId: "__universal__" });
+    } else if (!teamId) {
+      // "+ Add from their roster" with no partner yet — pick one first.
+      setPickerMode("swap");
     } else {
       setActiveTab(teamId);
       setRosterSearch("");
@@ -232,9 +258,38 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
   const handleSwapTeam = useCallback((newTeamId: string) => {
     setPickerMode(null);
     if (newTeamId === myTeamId) return;
-    const oldOtherId = otherTeams[0]?.id;
-    if (!oldOtherId || oldOtherId === newTeamId) return;
     const newTeamName = allTeamsList.find(t => t.id === newTeamId)?.name ?? `Team ${newTeamId}`;
+    const oldOtherId = otherTeams[0]?.id;
+
+    // No partner yet (fresh entry): this "swap" SETS the partner. Complete any
+    // pending roster add that triggered the picker, with explicit names (the
+    // `teams` state hasn't updated yet inside this closure).
+    if (!oldOtherId) {
+      const pending = pendingAddRef.current;
+      pendingAddRef.current = null;
+      setTeams(prev => {
+        const me = prev.find(t => t.id === myTeamId);
+        return [
+          me ?? { id: myTeamId, name: myTeamName || `Team ${myTeamId}` },
+          { id: newTeamId, name: newTeamName },
+        ];
+      });
+      if (pending) {
+        setDealAssets(prev => prev.some(a => a.key === pending.key) ? prev : [...prev, {
+          key: pending.key, name: pending.name,
+          fromTeamId: myTeamId, toTeamId: newTeamId,
+          fromTeamName: myTeamName || `Team ${myTeamId}`,
+          toTeamName: newTeamName,
+        }]);
+        // They were browsing their own roster — keep them there.
+      } else {
+        setActiveTab(newTeamId);
+      }
+      setRosterSearch("");
+      return;
+    }
+
+    if (oldOtherId === newTeamId) return;
     setDealAssets(prev =>
       prev
         .filter(a => a.fromTeamId !== oldOtherId)
@@ -329,9 +384,12 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
 
   const pickerProps = useMemo(() => {
     if (pickerMode === "swap") {
+      const hasPartner = otherTeams.length > 0;
       return {
-        title: "Switch trade partner",
-        subtitle: "Your send side stays. Their assets will be cleared.",
+        title: hasPartner ? "Switch trade partner" : "Who are we trading with?",
+        subtitle: hasPartner
+          ? "Your send side stays. Their assets will be cleared."
+          : "Pick the team on the other side of this deal.",
         teams: allTeamsList,
         excludeIds: [myTeamId, ...otherTeams.map(t => t.id)],
         onSelect: handleSwapTeam,
@@ -442,7 +500,7 @@ export default function TradeBuilder({ initialCart, initialTeams, initialDealAss
           teams={pickerProps.teams}
           excludeIds={pickerProps.excludeIds}
           onSelect={pickerProps.onSelect}
-          onClose={() => setPickerMode(null)}
+          onClose={() => { pendingAddRef.current = null; setPickerMode(null); }}
         />
       )}
     </div>
