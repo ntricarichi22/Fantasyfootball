@@ -50,6 +50,36 @@ function goalLabel(g: Goal): string {
   }
 }
 
+// The one-line "why" under each play, in HIS voice — we/us, talking to the GM.
+// The engine's goal.evidence is its internal reasoning ("Owner is…", dial
+// jargon like "(med)") and must never reach the GM's eyes raw. We keep the
+// evidence only to pick the right flavor (consolidation vs. fund-from-assets).
+function goalTeaser(g: Goal): string {
+  const b = g.bucket ? BUCKET_LABEL[g.bucket] ?? g.bucket : "";
+  switch (g.kind) {
+    case "acquire_impact":
+      return /consolidat/i.test(g.evidence)
+        ? `We're deep in ${b} bodies but light on difference-makers — I'd turn two of ours into one real starter.`
+        : `We need a true ${b} and I can fund it from our depth and picks — without touching the core.`;
+    case "accumulate_picks":
+      return "Every pick we bank now is ammunition — for the draft, or for packaging up when the right guy shakes loose.";
+    case "add_youth":
+      return `Our ${b} vets still cash full value — flip them for ascending pieces while the market's paying.`;
+    case "fill_need":
+      return `We've got a real hole at ${b} — I want to fill it with youth we grow, not a stopgap vet.`;
+    case "insurance":
+      return `We're one injury from trouble at ${b} — a proven backup costs us next to nothing and saves a season.`;
+    case "depth":
+      return `Our ${b} rotation needs one more startable body — options every week, cushion when someone goes down.`;
+    case "teardown":
+      return "One of our stars never cashes higher than right now — a haul of picks plus a young piece to build around.";
+    case "fire_sale":
+      return "The guys we won't keep are still worth picks — any round beats holding a body that isn't part of our future.";
+    default:
+      return g.evidence.replace(/PASS_CATCHER/g, "pass catcher");
+  }
+}
+
 type DirectorProse = { opening: string; args: Record<string, string> };
 
 // Deterministic composition — the bundle's own language, no numbers.
@@ -176,9 +206,7 @@ export async function GET(req: NextRequest) {
         kind: g.kind,
         bucket: g.bucket ?? null,
         label: goalLabel(g),
-        // Evidence strings are engine-facing and can leak bucket enums —
-        // translate them for the GM's eyes.
-        teaser: g.evidence.replace(/PASS_CATCHER/g, "pass catcher"),
+        teaser: goalTeaser(g),
       })),
   }));
 

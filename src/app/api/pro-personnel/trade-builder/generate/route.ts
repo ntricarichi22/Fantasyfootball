@@ -35,6 +35,7 @@ import {
   type GeneratedOffer,
 } from "@/shared/trade-matching";
 import { buildValuationContext } from "@/shared/asset-values";
+import { ttlMemo } from "@/infrastructure/ttlCache";
 import { type EngineContext } from "@/pro-personnel/engine";
 
 export const dynamic = "force-dynamic";
@@ -45,8 +46,27 @@ export async function POST(req: Request) {
     const teamId = String(body.team_id ?? "").trim();
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
 
+    // Short-TTL cache per team: the slate is deterministic for a given league
+    // state, and the door re-requests it on every visit (including browser
+    // back from the editor). Inputs all come from the same cached league
+    // snapshot, so 60s of staleness is invisible.
+    const payload = await ttlMemo(`builder-slate:${teamId}`, 60_000, () => buildSlatePayload(teamId));
+    if ("error" in payload) return NextResponse.json(payload, { status: 500 });
+    return NextResponse.json(payload);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+type SlatePayload =
+  | { error: string }
+  | { theses: unknown[]; generatedAt: string; reason: "ok" | "no_strategy" | "no_clean_offers" };
+
+async function buildSlatePayload(teamId: string): Promise<SlatePayload> {
+  {
     const data = await getLeagueData();
-    if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
+    if ("error" in data) return { error: data.error };
 
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
@@ -138,11 +158,9 @@ export async function POST(req: Request) {
 
     const totalOffers = theses.reduce((n, t) => n + t.offers.length, 0);
     const hasStrategy = !!data.strategy.get(teamId);
-    const reason = totalOffers > 0 ? "ok" : hasStrategy ? "no_clean_offers" : "no_strategy";
+    const reason: "ok" | "no_strategy" | "no_clean_offers" =
+      totalOffers > 0 ? "ok" : hasStrategy ? "no_clean_offers" : "no_strategy";
 
-    return NextResponse.json({ theses, generatedAt: new Date().toISOString(), reason });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return { theses, generatedAt: new Date().toISOString(), reason };
   }
 }

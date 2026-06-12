@@ -607,6 +607,25 @@ function DirectorResponse({
   );
 }
 
+// Threads are serializable (plain message objects), so a chat can survive
+// navigation: pass persistKey and the thread round-trips through
+// sessionStorage — leave for the trade machine, hit Back, and you're standing
+// exactly where you left the conversation instead of starting the room over.
+const PERSIST_TTL_MS = 30 * 60_000;
+
+function readPersistedThread(key: string): Message[] | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { ts: number; thread: Message[] };
+    if (!Array.isArray(parsed.thread) || parsed.thread.length === 0) return null;
+    if (Date.now() - (parsed.ts ?? 0) > PERSIST_TTL_MS) return null;
+    return parsed.thread;
+  } catch {
+    return null;
+  }
+}
+
 export function DirectorChat({
   opening,
   directorLabel,
@@ -615,6 +634,7 @@ export function DirectorChat({
   onUserMessage,
   onCommit,
   placeholder = "Ask the director…",
+  persistKey,
 }: {
   opening: Extract<Message, { kind: "director_opening" }>;
   directorLabel: string;
@@ -623,11 +643,21 @@ export function DirectorChat({
   onUserMessage: (text: string) => Promise<Extract<Message, { kind: "director_response" }> | null>;
   onCommit: (item: ActionItem) => Promise<boolean>;
   placeholder?: string;
+  persistKey?: string;
 }) {
-  const [thread, setThread] = useState<Message[]>([opening]);
+  const [thread, setThread] = useState<Message[]>(() =>
+    (persistKey ? readPersistedThread(persistKey) : null) ?? [opening],
+  );
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const threadRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!persistKey) return;
+    try {
+      sessionStorage.setItem(persistKey, JSON.stringify({ ts: Date.now(), thread }));
+    } catch { /* quota — fine, the thread just won't survive navigation */ }
+  }, [persistKey, thread]);
 
   useEffect(() => {
     const el = threadRef.current;

@@ -419,6 +419,7 @@ export default function TradeDoor() {
               onUserMessage={handleUserMessage}
               onCommit={handleCommit}
               placeholder="Ask the Personnel Director…"
+              persistKey={`cfc_trade_door_thread:${rosterId}`}
             />
           ) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, letterSpacing: "0.18em", color: "#8C7E6A", fontWeight: 700, textTransform: "uppercase" }}>
