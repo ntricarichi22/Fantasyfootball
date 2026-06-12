@@ -23,6 +23,8 @@ function r2(n: number | null | undefined): number | null {
 }
 
 export async function GET() {
+  // DEBUG ONLY - never exposed in production.
+  if (process.env.NODE_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });
   try {
     const data = await getLeagueData();
     if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });

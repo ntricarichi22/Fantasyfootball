@@ -22,6 +22,8 @@ import { runBuilder, type EngineContext } from "@/pro-personnel/engine";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  // DEBUG ONLY - never exposed in production.
+  if (process.env.NODE_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });
   try {
     const url = new URL(req.url);
     const teamId = String(url.searchParams.get("team_id") ?? "").trim();

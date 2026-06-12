@@ -103,6 +103,8 @@ function legible(bundle: NarrativeBundle, playerName: (id: string) => string) {
 }
 
 export async function GET(req: Request) {
+  // DEBUG ONLY - never exposed in production.
+  if (process.env.NODE_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });
   try {
     const teamId = new URL(req.url).searchParams.get("team_id");
 

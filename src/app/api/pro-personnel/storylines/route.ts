@@ -83,7 +83,7 @@ function goalTeaser(g: Goal): string {
 type DirectorProse = { opening: string; args: Record<string, string> };
 
 // Deterministic composition — the bundle's own language, no numbers.
-function fallbackProse(theses: Thesis[], identity: string): DirectorProse {
+function fallbackProse(theses: Thesis[]): DirectorProse {
   const args: Record<string, string> = {};
   if (theses.length <= 1) {
     const t = theses[0];
@@ -212,7 +212,7 @@ export async function GET(req: NextRequest) {
 
   const director =
     (await llmProse(teamId, bundle.theses, bundle.identitySentence, bundle.teamName)) ??
-    fallbackProse(bundle.theses, bundle.identitySentence);
+    fallbackProse(bundle.theses);
 
   return NextResponse.json({
     teamName: bundle.teamName,

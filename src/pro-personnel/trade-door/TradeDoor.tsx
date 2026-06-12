@@ -31,7 +31,6 @@ import OfferDrawer, { type DoorOffer, type AdvisorState, type AdvisorRosterPaylo
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 
 const DIRECTOR_LABEL = "PERSONNEL DIRECTOR";
-const BUILD_OWN_ANCHOR = "I'll build my own — open the phones.";
 
 // ─── Types ──────────────────────────────────────────────────────────────
 
@@ -265,12 +264,6 @@ export default function TradeDoor() {
 
   const handleUserMessage = useCallback(async (text: string): Promise<Response | null> => {
     if (!story) return null;
-
-    // Escape hatch
-    if (text === BUILD_OWN_ANCHOR) {
-      window.location.href = "/pro-personnel/trade-builder?seed=fresh";
-      return null;
-    }
 
     // Storyline pick — the CONTINUATION beat. He just pitched the storylines;
     // the GM picked one. He responds fresh (LLM in his pitching voice, fed his

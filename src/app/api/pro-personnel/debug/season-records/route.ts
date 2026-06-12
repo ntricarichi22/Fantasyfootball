@@ -5,6 +5,8 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
+  // DEBUG ONLY - never exposed in production.
+  if (process.env.NODE_ENV === "production") return NextResponse.json({ error: "not_found" }, { status: 404 });
   const [history, rosters] = await Promise.all([getPlayoffHistory(), getRosters()]);
 
   const teams = rosters
