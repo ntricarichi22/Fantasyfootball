@@ -221,7 +221,14 @@ export async function GET(request: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rosterOwnerMap: Record<number, any> = {};
   for (const r of rawRosters) rosterOwnerMap[r.roster_id] = r.owner_id;
-  const rostersWithPicks = withComputedDraftPicks(rawRosters, tradedPicks, { teamCountOverride: teamCount, rosterOwnerMap });
+  // Three-season pick horizon (cfcYear..+2) — matches the trade engine's
+  // shared league-data window; the module default of ["2026","2027"] silently
+  // dropped the 2028 picks the engine trades in.
+  const rostersWithPicks = withComputedDraftPicks(rawRosters, tradedPicks, {
+    teamCountOverride: teamCount,
+    rosterOwnerMap,
+    seasons: [String(cfcYear), String(cfcYear + 1), String(cfcYear + 2)],
+  });
 
   // ── Compute team modes ──────────────────────────────────────────────────
   const teamStrengths: Record<string, number> = {};

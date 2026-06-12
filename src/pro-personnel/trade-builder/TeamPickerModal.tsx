@@ -21,6 +21,9 @@ export type PartnerFit = { teamId: string; offerCount: number; likelyCount: numb
 type Props = {
   title: string;
   subtitle?: string;
+  // When set, the header is the Personnel Director speaking (avatar + prose)
+  // instead of the plain title/subtitle pair.
+  directorMessage?: string;
   teams: Team[];           // teams to show as options
   excludeIds?: string[];   // teams to filter out
   onSelect: (teamId: string) => void;
@@ -51,6 +54,7 @@ function teamNick(name: string): string {
 export default function TeamPickerModal({
   title,
   subtitle,
+  directorMessage,
   teams,
   excludeIds = [],
   onSelect,
@@ -74,11 +78,6 @@ export default function TeamPickerModal({
       return a.name.localeCompare(b.name);
     });
   }, [teams, excludeIds, fitRanking]);
-
-  const fitByTeam = useMemo(
-    () => new Map((fitRanking ?? []).map(f => [f.teamId, f])),
-    [fitRanking],
-  );
 
   const playerSearchOn = !!rosters && !!onSelectPlayer;
   const q = search.trim().toLowerCase();
@@ -131,21 +130,41 @@ export default function TeamPickerModal({
           background: "#FEFCF9",
           border: "2.5px solid #1A1A1A",
           boxShadow: "6px 6px 0 #1A1A1A",
-          width: "min(400px, 94vw)",
-          maxHeight: "min(78vh, 640px)",
+          width: "min(420px, 94vw)",
+          // PERSISTENT size — the list area scrolls/empties inside it; the
+          // modal must not shrink-wrap as search results filter down.
+          height: "min(72vh, 620px)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
         }}
       >
-        <div style={{ padding: "14px 18px", borderBottom: "2px solid #1A1A1A" }}>
-          <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 16, color: "#1A1A1A" }}>
-            {lockedTeam ? `Adding from the ${teamNick(lockedTeam.name)}` : title}
+        {directorMessage || lockedTeam ? (
+          <div style={{ padding: "14px 18px", borderBottom: "2px solid #1A1A1A", display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <img
+              src="/avatars/pro-personnel.png"
+              alt=""
+              style={{ width: 34, height: 34, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#8C7E6A", marginBottom: 4 }}>
+                Personnel director
+              </div>
+              <div style={{ fontSize: 12, lineHeight: 1.45, color: "#1A1A1A", fontFamily: F }}>
+                {lockedTeam
+                  ? `Good — we're on the line with the ${teamNick(lockedTeam.name)}. Tap more of their pieces, or hit Done.`
+                  : directorMessage}
+              </div>
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: "#8C7E6A", marginTop: 3, fontFamily: F }}>
-            {lockedTeam ? "Tap more of their pieces, or hit Done." : subtitle}
+        ) : (
+          <div style={{ padding: "14px 18px", borderBottom: "2px solid #1A1A1A" }}>
+            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 16, color: "#1A1A1A" }}>{title}</div>
+            {subtitle && (
+              <div style={{ fontSize: 11, color: "#8C7E6A", marginTop: 3, fontFamily: F }}>{subtitle}</div>
+            )}
           </div>
-        </div>
+        )}
 
         {playerSearchOn && (
           <div style={{ padding: "10px 14px", borderBottom: "1.5px solid #C8C3B8" }}>
@@ -203,40 +222,27 @@ export default function TeamPickerModal({
               No teams available.
             </div>
           ) : (
-            candidates.map((t, i) => {
-              const fit = fitByTeam.get(t.id);
-              const dealNote = fit && fit.offerCount > 0
-                ? `${fit.offerCount} deal${fit.offerCount === 1 ? "" : "s"} on the board`
-                : fit && fit.matchCount > 0
-                  ? "some overlap"
-                  : null;
-              return (
-                <div
-                  key={t.id}
-                  onClick={() => onSelect(t.id)}
-                  style={{
-                    padding: "12px 18px",
-                    cursor: "pointer",
-                    borderBottom: i < candidates.length - 1 ? "1px solid #C8C3B8" : "none",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 10,
-                  }}
-                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "#F5F0E6"; }}
-                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
-                >
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: "#1A1A1A" }}>{t.name}</div>
-                    <div style={{ fontFamily: FM, fontSize: 9, color: dealNote ? "#019942" : "#8C7E6A", marginTop: 1 }}>
-                      {dealNote ?? teamNick(t.name)}
-                    </div>
-                  </div>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C8C3B8" strokeWidth="2.5" strokeLinecap="round">
-                    <path d="M9 18l6-6-6-6" />
-                  </svg>
-                </div>
-              );
-            })
+            candidates.map((t, i) => (
+              <div
+                key={t.id}
+                onClick={() => onSelect(t.id)}
+                style={{
+                  padding: "14px 18px",
+                  cursor: "pointer",
+                  borderBottom: i < candidates.length - 1 ? "1px solid #C8C3B8" : "none",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = "#F5F0E6"; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+              >
+                <div style={{ flex: 1, fontFamily: FH, fontWeight: 800, fontSize: 13, color: "#1A1A1A" }}>{t.name}</div>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#C8C3B8" strokeWidth="2.5" strokeLinecap="round">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </div>
+            ))
           )}
         </div>
 

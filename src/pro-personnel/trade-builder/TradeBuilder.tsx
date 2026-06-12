@@ -120,6 +120,11 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
             const via = isPick ? ((p.rosterMeta ?? p.meta ?? "").match(/\(via [^)]+\)/)?.[0] ?? "") : "";
             return {
               ...p,
+              // ONE key vocabulary: engine keys (raw sleeper id / pick:…).
+              // Seeded deals and advisor suggestions carry engine keys; keeping
+              // the panel on "player:" prefixes made the same player two
+              // different assets (broken selected-state, double-adds).
+              key: p.key.startsWith("player:") ? p.key.slice("player:".length) : p.key,
               name: isPick && via ? `${p.name} ${via}` : p.name,
               tier: p.tier === "core_piece" ? "core" : (p.tier || "core"),
               rosterMeta: isPick ? "" : (p.rosterMeta ?? p.meta),
@@ -187,18 +192,6 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       .catch(() => {});
   }, [myTeamId]);
 
-  // Fresh entry has no partner — prompt for one as soon as the team list is
-  // ready, so the builder is never a dead end. Closing the picker is fine;
-  // any partner-needing action re-opens it.
-  const promptedRef = useRef(false);
-  useEffect(() => {
-    if (loading || promptedRef.current) return;
-    if (teams.length === 1 && allTeamsList.length > 0) {
-      promptedRef.current = true;
-      openSwapPicker();
-    }
-  }, [loading, teams.length, allTeamsList.length, openSwapPicker]);
-
   // While the mobile roster sheet is open we only need the live chip — the
   // grade is deterministic math, so skip the LLM (fast + cheap) and use a
   // short debounce. When the sheet closes the effect re-fires and fetches the
@@ -211,11 +204,22 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       carriedProseRef.current = false;
     }
     if (advisorTimer.current) clearTimeout(advisorTimer.current);
-    if (!dealAssets.length) {
-      setAdvisorProse("Add players or picks to both sides to get my take.");
+    // No opinion until the deal is two-sided — grading a one-sided "trade"
+    // ("we're getting a steal, we give up nothing") is noise.
+    const hasSendSide = dealAssets.some(a => a.fromTeamId === myTeamId);
+    const hasRecvSide = dealAssets.some(a => a.toTeamId === myTeamId);
+    if (!hasSendSide || !hasRecvSide) {
+      setAdvisorProse(
+        !hasSendSide && !hasRecvSide
+          ? "Add players or picks to both sides to get my take."
+          : hasRecvSide
+            ? "Now pick what you're sending from our side and I'll grade it."
+            : "Now pick what you want back from their roster and I'll grade it.",
+      );
       setAdvisorGrade("");
       setAdvisorGradeColor("#8C7E6A");
       setAdvisorSuggestions([]);
+      setAdvisorLoading(false);
       return;
     }
     setAdvisorLoading(true);
@@ -466,8 +470,8 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
         body: JSON.stringify({
           from_team_id: myTeamId,
           to_team_id: to.id,
-          assets_from: ms.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("player:") ? "player" : "pick", value: 0 })),
-          assets_to: mr.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("player:") ? "player" : "pick", value: 0 })),
+          assets_from: ms.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("pick:") ? "pick" : "player", value: 0 })),
+          assets_to: mr.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("pick:") ? "pick" : "player", value: 0 })),
           from_value: 0,
           to_value: 0,
           grade_label: advisorGrade || "Fair",
@@ -494,9 +498,18 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     return players.filter(p => p.name.toLowerCase().includes(q) || p.meta.toLowerCase().includes(q) || p.rosterMeta.toLowerCase().includes(q));
   }, [rosters, activeTab, rosterSearch]);
 
+  // Picks list sequentially — 2026 1sts→3rds, then 2027, then 2028 — not by
+  // value. Names are "2026 2.02" / "2027 Rd 1 (via X)"; parse year + round.
+  const pickOrd = (n: string) => {
+    const year = parseInt(n.slice(0, 4), 10) || 9999;
+    const round = parseInt(n.match(/Rd (\d)/)?.[1] ?? n.match(/^\d{4} (\d)\./)?.[1] ?? "9", 10);
+    return year * 10 + round;
+  };
   const posSections = useMemo(() => POS_SECTIONS.map(sec => ({
     ...sec,
-    items: activeRoster.filter(p => (p.posGroup ?? "OTHER") === sec.key).sort((a, b) => b.value - a.value),
+    items: activeRoster
+      .filter(p => (p.posGroup ?? "OTHER") === sec.key)
+      .sort((a, b) => sec.key === "PICK" ? pickOrd(a.name) - pickOrd(b.name) || b.value - a.value : b.value - a.value),
   })).filter(s => s.items.length > 0), [activeRoster]);
 
   const canSend = dealAssets.some(a => a.fromTeamId === myTeamId) && dealAssets.some(a => a.toTeamId === myTeamId);
@@ -507,9 +520,9 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       const hasPartner = otherTeams.length > 0;
       return {
         title: hasPartner ? "Switch trade partner" : "Who are we trading with?",
-        subtitle: hasPartner
-          ? "Your send side stays. Their assets will be cleared."
-          : "Pick the team on the other side of this deal.",
+        directorMessage: hasPartner
+          ? "Who are we calling instead? Their pieces come off the card; ours stay put."
+          : "Here's the league, ranked by who's most likely to deal with us. Or, if we've got a specific target in mind, punch him into the search and I'll make the call.",
         teams: allTeamsList,
         excludeIds: [myTeamId, ...otherTeams.map(t => t.id)],
         onSelect: handleSwapTeam,
@@ -563,7 +576,8 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       {pickerProps && (
         <TeamPickerModal
           title={pickerProps.title}
-          subtitle={pickerProps.subtitle}
+          subtitle={"subtitle" in pickerProps ? pickerProps.subtitle : undefined}
+          directorMessage={"directorMessage" in pickerProps ? pickerProps.directorMessage : undefined}
           teams={pickerProps.teams}
           excludeIds={pickerProps.excludeIds}
           onSelect={pickerProps.onSelect}
@@ -691,7 +705,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "58% 42%", minHeight: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", flexDirection: "column", borderRight: "2px solid #1A1A1A", overflow: "hidden" }}>
           <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
-            <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={threeTeam} />
+            <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={threeTeam} addsLocked />
             <AIAdvisor
               grade={advisorGrade}
               gradeColor={advisorGradeColor}

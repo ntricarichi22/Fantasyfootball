@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import {
-  computeGap,
   personaAwareGrade,
-  generateSuggestions,
   computePostTradeWarnings,
   detectShapeMismatch,
   type RosterAsset,
@@ -13,6 +11,11 @@ import {
   type Suggestion,
   type PersonaKey,
 } from "@/pro-personnel/trade-engine/advisor/engine";
+import type { Gap } from "@/pro-personnel/engine/core/types";
+import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas";
+import { priceDeal } from "@/pro-personnel/engine/pricing";
+import type { EngineOfferAsset, Scoreboard } from "@/pro-personnel/engine/types";
+import { buildValuationContext, valueAsset, type AssetRef, type ValuationContext } from "@/shared/asset-values";
 import { getPersonality } from "@/pro-personnel/trade-engine/advisor/personality";
 import {
   SYSTEM_PROMPT,
@@ -77,11 +80,124 @@ function inferTeamMode(roster: RosterAsset[]): "contend" | "retool" | "rebuild" 
   return "retool";
 }
 
-const VALID_PERSONAS: PersonaKey[] = ["closer", "straight_shooter", "architect", "hustler"];
-function coercePersona(v: unknown): PersonaKey | null {
-  return typeof v === "string" && (VALID_PERSONAS as string[]).includes(v)
-    ? (v as PersonaKey)
-    : null;
+// ── One-tap balancing package ──────────────────────────────────────────────
+// Suggestions answer ONE question: what does it take to make this deal WORK —
+// for the other side when they're short (add from OUR roster), or for us when
+// we're overpaying (take more back from THEIRS). Engine values only. One
+// package that closes the gap in a single tap (≤3 pieces), built from the
+// smallest sufficient assets — role players and small picks, never a new
+// headliner the deal didn't ask for.
+
+const HARD_FLOOR = 0.75; // the engine's universal non-starter line (construct.ts)
+const PARTNER_STRETCH = 0.1;
+
+function refFor(key: string): AssetRef {
+  return key.startsWith("pick:") ? { type: "pick", key } : { type: "player", sleeperPlayerId: key };
+}
+
+type BalanceCand = { a: RosterAsset; vBase: number; vOwn: number };
+
+// Smallest-total package meeting the deficit: singles (smallest sufficient),
+// then best pair, then best triple, all validated by `ok`.
+function findPackage(cands: BalanceCand[], need: number, ok: (pkg: BalanceCand[]) => boolean): BalanceCand[] | null {
+  for (const c of cands) {
+    if (c.vBase >= need && ok([c])) return [c];
+  }
+  const N = Math.min(cands.length, 24);
+  let best: BalanceCand[] | null = null;
+  let bestSum = Infinity;
+  for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) {
+    const pkg = [cands[i], cands[j]];
+    const sum = pkg[0].vBase + pkg[1].vBase;
+    if (sum >= need && sum < bestSum && ok(pkg)) { best = pkg; bestSum = sum; }
+  }
+  if (best) return best;
+  for (let i = 0; i < N; i++) for (let j = i + 1; j < N; j++) for (let k = j + 1; k < N; k++) {
+    const pkg = [cands[i], cands[j], cands[k]];
+    const sum = pkg[0].vBase + pkg[1].vBase + pkg[2].vBase;
+    if (sum >= need && sum < bestSum && ok(pkg)) { best = pkg; bestSum = sum; }
+  }
+  return best;
+}
+
+function toSuggestion(assets: RosterAsset[], direction: "send" | "receive", base: (k: string) => number): Suggestion {
+  const rows = assets.map(a => ({
+    key: a.key,
+    name: a.name,
+    meta: a.rosterMeta || a.meta || "",
+    value: Math.round(base(a.key)),
+    direction,
+  }));
+  return {
+    assets: rows,
+    kind: direction,
+    totalValue: rows.reduce((s, r) => s + r.value, 0),
+    closesGap: true,
+    liquidityTiers: [],
+    tradeoff: null,
+  };
+}
+
+type BalanceParams = {
+  ours: Scoreboard;
+  theirs: Scoreboard;
+  ctx: ValuationContext;
+  myTeamId: string;
+  otherTeamId: string;
+  myPersona: PersonaKey;
+  partnerPersona: PersonaKey;
+  rosters: Record<string, RosterAsset[]>;
+  dealKeys: Set<string>;
+};
+
+function buildBalancingSuggestions(p: BalanceParams): Suggestion[] {
+  const ourBand = bandFor(p.myPersona);
+  const theirBand = bandFor(p.partnerPersona);
+  const base = (k: string) => valueAsset(refFor(k), p.ctx);
+  const minePersp = (k: string) => valueAsset(refFor(k), p.ctx, { perspective: p.myTeamId });
+  const theirsPersp = (k: string) => valueAsset(refFor(k), p.ctx, { perspective: p.otherTeamId });
+
+  // Direction 1: the deal is short for THEM → add our pieces to the send side.
+  if (p.theirs.sendValue > 0 && p.theirs.ratio < theirBand.min) {
+    const need = (theirBand.min + 0.02) * p.theirs.sendValue - p.theirs.receiveValue;
+    const cands: BalanceCand[] = (p.rosters[p.myTeamId] ?? [])
+      .filter(a => !p.dealKeys.has(a.key) && a.tier !== "untouchable")
+      .map(a => ({ a, vBase: base(a.key), vOwn: minePersp(a.key) }))
+      .filter(c => c.vBase > 0)
+      .sort((x, y) => x.vBase - y.vBase);
+    const ok = (pkg: BalanceCand[]) => {
+      const addBase = pkg.reduce((s, c) => s + c.vBase, 0);   // their board prices our assets at base
+      const addMine = pkg.reduce((s, c) => s + c.vOwn, 0);    // our board prices our assets at our value
+      const theirRatio = (p.theirs.receiveValue + addBase) / p.theirs.sendValue;
+      const ourRatio = p.ours.receiveValue / (p.ours.sendValue + addMine);
+      return theirRatio <= theirBand.max && ourRatio >= ourBand.min;
+    };
+    const pkg = findPackage(cands, need, ok);
+    return pkg ? [toSuggestion(pkg.map(c => c.a), "send", base)] : [];
+  }
+
+  // Direction 2: WE'RE overpaying → take more back from their roster.
+  if (p.ours.sendValue > 0 && p.ours.ratio < ourBand.min) {
+    const need = (ourBand.min + 0.02) * p.ours.sendValue - p.ours.receiveValue;
+    const stretchFloor = Math.max(HARD_FLOOR, theirBand.min - PARTNER_STRETCH);
+    const cands: BalanceCand[] = (p.rosters[p.otherTeamId] ?? [])
+      .filter(a => !p.dealKeys.has(a.key) && a.tier !== "untouchable")
+      .map(a => ({ a, vBase: base(a.key), vOwn: theirsPersp(a.key) }))
+      .filter(c => c.vBase > 0)
+      .sort((x, y) => x.vBase - y.vBase);
+    const ok = (pkg: BalanceCand[]) => {
+      const addBase = pkg.reduce((s, c) => s + c.vBase, 0);   // our board prices their assets at base
+      const addTheirs = pkg.reduce((s, c) => s + c.vOwn, 0);  // their board prices their assets at their value
+      const ourRatio = (p.ours.receiveValue + addBase) / p.ours.sendValue;
+      const theirRatio = p.theirs.receiveValue / (p.theirs.sendValue + addTheirs);
+      return ourRatio <= ourBand.max && theirRatio >= stretchFloor;
+    };
+    const pkg = findPackage(cands, need, ok);
+    return pkg ? [toSuggestion(pkg.map(c => c.a), "receive", base)] : [];
+  }
+
+  // Balanced — no fidgeting; the director doubles down instead.
+  return [];
 }
 
 export async function POST(request: NextRequest) {
@@ -92,15 +208,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { my_team_id, other_team_ids, deal_assets, rosters, partner_read, partner_angle } = body;
+  const { my_team_id, other_team_ids, deal_assets, rosters: rawRosters, partner_read, partner_angle } = body;
   const mode = body.mode === "builder" || body.mode === "editor_opening" ? body.mode : "studio";
   const priorTake = mode === "editor_opening" ? (body.prior_prose ?? "").trim() : "";
   if (!my_team_id || !other_team_ids?.length) {
     return NextResponse.json({ error: "team IDs required" }, { status: 400 });
   }
-  if (!rosters) {
+  if (!rawRosters) {
     return NextResponse.json({ error: "rosters required" }, { status: 400 });
   }
+
+  // ── KEY NORMALIZATION ──────────────────────────────────────────────────
+  // Engine asset keys are raw sleeper ids ("12490") + canonical pick keys
+  // ("pick:2027-2-11"); the roster panel prefixes players ("player:12490").
+  // Seeded deals carry engine keys, manual adds carry panel keys — normalize
+  // EVERYTHING to engine form so pricing and lookups share one vocabulary
+  // (the old silent-skip on key misses is what made seeded deals grade as
+  // garbage).
+  const ek = (k: string) => (k.startsWith("player:") ? k.slice("player:".length) : k);
+  const rosters: Record<string, RosterAsset[]> = {};
+  for (const [tid, list] of Object.entries(rawRosters)) {
+    rosters[tid] = (list ?? []).map(a => ({ ...a, key: ek(a.key) }));
+  }
+  const dealAssets: DealAsset[] = (deal_assets ?? []).map(a => ({ ...a, key: ek(a.key) }));
 
   const league_id = LEAGUE_ID;
   if (!league_id) return NextResponse.json({ error: "League not configured" }, { status: 500 });
@@ -151,10 +281,9 @@ export async function POST(request: NextRequest) {
   //
   // Previously the chip was being computed with the partner's persona, which
   // was conceptually wrong — it answered "does this fit their band?" rather
-  // than "does this fit our band?". This flip is paired with the gap.ts
-  // update where the parameter is named `ourPersona`.
-  const myPersona = coercePersona(myProfile?.gm_persona);
-  const partnerPersona = coercePersona(otherProfile?.gm_persona);
+  // than "does this fit our band?". Personas are normalized with the ENGINE's
+  // normalizePersona (same default the cycler chips use) below, where the
+  // engine pricing runs.
 
   const myRoster = rosters[my_team_id] ?? [];
   const otherRoster = rosters[otherTeamId] ?? [];
@@ -172,17 +301,44 @@ export async function POST(request: NextRequest) {
     else if (accepted > 0) behaviorSummary = `${otherTeamName} has been receptive to deals lately.`;
   }
 
-  const dealAssets = deal_assets ?? [];
-
-  // ── PURE LOGIC (single source of truth) ────────────────────────────────
-  const gap = computeGap(dealAssets, rosters, my_team_id);
-  // Chip = OUR accept-band check (locked restructure v2). Inside our band
-  // → green "We should take this deal". Outside our band → standard
-  // verdict grade. Bilateral acceptance lives in advisor prose.
-  const grade = personaAwareGrade(gap, myPersona);
-  const suggestions = generateSuggestions({
-    dealAssets, rosters, myTeamId: my_team_id, otherTeamId,
-    myProfile, otherProfile, partnerPersona, gap,
+  // ── PURE LOGIC — THE engine, single source of truth ────────────────────
+  // The grade comes from the SAME two-scoreboard pricing the Builder cycler
+  // chips come from: priceDeal (our assets at OUR team-specific value, theirs
+  // at neutral base; mirrored for their seat) → personaAwareGrade on OUR
+  // scoreboard with the engine-normalized persona. A deal seeded from the
+  // cycler grades IDENTICALLY here.
+  const ctx = await buildValuationContext();
+  const engineAssets: EngineOfferAsset[] = dealAssets
+    .filter(a => a.fromTeamId === my_team_id || a.toTeamId === my_team_id)
+    .map(a => ({
+      key: a.key,
+      name: a.name,
+      type: a.key.startsWith("pick:") ? ("pick" as const) : ("player" as const),
+      side: a.fromTeamId === my_team_id ? ("send" as const) : ("receive" as const),
+    }));
+  const { ours, theirs } = priceDeal({
+    ourTeamId: my_team_id,
+    partnerTeamId: otherTeamId,
+    assets: engineAssets,
+    ctx,
+  });
+  const gap: Gap = {
+    sendValue: ours.sendValue,
+    receiveValue: ours.receiveValue,
+    ratio: ours.ratio,
+    delta: ours.receiveValue - ours.sendValue,
+    verdict: ours.verdict,
+    hasSend: engineAssets.some(a => a.side === "send"),
+    hasReceive: engineAssets.some(a => a.side === "receive"),
+  };
+  const enginePersona = normalizePersona(myProfile?.gm_persona);
+  const partnerEnginePersona = normalizePersona(otherProfile?.gm_persona);
+  const grade = personaAwareGrade(gap, enginePersona);
+  const suggestions = buildBalancingSuggestions({
+    ours, theirs, ctx,
+    myTeamId: my_team_id, otherTeamId,
+    myPersona: enginePersona, partnerPersona: partnerEnginePersona,
+    rosters, dealKeys: new Set(dealAssets.map(a => a.key)),
   });
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
