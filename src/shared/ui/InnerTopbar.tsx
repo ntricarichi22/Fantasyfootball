@@ -46,25 +46,35 @@ export function InnerTopbar({
 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [persona, setPersona] = useState<GmPersona>("straight_shooter");
+  // Full strategy profile - the save endpoint upserts the whole row, so we
+  // must POST the complete profile with only gm_persona changed.
+  const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     if (!settingsOpen || !rosterId) return;
-    fetch(`/api/research-strategy/team-hq?teamId=${encodeURIComponent(rosterId)}`)
+    fetch(`/api/research-strategy/strategy?teamId=${encodeURIComponent(rosterId)}`)
       .then((r) => r.json())
       .then((j) => {
-        if (j?.persona) setPersona(j.persona as GmPersona);
+        if (j?.data) {
+          setStrategyProfile(j.data as Record<string, unknown>);
+          if (j.data.gm_persona) setPersona(j.data.gm_persona as GmPersona);
+        }
       })
       .catch(() => {});
   }, [settingsOpen, rosterId]);
 
   const savePersona = async (next: GmPersona) => {
     setPersona(next);
-    if (!rosterId) return;
+    // Without the loaded profile a partial POST would wipe the other
+    // strategy fields, so only persist once it's available.
+    if (!rosterId || !strategyProfile) return;
+    const profile = { ...strategyProfile, gm_persona: next };
+    setStrategyProfile(profile);
     try {
-      await fetch("/api/research-strategy/team-hq", {
+      await fetch("/api/research-strategy/strategy", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamId: rosterId, persona: next }),
+        body: JSON.stringify({ teamId: rosterId, profile }),
       });
     } catch {
       /* silent */

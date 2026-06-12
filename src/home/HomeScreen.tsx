@@ -2,19 +2,28 @@
 
 import { useEffect, useState } from "react"
 import { HomeTopbar } from "./HomeTopbar"
-import { GMNameplate } from "./GMNameplate"
+import { GMPersonCard } from "./GMPersonCard"
 import { OrgChartLines } from "./OrgChartLines"
-import { DirectorBox } from "./DirectorBox"
+import { DirectorPersonCard } from "./DirectorPersonCard"
 import { DIRECTORS } from "./directors"
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam"
+import { Icon } from "@/shared/ui/Icon"
+import PersonaPicker from "@/inbox/persona/PersonaPicker"
+import type { GmPersona } from "@/research-strategy/api/types"
 
 // TODO Phase 2+: replace hardcoded GM_DATA with a fetch from /api/gm/me
 const GM_DATA = {
   name: "Nick Tricarichi",
-  personaKey: "straight_shooter" as const,
-  personaLabel: "Straight Shooter",
+  personaKey: "straight_shooter" as GmPersona,
   championships: 2,
   years: 7,
+}
+
+const PERSONA_LABELS: Record<GmPersona, string> = {
+  closer: "The Closer",
+  straight_shooter: "Straight Shooter",
+  architect: "The Architect",
+  hustler: "The Hustler",
 }
 
 const GRID_GAP = 16
@@ -24,8 +33,14 @@ const TICKER_INTERVAL_MS = 3500
 export function HomeScreen() {
   const [tickerTick, setTickerTick] = useState(0)
   const [teamName, setTeamName] = useState<string>("Virginia Founders")
+  const [rosterId, setRosterId] = useState<string>("")
   const [unreadCount, setUnreadCount] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
+  const [persona, setPersona] = useState<GmPersona>(GM_DATA.personaKey)
+  const [personaModalOpen, setPersonaModalOpen] = useState(false)
+  // Full strategy profile - the save endpoint upserts the whole row, so we
+  // must POST the complete profile with only gm_persona changed.
+  const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null)
 
   // Single shared ticker interval so all directors stay in sync
   useEffect(() => {
@@ -40,10 +55,15 @@ export function HomeScreen() {
       // Diagnostic - kept from Phase 0 to debug the "—" placeholder issue
       // eslint-disable-next-line no-console
       console.log("[HomeScreen] readStoredTeam:", team)
-      const stored = team as { teamName?: string; name?: string } | null
+      const stored = team as
+        | { teamName?: string; name?: string; rosterId?: string }
+        | null
       const name = stored?.teamName ?? stored?.name
       if (name && typeof name === "string" && name.trim().length > 0) {
         setTeamName(name)
+      }
+      if (stored?.rosterId) {
+        setRosterId(stored.rosterId)
       }
     } catch (err) {
       // eslint-disable-next-line no-console
@@ -51,15 +71,48 @@ export function HomeScreen() {
     }
   }, [])
 
-  // Fetch inbox unread count for the GM brass plaque
+  // Fetch inbox unread count for the GM door panel
   useEffect(() => {
     fetch("/api/inbox/unread-count")
       .then((r) => (r.ok ? r.json() : { count: 0 }))
       .then((d) => setUnreadCount(d?.count ?? 0))
       .catch(() => {
-        // silent - the plaque just stays at 0
+        // silent - the door panel just stays at 0
       })
   }, [])
+
+  // Load the saved persona from the team strategy profile
+  useEffect(() => {
+    if (!rosterId) return
+    fetch(`/api/research-strategy/strategy?teamId=${encodeURIComponent(rosterId)}`)
+      .then((r) => r.json())
+      .then((j) => {
+        if (j?.data) {
+          setStrategyProfile(j.data as Record<string, unknown>)
+          if (j.data.gm_persona) setPersona(j.data.gm_persona as GmPersona)
+        }
+      })
+      .catch(() => {})
+  }, [rosterId])
+
+  const savePersona = async (next: GmPersona) => {
+    setPersona(next)
+    setPersonaModalOpen(false)
+    // Without the loaded profile a partial POST would wipe the other
+    // strategy fields, so only persist once it's available.
+    if (!rosterId || !strategyProfile) return
+    const profile = { ...strategyProfile, gm_persona: next }
+    setStrategyProfile(profile)
+    try {
+      await fetch("/api/research-strategy/strategy", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamId: rosterId, profile }),
+      })
+    } catch {
+      /* silent */
+    }
+  }
 
   // Mobile viewport detection
   useEffect(() => {
@@ -70,18 +123,25 @@ export function HomeScreen() {
   }, [])
 
   const gmCard = (
-    <GMNameplate
+    <GMPersonCard
       name={GM_DATA.name}
-      personaKey={GM_DATA.personaKey}
-      personaLabel={GM_DATA.personaLabel}
+      persona={persona}
+      personaLabel={PERSONA_LABELS[persona]}
       championships={GM_DATA.championships}
       years={GM_DATA.years}
       unreadCount={unreadCount}
+      onPersonaClick={() => setPersonaModalOpen(true)}
+      isMobile={isMobile}
     />
   )
 
   const directorBoxes = DIRECTORS.map((d) => (
-    <DirectorBox key={d.key} director={d} tickerTick={tickerTick} />
+    <DirectorPersonCard
+      key={d.key}
+      director={d}
+      tickerTick={tickerTick}
+      isMobile={isMobile}
+    />
   ))
 
   return (
@@ -161,6 +221,63 @@ export function HomeScreen() {
           </div>
         )}
       </div>
+
+      {/* Persona picker modal (same overlay pattern as InnerTopbar settings) */}
+      {personaModalOpen && (
+        <div
+          onClick={() => setPersonaModalOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(26,26,26,0.6)",
+            zIndex: 100,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 20,
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#F5F0E6",
+              border: "3px solid #1A1A1A",
+              boxShadow: "6px 6px 0 #1A1A1A",
+              padding: 24,
+              maxWidth: 720,
+              width: "100%",
+              maxHeight: "90vh",
+              overflowY: "auto",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                marginBottom: 8,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setPersonaModalOpen(false)}
+                aria-label="Close"
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: "#1A1A1A",
+                  padding: 0,
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                <Icon name="x" size={20} />
+              </button>
+            </div>
+            <PersonaPicker value={persona} onChange={savePersona} />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

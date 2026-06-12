@@ -1,26 +1,23 @@
 export type DirectorWorkroom = {
   title: string
   href: string
-  icon: string
+  /** Legacy icon name - kept in the data but no longer rendered */
+  icon?: string
 }
 
 export type DirectorConfig = {
   key: string
   title: string
   officeHref: string
-  /** Bar background color */
-  barBg: string
-  /** Bar text color (white or near-black depending on bar bg) */
-  barText: string
-  /** rgba color used for the diagonal stripe overlay on the bar */
-  barStripe: string
-  /** Icon name for top-left of the bar (resolved by WorkroomIcon in DirectorBox) */
-  headerIcon: string
-  /** Eyebrow label shown above the rotating feed message inside the black window */
+  /** Headshot under public/, e.g. "/avatars/scouting.png" */
+  avatarSrc: string
+  /** Director's color: avatar frame fill + responsibility row accents */
+  accentColor: string
+  /** Eyebrow label for the door panel's notification line */
   feedLabel: string
-  /** Rotating messages shown one at a time inside the black feed window */
+  /** Rotating messages shown one at a time in the door panel */
   feedMessages: string[]
-  /** Direct-link items shown below the yellow accent stripe */
+  /** Clickable responsibility rows below the door panel */
   workrooms: DirectorWorkroom[]
 }
 
@@ -29,10 +26,8 @@ export const DIRECTORS: DirectorConfig[] = [
     key: "scouting",
     title: "Scouting",
     officeHref: "/scouting",
-    barBg: "#E8503A",
-    barText: "#FEFCF9",
-    barStripe: "rgba(255,255,255,0.12)",
-    headerIcon: "binoculars",
+    avatarSrc: "/avatars/scouting.png",
+    accentColor: "#E8503A",
     feedLabel: "Wants a word",
     feedMessages: [
       "Three rookies climbing my board this week",
@@ -49,10 +44,9 @@ export const DIRECTORS: DirectorConfig[] = [
     key: "pro_personnel",
     title: "Pro Personnel",
     officeHref: "/pro-personnel",
-    barBg: "#FEFCF9",
-    barText: "#1A1A1A",
-    barStripe: "rgba(0,0,0,0.05)",
-    headerIcon: "briefcase",
+    avatarSrc: "/avatars/pro-personnel.png",
+    // Brass: the old cream bar color disappears against the cream card
+    accentColor: "#B89968",
     feedLabel: "Wants a word",
     feedMessages: [
       "Two teams just texted about your RB",
@@ -68,10 +62,8 @@ export const DIRECTORS: DirectorConfig[] = [
     key: "strategy",
     title: "Strategy",
     officeHref: "/strategy",
-    barBg: "#3366CC",
-    barText: "#FEFCF9",
-    barStripe: "rgba(255,255,255,0.12)",
-    headerIcon: "bar-chart",
+    avatarSrc: "/avatars/strategy.png",
+    accentColor: "#3366CC",
     feedLabel: "Wants a word",
     feedMessages: [
       "Roster gaps at WR3 and TE this week",
