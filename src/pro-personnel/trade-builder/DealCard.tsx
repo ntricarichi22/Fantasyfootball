@@ -92,13 +92,14 @@ function DealRow({ asset, bg, textColor, metaText, teams, myTeamId, onRemove, on
         onClick={handleRowClick}
         style={{
           display: "flex", alignItems: "center", gap: 6,
-          padding: "6px 8px", background: bg, marginBottom: 4,
+          padding: "8px 10px", background: bg, marginBottom: 6,
+          border: "1.5px solid #1A1A1A",
           cursor: "pointer",
           outline: open ? "2px solid #1A1A1A" : "none",
         }}
       >
-        <span style={{ fontWeight: 700, fontSize: 12, color: textColor, flex: 1, fontFamily: F, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{asset.name}</span>
-        {metaText && <span style={{ fontFamily: FM, fontSize: 7, color: textColor, opacity: 0.7 }}>{metaText}</span>}
+        <span style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.15, color: textColor, flex: 1, fontFamily: F, overflowWrap: "break-word", minWidth: 0 }}>{asset.name}</span>
+        {metaText && <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A", flexShrink: 0 }}>{metaText}</span>}
         {twoTeamMode && (
           <span
             aria-hidden="true"
@@ -179,19 +180,19 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
       receives: assets.filter(a => a.toTeamId === t.id),
     }));
     return (
-      <div style={{ background: "#185FA5", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A" }}>
+      <div style={{ background: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", fontFamily: F, color: "#1A1A1A" }}>
         {teamDeals.map((td, i) => (
-          <div key={td.id} style={{ padding: "12px 14px", borderBottom: i < teamDeals.length - 1 ? "1.5px solid rgba(255,255,255,0.15)" : "none" }}>
-            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 12, color: "#FEFCF9", marginBottom: 8 }}>{td.name}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <div key={td.id} style={{ padding: "12px 16px", borderBottom: i < teamDeals.length - 1 ? "2px solid #1A1A1A" : "none" }}>
+            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: "#1A1A1A", textTransform: "uppercase", marginBottom: 8 }}>{td.name}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div>
-                <div style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 }}>Sends</div>
+                <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: "0.14em", fontWeight: 700, color: "#8C7E6A", marginBottom: 6 }}>SENDS</div>
                 {td.sends.map(a => (
                   <DealRow
                     key={a.key}
                     asset={a}
-                    bg="#E6F1FB"
-                    textColor="#185FA5"
+                    bg="#F5F0E6"
+                    textColor="#1A1A1A"
                     metaText={`→ ${a.toTeamName}`}
                     teams={teams}
                     myTeamId={myTeamId}
@@ -200,16 +201,16 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
                     twoTeamMode={false}
                   />
                 ))}
-                {td.sends.length === 0 && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: FM, padding: "4px 0" }}>—</div>}
+                {td.sends.length === 0 && <div style={{ fontSize: 9, color: "#C8C3B8", fontFamily: FM, padding: "4px 0" }}>—</div>}
               </div>
               <div>
-                <div style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 }}>Receives</div>
+                <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: "0.14em", fontWeight: 700, color: "#8C7E6A", marginBottom: 6 }}>RECEIVES</div>
                 {td.receives.map(a => (
                   <DealRow
                     key={a.key + "-r"}
                     asset={a}
-                    bg="#E6F1FB"
-                    textColor="#185FA5"
+                    bg="#F5F0E6"
+                    textColor="#1A1A1A"
                     metaText={`← ${a.fromTeamName}`}
                     teams={teams}
                     myTeamId={myTeamId}
@@ -218,32 +219,34 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
                     twoTeamMode={false}
                   />
                 ))}
-                {td.receives.length === 0 && <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: FM, padding: "4px 0" }}>—</div>}
+                {td.receives.length === 0 && <div style={{ fontSize: 9, color: "#C8C3B8", fontFamily: FM, padding: "4px 0" }}>—</div>}
               </div>
             </div>
           </div>
         ))}
-        <div onClick={() => onAddFromTeam("__universal__")} style={{ borderTop: "1.5px solid rgba(255,255,255,0.15)", padding: "8px 14px", textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: F }}>+ Add</div>
+        <div onClick={() => onAddFromTeam("__universal__")} style={{ borderTop: "2px solid #1A1A1A", padding: "9px 16px", textAlign: "center", fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: F }}>+ Add</div>
       </div>
     );
   }
 
-  // 2-team layout
+  // 2-team layout — same visual language as the trade-builder OfferCard:
+  // paper card, ink ledger divider, muted mono SEND/RECEIVE eyebrows, cream
+  // asset cells.
   const otherTeam = teams.find(t => t.id !== myTeamId);
   const mySends = assets.filter(a => a.fromTeamId === myTeamId);
   const myReceives = assets.filter(a => a.toTeamId === myTeamId);
 
   return (
-    <div style={{ background: "#185FA5", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A" }}>
+    <div style={{ background: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", fontFamily: F, color: "#1A1A1A" }}>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
-        <div style={{ padding: "14px 16px", borderRight: "1.5px solid rgba(255,255,255,0.15)" }}>
-          <div style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>You send</div>
+        <div style={{ padding: "12px 16px", borderRight: "2px solid #1A1A1A" }}>
+          <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: "0.14em", fontWeight: 700, color: "#8C7E6A", marginBottom: 8 }}>SEND</div>
           {mySends.map(a => (
             <DealRow
               key={a.key}
               asset={a}
-              bg="#E6F1FB"
-              textColor="#185FA5"
+              bg="#F5F0E6"
+              textColor="#1A1A1A"
               teams={teams}
               myTeamId={myTeamId}
               onRemove={handleRemove}
@@ -251,16 +254,16 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
               twoTeamMode={true}
             />
           ))}
-          <div onClick={() => onAddFromTeam(myTeamId)} style={{ border: "1.5px dashed rgba(255,255,255,0.25)", padding: "7px", textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: F, marginTop: mySends.length > 0 ? 4 : 0 }}>+ Add from your roster</div>
+          <div onClick={() => onAddFromTeam(myTeamId)} style={{ border: "1.5px dashed #8C7E6A", padding: "8px", textAlign: "center", fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: F }}>+ Add from your roster</div>
         </div>
-        <div style={{ padding: "14px 16px" }}>
-          <div style={{ fontFamily: FM, fontSize: 7, fontWeight: 700, color: "rgba(255,255,255,0.4)", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>You receive</div>
+        <div style={{ padding: "12px 16px" }}>
+          <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: "0.14em", fontWeight: 700, color: "#8C7E6A", marginBottom: 8 }}>RECEIVE</div>
           {myReceives.map(a => (
             <DealRow
               key={a.key}
               asset={a}
-              bg="#E6F1FB"
-              textColor="#185FA5"
+              bg="#F5F0E6"
+              textColor="#1A1A1A"
               teams={teams}
               myTeamId={myTeamId}
               onRemove={handleRemove}
@@ -268,7 +271,7 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
               twoTeamMode={true}
             />
           ))}
-          <div onClick={() => onAddFromTeam(otherTeam?.id ?? "")} style={{ border: "1.5px dashed rgba(255,255,255,0.25)", padding: "7px", textAlign: "center", fontSize: 10, color: "rgba(255,255,255,0.4)", cursor: "pointer", fontFamily: F, marginTop: myReceives.length > 0 ? 4 : 0 }}>+ Add from their roster</div>
+          <div onClick={() => onAddFromTeam(otherTeam?.id ?? "")} style={{ border: "1.5px dashed #8C7E6A", padding: "8px", textAlign: "center", fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: F }}>+ Add from their roster</div>
         </div>
       </div>
     </div>

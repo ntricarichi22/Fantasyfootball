@@ -7,7 +7,7 @@ import TradeBalanceChip from "@/shared/ui/TradeBalanceChip";
 import { teamNick } from "@/shared/util/teamNick";
 import DealCard, { type DealAsset } from "@/pro-personnel/trade-builder/DealCard";
 import AIAdvisor, { type AdvisorSuggestion } from "@/pro-personnel/trade-builder/AIAdvisor";
-import PlayerRow, { AVAILABILITY_CHIPS } from "@/pro-personnel/trade-builder/PlayerRow";
+import PlayerRow from "@/pro-personnel/trade-builder/PlayerRow";
 import TierDivider from "@/pro-personnel/trade-builder/TierDivider";
 import RoutingPopup from "@/pro-personnel/trade-builder/RoutingPopup";
 import TeamPickerModal, { type PartnerFit } from "@/pro-personnel/trade-builder/TeamPickerModal";
@@ -41,10 +41,6 @@ const POS_SECTIONS = [
   { key: "PICK", label: "Draft Picks" },
 ];
 
-// Bridge line appended to carried-over director prose: he knows you came to
-// tweak the deal, and hands you to the live re-grading flow.
-const EDIT_BRIDGE = "Want to work it? Make your changes — I'll re-grade as we go and flag what balances it.";
-
 export default function TradeBuilder({ initialTeams, initialDealAssets, initialAdvisor, onBack }: Props) {
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
   const myTeamId = rosterId;
@@ -74,7 +70,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
   const isMobile = useIsMobile();
 
   const [advisorProse, setAdvisorProse] = useState(() =>
-    initialAdvisor ? `${initialAdvisor.prose} ${EDIT_BRIDGE}` : "Add assets to both sides to get my take on this deal.",
+    initialAdvisor ? initialAdvisor.prose : "Add assets to both sides to get my take on this deal.",
   );
   const [advisorGrade, setAdvisorGrade] = useState(() => initialAdvisor?.grade ?? "");
   const [advisorGradeColor, setAdvisorGradeColor] = useState(() => initialAdvisor?.gradeColor ?? "#8C7E6A");
@@ -116,13 +112,21 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
         const raw = j.rosters ?? {};
         const r: Record<string, RosterPlayer[]> = {};
         for (const rid of Object.keys(raw)) {
-          r[rid] = (raw[rid] ?? []).map((p: RosterPlayer) => ({
-            ...p,
-            tier: p.tier === "core_piece" ? "core" : (p.tier || "core"),
-            rosterMeta: p.rosterMeta ?? p.meta,
-            isStud: p.isStud ?? false,
-            isYouth: p.isYouth ?? false,
-          }));
+          r[rid] = (raw[rid] ?? []).map((p: RosterPlayer) => {
+            // Picks display as one bold name — "2027 Rd 1 (via Onslaught)" —
+            // with no muted "Draft pick" line. The via-suffix folds into the
+            // name so it carries onto the deal card and sent offers too.
+            const isPick = p.type === "pick";
+            const via = isPick ? ((p.rosterMeta ?? p.meta ?? "").match(/\(via [^)]+\)/)?.[0] ?? "") : "";
+            return {
+              ...p,
+              name: isPick && via ? `${p.name} ${via}` : p.name,
+              tier: p.tier === "core_piece" ? "core" : (p.tier || "core"),
+              rosterMeta: isPick ? "" : (p.rosterMeta ?? p.meta),
+              isStud: p.isStud ?? false,
+              isYouth: p.isYouth ?? false,
+            };
+          });
         }
         setRosters(r);
         const list: Team[] = [];
@@ -136,6 +140,42 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [myTeamId]);
+
+  // EDITOR OPENING — the continuation beat. The card showed his take; the GM
+  // tapped Edit. Once rosters land, ask the advisor to pick the conversation
+  // up: acknowledge the tweak intent, then recommend concrete changes (the
+  // same ones rendered as tappable suggestions) or double down if the deal
+  // needs nothing. The carried prose stays on screen (dimmed) while it loads.
+  const openingFiredRef = useRef(false);
+  useEffect(() => {
+    if (!initialAdvisor || openingFiredRef.current) return;
+    if (!dealAssets.length || Object.keys(rosters).length === 0 || otherTeams.length === 0) return;
+    openingFiredRef.current = true;
+    let cancelled = false;
+    setAdvisorLoading(true);
+    fetch("/api/pro-personnel/advisor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        my_team_id: myTeamId,
+        other_team_ids: otherTeams.map(t => t.id),
+        deal_assets: dealAssets,
+        rosters,
+        mode: "editor_opening",
+        prior_prose: initialAdvisor.prose,
+      }),
+    })
+      .then(r => (r.ok ? r.json() : null))
+      .then(j => {
+        if (cancelled || !j) return;
+        if (j.prose) setAdvisorProse(j.prose);
+        setAdvisorSuggestions(Array.isArray(j.suggestions) ? j.suggestions : []);
+        if (j.grade) { setAdvisorGrade(j.grade); setAdvisorGradeColor(j.gradeColor ?? "#8C7E6A"); }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setAdvisorLoading(false); });
+    return () => { cancelled = true; };
+  }, [initialAdvisor, dealAssets, rosters, otherTeams, myTeamId]);
 
   // Background fetch of the engine's partner-fit ranking — non-blocking, the
   // picker works unranked until it lands.
@@ -507,7 +547,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       <div key={sec.key}>
         <TierDivider label={sec.label} />
         {sec.items.map(p => (
-          <PlayerRow key={p.key} name={p.name} meta={p.rosterMeta} selected={dealKeys.has(p.key)} onToggle={() => handleRosterTap(p.key, p.name)} chip={AVAILABILITY_CHIPS[p.tier]} />
+          <PlayerRow key={p.key} name={p.name} meta={p.rosterMeta} selected={dealKeys.has(p.key)} onToggle={() => handleRosterTap(p.key, p.name)} />
         ))}
       </div>
     ))

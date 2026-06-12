@@ -1,7 +1,5 @@
 "use client";
 
-import TradeBalanceChip from "@/shared/ui/TradeBalanceChip";
-
 export type AdvisorSuggestionAsset = {
   key: string;
   name: string;
@@ -52,22 +50,45 @@ function SwapBadge() {
 }
 
 export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTapSuggestion, loading }: Props) {
-  // Card shadow tracks chip color when a verdict is set; falls back to
-  // ink for the empty/incomplete state (matches default neobrutalist).
-  const shadowColor = grade ? gradeColor : "#1A1A1A";
-
+  // Director inline section — same visual language as the OfferCard on the
+  // trade-builder page: avatar, verdict underlined in the grade color, prose.
+  // While re-grading, existing prose dims (the OfferCard proseLoading
+  // treatment) instead of being swapped for a spinner line.
   return (
-    <div style={{ border: "2.5px solid #1A1A1A", boxShadow: `5px 5px 0 ${shadowColor}`, background: "#FEFCF9", padding: "14px 16px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
-        <div style={{ width: 26, height: 26, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
-        {grade ? (
-          <TradeBalanceChip label={grade} color={gradeColor} />
-        ) : (
-          <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#8C7E6A" }}>Trade advisor</div>
-        )}
-      </div>
-      <div style={{ fontSize: 12, lineHeight: 1.6, color: "#1A1A1A", fontFamily: F, marginBottom: suggestions.length > 0 ? 12 : 0 }}>
-        {loading ? "Analyzing this deal…" : prose}
+    <div style={{ border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", background: "#FEFCF9", padding: "14px 16px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 13, marginBottom: suggestions.length > 0 ? 12 : 0 }}>
+        <img
+          src="/avatars/pro-personnel.png"
+          alt=""
+          style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 2 }}
+        />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {grade ? (
+            <span style={{
+              fontWeight: 700,
+              fontSize: 12,
+              letterSpacing: "0.05em",
+              textTransform: "uppercase",
+              color: "#1A1A1A",
+              display: "inline-block",
+              marginBottom: 7,
+              textDecoration: "underline",
+              textDecorationColor: gradeColor,
+              textDecorationThickness: 4,
+              textUnderlineOffset: 6,
+              fontFamily: F,
+            }}>
+              {grade}
+            </span>
+          ) : (
+            <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#8C7E6A", marginBottom: 7 }}>
+              Personnel director
+            </div>
+          )}
+          <div style={{ fontSize: 13, lineHeight: 1.45, color: "#1A1A1A", fontFamily: F, opacity: loading ? 0.5 : 1 }}>
+            {prose || (loading ? "Analyzing this deal…" : "")}
+          </div>
+        </div>
       </div>
       {suggestions.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>

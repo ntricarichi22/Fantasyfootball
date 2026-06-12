@@ -201,13 +201,17 @@ export function buildBuilderUserPrompt(
   return sections.join("\n");
 }
 
-export function buildUserPrompt(inputs: PromptInputs): string {
+// `priorTake` switches the prompt into EDITOR-OPENING mode: the director just
+// presented this exact deal (the prior take) and the GM tapped Edit. He opens
+// by acknowledging they want to work it, then either recommends the concrete
+// changes the system suggests — or doubles down if the deal needs nothing.
+export function buildUserPrompt(inputs: PromptInputs & { priorTake?: string }): string {
   const {
     myTeamName, myProfile, myRoster,
     otherTeamName, otherTeamPersonality, otherProfile, otherRoster, otherTeamMode,
     dealAssets, myTeamId, otherTeamId,
     gap, suggestions, warnings, shapeMismatch,
-    cfcYear, behaviorSummary,
+    cfcYear, behaviorSummary, priorTake,
   } = inputs;
 
   const sections: string[] = [];
@@ -260,8 +264,15 @@ export function buildUserPrompt(inputs: PromptInputs): string {
   const mismatchText = describeShapeMismatch(shapeMismatch, myTeamName, otherTeamName);
   if (mismatchText) sections.push(`\n${mismatchText}`);
 
-  sections.push(`\n---`);
-  sections.push(`Write 2-4 sentences of advice for ${myTeamName}. Reference the suggested assets by name. If a suggestion has a tradeoff, acknowledge it naturally — don't refuse to recommend it. Address any critical roster flags or asset-type mismatches. Match the gap verdict — don't contradict it. Reference ${otherTeamName}'s negotiation style if it's relevant to whether this gets done.`);
+  if (priorTake) {
+    sections.push(`\nYOUR PREVIOUS TAKE (you JUST said this to the GM when you presented this exact deal): "${priorTake}"`);
+    sections.push(`The GM tapped Edit — they want to work the deal with you. This is a CONTINUATION of that conversation, not a fresh read.`);
+    sections.push(`\n---`);
+    sections.push(`Write 2-4 sentences for ${myTeamName}. Open by acknowledging they want to work it (a few words — no greeting, and do NOT repeat your previous take verbatim). Then: if the suggestions above show a real way to improve or rebalance the deal, recommend the specific change(s), referencing the suggested assets by name. BUT if the deal already grades well and the suggestions are marginal, DOUBLE DOWN instead — tell them plainly why it works as-is and that you wouldn't touch it. Be decisive, never wishy-washy. Match the gap verdict.`);
+  } else {
+    sections.push(`\n---`);
+    sections.push(`Write 2-4 sentences of advice for ${myTeamName}. Reference the suggested assets by name. If a suggestion has a tradeoff, acknowledge it naturally — don't refuse to recommend it. Address any critical roster flags or asset-type mismatches. Match the gap verdict — don't contradict it. Reference ${otherTeamName}'s negotiation style if it's relevant to whether this gets done.`);
+  }
   sections.push(`Output ONLY the prose. No JSON, no markdown, no preamble.`);
   void otherTeamId;
 

@@ -36,7 +36,12 @@ type RequestBody = {
   // "studio" (default) → coaching voice that suggests sweeteners to balance a
   // deal the user is building. "builder" → presents a pre-vetted package: why
   // the partner would do it + accept-vs-counter read, no sweetener suggestions.
-  mode?: "studio" | "builder";
+  // "editor_opening" → continuation beat when the GM taps Edit on a presented
+  // offer: acknowledge they want to work it, then recommend the concrete
+  // changes (or double down if the deal needs nothing). Pass prior_prose.
+  mode?: "studio" | "builder" | "editor_opening";
+  // The director's take from the card the user tapped Edit on (editor_opening).
+  prior_prose?: string;
   // Engine partner acceptance read, passed through in builder mode so the
   // accept-vs-counter framing matches the Builder's own two-scorecard pricing.
   partner_read?: string | null;
@@ -88,7 +93,8 @@ export async function POST(request: NextRequest) {
   }
 
   const { my_team_id, other_team_ids, deal_assets, rosters, partner_read, partner_angle } = body;
-  const mode = body.mode === "builder" ? "builder" : "studio";
+  const mode = body.mode === "builder" || body.mode === "editor_opening" ? body.mode : "studio";
+  const priorTake = mode === "editor_opening" ? (body.prior_prose ?? "").trim() : "";
   if (!my_team_id || !other_team_ids?.length) {
     return NextResponse.json({ error: "team IDs required" }, { status: 400 });
   }
@@ -202,6 +208,7 @@ export async function POST(request: NextRequest) {
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
         cfcYear, behaviorSummary,
+        ...(priorTake ? { priorTake } : {}),
       });
 
   // ── AI CALL ────────────────────────────────────────────────────────────
@@ -228,6 +235,21 @@ export async function POST(request: NextRequest) {
           .trim();
       }
     } catch { /* fall through to deterministic prose */ }
+  }
+
+  // Editor-opening fallback — acknowledge the tweak intent, then either point
+  // at the system's best suggestion or double down on the deal as-is.
+  if (!prose && mode === "editor_opening") {
+    const sug = suggestions[0];
+    const goodAsIs = ["great", "ahead", "fair"].includes(grade.bucket);
+    if (sug && !(goodAsIs && !sug.closesGap)) {
+      const names = sug.assets.map(a => a.name).join(" + ");
+      prose = `So you want to work it. Cleanest move on my board: ${names} — ${sug.closesGap ? "that closes the gap" : "that moves the needle"}. Tap it below, or make your own change and I'll re-grade as we go.`;
+    } else if (goodAsIs) {
+      prose = `You can tinker if you want, but I wouldn't touch this one — it grades out right where we want it. Send it as it stands.`;
+    } else {
+      prose = `So you want to work it. Make your changes and I'll re-grade as we go.`;
+    }
   }
 
   // Builder fallback — present the vetted deal with an accept/counter read,
