@@ -62,6 +62,19 @@ type OfferCardProps = {
   // Render the card as a record, not a decision — no action rows (inbox memos
   // whose offer has already been answered).
   hideActions?: boolean;
+  // Context suppressors. The inbox memo renders a stripped card — the partner
+  // name rides the email's "attached" label and the director's read lives in
+  // the email prose, so both the team header and the inline director section
+  // are hidden here. Everywhere else (builder, studio, thread) they stay on.
+  hideHeader?: boolean;
+  hideDirector?: boolean;
+
+  // Optional inline editing (counter-mode drawer). When provided, each asset
+  // cell shows a × to remove and a dashed "+ add" cell appears under the column.
+  // Omitted everywhere else, so the canonical card is unchanged.
+  onRemoveAsset?: (key: string) => void;
+  onAddSend?: () => void;
+  onAddReceive?: () => void;
 };
 
 const PERSONA_LABELS: Record<PersonaKey, string> = {
@@ -96,6 +109,11 @@ export default function OfferCard({
   primaryLabel = "MAKE THIS OFFER",
   sending = false,
   hideActions = false,
+  hideHeader = false,
+  hideDirector = false,
+  onRemoveAsset,
+  onAddSend,
+  onAddReceive,
 }: OfferCardProps) {
   return (
     <div style={{
@@ -109,6 +127,7 @@ export default function OfferCard({
       color: "#1A1A1A",
     }}>
       {/* Team header */}
+      {!hideHeader && (
       <div style={{
         padding: "12px 16px",
         display: "flex",
@@ -155,6 +174,7 @@ export default function OfferCard({
           </div>
         )}
       </div>
+      )}
 
       {/* Ledger */}
       <div style={{
@@ -173,7 +193,10 @@ export default function OfferCard({
           }}>
             SEND
           </div>
-          {sendAssets.map(a => <AssetCell key={a.key} asset={a} />)}
+          {sendAssets.map(a => (
+            <AssetCell key={a.key} asset={a} onRemove={onRemoveAsset ? () => onRemoveAsset(a.key) : undefined} />
+          ))}
+          {onAddSend && <AddCell onClick={onAddSend} />}
         </div>
         <div style={{ padding: "12px 16px" }}>
           <div style={{
@@ -186,11 +209,15 @@ export default function OfferCard({
           }}>
             RECEIVE
           </div>
-          {receiveAssets.map(a => <AssetCell key={a.key} asset={a} />)}
+          {receiveAssets.map(a => (
+            <AssetCell key={a.key} asset={a} onRemove={onRemoveAsset ? () => onRemoveAsset(a.key) : undefined} />
+          ))}
+          {onAddReceive && <AddCell onClick={onAddReceive} />}
         </div>
       </div>
 
       {/* Director inline section */}
+      {!hideDirector && (
       <div style={{
         padding: "14px 16px",
         borderBottom: hideActions ? "none" : "2px solid #1A1A1A",
@@ -236,6 +263,7 @@ export default function OfferCard({
           </div>
         </div>
       </div>
+      )}
 
       {/* Pass | Edit (or Pass | Counter) row */}
       {!hideActions && (
@@ -312,33 +340,82 @@ export default function OfferCard({
   );
 }
 
-function AssetCell({ asset }: { asset: CardAsset }) {
+function AssetCell({ asset, onRemove }: { asset: CardAsset; onRemove?: () => void }) {
   return (
     <div style={{
       background: "#F5F0E6",
       border: "1.5px solid #1A1A1A",
       padding: "8px 10px",
       marginBottom: 6,
+      display: "flex",
+      alignItems: "flex-start",
+      gap: 8,
     }}>
-      <div style={{
-        fontWeight: 700,
-        fontSize: 14,
-        color: "#1A1A1A",
-        lineHeight: 1.15,
-        overflowWrap: "break-word",
-      }}>
-        {asset.name}
-      </div>
-      {asset.meta && (
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontFamily: FM,
-          fontSize: 10,
-          color: "#8C7E6A",
-          marginTop: 2,
+          fontWeight: 700,
+          fontSize: 14,
+          color: "#1A1A1A",
+          lineHeight: 1.15,
+          overflowWrap: "break-word",
         }}>
-          {asset.meta}
+          {asset.name}
         </div>
+        {asset.meta && (
+          <div style={{
+            fontFamily: FM,
+            fontSize: 10,
+            color: "#8C7E6A",
+            marginTop: 2,
+          }}>
+            {asset.meta}
+          </div>
+        )}
+      </div>
+      {onRemove && (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove ${asset.name}`}
+          style={{
+            border: "none",
+            background: "transparent",
+            color: "#8C7E6A",
+            fontFamily: FM,
+            fontSize: 15,
+            fontWeight: 700,
+            lineHeight: 1,
+            cursor: "pointer",
+            padding: 0,
+            flexShrink: 0,
+          }}
+        >
+          ×
+        </button>
       )}
     </div>
+  );
+}
+
+function AddCell({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: "100%",
+        border: "1.5px dashed #8C7E6A",
+        background: "transparent",
+        padding: "8px",
+        textAlign: "center",
+        fontFamily: FM,
+        fontSize: 11,
+        color: "#8C7E6A",
+        cursor: "pointer",
+        letterSpacing: "0.04em",
+      }}
+    >
+      + add
+    </button>
   );
 }

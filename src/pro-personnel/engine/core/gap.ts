@@ -70,19 +70,33 @@ export function computeGap(
   const ratio = sendValue > 0 ? receiveValue / sendValue : hasReceive ? 99 : 0;
   const delta = receiveValue - sendValue;
 
-  let verdict: GapVerdict = "EMPTY";
-  if (!hasSend && !hasReceive) verdict = "EMPTY";
-  else if (hasReceive && !hasSend) verdict = "RECV_ONLY";
-  else if (hasSend && !hasReceive) verdict = "SEND_ONLY";
-  else if (ratio > 1.5) verdict = "MASSIVE_FAVOR_USER";
-  else if (ratio > 1.2) verdict = "STRONG_FAVOR_USER";
-  else if (ratio > 1.1) verdict = "SLIGHT_FAVOR_USER";
-  else if (ratio >= 0.9) verdict = "FAIR";
-  else if (ratio >= 0.8) verdict = "SLIGHT_FAVOR_OTHER";
-  else if (ratio >= 0.5) verdict = "STRONG_FAVOR_OTHER";
-  else verdict = "MASSIVE_FAVOR_OTHER";
+  const verdict = verdictFromRatio(ratio, hasSend, hasReceive);
 
   return { sendValue, receiveValue, ratio, delta, verdict, hasSend, hasReceive };
+}
+
+// ─── Ratio → verdict bucket ───────────────────────────────────────────
+//
+// The pure ratio→verdict table, lifted out of computeGap so any surface
+// that already knows a deal's ratio (e.g. the counter-mode slider, which
+// re-grades on the client as you drag) can derive the same verdict without
+// rebuilding the full gap. One table, no drift.
+
+export function verdictFromRatio(
+  ratio: number,
+  hasSend: boolean,
+  hasReceive: boolean,
+): GapVerdict {
+  if (!hasSend && !hasReceive) return "EMPTY";
+  if (hasReceive && !hasSend) return "RECV_ONLY";
+  if (hasSend && !hasReceive) return "SEND_ONLY";
+  if (ratio > 1.5) return "MASSIVE_FAVOR_USER";
+  if (ratio > 1.2) return "STRONG_FAVOR_USER";
+  if (ratio > 1.1) return "SLIGHT_FAVOR_USER";
+  if (ratio >= 0.9) return "FAIR";
+  if (ratio >= 0.8) return "SLIGHT_FAVOR_OTHER";
+  if (ratio >= 0.5) return "STRONG_FAVOR_OTHER";
+  return "MASSIVE_FAVOR_OTHER";
 }
 
 // ─── Verdict → Grade mapping ──────────────────────────────────────────
