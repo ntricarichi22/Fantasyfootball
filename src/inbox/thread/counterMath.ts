@@ -102,43 +102,58 @@ export type CounterPackage<T extends CounterAsset> = {
 export function selectCounter<T extends CounterAsset>(
   offerSend: T[],
   offerReceive: T[],
-  trimFromSend: T[], // our removable ballast, ascending by value
-  demandFromThem: T[], // their addable pieces, ascending by value
+  trimFromSend: T[], // our removable ballast (centerpiece already fenced out)
+  demandFromThem: T[], // their addable pieces
   targetRatio: number,
 ): CounterPackage<T> {
+  const MAX_MOVES = 5; // hard stop — a counter is never a roster dump
+  const trimKeys = new Set(trimFromSend.map((a) => a.key));
+
   let send = [...offerSend];
   let receive = [...offerReceive];
+  let dist = Math.abs(ratioOf(sumValue(send), sumValue(receive)) - targetRatio);
 
-  let best: CounterPackage<T> = {
-    send: [...send],
-    receive: [...receive],
-    ratio: ratioOf(sumValue(send), sumValue(receive)),
-  };
-  let bestDist = Math.abs(best.ratio - targetRatio);
+  // Hill-climb toward the target: each step makes the SINGLE marginal move
+  // (trim one throw-in, or demand one piece) that lands the ratio CLOSEST to
+  // the target — best-fit, not cheapest-first. Stop the instant nothing
+  // improves, so a small gap pulls in one sensible piece (a pick, a starter)
+  // instead of piling on the other team's whole roster chasing an out-of-reach
+  // number.
+  for (let step = 0; step < MAX_MOVES; step++) {
+    let bestDist = dist;
+    let bestSend: T[] | null = null;
+    let bestReceive: T[] | null = null;
 
-  const moves: Array<{ kind: "trim"; asset: T } | { kind: "demand"; asset: T }> = [
-    ...trimFromSend.map((asset) => ({ kind: "trim" as const, asset })),
-    ...demandFromThem.map((asset) => ({ kind: "demand" as const, asset })),
-  ];
-
-  for (const move of moves) {
-    if (move.kind === "trim") {
-      send = send.filter((a) => a.key !== move.asset.key);
-    } else {
-      receive = [...receive, move.asset];
+    for (const a of send) {
+      if (!trimKeys.has(a.key)) continue;
+      const ns = send.filter((x) => x.key !== a.key);
+      const d = Math.abs(ratioOf(sumValue(ns), sumValue(receive)) - targetRatio);
+      if (d < bestDist - 1e-9) {
+        bestDist = d;
+        bestSend = ns;
+        bestReceive = receive;
+      }
     }
-    const ratio = ratioOf(sumValue(send), sumValue(receive));
-    const dist = Math.abs(ratio - targetRatio);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = { send: [...send], receive: [...receive], ratio };
+
+    const have = new Set(receive.map((x) => x.key));
+    for (const a of demandFromThem) {
+      if (have.has(a.key)) continue;
+      const nr = [...receive, a];
+      const d = Math.abs(ratioOf(sumValue(send), sumValue(nr)) - targetRatio);
+      if (d < bestDist - 1e-9) {
+        bestDist = d;
+        bestSend = send;
+        bestReceive = nr;
+      }
     }
-    // Monotonic climb — once we've reached/passed the target the closest
-    // package is this one or the previous, both already considered.
-    if (ratio >= targetRatio) break;
+
+    if (!bestSend || !bestReceive) break; // nothing improves — done
+    send = bestSend;
+    receive = bestReceive;
+    dist = bestDist;
   }
 
-  return best;
+  return { send, receive, ratio: ratioOf(sumValue(send), sumValue(receive)) };
 }
 
 // The centerpiece each side trades for: the single highest-value non-pick.
