@@ -75,6 +75,27 @@ function formatDate(iso: string): string {
     .toUpperCase();
 }
 
+// Gmail-style compact timestamp for the sender row: "12m" / "16h" / "3d", then
+// falls back to a short date once it's more than a week old.
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${Math.max(1, mins)}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+// The verdict reads as a standalone sentence ("We should take this deal"); when
+// it follows "Bottom line, " we lowercase its first word — but never a leading
+// "I" / "I'd" ("Bottom line, I'd push for more here").
+function leadIn(verdict: string): string {
+  if (/^I(['’ ]|$)/.test(verdict)) return verdict;
+  return verdict.charAt(0).toLowerCase() + verdict.slice(1);
+}
+
 function TargetCard({ target, isMobile }: { target: PlayTarget; isMobile: boolean }) {
   return (
     <a
@@ -431,6 +452,150 @@ export default function MemoBody({ memoId }: { memoId: string }) {
           padding: isMobile ? "18px 14px 60px" : "28px 24px 60px",
         }}
       >
+        {offerCard ? (
+          /* ── Inbound-offer email (Gmail-style) ──────────────────────────
+             The director's read AND his verdict live in the prose; the
+             partner's offer rides below as an "attachment" — a stripped
+             OfferCard (no team header, no inline director) carrying only the
+             SEND/RECEIVE ledger and the live DECLINE/COUNTER/ACCEPT row. */
+          <>
+            <div
+              style={{
+                fontFamily: FH,
+                fontWeight: 800,
+                fontSize: isMobile ? 21 : 24,
+                lineHeight: 1.12,
+                letterSpacing: "-0.01em",
+                color: "#1A1A1A",
+                marginBottom: 14,
+              }}
+            >
+              {memo.subject}
+            </div>
+            <div style={{ background: "#FFFFFF", border: "2px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A" }}>
+              {/* Sender row */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: isMobile ? "11px 14px" : "12px 16px",
+                  borderBottom: "1.5px solid #C8C3B8",
+                }}
+              >
+                <img
+                  src="/avatars/pro-personnel.png"
+                  alt=""
+                  style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover", border: "2px solid #1A1A1A", flexShrink: 0 }}
+                />
+                <div style={{ flex: 1, minWidth: 0, fontFamily: FB, fontWeight: 700, fontSize: 14, color: "#1A1A1A" }}>
+                  {sender}
+                </div>
+                <div style={{ fontFamily: FM, fontSize: 11, color: "#8C7E6A" }}>{relativeTime(memo.created_at)}</div>
+              </div>
+
+              {/* Email body — the director's full read, then the attachment */}
+              <div style={{ padding: isMobile ? "16px 14px" : "20px 18px" }}>
+                <div style={{ fontFamily: FB, fontSize: isMobile ? 14 : 15, lineHeight: 1.6, color: "#1A1A1A", marginBottom: 14 }}>
+                  {memo.read_body}
+                </div>
+                {offerCard.prose && (
+                  <div style={{ fontFamily: FB, fontSize: isMobile ? 14 : 15, lineHeight: 1.6, color: "#1A1A1A", marginBottom: 14 }}>
+                    {offerCard.prose}
+                  </div>
+                )}
+                {offerCard.verdict && (
+                  <div style={{ fontFamily: FB, fontSize: isMobile ? 14 : 15, lineHeight: 1.6, color: "#1A1A1A", marginBottom: 14 }}>
+                    Bottom line,{" "}
+                    <span
+                      style={{
+                        fontWeight: 700,
+                        textDecoration: "underline",
+                        textDecorationColor: offerCard.verdict_color,
+                        textDecorationThickness: 4,
+                        textUnderlineOffset: 4,
+                      }}
+                    >
+                      {leadIn(offerCard.verdict)}
+                    </span>
+                    .
+                  </div>
+                )}
+                {memo.play_intro && (
+                  <div style={{ fontFamily: FB, fontSize: isMobile ? 14 : 15, lineHeight: 1.6, color: "#1A1A1A", marginBottom: 18 }}>
+                    {memo.play_intro}
+                  </div>
+                )}
+
+                {/* Attached: their original offer */}
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    borderTop: "1.5px dashed #C8C3B8",
+                    paddingTop: 14,
+                    marginBottom: 14,
+                    color: "#8C7E6A",
+                  }}
+                >
+                  <Icon name="paperclip" size={15} />
+                  <span
+                    style={{
+                      fontFamily: FM,
+                      fontSize: 10,
+                      fontWeight: 700,
+                      letterSpacing: "0.14em",
+                      textTransform: "uppercase",
+                      color: "#8C7E6A",
+                    }}
+                  >
+                    {offerCard.partner_name} · original offer
+                  </span>
+                </div>
+
+                <OfferCard
+                  partnerName={offerCard.partner_name}
+                  partnerPersona={null}
+                  sendAssets={offerCard.send}
+                  receiveAssets={offerCard.receive}
+                  verdict={offerCard.verdict}
+                  verdictColor={offerCard.verdict_color}
+                  prose={offerCard.prose}
+                  hideHeader
+                  hideDirector
+                  onPass={() => respondToOffer("declined")}
+                  onEdit={() => { window.location.href = threadHref; }}
+                  onMakeOffer={() => respondToOffer("accepted")}
+                  destructiveLabel={confirmAction === "declined" ? "TAP AGAIN TO DECLINE" : "DECLINE"}
+                  secondaryLabel="COUNTER"
+                  primaryLabel={confirmAction === "accepted" ? "TAP AGAIN TO CONFIRM" : "ACCEPT"}
+                  sending={acting}
+                  hideActions={offerLive !== "pending"}
+                />
+                {offerLive === "resolved" && (
+                  <div style={{ marginTop: 12, textAlign: "center" }}>
+                    <a
+                      href={threadHref}
+                      style={{
+                        fontFamily: FM,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.1em",
+                        textTransform: "uppercase",
+                        color: "#3366CC",
+                        textDecoration: "underline",
+                        textUnderlineOffset: 3,
+                      }}
+                    >
+                      This one&apos;s been answered — view the thread →
+                    </a>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        ) : (
         <div
           style={{
             background: "#FFFFFF",
@@ -529,47 +694,6 @@ export default function MemoBody({ memoId }: { memoId: string }) {
             {memo.play_intro}
           </div>
 
-          {offerCard && (
-            <div style={{ marginBottom: 14 }}>
-              <OfferCard
-                partnerName={offerCard.partner_name}
-                partnerPersona={null}
-                sendAssets={offerCard.send}
-                receiveAssets={offerCard.receive}
-                verdict={offerCard.verdict}
-                verdictColor={offerCard.verdict_color}
-                prose={offerCard.prose}
-                onPass={() => respondToOffer("declined")}
-                onEdit={() => { window.location.href = threadHref; }}
-                onMakeOffer={() => respondToOffer("accepted")}
-                destructiveLabel={confirmAction === "declined" ? "TAP AGAIN TO DECLINE" : "DECLINE"}
-                secondaryLabel="COUNTER"
-                primaryLabel={confirmAction === "accepted" ? "TAP AGAIN TO CONFIRM" : "ACCEPT"}
-                sending={acting}
-                hideActions={offerLive !== "pending"}
-              />
-              {offerLive === "resolved" && (
-                <div style={{ marginTop: 12, textAlign: "center" }}>
-                  <a
-                    href={threadHref}
-                    style={{
-                      fontFamily: FM,
-                      fontSize: 11,
-                      fontWeight: 700,
-                      letterSpacing: "0.1em",
-                      textTransform: "uppercase",
-                      color: "#3366CC",
-                      textDecoration: "underline",
-                      textUnderlineOffset: 3,
-                    }}
-                  >
-                    This one&apos;s been answered — view the thread →
-                  </a>
-                </div>
-              )}
-            </div>
-          )}
-
           {isRanked && targets.length > 0 && (
             <div
               style={{
@@ -635,6 +759,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
           </button>
         </div>
         </div>
+        )}
       </div>
     </div>
   );

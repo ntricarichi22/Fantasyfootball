@@ -12,6 +12,7 @@ export type IconName =
   | "trash"
   | "mail"
   | "mail-opened"
+  | "paperclip"
   | "dots-vertical"
   | "square"
   | "square-check"
@@ -122,6 +123,12 @@ export function Icon({ name, size = 16, strokeWidth = 2, ariaLabel }: IconProps)
         <svg {...base}>
           <path d="M2 9l10-5 10 5v11H2V9z" />
           <polyline points="2 9 12 14 22 9" />
+        </svg>
+      );
+    case "paperclip":
+      return (
+        <svg {...base}>
+          <path d="M15 7l-6.5 6.5a1.5 1.5 0 0 0 3 3l6.5 -6.5a3 3 0 0 0 -6 -6l-6.5 6.5a4.5 4.5 0 0 0 9 9l6.5 -6.5" />
         </svg>
       );
     case "dots-vertical":

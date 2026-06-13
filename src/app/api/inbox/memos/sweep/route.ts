@@ -192,7 +192,7 @@ export async function POST(req: Request) {
           subject: `Offer on the table from ${partner}`,
           read_body:
             `${partner} just sent us something, boss: ${names(receiveAssets)} for ${names(sendAssets)}. ` +
-            `My read's on the card below. Tell me how you want to play it and I'll handle the call.`,
+            `Here's my read:`,
           play_intro:
             "Answer it right here, or step into the thread if you want to talk it through or work a counter.",
           play_mode: "offer_card",
