@@ -48,13 +48,17 @@ export function PersonaPicker({ value, onChange }: Props) {
         </div>
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
-          gap: 14,
-        }}
-      >
+      <style>{`
+        .cfc-persona-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 14px;
+        }
+        @media (max-width: 700px) {
+          .cfc-persona-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+      `}</style>
+      <div className="cfc-persona-grid">
         {GM_PERSONA_VALUES.map((persona) => (
           <PersonaCard
             key={persona}

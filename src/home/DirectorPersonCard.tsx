@@ -7,7 +7,7 @@ export type DirectorPersonCardProps = {
   director: DirectorConfig
   /** Shared tick from HomeScreen so all door teasers rotate in sync */
   tickerTick: number
-  isMobile?: boolean
+  layout?: "badge" | "stack"
 }
 
 function initialsFor(title: string): string {
@@ -24,7 +24,7 @@ function initialsFor(title: string): string {
 export function DirectorPersonCard({
   director,
   tickerTick,
-  isMobile = false,
+  layout = "badge",
 }: DirectorPersonCardProps) {
   const message =
     director.feedMessages.length > 0
@@ -41,9 +41,9 @@ export function DirectorPersonCard({
         <span
           style={{
             fontFamily: "Impact, system-ui, sans-serif",
-            fontSize: 34,
+            fontSize: 40,
             fontWeight: 900,
-            color: "#1A1A1A",
+            color: "#FEFCF9",
             letterSpacing: "0.04em",
           }}
         >
@@ -70,7 +70,7 @@ export function DirectorPersonCard({
           window.location.href = wr.href
         },
       }))}
-      isMobile={isMobile}
+      layout={layout}
     />
   )
 }

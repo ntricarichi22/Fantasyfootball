@@ -4,9 +4,12 @@ import { useEffect, useState } from "react"
 import { HomeTopbar } from "./HomeTopbar"
 import { GMPersonCard } from "./GMPersonCard"
 import { OrgChartLines } from "./OrgChartLines"
+import { MobileOrgLines } from "./MobileOrgLines"
 import { DirectorPersonCard } from "./DirectorPersonCard"
+import { DirectorTabBar, type DirectorTab } from "./DirectorTabBar"
 import { DIRECTORS } from "./directors"
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam"
+import { teamNickname } from "@/shared/league-data/nicknames"
 import { Icon } from "@/shared/ui/Icon"
 import PersonaPicker from "@/inbox/persona/PersonaPicker"
 import type { GmPersona } from "@/research-strategy/api/types"
@@ -30,6 +33,17 @@ const GRID_GAP = 16
 const MOBILE_BREAKPOINT = 768
 const TICKER_INTERVAL_MS = 3500
 
+/** Team-specific GM headshot under public/avatars/gm/, keyed by nickname. */
+function gmAvatarFor(teamName: string): string {
+  const slug = teamNickname(teamName).toLowerCase().replace(/\s+/g, "-")
+  return `/avatars/gm/${slug}.png`
+}
+
+/** Short tab label: drop the "Pro " from "Pro Personnel". */
+function tabLabel(title: string): string {
+  return title.replace(/^Pro\s+/i, "")
+}
+
 export function HomeScreen() {
   const [tickerTick, setTickerTick] = useState(0)
   const [teamName, setTeamName] = useState<string>("Virginia Founders")
@@ -38,6 +52,7 @@ export function HomeScreen() {
   const [isMobile, setIsMobile] = useState(false)
   const [persona, setPersona] = useState<GmPersona>(GM_DATA.personaKey)
   const [personaModalOpen, setPersonaModalOpen] = useState(false)
+  const [activeDirector, setActiveDirector] = useState<string | null>(null)
   // Full strategy profile - the save endpoint upserts the whole row, so we
   // must POST the complete profile with only gm_persona changed.
   const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null)
@@ -52,9 +67,6 @@ export function HomeScreen() {
   useEffect(() => {
     try {
       const team = readStoredTeam()
-      // Diagnostic - kept from Phase 0 to debug the "—" placeholder issue
-      // eslint-disable-next-line no-console
-      console.log("[HomeScreen] readStoredTeam:", team)
       const stored = team as
         | { teamName?: string; name?: string; rosterId?: string }
         | null
@@ -65,9 +77,8 @@ export function HomeScreen() {
       if (stored?.rosterId) {
         setRosterId(stored.rosterId)
       }
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn("[HomeScreen] readStoredTeam failed:", err)
+    } catch {
+      /* keep the default placeholder team */
     }
   }, [])
 
@@ -122,7 +133,9 @@ export function HomeScreen() {
     return () => window.removeEventListener("resize", check)
   }, [])
 
-  const gmCard = (
+  const gmAvatar = gmAvatarFor(teamName)
+
+  const gmCard = (layout: "badge" | "stack") => (
     <GMPersonCard
       name={GM_DATA.name}
       persona={persona}
@@ -130,47 +143,10 @@ export function HomeScreen() {
       championships={GM_DATA.championships}
       years={GM_DATA.years}
       unreadCount={unreadCount}
+      avatarSrc={gmAvatar}
       onPersonaClick={() => setPersonaModalOpen(true)}
-      isMobile={isMobile}
+      layout={layout}
     />
-  )
-
-  const directorBoxes = DIRECTORS.map((d) => (
-    <DirectorPersonCard
-      key={d.key}
-      director={d}
-      tickerTick={tickerTick}
-      isMobile={isMobile}
-    />
-  ))
-
-  const hero = (
-    <div style={{ textAlign: "center", padding: "10px 24px", flexShrink: 0 }}>
-      <h1
-        style={{
-          fontWeight: 800,
-          fontSize: isMobile ? 30 : 34,
-          letterSpacing: "-0.02em",
-          textTransform: "uppercase",
-          lineHeight: 1,
-          margin: 0,
-        }}
-      >
-        {teamName}
-      </h1>
-      <p
-        style={{
-          fontFamily: "Georgia, serif",
-          fontStyle: "italic",
-          fontSize: 14,
-          color: "#8C7E6A",
-          margin: "4px 0 0",
-          fontWeight: 400,
-        }}
-      >
-        Organizational Chart
-      </p>
-    </div>
   )
 
   const personaModal = personaModalOpen && (
@@ -193,33 +169,19 @@ export function HomeScreen() {
           background: "#F5F0E6",
           border: "3px solid #1A1A1A",
           boxShadow: "6px 6px 0 #1A1A1A",
-          padding: 24,
+          padding: isMobile ? 16 : 24,
           maxWidth: 720,
           width: "100%",
           maxHeight: "90vh",
           overflowY: "auto",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            marginBottom: 8,
-          }}
-        >
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
           <button
             type="button"
             onClick={() => setPersonaModalOpen(false)}
             aria-label="Close"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "#1A1A1A",
-              padding: 0,
-              display: "flex",
-              alignItems: "center",
-            }}
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#1A1A1A", padding: 0, display: "flex", alignItems: "center" }}
           >
             <Icon name="x" size={20} />
           </button>
@@ -229,52 +191,77 @@ export function HomeScreen() {
     </div>
   )
 
+  // ── Mobile: fixed GM card, persistent director tabs, slide-up sheet ──
   if (isMobile) {
+    const tabs: DirectorTab[] = DIRECTORS.map((d) => ({
+      key: d.key,
+      label: tabLabel(d.title),
+      avatarSrc: d.avatarSrc,
+      color: d.accentColor,
+      active: true,
+    }))
+    const activeCfg = DIRECTORS.find((d) => d.key === activeDirector) ?? null
+    const closeSheet = () => setActiveDirector(null)
+    const toggleSheet = (key: string) =>
+      setActiveDirector((cur) => (cur === key ? null : key))
+
     return (
-      <div style={{ background: "#F5F0E6", minHeight: "100vh" }}>
+      <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <HomeTopbar teamName={teamName} />
-        {hero}
-        <div
-          style={{
-            maxWidth: 1280,
-            margin: "0 auto",
-            padding: "0 24px 20px",
-            display: "flex",
-            flexDirection: "column",
-            gap: GRID_GAP,
-          }}
-        >
-          {gmCard}
-          {directorBoxes}
+
+        <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
+          <div style={{ flex: 1, minHeight: 0, padding: "10px 10px 0", display: "flex", flexDirection: "column" }}>
+            <div style={{ flex: 1, minHeight: 0 }}>{gmCard("stack")}</div>
+            <MobileOrgLines />
+          </div>
+
+          {activeCfg && (
+            <>
+              <div
+                onClick={closeSheet}
+                style={{ position: "absolute", inset: 0, background: "rgba(26,26,26,0.4)", zIndex: 5 }}
+              />
+              <div
+                style={{
+                  position: "absolute",
+                  left: 8,
+                  right: 8,
+                  bottom: 8,
+                  top: 56,
+                  zIndex: 6,
+                  display: "flex",
+                  flexDirection: "column",
+                }}
+              >
+                <div
+                  onClick={closeSheet}
+                  style={{ width: 38, height: 4, borderRadius: 2, background: "#B4B2A9", margin: "0 auto 8px", flexShrink: 0, cursor: "pointer" }}
+                />
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  <DirectorPersonCard director={activeCfg} tickerTick={tickerTick} layout="stack" />
+                </div>
+              </div>
+            </>
+          )}
         </div>
+
+        <DirectorTabBar items={tabs} activeKey={activeDirector} onSelect={toggleSheet} />
         {personaModal}
       </div>
     )
   }
 
-  // Desktop: the whole org chart is locked to the viewport - no page
-  // scroll. The two card rows split the leftover height evenly, and the
-  // headshots inside the cards absorb the flex, so every card is the
-  // exact same height on any screen.
+  // ── Desktop: full org chart locked to the viewport, no page scroll ──
   return (
-    <div
-      style={{
-        background: "#F5F0E6",
-        height: "100vh",
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
-    >
+    <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <HomeTopbar teamName={teamName} />
-      {hero}
 
       <div
         style={{
-          maxWidth: 1280,
+          maxWidth: 1120,
           width: "100%",
           margin: "0 auto",
-          padding: "0 24px 18px",
+          padding: "16px 24px 18px",
           boxSizing: "border-box",
           flex: 1,
           minHeight: 0,
@@ -282,32 +269,16 @@ export function HomeScreen() {
           flexDirection: "column",
         }}
       >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: GRID_GAP,
-            flex: 1,
-            minHeight: 0,
-          }}
-        >
-          <div style={{ gridColumn: 2, minHeight: 0 }}>{gmCard}</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: GRID_GAP, flex: 1, minHeight: 0 }}>
+          <div style={{ gridColumn: 2, minHeight: 0 }}>{gmCard("badge")}</div>
         </div>
 
         <OrgChartLines gap={GRID_GAP} />
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr 1fr",
-            gap: GRID_GAP,
-            flex: 1,
-            minHeight: 0,
-          }}
-        >
-          {directorBoxes.map((box, i) => (
-            <div key={DIRECTORS[i].key} style={{ minHeight: 0 }}>
-              {box}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: GRID_GAP, flex: 1, minHeight: 0 }}>
+          {DIRECTORS.map((d) => (
+            <div key={d.key} style={{ minHeight: 0 }}>
+              <DirectorPersonCard director={d} tickerTick={tickerTick} layout="badge" />
             </div>
           ))}
         </div>

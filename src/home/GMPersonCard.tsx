@@ -11,15 +11,17 @@ export type GMPersonCardProps = {
   championships: number
   years: number
   unreadCount: number
+  /** Team-specific headshot, e.g. "/avatars/gm/founders.png" */
+  avatarSrc: string
   onPersonaClick: () => void
-  isMobile?: boolean
+  layout?: "badge" | "stack"
   inboxHref?: string
 }
 
 /**
  * The GM on the home org chart - same anatomy as the director cards.
  * The headshot and "Your Office" door both open the inbox; the door's
- * status line mirrors the directors: pulsing yellow dot with the unread
+ * status mirrors the directors: pulsing yellow dot with the unread
  * count, or steady green when caught up. Attributes ledger below, with
  * only the persona row clickable.
  */
@@ -30,8 +32,9 @@ export function GMPersonCard({
   championships,
   years,
   unreadCount,
+  avatarSrc,
   onPersonaClick,
-  isMobile = false,
+  layout = "badge",
   inboxHref = "/inbox",
 }: GMPersonCardProps) {
   const hasUnread = unreadCount > 0
@@ -39,12 +42,12 @@ export function GMPersonCard({
   return (
     <OrgPersonCard
       name={name}
-      avatarSrc="/avatars/gm.png"
+      avatarSrc={avatarSrc}
       avatarAlt={name}
-      frameColor="#B89968"
+      frameColor="#B08D57"
       avatarFallback={
-        <span style={{ color: "#1A1A1A", lineHeight: 0 }}>
-          <PersonaIcon persona={persona} size={64} />
+        <span style={{ color: "#FEFCF9", lineHeight: 0 }}>
+          <PersonaIcon persona={persona} size={72} />
         </span>
       }
       onAvatarClick={() => {
@@ -70,16 +73,10 @@ export function GMPersonCard({
           onClick: onPersonaClick,
           ariaLabel: "Change persona",
         },
-        {
-          key: "championships",
-          label: `Championships · ${championships}`,
-        },
-        {
-          key: "tenure",
-          label: `Tenure · Year ${years}`,
-        },
+        { key: "championships", label: `Championships · ${championships}` },
+        { key: "tenure", label: `Tenure · Year ${years}` },
       ]}
-      isMobile={isMobile}
+      layout={layout}
     />
   )
 }

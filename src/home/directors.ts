@@ -11,7 +11,7 @@ export type DirectorConfig = {
   officeHref: string
   /** Headshot under public/, e.g. "/avatars/scouting.png" */
   avatarSrc: string
-  /** Director's color: avatar frame fill + responsibility row accents */
+  /** Director's color: solid portrait-background fill behind the headshot */
   accentColor: string
   /** Eyebrow label for the door panel's notification line */
   feedLabel: string
@@ -45,8 +45,8 @@ export const DIRECTORS: DirectorConfig[] = [
     title: "Pro Personnel",
     officeHref: "/pro-personnel",
     avatarSrc: "/avatars/pro-personnel.png",
-    // Brass: the old cream bar color disappears against the cream card
-    accentColor: "#B89968",
+    // Black portrait field for the personnel director
+    accentColor: "#1A1A1A",
     feedLabel: "Wants a word",
     feedMessages: [
       "Two teams just texted about your RB",
