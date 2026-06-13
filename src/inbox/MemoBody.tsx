@@ -505,7 +505,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
                   </div>
                 )}
                 {offerCard.verdict && (
-                  <div style={{ fontFamily: FB, fontSize: isMobile ? 14 : 15, lineHeight: 1.6, color: "#1A1A1A", marginBottom: 14 }}>
+                  <div style={{ fontFamily: FB, fontSize: isMobile ? 14 : 15, lineHeight: 1.6, color: "#1A1A1A", marginBottom: 18 }}>
                     Bottom line,{" "}
                     <span
                       style={{
@@ -519,11 +519,6 @@ export default function MemoBody({ memoId }: { memoId: string }) {
                       {leadIn(offerCard.verdict)}
                     </span>
                     .
-                  </div>
-                )}
-                {memo.play_intro && (
-                  <div style={{ fontFamily: FB, fontSize: isMobile ? 14 : 15, lineHeight: 1.6, color: "#1A1A1A", marginBottom: 18 }}>
-                    {memo.play_intro}
                   </div>
                 )}
 
@@ -565,7 +560,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
                   hideHeader
                   hideDirector
                   onPass={() => respondToOffer("declined")}
-                  onEdit={() => { window.location.href = threadHref; }}
+                  onEdit={() => { window.location.href = `${threadHref}#counter`; }}
                   onMakeOffer={() => respondToOffer("accepted")}
                   destructiveLabel={confirmAction === "declined" ? "TAP AGAIN TO DECLINE" : "DECLINE"}
                   secondaryLabel="COUNTER"

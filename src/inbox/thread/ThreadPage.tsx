@@ -264,9 +264,12 @@ const scrollToBottom = useCallback(() => {
   const isMyTurn = !!(latestPending && latestPending.to_team_id === rosterId && latestPending.status === "pending");
   const isSender = !!(latestPending && latestPending.from_team_id === rosterId && latestPending.status === "pending");
 
+  // Don't exit counter mode while the thread is still loading — latestPending is
+  // null during the initial fetch, which would otherwise cancel a #counter
+  // deep-link (from the inbox memo's COUNTER button) before the offer arrives.
   useEffect(() => {
-    if (counterMode && !latestPending) setCounterMode(false);
-  }, [counterMode, latestPending]);
+    if (!loading && counterMode && !latestPending) setCounterMode(false);
+  }, [counterMode, latestPending, loading]);
 
   useEffect(() => {
     if (!latestPending || latestPending.ai_quip) return;
