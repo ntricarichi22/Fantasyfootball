@@ -7,6 +7,8 @@ import ChatBubble from "@/inbox/thread/ChatBubble";
 import AcceptModal from "@/inbox/thread/AcceptModal";
 import RejectModal from "@/inbox/thread/RejectModal";
 import CounterDrawer from "@/inbox/thread/CounterDrawer";
+import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
+import { gradeForRatio, ratioOf } from "@/inbox/thread/counterMath";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -71,6 +73,36 @@ const FH = "var(--font-headline, 'Syne', sans-serif)";
 function extractName(label: string | undefined): string {
   if (!label) return "Unknown";
   return label.split(" (")[0];
+}
+
+function sumVal(assets: OfferAsset[]): number {
+  return assets.reduce((s, a) => s + (a.value || 0), 0);
+}
+
+function toCardAsset(a: OfferAsset): CardAsset {
+  const meta =
+    a.type === "player"
+      ? [a.position, a.team, a.ageLabel].filter(Boolean).join(" · ") || undefined
+      : undefined;
+  return { key: a.key, name: extractName(a.label), meta, type: a.type };
+}
+
+// Resolved-offer chip badge — yellow countered, green accepted, red declined,
+// muted withdrawn.
+function statusBadge(s: string): { label: string; bg: string; fg: string } {
+  if (s === "accepted") return { label: "Accepted", bg: "#019942", fg: "#FEFCF9" };
+  if (s === "declined") return { label: "Declined", bg: "#E8503A", fg: "#FEFCF9" };
+  if (s === "withdrawn") return { label: "Withdrawn", bg: "#C8C3B8", fg: "#3A352C" };
+  return { label: "Countered", bg: "#F5C230", fg: "#5F4A00" };
+}
+
+function swapSummary(youGive: OfferAsset[], youGet: OfferAsset[]): string {
+  const side = (arr: OfferAsset[]) => {
+    if (arr.length === 0) return "nothing";
+    const first = extractName(arr[0].label);
+    return arr.length > 1 ? `${first} +${arr.length - 1}` : first;
+  };
+  return `${side(youGive)} → ${side(youGet)}`;
 }
 
 function fmtTs(dateStr: string): string {
@@ -162,6 +194,7 @@ export default function ThreadPage() {
   const [counterMode, setCounterMode] = useState(false);
   const [showAccept, setShowAccept] = useState(false);
   const [showReject, setShowReject] = useState(false);
+  const [expandedHistory, setExpandedHistory] = useState<Set<string>>(new Set());
   const endRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
@@ -361,69 +394,99 @@ const scrollToBottom = useCallback(() => {
   /*  Render helpers                                                    */
   /* ---------------------------------------------------------------- */
 
-  const renderOfferCard = (offer: TradeOffer, idx: number) => {
-    const isLatest = offer.id === latestPending?.id;
-    const compact = !isLatest || offer.status !== "pending";
-    const sender = getName(offer.from_team_id);
+  // The live, on-the-table offer — rendered through the canonical OfferCard with
+  // the director's verdict (from the deal's value ratio) and the thread's action
+  // vocab. Recipient sees DECLINE / COUNTER / ACCEPT; sender gets a Withdraw
+  // footer; in counter mode (or once closed) it's just the card, no actions.
+  const renderLiveOffer = (offer: TradeOffer) => {
     const recv = offer.to_team_id === rosterId;
     const youGet = recv ? offer.assets_from : offer.assets_to;
     const youGive = recv ? offer.assets_to : offer.assets_from;
-    const quip = isLatest ? getQuip(offer.ai_quip, rosterId, offer) : null;
-
-    if (counterMode && isLatest && offer.status === "pending") {
-      return (
-        <div key={offer.id} style={{ border: "2px dashed #C8C3B8", padding: 14, textAlign: "center", fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>
-          Current offer moved to counter panel →
-        </div>
-      );
-    }
+    const grade = gradeForRatio(ratioOf(sumVal(youGive), sumVal(youGet)));
+    const quip = getQuip(offer.ai_quip, rosterId, offer) || "Reading the matchup…";
+    const showActions = !counterMode && !isClosed && isMyTurn;
 
     return (
-      <div key={offer.id} style={{ border: "2.5px solid #F5C230", boxShadow: "0 4px 0 #F5C230", background: "#FEFCF9", padding: compact ? "14px 18px" : "16px 18px", opacity: compact ? 0.6 : 1 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: compact ? 10 : 12 }}>
-          <div style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: compact ? "#8C7E6A" : "#1A1A1A", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-            Offer #{idx + 1} · From {sender}{isLatest && offer.status === "pending" ? " · Pending" : ""}
-          </div>
-          {compact && <div style={{ fontFamily: FM, fontSize: 8, color: "#8C7E6A", textTransform: "capitalize" }}>{offer.status}</div>}
-        </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: compact ? 12 : 13, marginBottom: quip || (isLatest && !isClosed) ? 14 : 0 }}>
-          <div>
-            <div style={{ fontFamily: FM, fontSize: 8, color: "#8C7E6A", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: compact ? 4 : 6 }}>You receive</div>
-            {youGet.map((a, i) => (
-              <div key={a.key || i} style={{ fontWeight: 600, marginBottom: 3, fontFamily: F }}>
-                {extractName(a.label)}{a.position && <span style={{ color: "#8C7E6A" }}> · {a.position}{a.team ? ` · ${a.team}` : ""}</span>}
-              </div>
-            ))}
-          </div>
-          <div>
-            <div style={{ fontFamily: FM, fontSize: 8, color: "#8C7E6A", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: compact ? 4 : 6 }}>You send</div>
-            {youGive.map((a, i) => (
-              <div key={a.key || i} style={{ fontWeight: 600, marginBottom: 3, fontFamily: F }}>
-                {extractName(a.label)}{a.position && <span style={{ color: "#8C7E6A" }}> · {a.position}{a.team ? ` · ${a.team}` : ""}</span>}
-              </div>
-            ))}
-          </div>
-        </div>
-        {quip && (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14, padding: "8px 10px", background: "#F5F0E6" }}>
-            <div style={{ width: 18, height: 18, background: "#F5C230", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 7, fontWeight: 800, color: "#1A1A1A", flexShrink: 0 }}>AI</div>
-            <div style={{ fontSize: 11, lineHeight: 1.3, fontFamily: F }}>{quip}</div>
-          </div>
+      <div key={offer.id} style={{ opacity: counterMode ? 0.6 : 1 }}>
+        <OfferCard
+          partnerName={theirName}
+          partnerPersona={null}
+          sendAssets={youGive.map(toCardAsset)}
+          receiveAssets={youGet.map(toCardAsset)}
+          verdict={grade.label}
+          verdictColor={grade.color}
+          prose={quip}
+          onPass={() => setShowReject(true)}
+          onEdit={() => setCounterMode(true)}
+          onMakeOffer={() => setShowAccept(true)}
+          destructiveLabel="DECLINE"
+          secondaryLabel="COUNTER"
+          primaryLabel="ACCEPT"
+          hideActions={!showActions}
+        />
+        {isSender && !counterMode && !isClosed && (
+          <button
+            type="button"
+            onClick={() => handleStatus("withdrawn")}
+            disabled={actionLoading}
+            style={{ width: "100%", marginTop: 8, background: "#FEFCF9", color: "#1A1A1A", border: "2.5px solid #1A1A1A", padding: "11px 0", fontWeight: 700, fontSize: 12, cursor: actionLoading ? "not-allowed" : "pointer", fontFamily: F, textTransform: "uppercase", letterSpacing: "0.08em", opacity: actionLoading ? 0.6 : 1 }}
+          >
+            Withdraw offer
+          </button>
         )}
-        {isLatest && !isClosed && offer.status === "pending" && (
-          <div style={{ display: "flex", gap: 8 }}>
-            {isMyTurn && (
-              <>
-                <button type="button" onClick={() => setShowAccept(true)} style={{ flex: 1, background: "#1A1A1A", color: "#FEFCF9", border: "2.5px solid #1A1A1A", padding: "9px 0", textAlign: "center", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: F }}>Accept</button>
-                <button type="button" onClick={() => setShowReject(true)} style={{ flex: 1, background: "#E8503A", color: "#FEFCF9", border: "2.5px solid #1A1A1A", padding: "9px 0", textAlign: "center", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: F }}>Reject</button>
-                <button type="button" onClick={() => setCounterMode(true)} style={{ flex: 1, background: "#3366CC", color: "#FEFCF9", border: "2.5px solid #1A1A1A", padding: "9px 0", textAlign: "center", fontWeight: 700, fontSize: 12, cursor: "pointer", fontFamily: F }}>Counter</button>
-              </>
-            )}
-            {isSender && (
-              <button type="button" onClick={() => handleStatus("withdrawn")} disabled={actionLoading} style={{ flex: 1, background: "#FEFCF9", color: "#1A1A1A", border: "2.5px solid #1A1A1A", padding: "9px 0", textAlign: "center", fontWeight: 700, fontSize: 12, cursor: actionLoading ? "not-allowed" : "pointer", fontFamily: F, opacity: actionLoading ? 0.6 : 1 }}>Withdraw</button>
-            )}
+      </div>
+    );
+  };
+
+  // A resolved / superseded offer — a muted status chip that expands on tap to
+  // the bare deal ledger (no stale director read). The chip stays put; the
+  // ledger unveils beneath it.
+  const renderHistoryChip = (offer: TradeOffer) => {
+    const recv = offer.to_team_id === rosterId;
+    const youGet = recv ? offer.assets_from : offer.assets_to;
+    const youGive = recv ? offer.assets_to : offer.assets_from;
+    const expanded = expandedHistory.has(offer.id);
+    const badge = statusBadge(offer.status);
+    const toggle = () =>
+      setExpandedHistory((prev) => {
+        const next = new Set(prev);
+        if (next.has(offer.id)) next.delete(offer.id);
+        else next.add(offer.id);
+        return next;
+      });
+
+    const cell = (a: OfferAsset, i: number) => (
+      <div key={a.key || i} style={{ background: "#F5F0E6", border: "1.5px solid #1A1A1A", padding: "6px 9px", marginBottom: 6 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, lineHeight: 1.15 }}>{extractName(a.label)}</div>
+        {a.position && <div style={{ fontFamily: FM, fontSize: 11, color: "#8C7E6A", marginTop: 2 }}>{a.position}{a.team ? ` · ${a.team}` : ""}</div>}
+      </div>
+    );
+
+    return (
+      <div key={offer.id} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <div style={{ flex: 1, border: "1.5px solid #C8C3B8", background: "#FBF8F1" }}>
+          <div onClick={toggle} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 13px", cursor: "pointer", borderBottom: expanded ? "1.5px solid #C8C3B8" : "none" }}>
+            <span style={{ fontSize: 12, color: "#5F5E5A", flex: 1, minWidth: 0, fontFamily: F }}>{swapSummary(youGive, youGet)}</span>
+            <span style={{ fontFamily: FM, fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: badge.fg, background: badge.bg, padding: "3px 7px", flexShrink: 0 }}>{badge.label}</span>
           </div>
-        )}
+          {expanded && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", background: "#FEFCF9" }}>
+              <div style={{ padding: "10px 13px", borderRight: "1.5px solid #C8C3B8" }}>
+                <div style={{ fontFamily: FM, fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8C7E6A", marginBottom: 7 }}>You sent</div>
+                {youGive.map(cell)}
+              </div>
+              <div style={{ padding: "10px 13px" }}>
+                <div style={{ fontFamily: FM, fontSize: 11, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8C7E6A", marginBottom: 7 }}>You received</div>
+                {youGet.map(cell)}
+              </div>
+            </div>
+          )}
+        </div>
+        <div onClick={toggle} style={{ cursor: "pointer", flexShrink: 0, marginTop: 11, display: "flex" }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8C7E6A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d={expanded ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} />
+          </svg>
+        </div>
       </div>
     );
   };
@@ -473,8 +536,9 @@ const scrollToBottom = useCallback(() => {
                 nodes.push(<div key={`ts-${i}`} style={{ textAlign: "center", fontFamily: FM, fontSize: 9, color: "#8C7E6A", letterSpacing: "0.1em", textTransform: "uppercase" }}>{fmtTs(item.data.created_at)}</div>);
               }
               if (item.kind === "offer") {
-                const idx = offers.indexOf(item.data);
-                nodes.push(renderOfferCard(item.data, idx >= 0 ? idx : 0));
+                const offer = item.data;
+                const isLive = offer.id === latestPending?.id && offer.status === "pending";
+                nodes.push(isLive ? renderLiveOffer(offer) : renderHistoryChip(offer));
               } else {
                 const m = item.data;
                 nodes.push(<ChatBubble key={m.id} teamName={getName(m.from_team_id)} message={m.message} timestamp={m.created_at} isMe={m.from_team_id === rosterId} />);
