@@ -154,24 +154,30 @@ export function HomeScreen() {
   const gmName = gmNameFor(teamName)
   const gmDisplayName = gmName ? `${gmName}, GM` : "General Manager"
 
-  const frontOfficeHero = (small: boolean) => (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: small ? 10 : 16, flexShrink: 0 }}>
-      <div style={{ height: small ? 2 : 3, width: small ? 40 : 96, background: "#1A1A1A" }} />
-      <span
-        style={{
-          fontFamily: "Impact, 'Arial Black', sans-serif",
-          fontSize: small ? 15 : 26,
-          letterSpacing: "0.2em",
-          textTransform: "uppercase",
-          color: "#1A1A1A",
-          lineHeight: 1,
-        }}
-      >
-        Front Office
-      </span>
-      <div style={{ height: small ? 2 : 3, width: small ? 40 : 96, background: "#1A1A1A" }} />
-    </div>
-  )
+  const frontOfficeHero = (small: boolean) => {
+    const d = small ? 4 : 6 // 3D extrude depth
+    const shadow = Array.from({ length: d }, (_, i) => `${i + 1}px ${i + 1}px 0 #0E2A4E`).join(",")
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: small ? 12 : 20, flexShrink: 0 }}>
+        <span
+          style={{
+            fontFamily: "'Bowlby One SC', system-ui, sans-serif",
+            fontSize: small ? 19 : 33,
+            letterSpacing: "0.02em",
+            textTransform: "uppercase",
+            color: "#E2B23C",
+            WebkitTextStroke: `${small ? 1 : 1.5}px #0E2A4E`,
+            textShadow: shadow,
+            lineHeight: 1,
+            whiteSpace: "nowrap",
+          }}
+        >
+          Front Office
+        </span>
+        <div style={{ flex: 1, height: small ? 3 : 4, background: "#0E2A4E" }} />
+      </div>
+    )
+  }
 
   const gmCard = (fixedPortrait: boolean) => (
     <GMPersonCard
