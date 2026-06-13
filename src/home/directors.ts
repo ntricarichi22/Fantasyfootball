@@ -27,7 +27,7 @@ export const DIRECTORS: DirectorConfig[] = [
     title: "Scouting",
     officeHref: "/scouting",
     avatarSrc: "/avatars/scouting.png",
-    accentColor: "#E8503A",
+    accentColor: "#1A1A1A",
     feedLabel: "Wants a word",
     feedMessages: [
       "Three rookies climbing my board this week",
@@ -45,8 +45,8 @@ export const DIRECTORS: DirectorConfig[] = [
     title: "Pro Personnel",
     officeHref: "/pro-personnel",
     avatarSrc: "/avatars/pro-personnel.png",
-    // Black portrait field for the personnel director
-    accentColor: "#1A1A1A",
+    // Red portrait field for the personnel director
+    accentColor: "#E8503A",
     feedLabel: "Wants a word",
     feedMessages: [
       "Two teams just texted about your RB",

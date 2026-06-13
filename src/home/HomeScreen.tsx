@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react"
 import { HomeTopbar } from "./HomeTopbar"
 import { GMPersonCard } from "./GMPersonCard"
-import { OrgChartLines } from "./OrgChartLines"
 import { MobileOrgLines } from "./MobileOrgLines"
 import { DirectorPersonCard } from "./DirectorPersonCard"
 import { DirectorTabBar, type DirectorTab } from "./DirectorTabBar"
+import { TeamMasthead } from "./TeamMasthead"
+import { teamTheme } from "./teamTheme"
 import { DIRECTORS } from "./directors"
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam"
 import { teamNickname } from "@/shared/league-data/nicknames"
@@ -29,14 +30,15 @@ const PERSONA_LABELS: Record<GmPersona, string> = {
   hustler: "The Hustler",
 }
 
-const GRID_GAP = 16
+const GRID_GAP = 14
 const MOBILE_BREAKPOINT = 768
 const TICKER_INTERVAL_MS = 3500
 
+const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-")
+
 /** Team-specific GM headshot under public/avatars/gm/, keyed by nickname. */
 function gmAvatarFor(teamName: string): string {
-  const slug = teamNickname(teamName).toLowerCase().replace(/\s+/g, "-")
-  return `/avatars/gm/${slug}.png`
+  return `/avatars/gm/${slugify(teamNickname(teamName))}.png`
 }
 
 /** Short tab label: drop the "Pro " from "Pro Personnel". */
@@ -133,9 +135,10 @@ export function HomeScreen() {
     return () => window.removeEventListener("resize", check)
   }, [])
 
-  const gmAvatar = gmAvatarFor(teamName)
+  const theme = teamTheme(slugify(teamNickname(teamName)))
+  const crestSrc = `/teams/${slugify(teamName)}.png`
 
-  const gmCard = (layout: "badge" | "stack") => (
+  const gmCard = (
     <GMPersonCard
       name={GM_DATA.name}
       persona={persona}
@@ -143,9 +146,8 @@ export function HomeScreen() {
       championships={GM_DATA.championships}
       years={GM_DATA.years}
       unreadCount={unreadCount}
-      avatarSrc={gmAvatar}
+      avatarSrc={gmAvatarFor(teamName)}
       onPersonaClick={() => setPersonaModalOpen(true)}
-      layout={layout}
     />
   )
 
@@ -191,7 +193,7 @@ export function HomeScreen() {
     </div>
   )
 
-  // ── Mobile: fixed GM card, persistent director tabs, slide-up sheet ──
+  // ── Mobile: compact masthead, fixed GM card, tabs, slide-up sheet ──
   if (isMobile) {
     const tabs: DirectorTab[] = DIRECTORS.map((d) => ({
       key: d.key,
@@ -202,43 +204,26 @@ export function HomeScreen() {
     }))
     const activeCfg = DIRECTORS.find((d) => d.key === activeDirector) ?? null
     const closeSheet = () => setActiveDirector(null)
-    const toggleSheet = (key: string) =>
-      setActiveDirector((cur) => (cur === key ? null : key))
+    const toggleSheet = (key: string) => setActiveDirector((cur) => (cur === key ? null : key))
 
     return (
       <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <HomeTopbar teamName={teamName} />
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
-          <div style={{ flex: 1, minHeight: 0, padding: "10px 10px 0", display: "flex", flexDirection: "column" }}>
-            <div style={{ flex: 1, minHeight: 0 }}>{gmCard("stack")}</div>
+          <div style={{ flex: 1, minHeight: 0, padding: "8px 10px 0", display: "flex", flexDirection: "column", gap: 8 }}>
+            <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={GM_DATA.years} rings={GM_DATA.championships} compact />
+            <div style={{ flex: 1, minHeight: 0 }}>{gmCard}</div>
             <MobileOrgLines />
           </div>
 
           {activeCfg && (
             <>
-              <div
-                onClick={closeSheet}
-                style={{ position: "absolute", inset: 0, background: "rgba(26,26,26,0.4)", zIndex: 5 }}
-              />
-              <div
-                style={{
-                  position: "absolute",
-                  left: 8,
-                  right: 8,
-                  bottom: 8,
-                  top: 56,
-                  zIndex: 6,
-                  display: "flex",
-                  flexDirection: "column",
-                }}
-              >
-                <div
-                  onClick={closeSheet}
-                  style={{ width: 38, height: 4, borderRadius: 2, background: "#B4B2A9", margin: "0 auto 8px", flexShrink: 0, cursor: "pointer" }}
-                />
+              <div onClick={closeSheet} style={{ position: "absolute", inset: 0, background: "rgba(26,26,26,0.4)", zIndex: 5 }} />
+              <div style={{ position: "absolute", left: 8, right: 8, bottom: 8, top: 56, zIndex: 6, display: "flex", flexDirection: "column" }}>
+                <div onClick={closeSheet} style={{ width: 38, height: 4, borderRadius: 2, background: "#B4B2A9", margin: "0 auto 8px", flexShrink: 0, cursor: "pointer" }} />
                 <div style={{ flex: 1, minHeight: 0 }}>
-                  <DirectorPersonCard director={activeCfg} tickerTick={tickerTick} layout="stack" />
+                  <DirectorPersonCard director={activeCfg} tickerTick={tickerTick} />
                 </div>
               </div>
             </>
@@ -251,34 +236,32 @@ export function HomeScreen() {
     )
   }
 
-  // ── Desktop: full org chart locked to the viewport, no page scroll ──
+  // ── Desktop: team masthead + one row of four portrait cards ──
   return (
     <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <HomeTopbar teamName={teamName} />
 
       <div
         style={{
-          maxWidth: 1120,
+          maxWidth: 1180,
           width: "100%",
           margin: "0 auto",
-          padding: "16px 24px 18px",
+          padding: "16px 24px 20px",
           boxSizing: "border-box",
           flex: 1,
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
+          gap: 16,
         }}
       >
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: GRID_GAP, flex: 1, minHeight: 0 }}>
-          <div style={{ gridColumn: 2, minHeight: 0 }}>{gmCard("badge")}</div>
-        </div>
+        <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={GM_DATA.years} rings={GM_DATA.championships} />
 
-        <OrgChartLines gap={GRID_GAP} />
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: GRID_GAP, flex: 1, minHeight: 0 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: GRID_GAP, flex: 1, minHeight: 0 }}>
+          <div style={{ minHeight: 0 }}>{gmCard}</div>
           {DIRECTORS.map((d) => (
             <div key={d.key} style={{ minHeight: 0 }}>
-              <DirectorPersonCard director={d} tickerTick={tickerTick} layout="badge" />
+              <DirectorPersonCard director={d} tickerTick={tickerTick} />
             </div>
           ))}
         </div>

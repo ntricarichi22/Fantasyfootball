@@ -7,7 +7,6 @@ export type DirectorPersonCardProps = {
   director: DirectorConfig
   /** Shared tick from HomeScreen so all door teasers rotate in sync */
   tickerTick: number
-  layout?: "badge" | "stack"
 }
 
 function initialsFor(title: string): string {
@@ -24,7 +23,6 @@ function initialsFor(title: string): string {
 export function DirectorPersonCard({
   director,
   tickerTick,
-  layout = "badge",
 }: DirectorPersonCardProps) {
   const message =
     director.feedMessages.length > 0
@@ -70,7 +68,6 @@ export function DirectorPersonCard({
           window.location.href = wr.href
         },
       }))}
-      layout={layout}
     />
   )
 }

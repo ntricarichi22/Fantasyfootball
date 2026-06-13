@@ -14,7 +14,6 @@ export type GMPersonCardProps = {
   /** Team-specific headshot, e.g. "/avatars/gm/founders.png" */
   avatarSrc: string
   onPersonaClick: () => void
-  layout?: "badge" | "stack"
   inboxHref?: string
 }
 
@@ -34,14 +33,13 @@ export function GMPersonCard({
   unreadCount,
   avatarSrc,
   onPersonaClick,
-  layout = "badge",
   inboxHref = "/inbox",
 }: GMPersonCardProps) {
   const hasUnread = unreadCount > 0
 
   return (
     <OrgPersonCard
-      name={name}
+      name={`${name}, GM`}
       avatarSrc={avatarSrc}
       avatarAlt={name}
       frameColor="#B08D57"
@@ -76,7 +74,6 @@ export function GMPersonCard({
         { key: "championships", label: `Championships · ${championships}` },
         { key: "tenure", label: `Tenure · Year ${years}` },
       ]}
-      layout={layout}
     />
   )
 }
