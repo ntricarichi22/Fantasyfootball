@@ -153,7 +153,7 @@ export function HomeScreen() {
   const gmName = gmNameFor(teamName)
   const gmDisplayName = gmName ? `${gmName}, GM` : "General Manager"
 
-  const gmCard = (
+  const gmCard = (fixedPortrait: boolean) => (
     <GMPersonCard
       name={gmDisplayName}
       persona={persona}
@@ -163,6 +163,7 @@ export function HomeScreen() {
       unreadCount={unreadCount}
       avatarSrc={gmAvatarFor(teamName)}
       onPersonaClick={() => setPersonaModalOpen(true)}
+      fixedPortrait={fixedPortrait}
     />
   )
 
@@ -228,7 +229,7 @@ export function HomeScreen() {
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, minHeight: 0, padding: "8px 10px 0", display: "flex", flexDirection: "column", gap: 8 }}>
             <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} compact />
-            <div style={{ flex: 1, minHeight: 0 }}>{gmCard}</div>
+            <div style={{ flex: 1, minHeight: 0 }}>{gmCard(false)}</div>
             <MobileOrgLines />
           </div>
 
@@ -272,13 +273,15 @@ export function HomeScreen() {
       >
         <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} />
 
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: GRID_GAP, flex: 1, minHeight: 0 }}>
-          <div style={{ minHeight: 0 }}>{gmCard}</div>
-          {DIRECTORS.map((d) => (
-            <div key={d.key} style={{ minHeight: 0 }}>
-              <DirectorPersonCard director={d} tickerTick={tickerTick} />
-            </div>
-          ))}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: GRID_GAP, height: "min(100%, 460px)" }}>
+            <div style={{ minHeight: 0 }}>{gmCard(true)}</div>
+            {DIRECTORS.map((d) => (
+              <div key={d.key} style={{ minHeight: 0 }}>
+                <DirectorPersonCard director={d} tickerTick={tickerTick} fixedPortrait />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 

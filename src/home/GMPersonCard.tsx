@@ -14,6 +14,7 @@ export type GMPersonCardProps = {
   /** Team-specific headshot, e.g. "/avatars/gm/founders.png" */
   avatarSrc: string
   onPersonaClick: () => void
+  fixedPortrait?: boolean
   inboxHref?: string
 }
 
@@ -33,6 +34,7 @@ export function GMPersonCard({
   unreadCount,
   avatarSrc,
   onPersonaClick,
+  fixedPortrait = false,
   inboxHref = "/inbox",
 }: GMPersonCardProps) {
   const hasUnread = unreadCount > 0
@@ -53,7 +55,7 @@ export function GMPersonCard({
       }}
       avatarAriaLabel={`Enter your office, ${unreadCount} unread`}
       door={{
-        label: "Your Office",
+        label: "Enter Office",
         href: inboxHref,
         notice: {
           active: hasUnread,
@@ -74,6 +76,7 @@ export function GMPersonCard({
         { key: "championships", label: `Championships · ${championships}` },
         { key: "tenure", label: `Tenure · Year ${years}` },
       ]}
+      fixedPortrait={fixedPortrait}
     />
   )
 }

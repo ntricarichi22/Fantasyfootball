@@ -7,6 +7,7 @@ export type DirectorPersonCardProps = {
   director: DirectorConfig
   /** Shared tick from HomeScreen so all door teasers rotate in sync */
   tickerTick: number
+  fixedPortrait?: boolean
 }
 
 function initialsFor(title: string): string {
@@ -23,6 +24,7 @@ function initialsFor(title: string): string {
 export function DirectorPersonCard({
   director,
   tickerTick,
+  fixedPortrait = false,
 }: DirectorPersonCardProps) {
   const message =
     director.feedMessages.length > 0
@@ -53,7 +55,7 @@ export function DirectorPersonCard({
       }}
       avatarAriaLabel={`Enter the ${director.title} office`}
       door={{
-        label: "Director's Office",
+        label: "Enter Office",
         href: director.officeHref,
         // No real "wants a word" API signal yet - the dot stays yellow and
         // the hardcoded teasers rotate. Wire `active` to a signal later.
@@ -68,6 +70,7 @@ export function DirectorPersonCard({
           window.location.href = wr.href
         },
       }))}
+      fixedPortrait={fixedPortrait}
     />
   )
 }

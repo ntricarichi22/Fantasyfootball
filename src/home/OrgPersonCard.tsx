@@ -35,6 +35,13 @@ export type OrgPersonCardProps = {
   /** "RESPONSIBILITIES" | "ATTRIBUTES" - yellow tab on the ledger */
   sectionLabel: string
   rows: OrgPersonRow[]
+  /**
+   * Desktop row: fixed portrait height so headshots, doors and ledger
+   * tabs all line up across cards, with leftover space falling to the
+   * bottom. Mobile (fill): portrait flexes to fill the card.
+   */
+  fixedPortrait?: boolean
+  portraitHeight?: number
 }
 
 const INK = "#1A1A1A"
@@ -85,6 +92,8 @@ export function OrgPersonCard({
   door,
   sectionLabel,
   rows,
+  fixedPortrait = false,
+  portraitHeight = 220,
 }: OrgPersonCardProps) {
   const [imgFailed, setImgFailed] = useState(false)
   const [doorOpening, setDoorOpening] = useState(false)
@@ -135,8 +144,17 @@ export function OrgPersonCard({
     >
       <style>{DOOR_STYLES}</style>
 
-      {/* Headshot on the team-color field - flexes to fill leftover height */}
-      <div style={{ flex: 1, minHeight: 0, padding: "8px 8px 0", display: "flex" }}>
+      {/* Headshot on the team-color field. Desktop: fixed height so the
+          headshots line up. Mobile: flexes to fill the card. */}
+      <div
+        style={{
+          padding: "8px 8px 0",
+          display: "flex",
+          ...(fixedPortrait
+            ? { height: portraitHeight, flexShrink: 0 }
+            : { flex: 1, minHeight: 0 }),
+        }}
+      >
         <button
           type="button"
           onClick={onAvatarClick}
@@ -219,7 +237,7 @@ export function OrgPersonCard({
               background: INK,
               borderRadius: 8,
               padding: "9px 30px 9px 13px",
-              minHeight: 54,
+              height: 72,
               boxSizing: "border-box",
               display: "flex",
               flexDirection: "column",
@@ -268,6 +286,10 @@ export function OrgPersonCard({
                   opacity: 0.9,
                   lineHeight: 1.3,
                   minWidth: 0,
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
                 }}
               >
                 {door.notice.text}
@@ -359,6 +381,9 @@ export function OrgPersonCard({
           })}
         </div>
       </div>
+
+      {/* Leftover space (e.g. cards with fewer responsibilities) falls here */}
+      {fixedPortrait && <div style={{ flex: 1, minHeight: 0 }} />}
     </div>
   )
 }
