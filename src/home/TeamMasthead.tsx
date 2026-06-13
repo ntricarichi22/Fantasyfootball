@@ -52,11 +52,11 @@ export function TeamMasthead({
   }, [])
 
   // sizing
-  const bandH = compact ? 56 : 162
-  const crestH = compact ? 76 : 206
-  const crestLeft = compact ? 6 : 26
-  const maxFs = compact ? 22 : 60
-  const minFs = compact ? 13 : 26
+  const bandH = compact ? 56 : 146
+  const crestH = compact ? 76 : 184
+  const crestLeft = compact ? 6 : 24
+  const maxFs = compact ? 22 : 54
+  const minFs = compact ? 13 : 24
   const stripTop = compact ? 7 : 18
   const stripH = bandH - stripTop * 2
   const wordLeft = crestLeft + crestH * 0.86 + (compact ? 8 : 22)

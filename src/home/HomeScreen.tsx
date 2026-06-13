@@ -158,7 +158,7 @@ export function HomeScreen() {
     const d = small ? 4 : 6 // 3D extrude depth
     const shadow = Array.from({ length: d }, (_, i) => `${i + 1}px ${i + 1}px 0 #0E2A4E`).join(",")
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: small ? 12 : 20, flexShrink: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: small ? 12 : 20, flexShrink: 0, marginTop: small ? 10 : 34, marginBottom: small ? 4 : 14 }}>
         <span
           style={{
             fontFamily: "'Bowlby One SC', system-ui, sans-serif",
@@ -295,14 +295,13 @@ export function HomeScreen() {
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
-          gap: 18,
         }}
       >
         <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} />
 
         {frontOfficeHero(false)}
 
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: GRID_GAP, height: "min(100%, 460px)" }}>
             <div style={{ minHeight: 0 }}>{gmCard(true)}</div>
             {DIRECTORS.map((d) => (
