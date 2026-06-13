@@ -43,7 +43,7 @@ export const DIRECTORS: DirectorConfig[] = [
   {
     key: "pro_personnel",
     title: "Pro Personnel",
-    officeHref: "/pro-personnel",
+    officeHref: "/personnel-office",
     avatarSrc: "/avatars/pro-personnel.png",
     // Red portrait field for the personnel director
     accentColor: "#E8503A",
@@ -54,7 +54,7 @@ export const DIRECTORS: DirectorConfig[] = [
       "Owner X looking to move a vet",
     ],
     workrooms: [
-      { title: "Build a Trade", href: "/pro-personnel/trade-builder", icon: "arrows-exchange" },
+      { title: "Build a Trade", href: "/pro-personnel/trade-builder?seed=fresh", icon: "arrows-exchange" },
       { title: "Shop My Guys", href: "/pro-personnel/shop", icon: "tag" },
     ],
   },
