@@ -59,6 +59,9 @@ type OfferCardProps = {
 
   // State
   sending?: boolean;
+  // Render the card as a record, not a decision — no action rows (inbox memos
+  // whose offer has already been answered).
+  hideActions?: boolean;
 };
 
 const PERSONA_LABELS: Record<PersonaKey, string> = {
@@ -92,6 +95,7 @@ export default function OfferCard({
   secondaryLabel = "EDIT",
   primaryLabel = "MAKE THIS OFFER",
   sending = false,
+  hideActions = false,
 }: OfferCardProps) {
   return (
     <div style={{
@@ -189,7 +193,7 @@ export default function OfferCard({
       {/* Director inline section */}
       <div style={{
         padding: "14px 16px",
-        borderBottom: "2px solid #1A1A1A",
+        borderBottom: hideActions ? "none" : "2px solid #1A1A1A",
         display: "flex",
         alignItems: "flex-start",
         gap: 13,
@@ -234,6 +238,7 @@ export default function OfferCard({
       </div>
 
       {/* Pass | Edit (or Pass | Counter) row */}
+      {!hideActions && (
       <div style={{
         display: "grid",
         gridTemplateColumns: "1fr 1fr",
@@ -275,8 +280,10 @@ export default function OfferCard({
           {secondaryLabel}
         </button>
       </div>
+      )}
 
       {/* Primary commit button — blue with offset shadow */}
+      {!hideActions && (
       <div style={{ padding: 12 }}>
         <button
           onClick={sending ? undefined : onMakeOffer}
@@ -300,6 +307,7 @@ export default function OfferCard({
           {sending ? "SENDING…" : primaryLabel}
         </button>
       </div>
+      )}
     </div>
   );
 }

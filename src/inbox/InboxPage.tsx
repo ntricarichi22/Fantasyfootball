@@ -137,6 +137,17 @@ export default function InboxPage() {
   const fetchAll = useCallback(async () => {
     if (!rosterId) return;
     try {
+      // Compose-on-read: the director's inbound-offer emails (and the one
+      // polite reminder) are minted by an idempotent sweep before we list, so
+      // "the email arrived while you were away" — failure is non-fatal.
+      try {
+        await fetch("/api/inbox/memos/sweep", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ team_id: rosterId }),
+        });
+      } catch { /* sweep is best-effort */ }
+
       const memosUrl = new URL("/api/inbox/memos", window.location.origin);
       memosUrl.searchParams.set("teamId", rosterId);
       if (includeArchived) memosUrl.searchParams.set("includeArchived", "1");
@@ -203,6 +214,14 @@ export default function InboxPage() {
       for (const offer of td.offers) {
         const isFromUser = offer.from_team_id === rosterId;
         const isReceiver = offer.to_team_id === rosterId;
+        // The Personnel director now emails us about every inbound offer
+        // awaiting our response (the offer-card memo, minted by the inbox
+        // sweep), so the legacy raw-offer row for it would be a duplicate.
+        // Drop it. We keep everything else: offers WE sent (the director
+        // doesn't email those), and any resolved/countered offer (history and
+        // active negotiations — once we counter, the live offer flips outbound
+        // and reappears here, which is correct).
+        if (offer.status === "pending" && isReceiver) continue;
         const youGet = isReceiver ? offer.assets_from : offer.assets_to;
         const youGive = isReceiver ? offer.assets_to : offer.assets_from;
 

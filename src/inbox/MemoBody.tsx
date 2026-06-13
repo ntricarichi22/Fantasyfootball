@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { Icon } from "@/shared/ui/Icon";
 import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 
 type Memo = {
   id: string;
@@ -12,7 +13,7 @@ type Memo = {
   subject: string;
   read_body: string;
   play_intro: string;
-  play_mode: "single_cta" | "ranked";
+  play_mode: "single_cta" | "ranked" | "offer_card";
   play_payload: PlayPayload;
   status: "unread" | "read" | "archived" | "trashed";
   created_at: string;
@@ -28,9 +29,26 @@ type PlayTarget = {
   href: string;
 };
 
+// The Personnel director's inbound-offer email: the offer rides the memo as
+// the same global OfferCard used everywhere else, with live ACCEPT / DECLINE /
+// COUNTER (written by the memos sweep route).
+type OfferCardPayload = {
+  kind: "offer_received" | "offer_reminder";
+  offer_id: string;
+  thread_id: string | null;
+  partner_team_id: string;
+  partner_name: string;
+  send: CardAsset[];
+  receive: CardAsset[];
+  verdict: string;
+  verdict_color: string;
+  prose: string;
+};
+
 type PlayPayload =
   | { cta_label: string; href: string }
   | { targets: PlayTarget[] }
+  | OfferCardPayload
   | Record<string, unknown>;
 
 const DIRECTOR_NAMES: Record<Memo["director_role"], string> = {
@@ -136,6 +154,11 @@ export default function MemoBody({ memoId }: { memoId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("");
+  // Offer-card memos: liveness of the offer behind the card. "pending" keeps
+  // the action row hot; anything else renders the card as a record.
+  const [offerLive, setOfferLive] = useState<"checking" | "pending" | "resolved">("checking");
+  const [confirmAction, setConfirmAction] = useState<"accepted" | "declined" | null>(null);
+  const [acting, setActing] = useState(false);
 
   const flash = useCallback((m: string) => {
     setToast(m);
@@ -163,6 +186,25 @@ export default function MemoBody({ memoId }: { memoId: string }) {
       cancelled = true;
     };
   }, [memoId]);
+
+  // Offer-card memos: check the offer is still pending before arming the
+  // buttons — it may have been answered from the thread (or by the deadline).
+  useEffect(() => {
+    if (!memo || memo.play_mode !== "offer_card") return;
+    const payload = memo.play_payload as OfferCardPayload;
+    if (!payload.offer_id) { setOfferLive("resolved"); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/inbox/trades/list?offerId=${encodeURIComponent(payload.offer_id)}`);
+        const j = r.ok ? await r.json() : null;
+        if (!cancelled) setOfferLive(j?.data?.status === "pending" ? "pending" : "resolved");
+      } catch {
+        if (!cancelled) setOfferLive("resolved");
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [memo]);
 
   const updateStatus = async (status: "unread" | "archived" | "trashed") => {
     if (!memo) return;
@@ -241,6 +283,50 @@ export default function MemoBody({ memoId }: { memoId: string }) {
     !isRanked && "cta_label" in payload
       ? (payload as { cta_label: string; href: string })
       : null;
+  const offerCard =
+    memo.play_mode === "offer_card" && "offer_id" in payload
+      ? (payload as OfferCardPayload)
+      : null;
+  const threadHref = offerCard?.thread_id ? `/inbox/${offerCard.thread_id}` : "/inbox";
+
+  // ACCEPT / DECLINE are real league actions from an email body, so they take
+  // a second tap to confirm (the thread view has its own confirm step too).
+  const respondToOffer = async (status: "accepted" | "declined") => {
+    if (!offerCard || acting) return;
+    if (confirmAction !== status) {
+      setConfirmAction(status);
+      return;
+    }
+    setActing(true);
+    try {
+      const r = await fetch("/api/inbox/threads/status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ offer_id: offerCard.offer_id, team_id: memo.team_id, status }),
+      });
+      if (r.ok) {
+        flash(status === "accepted" ? "Trade accepted!" : "Offer declined.");
+        // The email asked for a decision and got one — file it away.
+        fetch("/api/inbox/memos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: memo.id, status: "archived" }),
+        }).catch(() => {});
+        setTimeout(() => {
+          window.location.href = status === "accepted" ? threadHref : "/inbox";
+        }, 800);
+      } else {
+        const j = await r.json().catch(() => ({}));
+        flash(j.error || "Action failed");
+        setActing(false);
+        setConfirmAction(null);
+      }
+    } catch {
+      flash("Action failed");
+      setActing(false);
+      setConfirmAction(null);
+    }
+  };
 
   const iconBtn = (extra?: React.CSSProperties): React.CSSProperties => ({
     background: "none",
@@ -442,6 +528,47 @@ export default function MemoBody({ memoId }: { memoId: string }) {
           >
             {memo.play_intro}
           </div>
+
+          {offerCard && (
+            <div style={{ marginBottom: 14 }}>
+              <OfferCard
+                partnerName={offerCard.partner_name}
+                partnerPersona={null}
+                sendAssets={offerCard.send}
+                receiveAssets={offerCard.receive}
+                verdict={offerCard.verdict}
+                verdictColor={offerCard.verdict_color}
+                prose={offerCard.prose}
+                onPass={() => respondToOffer("declined")}
+                onEdit={() => { window.location.href = threadHref; }}
+                onMakeOffer={() => respondToOffer("accepted")}
+                destructiveLabel={confirmAction === "declined" ? "TAP AGAIN TO DECLINE" : "DECLINE"}
+                secondaryLabel="COUNTER"
+                primaryLabel={confirmAction === "accepted" ? "TAP AGAIN TO CONFIRM" : "ACCEPT"}
+                sending={acting}
+                hideActions={offerLive !== "pending"}
+              />
+              {offerLive === "resolved" && (
+                <div style={{ marginTop: 12, textAlign: "center" }}>
+                  <a
+                    href={threadHref}
+                    style={{
+                      fontFamily: FM,
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      color: "#3366CC",
+                      textDecoration: "underline",
+                      textUnderlineOffset: 3,
+                    }}
+                  >
+                    This one&apos;s been answered — view the thread →
+                  </a>
+                </div>
+              )}
+            </div>
+          )}
 
           {isRanked && targets.length > 0 && (
             <div
