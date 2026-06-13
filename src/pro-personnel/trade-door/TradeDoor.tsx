@@ -73,6 +73,12 @@ export default function TradeDoor() {
   const [allRosters, setAllRosters] = useState<Record<string, RawClientAsset[]>>({});
   const [passedIds, setPassedIds] = useState<Set<string>>(new Set());
   const [drawerGoal, setDrawerGoal] = useState<StoryGoal | null>(null);
+  // Ad-hoc slate from the free-text lane ("what would it take to get X") — the
+  // office/respond route returns real engine offers; the drawer opens on them
+  // the same beat the director's summary lands. Pending ref holds the slate on
+  // mobile until the GM taps "See the offers" (the sheet would cover the prose).
+  const [adHocSlate, setAdHocSlate] = useState<{ label: string; offers: DoorOffer[] } | null>(null);
+  const pendingSlateRef = useRef<{ label: string; offers: DoorOffer[] } | null>(null);
   const [advisorByOffer, setAdvisorByOffer] = useState<AdvisorState>({});
   const inFlightRef = useRef<Set<string>>(new Set());
   const [toast, setToast] = useState("");
@@ -84,6 +90,19 @@ export default function TradeDoor() {
   const passedRef = useRef(passedIds);
   useEffect(() => { passedRef.current = passedIds; }, [passedIds]);
   useEffect(() => { slateRef.current = { reason: slateReason, byGoal: offersByGoal }; }, [slateReason, offersByGoal]);
+
+  // Durable pass memory: hydrate the passed set from the server so deals the
+  // GM already waved off don't reappear after a reload (PASS persists via
+  // handlePassOffer below).
+  useEffect(() => {
+    if (!rosterId) return;
+    let cancelled = false;
+    fetch(`/api/pro-personnel/trades/pass?team_id=${encodeURIComponent(rosterId)}`)
+      .then(r => (r.ok ? r.json() : { offer_ids: [] }))
+      .then(j => { if (!cancelled && Array.isArray(j.offer_ids)) setPassedIds(new Set(j.offer_ids)); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [rosterId]);
 
   // Fast half: the room opens on the narrative bundle.
   useEffect(() => {
@@ -163,12 +182,35 @@ export default function TradeDoor() {
 
   const handlePassOffer = useCallback((offerId: string) => {
     setPassedIds(prev => new Set(prev).add(offerId));
-  }, []);
+    // Persist (best-effort) so this exact deal is never re-surfaced, across
+    // both the storyline slate and the targeted ("what would it take") slate.
+    // Find the offer for its asset keys (future scope-broadening); the id alone
+    // drives suppression.
+    let offer: DoorOffer | undefined;
+    for (const arr of offersByGoal.values()) { offer = arr.find(o => o.id === offerId); if (offer) break; }
+    if (!offer) offer = adHocSlate?.offers.find(o => o.id === offerId);
+    fetch("/api/pro-personnel/trades/pass", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        team_id: rosterId,
+        offer_id: offerId,
+        partner_team_id: offer?.partnerTeam.id ?? null,
+        send_keys: offer?.sendAssets.map(a => a.key) ?? [],
+        receive_keys: offer?.receiveAssets.map(a => a.key) ?? [],
+      }),
+    }).catch(() => {});
+  }, [rosterId, offersByGoal, adHocSlate]);
 
   // Drawer offers recompute from state (not refs) so a PASS re-renders.
   const drawerOffers = drawerGoal
     ? (offersByGoal.get(drawerGoal.id) ?? []).filter(o => !passedIds.has(o.id))
-    : [];
+    : adHocSlate
+      ? adHocSlate.offers.filter(o => !passedIds.has(o.id))
+      : [];
+  const drawerLabel = drawerGoal?.label ?? adHocSlate?.label ?? "";
+  const drawerOpen = !!drawerGoal || !!adHocSlate;
+  const closeDrawer = useCallback(() => { setDrawerGoal(null); setAdHocSlate(null); }, []);
 
   // ── Opening message (the chat preloads what YOU came to do) ─────────────
 
@@ -262,8 +304,24 @@ export default function TradeDoor() {
     return items;
   }, [liveOffersFor, buildOwnReply]);
 
+  const PULL_UP_ANCHOR = "Pull up those offers.";
+
   const handleUserMessage = useCallback(async (text: string): Promise<Response | null> => {
     if (!story) return null;
+
+    // Mobile second beat: the GM tapped "See the offers" under the director's
+    // summary. The slate rides a ref (not the thread), so a rehydrated thread
+    // whose slate is gone gets a straight answer instead of a stale board.
+    if (text === PULL_UP_ANCHOR) {
+      const pending = pendingSlateRef.current;
+      const live = pending ? pending.offers.filter(o => !passedRef.current.has(o.id)) : [];
+      if (pending && live.length > 0) {
+        setDrawerGoal(null);
+        setAdHocSlate(pending);
+        return respond(["On the board now — work through them and tell me where you land."]);
+      }
+      return respond(["That board's gone stale on me — ask me again and I'll make the calls fresh."]);
+    }
 
     // Storyline pick — the CONTINUATION beat. He just pitched the storylines;
     // the GM picked one. He responds fresh (LLM in his pitching voice, fed his
@@ -319,6 +377,7 @@ export default function TradeDoor() {
       if (n === 0) {
         return respond(["Nothing clean left behind that one today. Pick another angle, or get me on the phones and we'll build something ourselves."]);
       }
+      setAdHocSlate(null);
       setDrawerGoal(goal);
       return respond([
         isMobile
@@ -327,7 +386,11 @@ export default function TradeDoor() {
       ]);
     }
 
-    // Free text → office respond endpoint (stubbed until the intel backend ships)
+    // Free text → office respond. The route classifies the ask; a targeted
+    // acquire ("what would it take to get X") comes back with prose + the real
+    // engine packages. The typing indicator covers the whole round trip, and
+    // the drawer opens in the same render the summary lands in (desktop) — on
+    // mobile the offers wait behind a button so the sheet doesn't cover the prose.
     try {
       const r = await fetch("/api/pro-personnel/office/respond", {
         method: "POST",
@@ -336,7 +399,21 @@ export default function TradeDoor() {
       });
       if (r.ok) {
         const j = await r.json();
-        return respond(j.prose ?? [], j.action?.items);
+        const prose: string[] = Array.isArray(j.prose) ? j.prose : j.prose ? [String(j.prose)] : [];
+        const offers: DoorOffer[] = Array.isArray(j.offers) ? j.offers : [];
+        if (offers.length > 0) {
+          const slate = { label: j.drawer_label ?? "The packages", offers };
+          pendingSlateRef.current = slate;
+          if (isMobile) {
+            return respond(prose, [
+              { id: "__pull_up_offers__", label: "See the offers", kind: "respond", respondAs: PULL_UP_ANCHOR },
+            ]);
+          }
+          setDrawerGoal(null);
+          setAdHocSlate(slate);
+          return respond(prose);
+        }
+        if (prose.length > 0) return respond(prose, j.action?.items);
       }
     } catch {}
     return respond([
@@ -370,7 +447,7 @@ export default function TradeDoor() {
     );
   }
 
-  const splitOpen = !!drawerGoal && !isMobile;
+  const splitOpen = drawerOpen && !isMobile;
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#F5F0E6" }}>
@@ -421,9 +498,9 @@ export default function TradeDoor() {
           )}
         </div>
 
-        {drawerGoal && !isMobile && (
+        {drawerOpen && !isMobile && (
           <OfferDrawer
-            goalLabel={drawerGoal.label}
+            goalLabel={drawerLabel}
             offers={drawerOffers}
             myTeamId={rosterId}
             rosterPayload={rosterPayload}
@@ -431,16 +508,16 @@ export default function TradeDoor() {
             setAdvisorByOffer={setAdvisorByOffer}
             inFlightRef={inFlightRef}
             onPass={handlePassOffer}
-            onClose={() => setDrawerGoal(null)}
+            onClose={closeDrawer}
             flash={flash}
             isMobile={false}
           />
         )}
       </div>
 
-      {drawerGoal && isMobile && (
+      {drawerOpen && isMobile && (
         <OfferDrawer
-          goalLabel={drawerGoal.label}
+          goalLabel={drawerLabel}
           offers={drawerOffers}
           myTeamId={rosterId}
           rosterPayload={rosterPayload}
@@ -448,7 +525,7 @@ export default function TradeDoor() {
           setAdvisorByOffer={setAdvisorByOffer}
           inFlightRef={inFlightRef}
           onPass={handlePassOffer}
-          onClose={() => setDrawerGoal(null)}
+          onClose={closeDrawer}
           flash={flash}
           isMobile={true}
         />
