@@ -148,8 +148,9 @@ export function HomeScreen() {
     return () => window.removeEventListener("resize", check)
   }, [])
 
-  const theme = teamTheme(slugify(teamNickname(teamName)))
-  const crestSrc = `/teams/${slugify(teamName)}.png`
+  const nicknameSlug = slugify(teamNickname(teamName))
+  const theme = teamTheme(nicknameSlug)
+  const crestSrc = `/teams/${nicknameSlug}.png`
   const gmName = gmNameFor(teamName)
   const gmDisplayName = gmName ? `${gmName}, GM` : "General Manager"
 
@@ -262,13 +263,13 @@ export function HomeScreen() {
           maxWidth: 1180,
           width: "100%",
           margin: "0 auto",
-          padding: "16px 24px 20px",
+          padding: "26px 24px 20px",
           boxSizing: "border-box",
           flex: 1,
           minHeight: 0,
           display: "flex",
           flexDirection: "column",
-          gap: 16,
+          gap: 18,
         }}
       >
         <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} />

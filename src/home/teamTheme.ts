@@ -13,14 +13,16 @@ export type TeamTheme = {
   accent: string
 }
 
+// CFC house palette (navy strip on a gold page) — fits the crest set.
+// Override per team below once their logo colors are extracted.
 const DEFAULT_THEME: TeamTheme = {
-  band: "#1A1A1A",
+  band: "#0E2A4E",
   text: "#FEFCF9",
-  accent: "#F5C230",
+  accent: "#E2B23C",
 }
 
 const TEAM_THEMES: Record<string, TeamTheme> = {
-  // founders: { band: "#0B2C5C", text: "#FEFCF9", accent: "#C8A24A" },
+  // wingmen: { band: "#7A1620", text: "#FEFCF9", accent: "#D9A33A" },
 }
 
 export function teamTheme(slug: string): TeamTheme {
