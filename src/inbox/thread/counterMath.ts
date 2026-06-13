@@ -99,61 +99,80 @@ export type CounterPackage<T extends CounterAsset> = {
 // Both lists EXCLUDE the centerpiece, so it never moves. Ratio climbs
 // monotonically across the moves, so we keep the cumulative package whose ratio
 // lands closest to the target and stop once we cross it.
+// Smallest-total package whose value meets `need`: the smallest sufficient
+// SINGLE, else the tightest PAIR, else the tightest TRIPLE — capped at three.
+// Ported from the trade-builder's balancing engine (advisor/route.ts
+// `findPackage`) so a counter demands one meaningful piece (a pick, a starter),
+// never a pile of scrubs. `cands` must be sorted ascending by value.
+function findPackage<T extends CounterAsset>(cands: T[], need: number): T[] | null {
+  for (const c of cands) if (c.value >= need) return [c];
+  const N = Math.min(cands.length, 24);
+  let best: T[] | null = null;
+  let bestSum = Infinity;
+  for (let i = 0; i < N; i++)
+    for (let j = i + 1; j < N; j++) {
+      const sum = cands[i].value + cands[j].value;
+      if (sum >= need && sum < bestSum) {
+        best = [cands[i], cands[j]];
+        bestSum = sum;
+      }
+    }
+  if (best) return best;
+  for (let i = 0; i < N; i++)
+    for (let j = i + 1; j < N; j++)
+      for (let k = j + 1; k < N; k++) {
+        const sum = cands[i].value + cands[j].value + cands[k].value;
+        if (sum >= need && sum < bestSum) {
+          best = [cands[i], cands[j], cands[k]];
+          bestSum = sum;
+        }
+      }
+  return best;
+}
+
 export function selectCounter<T extends CounterAsset>(
   offerSend: T[],
   offerReceive: T[],
-  trimFromSend: T[], // our removable ballast (centerpiece already fenced out)
+  trimFromSend: T[], // our removable throw-ins (centerpiece already fenced out)
   demandFromThem: T[], // their addable pieces
   targetRatio: number,
 ): CounterPackage<T> {
-  const MAX_MOVES = 5; // hard stop — a counter is never a roster dump
-  const trimKeys = new Set(trimFromSend.map((a) => a.key));
-
   let send = [...offerSend];
-  let receive = [...offerReceive];
-  let dist = Math.abs(ratioOf(sumValue(send), sumValue(receive)) - targetRatio);
+  const receive = [...offerReceive];
+  const receiveValue = sumValue(receive);
 
-  // Hill-climb toward the target: each step makes the SINGLE marginal move
-  // (trim one throw-in, or demand one piece) that lands the ratio CLOSEST to
-  // the target — best-fit, not cheapest-first. Stop the instant nothing
-  // improves, so a small gap pulls in one sensible piece (a pick, a starter)
-  // instead of piling on the other team's whole roster chasing an out-of-reach
-  // number.
-  for (let step = 0; step < MAX_MOVES; step++) {
-    let bestDist = dist;
-    let bestSend: T[] | null = null;
-    let bestReceive: T[] | null = null;
-
-    for (const a of send) {
-      if (!trimKeys.has(a.key)) continue;
-      const ns = send.filter((x) => x.key !== a.key);
-      const d = Math.abs(ratioOf(sumValue(ns), sumValue(receive)) - targetRatio);
-      if (d < bestDist - 1e-9) {
-        bestDist = d;
-        bestSend = ns;
-        bestReceive = receive;
-      }
+  // 1. Stop overpaying first: peel our throw-ins (smallest first) as long as
+  //    dropping one doesn't push us PAST the target. At the parked start
+  //    (target = their offer) nothing peels; as you slide right, throw-ins go
+  //    before we ever ask them for anything.
+  const throwins = [...trimFromSend].sort((a, b) => a.value - b.value);
+  for (const t of throwins) {
+    const trial = send.filter((a) => a.key !== t.key);
+    if (ratioOf(sumValue(trial), receiveValue) <= targetRatio + 1e-9) {
+      send = trial;
+    } else {
+      break;
     }
-
-    const have = new Set(receive.map((x) => x.key));
-    for (const a of demandFromThem) {
-      if (have.has(a.key)) continue;
-      const nr = [...receive, a];
-      const d = Math.abs(ratioOf(sumValue(send), sumValue(nr)) - targetRatio);
-      if (d < bestDist - 1e-9) {
-        bestDist = d;
-        bestSend = send;
-        bestReceive = nr;
-      }
-    }
-
-    if (!bestSend || !bestReceive) break; // nothing improves — done
-    send = bestSend;
-    receive = bestReceive;
-    dist = bestDist;
   }
 
-  return { send, receive, ratio: ratioOf(sumValue(send), sumValue(receive)) };
+  // 2. Demand the SMALLEST sensible package to close what's left — one piece if
+  //    it covers the gap, else the tightest pair/triple. If their roster simply
+  //    can't get there even with three, take their three best (the most we can
+  //    squeeze) rather than dribbling in scrubs.
+  const sendValue = sumValue(send);
+  const need = targetRatio * sendValue - receiveValue;
+  let demanded: T[] = [];
+  if (need > 1e-9 && demandFromThem.length > 0) {
+    const pool = [...demandFromThem].sort((a, b) => a.value - b.value);
+    demanded = findPackage(pool, need) ?? pool.slice(-3);
+  }
+
+  const finalReceive = [...receive, ...demanded];
+  return {
+    send,
+    receive: finalReceive,
+    ratio: ratioOf(sendValue, sumValue(finalReceive)),
+  };
 }
 
 // The centerpiece each side trades for: the single highest-value non-pick.

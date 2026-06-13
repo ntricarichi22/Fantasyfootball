@@ -345,11 +345,13 @@ export default function CounterDrawer({
         <div style={{ position: "absolute", left: 14, width: `calc(${pct}% - 14px)`, minWidth: 0, top: 0, bottom: 0, background: "#1A1A1A" }} />
         <div style={{ position: "absolute", left: `calc(${pct}% - 9px)`, top: 3, width: 18, height: 22, background: "#1A1A1A", border: "2px solid #FEFCF9" }} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-        <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>↑ Their offer</span>
-        <span style={{ fontFamily: FM, fontSize: 9, color: position > 0.02 ? "#1A1A1A" : "#8C7E6A", fontWeight: position > 0.02 ? 700 : 400 }}>
-          {position > 0.02 ? "Our counter ↑" : "slide right to counter →"}
-        </span>
+      <div style={{ position: "relative", height: 16, marginTop: 6 }}>
+        <span style={{ position: "absolute", left: 0, fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>↑ Their offer</span>
+        {position > 0.02 ? (
+          <span style={{ position: "absolute", left: `${Math.min(Math.max(pct, 20), 94)}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontFamily: FM, fontSize: 9, color: "#1A1A1A", fontWeight: 700 }}>↑ Our counter</span>
+        ) : (
+          <span style={{ position: "absolute", right: 0, fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>slide right to counter →</span>
+        )}
       </div>
     </div>
   );
