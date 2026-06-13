@@ -131,6 +131,13 @@ export default function InboxPage() {
     fetchRosterNames().then(setRosterNames);
   }, []);
 
+  // Honor ?filter=sent|trash|archive so the persistent sidebar on a memo page
+  // can deep-link back into the right inbox view (Gmail-style).
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search).get("filter");
+    if (p === "inbox" || p === "sent" || p === "trash" || p === "archive") setFilter(p);
+  }, []);
+
   const includeArchived = filter === "archive";
   const includeTrashed = filter === "trash";
 

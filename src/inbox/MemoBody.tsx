@@ -5,6 +5,7 @@ import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { Icon } from "@/shared/ui/Icon";
 import { InnerTopbar } from "@/shared/ui/InnerTopbar";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
+import { Sidebar } from "@/inbox/InboxParts";
 
 type Memo = {
   id: string;
@@ -180,6 +181,9 @@ export default function MemoBody({ memoId }: { memoId: string }) {
   const [offerLive, setOfferLive] = useState<"checking" | "pending" | "resolved">("checking");
   const [confirmAction, setConfirmAction] = useState<"accepted" | "declined" | null>(null);
   const [acting, setActing] = useState(false);
+  // Unread badge for the persistent sidebar. Opening this memo marks it read, so
+  // the count reflects the OTHER unread mail — matching Gmail's behavior.
+  const [unreadCount, setUnreadCount] = useState(0);
 
   const flash = useCallback((m: string) => {
     setToast(m);
@@ -207,6 +211,22 @@ export default function MemoBody({ memoId }: { memoId: string }) {
       cancelled = true;
     };
   }, [memoId]);
+
+  // Sidebar unread badge — best-effort count of the team's other unread memos.
+  useEffect(() => {
+    if (!memo?.team_id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`/api/inbox/memos?teamId=${encodeURIComponent(memo.team_id)}`);
+        const j = r.ok ? await r.json() : { memos: [] };
+        if (!cancelled) {
+          setUnreadCount(((j.memos ?? []) as { status: string }[]).filter((m) => m.status === "unread").length);
+        }
+      } catch { /* count is best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, [memo?.team_id]);
 
   // Offer-card memos: check the offer is still pending before arming the
   // buttons — it may have been answered from the thread (or by the deadline).
@@ -386,6 +406,20 @@ export default function MemoBody({ memoId }: { memoId: string }) {
       <InnerTopbar breadcrumb="INBOX › MEMO" />
       <div style={{ height: 3, background: "#E8503A" }} />
 
+      <div style={{ display: "flex", alignItems: "stretch" }}>
+        {/* Persistent inbox sidebar (desktop) — stays put while reading a memo */}
+        {!isMobile && (
+          <Sidebar
+            active="inbox"
+            isMobile={false}
+            unreadCount={unreadCount}
+            onChange={(f) => {
+              window.location.href = `/inbox?filter=${f}`;
+            }}
+          />
+        )}
+
+        <div style={{ flex: 1, minWidth: 0 }}>
       {/* Toolbar */}
       <div
         style={{
@@ -755,6 +789,8 @@ export default function MemoBody({ memoId }: { memoId: string }) {
         </div>
         </div>
         )}
+      </div>
+        </div>
       </div>
     </div>
   );

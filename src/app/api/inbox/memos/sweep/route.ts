@@ -27,8 +27,11 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getLeagueData } from "@/shared/league-data";
 import { buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
+import { generateOfferProse } from "./offerProse";
 
 export const dynamic = "force-dynamic";
+// The director's read is now LLM-written at mint time (one call per new email).
+export const maxDuration = 30;
 
 const REMINDER_AFTER_MS = 36 * 60 * 60 * 1000;
 
@@ -162,7 +165,8 @@ export async function POST(req: Request) {
       try {
         quip = offer.ai_quip ? (JSON.parse(offer.ai_quip)?.to ?? "") : "";
       } catch { /* malformed quip — fall through */ }
-      const prose =
+      // Deterministic fallback if the LLM is unavailable/fails.
+      const fallbackProse =
         quip ||
         `They're putting up ${names(receiveAssets)} and asking for ${names(sendAssets)}. ` +
         (ratio >= 0.97
@@ -171,7 +175,10 @@ export async function POST(req: Request) {
             ? "It's close, but I think there's more in their pocket if we push."
             : "The ask is heavier than the return. I'd pass or make them earn it.");
 
-      const cardPayload = {
+      // The card minus prose. Prose is LLM-written, generated LAZILY (only inside
+      // the mint branches below) so the per-load / 30s-interval sweep never fires
+      // an LLM call for an offer whose email already exists.
+      const cardBase = {
         offer_id: offer.id,
         thread_id: offer.thread_id,
         partner_team_id: offer.from_team_id,
@@ -180,11 +187,27 @@ export async function POST(req: Request) {
         receive: receiveAssets.map((a) => ({ key: a.key, name: a.label || a.key, type: a.type === "pick" || a.key.startsWith("pick:") ? "pick" : "player" })),
         verdict,
         verdict_color: verdictColor,
-        prose,
       };
+
+      const makeProse = () =>
+        generateOfferProse({
+          client,
+          leagueId: LEAGUE_ID,
+          teamId,
+          ourName: teamName(teamId),
+          partnerName: partner,
+          partnerTeamId: offer.from_team_id,
+          sendAssets,
+          receiveAssets,
+          sendVal,
+          recvVal,
+          verdict,
+          fallback: fallbackProse,
+        });
 
       // ── Email 1: the offer lands ─────────────────────────────────────────
       if (!sent.has(`offer_received:${offer.id}`)) {
+        const prose = await makeProse();
         rows.push({
           id: memoIdFor("offer_received", offer.id, teamId),
           director_role: "personnel",
@@ -196,7 +219,7 @@ export async function POST(req: Request) {
           play_intro:
             "Answer it right here, or step into the thread if you want to talk it through or work a counter.",
           play_mode: "offer_card",
-          play_payload: { kind: "offer_received", ...cardPayload },
+          play_payload: { kind: "offer_received", ...cardBase, prose },
           status: "unread",
           created_at: now,
           updated_at: now,
@@ -213,6 +236,7 @@ export async function POST(req: Request) {
       if (!oldEnough || sent.has(`offer_reminder:${offer.id}`)) continue;
 
       const firstUnread = first.status === "unread";
+      const reminderProse = await makeProse();
       rows.push({
         id: memoIdFor("offer_reminder", offer.id, teamId),
         director_role: "personnel",
@@ -225,7 +249,7 @@ export async function POST(req: Request) {
             `Whenever you're ready, tell me how you want to play it and I'll take care of the rest.`,
         play_intro: "Same table as before:",
         play_mode: "offer_card",
-        play_payload: { kind: "offer_reminder", ...cardPayload },
+        play_payload: { kind: "offer_reminder", ...cardBase, prose: reminderProse },
         status: "unread",
         created_at: now,
         updated_at: now,
