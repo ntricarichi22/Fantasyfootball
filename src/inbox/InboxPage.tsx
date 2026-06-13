@@ -29,7 +29,7 @@ type Memo = {
   subject: string;
   read_body: string;
   play_intro: string;
-  play_mode: "single_cta" | "ranked";
+  play_mode: "single_cta" | "ranked" | "offer_card";
   play_payload: unknown;
   status: "unread" | "read" | "archived" | "trashed";
   created_at: string;
@@ -135,7 +135,7 @@ export default function InboxPage() {
   // can deep-link back into the right inbox view (Gmail-style).
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get("filter");
-    if (p === "inbox" || p === "sent" || p === "trash" || p === "archive") setFilter(p);
+    if (p === "inbox" || p === "trades" || p === "sent" || p === "trash" || p === "archive") setFilter(p);
   }, []);
 
   const includeArchived = filter === "archive";
@@ -200,10 +200,14 @@ export default function InboxPage() {
   const allItems = useMemo<InboxItem[]>(() => {
     const items: InboxItem[] = [];
 
+    // Director mail only — inbound-offer emails (play_mode "offer_card") are a
+    // trade now and live in Trade Threads, so they never show in the inbox.
     for (const m of memos) {
+      if (m.play_mode === "offer_card") continue;
       items.push({
         kind: "memo",
         id: m.id,
+        trade: false,
         sender: DIRECTOR_NAMES[m.director_role],
         subject: m.subject,
         preview: m.read_body,
@@ -213,55 +217,55 @@ export default function InboxPage() {
       });
     }
 
+    // Trade threads — ONE row per conversation (its latest offer). Whose turn it
+    // is drives the bucket downstream: latest pending inbound = our turn
+    // (Trade Threads), latest pending outbound = awaiting them (Sent), resolved
+    // = Archive.
     for (const td of threadData) {
+      if (td.offers.length === 0) continue;
+      const latest = td.offers.reduce((a, b) =>
+        new Date(a.created_at).getTime() >= new Date(b.created_at).getTime() ? a : b,
+      );
       const counterpartId =
         td.thread.team_a_id === rosterId ? td.thread.team_b_id : td.thread.team_a_id;
       const counterpartName = rosterNames[counterpartId] || `Team ${counterpartId}`;
+      const isFromUser = latest.from_team_id === rosterId;
+      const isReceiver = latest.to_team_id === rosterId;
+      const youGet = isReceiver ? latest.assets_from : latest.assets_to;
+      const youGive = isReceiver ? latest.assets_to : latest.assets_from;
 
-      for (const offer of td.offers) {
-        const isFromUser = offer.from_team_id === rosterId;
-        const isReceiver = offer.to_team_id === rosterId;
-        // The Personnel director now emails us about every inbound offer
-        // awaiting our response (the offer-card memo, minted by the inbox
-        // sweep), so the legacy raw-offer row for it would be a duplicate.
-        // Drop it. We keep everything else: offers WE sent (the director
-        // doesn't email those), and any resolved/countered offer (history and
-        // active negotiations — once we counter, the live offer flips outbound
-        // and reappears here, which is correct).
-        if (offer.status === "pending" && isReceiver) continue;
-        const youGet = isReceiver ? offer.assets_from : offer.assets_to;
-        const youGive = isReceiver ? offer.assets_to : offer.assets_from;
-
-        let preview = "";
-        if (offer.status === "pending") {
-          try {
-            const q = offer.ai_quip ? JSON.parse(offer.ai_quip) : null;
-            preview = (isReceiver ? q?.to : q?.from) ?? "";
-          } catch {
-            /* silent */
-          }
-          if (!preview) {
-            preview = `They want ${extractName(youGive[0]?.label)}${
-              youGive.length > 1 ? ` and ${youGive.length - 1} more` : ""
-            }.`;
-          }
-        } else {
-          preview = `${offer.status[0].toUpperCase()}${offer.status.slice(1)}.`;
+      let preview = "";
+      if (latest.status === "pending") {
+        try {
+          const q = latest.ai_quip ? JSON.parse(latest.ai_quip) : null;
+          preview = (isReceiver ? q?.to : q?.from) ?? "";
+        } catch {
+          /* silent */
         }
-
-        items.push({
-          kind: "trade",
-          id: offer.id,
-          sender: counterpartName,
-          subject: `Offer for ${extractName(youGet[0]?.label)}`,
-          preview,
-          unread: offer.status === "pending" && isReceiver,
-          timestamp: offer.created_at,
-          href: `/inbox/${td.thread.id}`,
-          tradeFromUser: isFromUser,
-          tradeStatus: offer.status,
-        });
+        if (!preview) {
+          preview = isReceiver
+            ? `They want ${extractName(youGive[0]?.label)}${
+                youGive.length > 1 ? ` and ${youGive.length - 1} more` : ""
+              }.`
+            : `Waiting on ${counterpartName} to respond.`;
+        }
+      } else {
+        preview = `${latest.status[0].toUpperCase()}${latest.status.slice(1)}.`;
       }
+
+      items.push({
+        kind: "trade",
+        id: td.thread.id,
+        trade: true,
+        sender: counterpartName,
+        subject: `Offer for ${extractName(youGet[0]?.label)}`,
+        preview,
+        unread: latest.status === "pending" && isReceiver,
+        timestamp: latest.created_at,
+        href: `/inbox/${td.thread.id}`,
+        tradeFromUser: isFromUser,
+        tradeStatus: latest.status,
+      });
     }
 
     items.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -276,19 +280,35 @@ export default function InboxPage() {
       it.subject.toLowerCase().includes(term) ||
       it.preview.toLowerCase().includes(term);
 
+    const isResolved = (s?: string) =>
+      s === "accepted" || s === "declined" || s === "withdrawn";
+
+    // Inbox — director's own mail only (trades have their own home now).
     if (filter === "inbox") {
       return allItems.filter((it) => {
-        if (!matches(it)) return false;
-        if (it.kind === "memo") {
-          const m = memos.find((x) => x.id === it.id);
-          return m?.status !== "trashed" && m?.status !== "archived";
-        }
-        return it.tradeFromUser !== true;
+        if (!matches(it) || it.kind !== "memo") return false;
+        const m = memos.find((x) => x.id === it.id);
+        return m?.status !== "trashed" && m?.status !== "archived";
       });
     }
+    // Trade Threads — it's our turn: an active inbound offer awaiting our call.
+    if (filter === "trades") {
+      return allItems.filter(
+        (it) =>
+          it.kind === "trade" &&
+          it.tradeStatus === "pending" &&
+          it.tradeFromUser !== true &&
+          matches(it),
+      );
+    }
+    // Sent — our move is the latest and we're awaiting them.
     if (filter === "sent") {
       return allItems.filter(
-        (it) => it.kind === "trade" && it.tradeFromUser === true && matches(it)
+        (it) =>
+          it.kind === "trade" &&
+          it.tradeStatus === "pending" &&
+          it.tradeFromUser === true &&
+          matches(it),
       );
     }
     if (filter === "trash") {
@@ -298,12 +318,13 @@ export default function InboxPage() {
         return m?.status === "trashed" && matches(it);
       });
     }
+    // Archive — closed deals + archived director mail.
     return allItems.filter((it) => {
       if (it.kind === "memo") {
         const m = memos.find((x) => x.id === it.id);
         return m?.status === "archived" && matches(it);
       }
-      return it.tradeStatus !== undefined && it.tradeStatus !== "pending" && matches(it);
+      return isResolved(it.tradeStatus) && matches(it);
     });
   }, [allItems, filter, searchTerm, memos]);
 
@@ -341,7 +362,14 @@ export default function InboxPage() {
   };
 
   const unreadCount = useMemo(
-    () => allItems.filter((it) => it.unread).length,
+    () => allItems.filter((it) => it.unread && it.kind === "memo").length,
+    [allItems]
+  );
+  const tradeUnreadCount = useMemo(
+    () =>
+      allItems.filter(
+        (it) => it.kind === "trade" && it.tradeStatus === "pending" && it.tradeFromUser !== true,
+      ).length,
     [allItems]
   );
 
@@ -402,7 +430,17 @@ export default function InboxPage() {
       )}
 
       <InnerTopbar
-        breadcrumb="INBOX"
+        breadcrumb={
+          filter === "trades"
+            ? "TRADE THREADS"
+            : filter === "sent"
+              ? "SENT"
+              : filter === "trash"
+                ? "TRASH"
+                : filter === "archive"
+                  ? "ARCHIVE"
+                  : "INBOX"
+        }
         onMenuClick={isMobile ? () => setDrawerOpen(true) : undefined}
         mobileSearch={
           isMobile
@@ -430,6 +468,7 @@ export default function InboxPage() {
             }}
             isMobile={false}
             unreadCount={unreadCount}
+            tradeUnreadCount={tradeUnreadCount}
           />
         )}
 
@@ -455,6 +494,7 @@ export default function InboxPage() {
                 }}
               >
                 {filter === "inbox" && `${unreadCount} unread · ${filtered.length} total`}
+                {filter === "trades" && `${tradeUnreadCount} awaiting you · ${filtered.length} total`}
                 {filter === "sent" && `${filtered.length} ${filtered.length === 1 ? "offer" : "offers"}`}
                 {filter === "trash" && `${filtered.length} ${filtered.length === 1 ? "item" : "items"}`}
                 {filter === "archive" && `${filtered.length} closed`}
@@ -469,6 +509,7 @@ export default function InboxPage() {
                 }}
               >
                 {filter === "inbox" && "Inbox"}
+                {filter === "trades" && "Trade Threads"}
                 {filter === "sent" && "Sent"}
                 {filter === "trash" && "Trash"}
                 {filter === "archive" && "Archive"}
@@ -572,6 +613,7 @@ export default function InboxPage() {
               isMobile
               onClose={() => setDrawerOpen(false)}
               unreadCount={unreadCount}
+              tradeUnreadCount={tradeUnreadCount}
             />
           </div>
         </div>

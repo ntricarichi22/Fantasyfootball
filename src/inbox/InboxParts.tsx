@@ -7,10 +7,11 @@ const FH = "Syne, sans-serif";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FB = "var(--font-body, 'DM Sans', sans-serif)";
 
-export type Filter = "inbox" | "sent" | "trash" | "archive";
+export type Filter = "inbox" | "trades" | "sent" | "trash" | "archive";
 
 export const FILTER_LABELS: { value: Filter; label: string }[] = [
   { value: "inbox", label: "Inbox" },
+  { value: "trades", label: "Trade Threads" },
   { value: "sent", label: "Sent" },
   { value: "trash", label: "Trash" },
   { value: "archive", label: "Archive" },
@@ -25,6 +26,7 @@ export type InboxItem = {
   unread: boolean;
   timestamp: string;
   href: string;
+  trade?: boolean;
   tradeFromUser?: boolean;
   tradeStatus?: string;
 };
@@ -52,12 +54,14 @@ export function Sidebar({
   isMobile,
   onClose,
   unreadCount,
+  tradeUnreadCount,
 }: {
   active: Filter;
   onChange: (f: Filter) => void;
   isMobile: boolean;
   onClose?: () => void;
   unreadCount?: number;
+  tradeUnreadCount?: number;
 }) {
   return (
     <div
@@ -141,7 +145,9 @@ export function Sidebar({
       <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
         {FILTER_LABELS.map((f) => {
           const isActive = active === f.value;
-          const showUnreadDot = f.value === "inbox" && (unreadCount ?? 0) > 0;
+          const dotCount =
+            f.value === "inbox" ? unreadCount ?? 0 : f.value === "trades" ? tradeUnreadCount ?? 0 : 0;
+          const showUnreadDot = dotCount > 0;
           return (
             <button
               key={f.value}
@@ -178,7 +184,7 @@ export function Sidebar({
                     display: "inline-block",
                     flexShrink: 0,
                   }}
-                  aria-label={`${unreadCount} unread`}
+                  aria-label={`${dotCount} unread`}
                 />
               )}
             </button>
@@ -611,7 +617,12 @@ export function InboxRow({
 
 export function EmptyState({ filter }: { filter: Filter }) {
   const COPY: Record<Filter, { eyebrow: string; head: string; sub: string }> = {
-    inbox: { eyebrow: "Inbox · 0 messages", head: "Your inbox is empty.", sub: "Nothing to see here yet." },
+    inbox: { eyebrow: "Inbox · 0 messages", head: "Your inbox is empty.", sub: "Nothing from the directors yet." },
+    trades: {
+      eyebrow: "Trade threads · 0",
+      head: "No offers on the table.",
+      sub: "Incoming trades land here for your call.",
+    },
     sent: {
       eyebrow: "Sent · 0 offers",
       head: "You haven't sent any offers yet.",
