@@ -154,6 +154,25 @@ export function HomeScreen() {
   const gmName = gmNameFor(teamName)
   const gmDisplayName = gmName ? `${gmName}, GM` : "General Manager"
 
+  const frontOfficeHero = (small: boolean) => (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: small ? 10 : 16, flexShrink: 0 }}>
+      <div style={{ height: small ? 2 : 3, width: small ? 40 : 96, background: "#1A1A1A" }} />
+      <span
+        style={{
+          fontFamily: "Impact, 'Arial Black', sans-serif",
+          fontSize: small ? 15 : 26,
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          color: "#1A1A1A",
+          lineHeight: 1,
+        }}
+      >
+        Front Office
+      </span>
+      <div style={{ height: small ? 2 : 3, width: small ? 40 : 96, background: "#1A1A1A" }} />
+    </div>
+  )
+
   const gmCard = (fixedPortrait: boolean) => (
     <GMPersonCard
       name={gmDisplayName}
@@ -230,6 +249,7 @@ export function HomeScreen() {
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, minHeight: 0, padding: "8px 10px 0", display: "flex", flexDirection: "column", gap: 8 }}>
             <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} compact />
+            {frontOfficeHero(true)}
             <div style={{ flex: 1, minHeight: 0 }}>{gmCard(false)}</div>
             <MobileOrgLines />
           </div>
@@ -273,6 +293,8 @@ export function HomeScreen() {
         }}
       >
         <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} />
+
+        {frontOfficeHero(false)}
 
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: GRID_GAP, height: "min(100%, 460px)" }}>
