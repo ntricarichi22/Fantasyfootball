@@ -9,19 +9,16 @@ import { DirectorTabBar, type DirectorTab } from "./DirectorTabBar"
 import { TeamMasthead } from "./TeamMasthead"
 import { teamTheme } from "./teamTheme"
 import { DIRECTORS } from "./directors"
+import { gmNameFor } from "./gmNames"
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam"
 import { teamNickname } from "@/shared/league-data/nicknames"
 import { Icon } from "@/shared/ui/Icon"
 import PersonaPicker from "@/inbox/persona/PersonaPicker"
 import type { GmPersona } from "@/research-strategy/api/types"
 
-// TODO Phase 2+: replace hardcoded GM_DATA with a fetch from /api/gm/me
-const GM_DATA = {
-  name: "Nick Tricarichi",
-  personaKey: "straight_shooter" as GmPersona,
-  championships: 2,
-  years: 7,
-}
+const FALLBACK_PERSONA: GmPersona = "straight_shooter"
+
+type GmStats = { championships: number; tenure: number; titleYears: number[] }
 
 const PERSONA_LABELS: Record<GmPersona, string> = {
   closer: "The Closer",
@@ -52,9 +49,10 @@ export function HomeScreen() {
   const [rosterId, setRosterId] = useState<string>("")
   const [unreadCount, setUnreadCount] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
-  const [persona, setPersona] = useState<GmPersona>(GM_DATA.personaKey)
+  const [persona, setPersona] = useState<GmPersona>(FALLBACK_PERSONA)
   const [personaModalOpen, setPersonaModalOpen] = useState(false)
   const [activeDirector, setActiveDirector] = useState<string | null>(null)
+  const [gmStats, setGmStats] = useState<GmStats>({ championships: 0, tenure: 0, titleYears: [] })
   // Full strategy profile - the save endpoint upserts the whole row, so we
   // must POST the complete profile with only gm_persona changed.
   const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null)
@@ -93,6 +91,21 @@ export function HomeScreen() {
         // silent - the door just stays at "all caught up"
       })
   }, [])
+
+  // Fetch the GM's all-time record (championships, tenure, title years)
+  useEffect(() => {
+    if (!rosterId) return
+    fetch(`/api/gm/me?teamId=${encodeURIComponent(rosterId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && typeof d.tenure === "number") {
+          setGmStats({ championships: d.championships ?? 0, tenure: d.tenure ?? 0, titleYears: d.titleYears ?? [] })
+        }
+      })
+      .catch(() => {
+        // silent - card falls back to zeros until data loads
+      })
+  }, [rosterId])
 
   // Load the saved persona from the team strategy profile
   useEffect(() => {
@@ -137,14 +150,16 @@ export function HomeScreen() {
 
   const theme = teamTheme(slugify(teamNickname(teamName)))
   const crestSrc = `/teams/${slugify(teamName)}.png`
+  const gmName = gmNameFor(teamName)
+  const gmDisplayName = gmName ? `${gmName}, GM` : "General Manager"
 
   const gmCard = (
     <GMPersonCard
-      name={GM_DATA.name}
+      name={gmDisplayName}
       persona={persona}
       personaLabel={PERSONA_LABELS[persona]}
-      championships={GM_DATA.championships}
-      years={GM_DATA.years}
+      championships={gmStats.championships}
+      years={gmStats.tenure}
       unreadCount={unreadCount}
       avatarSrc={gmAvatarFor(teamName)}
       onPersonaClick={() => setPersonaModalOpen(true)}
@@ -212,7 +227,7 @@ export function HomeScreen() {
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, minHeight: 0, padding: "8px 10px 0", display: "flex", flexDirection: "column", gap: 8 }}>
-            <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={GM_DATA.years} rings={GM_DATA.championships} compact />
+            <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} compact />
             <div style={{ flex: 1, minHeight: 0 }}>{gmCard}</div>
             <MobileOrgLines />
           </div>
@@ -255,7 +270,7 @@ export function HomeScreen() {
           gap: 16,
         }}
       >
-        <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={GM_DATA.years} rings={GM_DATA.championships} />
+        <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} />
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: GRID_GAP, flex: 1, minHeight: 0 }}>
           <div style={{ minHeight: 0 }}>{gmCard}</div>

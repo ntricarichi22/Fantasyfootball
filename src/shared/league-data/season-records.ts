@@ -142,3 +142,55 @@ async function loadPlayoffHistory(): Promise<Map<string, PlayoffHistory>> {
 
   return out;
 }
+
+// All-time per-team identity totals for the home GM card / masthead:
+// seasons on record (tenure) and the years this franchise won the title.
+export type GmTotals = {
+  rosterId: string;
+  tenure: number;
+  titleYears: number[];
+};
+
+// Cached for an hour, same as playoff history — season records change yearly.
+export function getGmTotals(): Promise<Map<string, GmTotals>> {
+  return ttlMemo("league-data:gm-totals", 3_600_000, loadGmTotals);
+}
+
+async function loadGmTotals(): Promise<Map<string, GmTotals>> {
+  const out = new Map<string, GmTotals>();
+  const admin = getSupabaseAdminClient();
+  if (!admin.client) return out;
+
+  const leagueId = getSleeperLeagueId();
+  if (!leagueId) return out;
+
+  const franchiseToRoster = await fetchFranchiseToRoster(leagueId);
+  const franchiseIds = [...franchiseToRoster.keys()];
+  if (franchiseIds.length === 0) return out;
+
+  const { data } = await admin.client
+    .from("llm_season_records")
+    .select("franchise_id, season_year, won_title")
+    .in("franchise_id", franchiseIds);
+
+  const agg = new Map<string, { seasons: Set<number>; titleYears: number[] }>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    const fid = typeof row.franchise_id === "string" ? row.franchise_id : "";
+    const rosterId = franchiseToRoster.get(fid);
+    if (!rosterId) continue;
+    const e = agg.get(rosterId) ?? { seasons: new Set<number>(), titleYears: [] };
+    e.seasons.add(num(row.season_year));
+    if (row.won_title === true) e.titleYears.push(num(row.season_year));
+    agg.set(rosterId, e);
+  }
+
+  for (const [rosterId, e] of agg) {
+    out.set(rosterId, {
+      rosterId,
+      tenure: e.seasons.size,
+      titleYears: [...e.titleYears].sort((a, b) => a - b),
+    });
+  }
+
+  return out;
+}

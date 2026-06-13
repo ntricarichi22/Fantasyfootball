@@ -39,7 +39,7 @@ export function GMPersonCard({
 
   return (
     <OrgPersonCard
-      name={`${name}, GM`}
+      name={name}
       avatarSrc={avatarSrc}
       avatarAlt={name}
       frameColor="#B08D57"

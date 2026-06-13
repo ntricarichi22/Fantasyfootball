@@ -13,6 +13,8 @@ export type TeamMastheadProps = {
   theme: TeamTheme
   seasons: number
   rings: number
+  /** Years this team won the title, e.g. [2021, 2022] */
+  titleYears?: number[]
   /** Slim single-line variant for mobile */
   compact?: boolean
 }
@@ -36,6 +38,7 @@ export function TeamMasthead({
   theme,
   seasons,
   rings,
+  titleYears = [],
   compact = false,
 }: TeamMastheadProps) {
   const [logoFailed, setLogoFailed] = useState(false)
@@ -48,7 +51,8 @@ export function TeamMasthead({
   }, [])
 
   const crestSize = compact ? 34 : 76
-  const stats = `${seasons} SEASON${seasons === 1 ? "" : "S"} · ${rings} RING${rings === 1 ? "" : "S"}`
+  const base = `${seasons} SEASON${seasons === 1 ? "" : "S"} · ${rings} RING${rings === 1 ? "" : "S"}`
+  const stats = titleYears.length ? `${base} · ${titleYears.join(", ")}` : base
 
   const crest = (
     <div
