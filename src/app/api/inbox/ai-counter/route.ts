@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 /* ------------------------------------------------------------------ */
-/*  Types                                                               */
+/*  Types + constants                                                   */
 /* ------------------------------------------------------------------ */
 
 interface OfferAsset {
@@ -26,9 +26,15 @@ interface OfferAsset {
   value: number;
 }
 
+// Starter-level cutoffs (top-N by value at position, league-wide), mirroring
+// the engine's classification. A non-stud player outside the top-N is "below
+// starter" and, if not young, a scrub.
+const STARTER_LEVEL_TOPN: Record<string, number> = { QB: 30, RB: 30, WR: 40, TE: 10 };
+
 const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 
-// trade_offers / roster keys → a valuation AssetRef.
+type Quality = { value: number; isStud: boolean; isYouth: boolean };
+
 function refFor(key: string): AssetRef {
   if (key.startsWith("pick:")) return { type: "pick", key };
   if (key.startsWith("player:")) return { type: "player", sleeperPlayerId: key.slice(7) };
@@ -67,8 +73,7 @@ async function fetchSleeperData(): Promise<SleeperData | null> {
   }
 }
 
-// A team's tradeable assets, each valued from `perspective`'s seat — so the
-// pool reflects what those pieces are worth to US (intent baked in).
+// A team's tradeable assets, each valued from `perspective`'s seat.
 function buildRosterAssets(
   rosterId: string,
   data: SleeperData,
@@ -80,19 +85,14 @@ function buildRosterAssets(
   if (!roster) return [];
 
   const assets: OfferAsset[] = [];
-
   for (const pid of roster.players ?? []) {
     const id = String(pid);
     const info = data.playerDict[id];
     const value = valueAsset({ type: "player", sleeperPlayerId: id }, ctx, { perspective });
     if (!value) continue;
-    const name =
-      info?.full_name ||
-      [info?.first_name, info?.last_name].filter(Boolean).join(" ") ||
-      id;
     assets.push({
       key: `player:${id}`,
-      label: name,
+      label: info?.full_name || [info?.first_name, info?.last_name].filter(Boolean).join(" ") || id,
       type: "player",
       position: info?.position?.toUpperCase() || "–",
       team: info?.team || "FA",
@@ -100,31 +100,40 @@ function buildRosterAssets(
       value,
     });
   }
-
   for (const tp of data.traded) {
     if (String(tp.owner_id) !== String(rosterId)) continue;
     const key = `pick:${tp.season}-${tp.round}-${tp.roster_id}`;
     const value = valueAsset({ type: "pick", key }, ctx, { perspective });
     if (!value) continue;
-    assets.push({
-      key,
-      label: `${tp.season} Round ${tp.round} Pick`,
-      type: "pick",
-      value,
-    });
+    assets.push({ key, label: `${tp.season} Round ${tp.round} Pick`, type: "pick", value });
   }
-
   return assets;
+}
+
+// League-wide starter-level keys: top-N non-studs at each position by value.
+function computeStarterKeys(data: SleeperData, quality: Record<string, Quality>): Set<string> {
+  const byPos = new Map<string, { id: string; value: number }[]>();
+  for (const roster of data.rosters) {
+    for (const pid of roster.players ?? []) {
+      const id = String(pid);
+      const q = quality[id];
+      if (!q || q.isStud) continue;
+      const pos = (data.playerDict[id]?.position ?? "").toUpperCase();
+      if (!STARTER_LEVEL_TOPN[pos]) continue;
+      if (!byPos.has(pos)) byPos.set(pos, []);
+      byPos.get(pos)!.push({ id, value: q.value });
+    }
+  }
+  const keys = new Set<string>();
+  for (const [pos, list] of byPos) {
+    list.sort((a, b) => b.value - a.value);
+    for (let i = 0; i < Math.min(STARTER_LEVEL_TOPN[pos], list.length); i++) keys.add(list[i].id);
+  }
+  return keys;
 }
 
 /* ------------------------------------------------------------------ */
 /*  POST /api/inbox/ai-counter                                          */
-/*                                                                      */
-/*  Data feed for the counter slider, all valued from OUR seat:         */
-/*  the partner's demandable pieces, our own pool, the partner's        */
-/*  persona band, and the on-the-table offer re-valued for us.          */
-/*                                                                      */
-/*  Body:    { thread_id, counter_team_id }                             */
 /* ------------------------------------------------------------------ */
 
 export async function POST(request: NextRequest) {
@@ -135,29 +144,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { thread_id, counter_team_id } = body as {
-    thread_id?: string;
-    counter_team_id?: string;
-  };
-
+  const { thread_id, counter_team_id } = body as { thread_id?: string; counter_team_id?: string };
   if (!thread_id || !counter_team_id) {
-    return NextResponse.json(
-      { error: "thread_id and counter_team_id are required" },
-      { status: 400 },
-    );
+    return NextResponse.json({ error: "thread_id and counter_team_id are required" }, { status: 400 });
   }
 
   const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
+  if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
-  if (!client) {
-    return NextResponse.json({ error: clientError }, { status: 500 });
-  }
+  if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
 
-  // Latest pending offer in the thread → who's the partner.
   const { data: offers, error: offersError } = await client
     .from("trade_offers")
     .select("*")
@@ -168,10 +165,7 @@ export async function POST(request: NextRequest) {
     .limit(1);
 
   if (offersError || !offers?.length) {
-    return NextResponse.json(
-      { error: "No pending offer found in thread" },
-      { status: 404 },
-    );
+    return NextResponse.json({ error: "No pending offer found in thread" }, { status: 404 });
   }
 
   const latestOffer = offers[0];
@@ -180,26 +174,66 @@ export async function POST(request: NextRequest) {
       ? String(latestOffer.to_team_id)
       : String(latestOffer.from_team_id);
 
-  // Partner persona, Sleeper data, and the valuation context (intent-aware,
-  // ttl-cached) in parallel.
   const [{ data: stratRows }, sleeper, ctx] = await Promise.all([
     client
       .from("cfc_team_strategy_profiles")
-      .select("team_id, gm_persona")
+      .select("team_id, gm_persona, qb_market, rb_market, pc_market")
       .eq("league_id", league_id)
       .in("team_id", [partnerTeamId, counter_team_id]),
     fetchSleeperData(),
     buildValuationContext(),
   ]);
 
-  const personaOf = (teamId: string) =>
-    normalizePersona(
-      (stratRows ?? []).find((r) => String(r.team_id) === String(teamId))?.gm_persona,
-    );
-  const their_persona = personaOf(partnerTeamId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const stratFor = (teamId: string) => (stratRows ?? []).find((r: any) => String(r.team_id) === String(teamId));
+  const their_persona = normalizePersona(stratFor(partnerTeamId)?.gm_persona);
   const their_band = bandFor(their_persona);
-  const our_persona = personaOf(counter_team_id);
+  const our_persona = normalizePersona(stratFor(counter_team_id)?.gm_persona);
   const our_band = bandFor(our_persona);
+
+  // Our buy markets gate which young-but-not-yet-starter players survive the
+  // scrub cut on the demand side.
+  const ourStrat = stratFor(counter_team_id);
+  const buyPositions = new Set<string>();
+  if (ourStrat?.qb_market === "buy") buyPositions.add("QB");
+  if (ourStrat?.rb_market === "buy") buyPositions.add("RB");
+  if (ourStrat?.pc_market === "buy") { buyPositions.add("WR"); buyPositions.add("TE"); }
+
+  // Stud/youth flags for every rostered player (cheap: one values query).
+  const quality: Record<string, Quality> = {};
+  if (sleeper) {
+    const allIds = Array.from(
+      new Set(sleeper.rosters.flatMap((r) => (r.players ?? []).map((p: unknown) => String(p)))),
+    );
+    if (allIds.length > 0) {
+      const { data: qRows } = await client
+        .from("cfc_trade_values_current")
+        .select("sleeper_player_id, cfc_value, elite_multiplier_applied, age_multiplier_applied")
+        .in("sleeper_player_id", allIds);
+      for (const p of qRows ?? []) {
+        if (!p.sleeper_player_id) continue;
+        quality[String(p.sleeper_player_id)] = {
+          value: typeof p.cfc_value === "number" ? p.cfc_value : 0,
+          isStud: typeof p.elite_multiplier_applied === "number" && p.elite_multiplier_applied > 1.0,
+          isYouth: p.age_multiplier_applied === 1.0,
+        };
+      }
+    }
+  }
+  const starterKeys = sleeper ? computeStarterKeys(sleeper, quality) : new Set<string>();
+
+  // The scrub gate (engine's buildPartnerPool rule): keep picks, studs, and
+  // starter-level players unconditionally; keep youth only at our buy positions;
+  // drop everything else. So a counter NEVER pulls in a scrub.
+  const keepForDemand = (a: OfferAsset): boolean => {
+    if (a.type === "pick") return true;
+    const id = a.key.replace("player:", "");
+    const q = quality[id];
+    if (!q) return false;
+    if (q.isStud || starterKeys.has(id)) return true;
+    if (q.isYouth) return buyPositions.has((a.position ?? "").toUpperCase());
+    return false;
+  };
 
   const existingKeys = new Set([
     ...(latestOffer.assets_from ?? []).map((a: OfferAsset) => a.key),
@@ -209,16 +243,14 @@ export async function POST(request: NextRequest) {
   let their_pool: OfferAsset[] = [];
   let our_pool: OfferAsset[] = [];
   if (sleeper) {
-    their_pool = buildRosterAssets(partnerTeamId, sleeper, ctx, counter_team_id).filter(
-      (a) => !existingKeys.has(a.key),
-    );
+    their_pool = buildRosterAssets(partnerTeamId, sleeper, ctx, counter_team_id)
+      .filter((a) => !existingKeys.has(a.key) && keepForDemand(a));
+    // Our own roster (manual + add) is left unfiltered — the user can add anything.
     our_pool = buildRosterAssets(counter_team_id, sleeper, ctx, counter_team_id).filter(
       (a) => !existingKeys.has(a.key),
     );
   }
 
-  // The on-the-table offer's assets, re-valued from OUR seat so the slider math
-  // runs on the same intent-aware currency as the pool.
   const offer_values: Record<string, number> = {};
   for (const a of [
     ...(latestOffer.assets_from ?? []),
