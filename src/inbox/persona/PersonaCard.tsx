@@ -12,44 +12,39 @@ type Props = {
 type Meta = {
   name: string;
   tagline: string;
-  bg: string;
-  textColor: string;
 };
 
 const META: Record<GmPersona, Meta> = {
   closer: {
     name: "The Closer",
     tagline: "Get the deal done. Throw in a sweetener if needed.",
-    bg: "#E8503A",
-    textColor: "#FEFCF9",
   },
   straight_shooter: {
     name: "The Straight Shooter",
     tagline: "Fair value, no games. Down the middle.",
-    bg: "#1A1A1A",
-    textColor: "#FEFCF9",
   },
   architect: {
     name: "The Architect",
     tagline: "Make it interesting. Pick swaps and creative structures.",
-    bg: "#3366CC",
-    textColor: "#FEFCF9",
   },
   hustler: {
     name: "The Hustler",
     tagline: "Come in low. Get them on the phone.",
-    bg: "#F5F0E6",
-    textColor: "#1A1A1A",
   },
 };
 
-const ICON_SIZE: Record<GmPersona, number> = {
-  closer: 90,
-  architect: 130,
-  straight_shooter: 120,
-  hustler: 120,
-};
+const INK = "#1A1A1A";
+const CREAM = "#FEFCF9";
+const BRONZE = "#B08D57";
+const MUTED = "#5F5E5A";
 
+/**
+ * One persona as a ledger row (matching the GM card's attribute rows).
+ * Icons render solid black via a brightness(0) filter — this blacks out
+ * the colored persona art (flags/knight PNGs included) without touching
+ * the source icon files. The selected row fills bronze with a hard black
+ * shadow, white text, and a white check; the rest are muted.
+ */
 export function PersonaCard({ persona, selected, onClick }: Props) {
   const meta = META[persona];
 
@@ -59,66 +54,88 @@ export function PersonaCard({ persona, selected, onClick }: Props) {
       onClick={onClick}
       aria-pressed={selected}
       style={{
-        background: meta.bg,
-        color: meta.textColor,
-        border: "3px solid #1A1A1A",
-        boxShadow: "4px 4px 0 #1A1A1A",
-        padding: "20px 16px 18px",
-        cursor: "pointer",
-        textAlign: "center",
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
-        justifyContent: "space-between",
-        minHeight: 260,
+        gap: 13,
         width: "100%",
-        filter: selected ? "none" : "grayscale(0.65) opacity(0.55)",
-        transition: "filter 150ms ease",
+        boxSizing: "border-box",
+        border: `${selected ? 3 : 2}px solid ${INK}`,
+        borderRadius: 8,
+        padding: selected ? "11px 13px" : "12px 14px",
+        cursor: "pointer",
+        textAlign: "left",
+        background: selected ? BRONZE : CREAM,
+        boxShadow: selected ? `4px 4px 0 ${INK}` : "none",
+        opacity: selected ? 1 : 0.55,
         appearance: "none",
         WebkitAppearance: "none",
         font: "inherit",
+        transition: "opacity 120ms ease",
       }}
     >
-      <div
+      <span
+        aria-hidden="true"
         style={{
-          flex: 1,
+          width: 40,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          padding: "8px 0 16px",
-          width: "100%",
+          flexShrink: 0,
+          lineHeight: 0,
+          filter: "brightness(0)",
         }}
       >
-        <PersonaIcon persona={persona} size={ICON_SIZE[persona]} />
-      </div>
+        <PersonaIcon persona={persona} size={30} />
+      </span>
 
-      <div style={{ width: "100%" }}>
-        <div
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span
           style={{
+            display: "block",
             fontFamily: "Syne, -apple-system, sans-serif",
-            fontWeight: 900,
-            fontSize: 17,
+            fontWeight: 800,
+            fontSize: 14,
             textTransform: "uppercase",
-            letterSpacing: "0.5px",
-            color: meta.textColor,
-            marginBottom: 8,
-            lineHeight: 1.1,
+            letterSpacing: "0.02em",
+            lineHeight: 1,
+            color: selected ? CREAM : INK,
           }}
         >
           {meta.name}
-        </div>
-        <div
+        </span>
+        <span
           style={{
+            display: "block",
             fontFamily: "'DM Sans', -apple-system, sans-serif",
-            fontSize: 11,
-            color: meta.textColor,
-            opacity: 0.92,
-            lineHeight: 1.4,
+            fontSize: 11.5,
+            lineHeight: 1.35,
+            marginTop: 4,
+            color: selected ? CREAM : MUTED,
           }}
         >
           {meta.tagline}
-        </div>
-      </div>
+        </span>
+      </span>
+
+      <span
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: "50%",
+          border: `2px solid ${INK}`,
+          background: CREAM,
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        {selected && (
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={INK} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 13l4 4L19 7" />
+          </svg>
+        )}
+      </span>
     </button>
   );
 }

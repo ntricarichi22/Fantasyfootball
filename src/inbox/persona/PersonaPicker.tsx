@@ -11,54 +11,36 @@ type Props = {
 
 export function PersonaPicker({ value, onChange }: Props) {
   return (
-    <div
-      style={{
-        background: "#FFFFFF",
-        border: "3px solid #1A1A1A",
-        boxShadow: "4px 4px 0 #1A1A1A",
-        padding: "20px 20px 24px",
-      }}
-    >
-      <div style={{ marginBottom: 16 }}>
-        <div
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: 10,
-            fontWeight: 700,
-            color: "#8C7E6A",
-            textTransform: "uppercase",
-            letterSpacing: 2,
-            marginBottom: 4,
-          }}
-        >
-          Negotiation Style
-        </div>
-        <div
-          style={{
-            fontFamily: "Syne, -apple-system, sans-serif",
-            fontWeight: 900,
-            fontSize: 22,
-            textTransform: "uppercase",
-            letterSpacing: "0.5px",
-            color: "#1A1A1A",
-            lineHeight: 1.1,
-          }}
-        >
-          Choose Your Persona
-        </div>
+    <div>
+      <div
+        style={{
+          fontFamily: "'JetBrains Mono', monospace",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+          color: "#8C7E6A",
+          marginBottom: 4,
+        }}
+      >
+        Negotiation Style
+      </div>
+      <div
+        style={{
+          fontFamily: "Syne, -apple-system, sans-serif",
+          fontWeight: 800,
+          fontSize: 22,
+          textTransform: "uppercase",
+          letterSpacing: "0.02em",
+          color: "#1A1A1A",
+          lineHeight: 1.05,
+          marginBottom: 14,
+        }}
+      >
+        Choose Your Persona
       </div>
 
-      <style>{`
-        .cfc-persona-grid {
-          display: grid;
-          grid-template-columns: repeat(4, minmax(0, 1fr));
-          gap: 14px;
-        }
-        @media (max-width: 700px) {
-          .cfc-persona-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        }
-      `}</style>
-      <div className="cfc-persona-grid">
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         {GM_PERSONA_VALUES.map((persona) => (
           <PersonaCard
             key={persona}

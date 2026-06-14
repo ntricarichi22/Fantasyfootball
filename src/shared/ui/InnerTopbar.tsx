@@ -344,19 +344,6 @@ export function InnerTopbar({
                 <Icon name="x" size={20} />
               </button>
             </div>
-            <div
-              style={{
-                fontFamily: FM,
-                fontSize: 10,
-                fontWeight: 700,
-                letterSpacing: "0.18em",
-                textTransform: "uppercase",
-                color: "#8C7E6A",
-                marginBottom: 8,
-              }}
-            >
-              Negotiation Style
-            </div>
             <PersonaPicker value={persona} onChange={savePersona} />
           </div>
         </div>
