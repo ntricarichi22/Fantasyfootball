@@ -234,13 +234,12 @@ export default function CounterDrawer({
   /* ---- slider drag ---- */
   const slideTo = useCallback(
     (pos: number) => {
-      // Snap to the discrete stops so the counter changes only at meaningful
-      // jumps, not every pixel.
-      const n = stops.length;
-      const snapped =
-        n > 1 ? Math.round(Math.max(0, Math.min(1, pos)) * (n - 1)) / (n - 1) : 0;
-      setPosition(snapped);
-      const target = targetForPosition(snapped, stops);
+      // The thumb glides continuously (smooth UI); the DEAL only changes when
+      // the position crosses into a new stop's bucket (targetForPosition snaps
+      // internally). So it slides smoothly but the pieces update at thresholds.
+      const clamped = Math.max(0, Math.min(1, pos));
+      setPosition(clamped);
+      const target = targetForPosition(clamped, stops);
       const pkg = selectCounter(ourSend, ourReceive, trimFromSend, demandFromThem, target);
       setDeal({ send: pkg.send, receive: pkg.receive });
     },
