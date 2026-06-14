@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
+import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 import type { PersonaKey } from "@/pro-personnel/trade-engine/studio/persona";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
@@ -170,7 +171,8 @@ export default function OfferDrawer({
     window.location.href = "/pro-personnel/trade-builder?seed=cycler";
   }, [offers, activeIndex, advisorByOffer]);
 
-  const handleMakeOffer = useCallback(async () => {
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const handleMakeOffer = useCallback(async (note: string) => {
     const offer = offers[activeIndex];
     if (!offer || sendingOffer) return;
     setSendingOffer(true);
@@ -197,8 +199,16 @@ export default function OfferDrawer({
         }),
       });
       if (res.ok) {
+        const j = await res.json().catch(() => ({}));
+        if (note && j.thread_id) {
+          await fetch(`/api/inbox/threads/${encodeURIComponent(j.thread_id)}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from_team_id: myTeamId, message: note }),
+          });
+        }
         flash("Offer sent!");
-        setTimeout(() => { window.location.href = "/inbox"; }, 800);
+        setTimeout(() => { window.location.href = j.thread_id ? `/inbox/${j.thread_id}` : "/inbox"; }, 800);
       } else {
         const j = await res.json().catch(() => ({}));
         flash(j.error || "Failed to send");
@@ -221,6 +231,14 @@ export default function OfferDrawer({
 
   const body = (
     <>
+      {sendModalOpen && currentOffer && (
+        <SendNoteModal
+          partnerName={currentOffer.partnerTeam.name}
+          onSend={(note) => handleMakeOffer(note)}
+          onClose={() => setSendModalOpen(false)}
+          sending={sendingOffer}
+        />
+      )}
       {/* No header — the chat already narrated what's on the board. Just a
           minimal close, with the card vertically centered below. */}
       <div
@@ -247,7 +265,7 @@ export default function OfferDrawer({
               proseLoading={!!currentAdvisor?.loading}
               onPass={handlePass}
               onEdit={handleEdit}
-              onMakeOffer={handleMakeOffer}
+              onMakeOffer={() => setSendModalOpen(true)}
               sending={sendingOffer}
             />
             {offers.length > 1 && (

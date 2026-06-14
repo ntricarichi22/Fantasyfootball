@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import RosterPanel, { type AddSide } from "@/inbox/thread/RosterPanel";
+import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 import type { PersonaKey } from "@/pro-personnel/engine/core/types";
 import {
   postureBounds,
@@ -110,7 +111,6 @@ export default function CounterDrawer({
   const [addMode, setAddMode] = useState<AddSide | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [sendModal, setSendModal] = useState(false);
-  const [counterMsg, setCounterMsg] = useState("");
   const [sending, setSending] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
@@ -273,7 +273,7 @@ export default function CounterDrawer({
   );
 
   /* ---- send ---- */
-  const handleSendCounter = async () => {
+  const handleSendCounter = async (note: string) => {
     setSending(true);
     try {
       const res = await fetch("/api/pro-personnel/trades/create", {
@@ -292,11 +292,11 @@ export default function CounterDrawer({
         }),
       });
       if (res.ok) {
-        if (counterMsg.trim()) {
+        if (note) {
           await fetch(`/api/inbox/threads/${encodeURIComponent(threadId)}/messages`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ from_team_id: myRosterId, message: counterMsg.trim() }),
+            body: JSON.stringify({ from_team_id: myRosterId, message: note }),
           });
         }
         onCounterSent();
@@ -424,18 +424,15 @@ export default function CounterDrawer({
         </>
       )}
 
-      {/* Confirm modal */}
+      {/* Confirm + optional note */}
       {sendModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(26,26,26,0.6)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 70 }} onClick={() => setSendModal(false)}>
-          <div style={{ background: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", padding: "24px 28px", maxWidth: 380, width: "90%" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 16, marginBottom: 12 }}>Send this counter?</div>
-            <input type="text" placeholder="Add a message (optional)…" value={counterMsg} onChange={(e) => setCounterMsg(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleSendCounter(); }} style={{ width: "100%", border: "2px solid #1A1A1A", padding: "10px 12px", fontSize: 13, fontFamily: F, marginBottom: 12, outline: "none", background: "#FEFCF9", boxSizing: "border-box" }} />
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" disabled={sending} onClick={handleSendCounter} style={{ flex: 1, background: "#185FA5", color: "#FEFCF9", border: "2.5px solid #1A1A1A", padding: "10px 0", textAlign: "center", fontWeight: 700, fontSize: 13, cursor: sending ? "not-allowed" : "pointer", fontFamily: F, opacity: sending ? 0.6 : 1 }}>{sending ? "Sending…" : "Send"}</button>
-              <button type="button" onClick={() => setSendModal(false)} style={{ flex: 1, background: "#FEFCF9", color: "#1A1A1A", border: "2.5px solid #1A1A1A", padding: "10px 0", textAlign: "center", fontWeight: 700, fontSize: 13, cursor: "pointer", fontFamily: F }}>Cancel</button>
-            </div>
-          </div>
-        </div>
+        <SendNoteModal
+          partnerName={theirTeamName}
+          primaryLabel="Send counter"
+          onSend={(note) => handleSendCounter(note)}
+          onClose={() => setSendModal(false)}
+          sending={sending}
+        />
       )}
     </div>
   );

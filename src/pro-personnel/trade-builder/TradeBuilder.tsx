@@ -11,6 +11,7 @@ import PlayerRow from "@/pro-personnel/trade-builder/PlayerRow";
 import TierDivider from "@/pro-personnel/trade-builder/TierDivider";
 import RoutingPopup from "@/pro-personnel/trade-builder/RoutingPopup";
 import TeamPickerModal, { type PartnerFit } from "@/pro-personnel/trade-builder/TeamPickerModal";
+import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 
 type Team = { id: string; name: string };
 type Props = {
@@ -455,7 +456,8 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     if (activeTab === thirdId) setActiveTab(myTeamId);
   }, [teams, activeTab, myTeamId]);
 
-  const handleSendOffer = useCallback(async () => {
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const handleSendOffer = useCallback(async (note: string) => {
     if (sending) return;
     const ms = dealAssets.filter(a => a.fromTeamId === myTeamId);
     const mr = dealAssets.filter(a => a.toTeamId === myTeamId);
@@ -478,8 +480,16 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
         }),
       });
       if (res.ok) {
+        const j = await res.json().catch(() => ({}));
+        if (note && j.thread_id) {
+          await fetch(`/api/inbox/threads/${encodeURIComponent(j.thread_id)}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from_team_id: myTeamId, message: note }),
+          });
+        }
         flash("Offer sent!");
-        setTimeout(() => { window.location.href = "/inbox"; }, 1000);
+        setTimeout(() => { window.location.href = j.thread_id ? `/inbox/${j.thread_id}` : "/inbox"; }, 900);
       } else {
         const j = await res.json().catch(() => ({}));
         flash(j.error || "Failed");
@@ -591,11 +601,19 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
           selectedKeys={dealKeys}
         />
       )}
+      {sendModalOpen && (
+        <SendNoteModal
+          partnerName={teamNick(otherTeams[0]?.name ?? "them")}
+          onSend={(note) => handleSendOffer(note)}
+          onClose={() => setSendModalOpen(false)}
+          sending={sending}
+        />
+      )}
     </>
   );
 
   const sendButton = (
-    <div onClick={canSend ? handleSendOffer : undefined} style={{ background: canSend ? "#185FA5" : "#C8C3B8", color: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: canSend ? "3px 3px 0 #1A1A1A" : "none", padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: 14, cursor: canSend ? "pointer" : "not-allowed", textTransform: "uppercase", letterSpacing: "0.04em", opacity: canSend ? 1 : 0.5 }}>
+    <div onClick={canSend ? () => setSendModalOpen(true) : undefined} style={{ background: canSend ? "#185FA5" : "#C8C3B8", color: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: canSend ? "3px 3px 0 #1A1A1A" : "none", padding: "12px 0", textAlign: "center", fontFamily: FH, fontWeight: 800, fontSize: 14, cursor: canSend ? "pointer" : "not-allowed", textTransform: "uppercase", letterSpacing: "0.04em", opacity: canSend ? 1 : 0.5 }}>
       {sending ? "Sending…" : "Send offer"}
     </div>
   );

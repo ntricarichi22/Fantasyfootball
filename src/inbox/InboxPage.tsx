@@ -144,17 +144,9 @@ export default function InboxPage() {
   const fetchAll = useCallback(async () => {
     if (!rosterId) return;
     try {
-      // Compose-on-read: the director's inbound-offer emails (and the one
-      // polite reminder) are minted by an idempotent sweep before we list, so
-      // "the email arrived while you were away" — failure is non-fatal.
-      try {
-        await fetch("/api/inbox/memos/sweep", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ team_id: rosterId }),
-        });
-      } catch { /* sweep is best-effort */ }
-
+      // Inbound offers now live in Trade Threads (driven straight off the
+      // threads list), so we no longer mint a per-offer director email — the
+      // offer-card memo sweep is retired from the inbox load.
       const memosUrl = new URL("/api/inbox/memos", window.location.origin);
       memosUrl.searchParams.set("teamId", rosterId);
       if (includeArchived) memosUrl.searchParams.set("includeArchived", "1");

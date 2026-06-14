@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import RosterPanel, { type RosterAssetItem } from "./RosterPanel";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
+import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 import type { StudioOffer } from "@/pro-personnel/trade-engine/studio/types";
 
@@ -278,7 +279,8 @@ export default function TradeStudioView() {
     window.location.href = "/pro-personnel/trade-builder?seed=studio";
   }, [offers, activeIndex]);
 
-  const handleMakeOffer = useCallback(async () => {
+  const [sendModalOpen, setSendModalOpen] = useState(false);
+  const handleMakeOffer = useCallback(async (note: string) => {
     const offer = offers[activeIndex];
     if (!offer || sendingOffer) return;
     setSendingOffer(true);
@@ -297,8 +299,16 @@ export default function TradeStudioView() {
         }),
       });
       if (res.ok) {
+        const j = await res.json().catch(() => ({}));
+        if (note && j.thread_id) {
+          await fetch(`/api/inbox/threads/${encodeURIComponent(j.thread_id)}/messages`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ from_team_id: rosterId, message: note }),
+          });
+        }
         flash("Offer sent!");
-        setTimeout(() => { window.location.href = "/inbox"; }, 800);
+        setTimeout(() => { window.location.href = j.thread_id ? `/inbox/${j.thread_id}` : "/inbox"; }, 800);
       } else {
         const j = await res.json().catch(() => ({}));
         flash(j.error || "Failed to send");
@@ -406,6 +416,14 @@ export default function TradeStudioView() {
                 </div>
               ) : currentOffer ? (
                 <>
+                  {sendModalOpen && (
+                    <SendNoteModal
+                      partnerName={currentOffer.partnerTeamName}
+                      onSend={(note) => handleMakeOffer(note)}
+                      onClose={() => setSendModalOpen(false)}
+                      sending={sendingOffer}
+                    />
+                  )}
                   <OfferCard
                     partnerName={currentOffer.partnerTeamName}
                     partnerPersona={currentOffer.persona}
@@ -417,7 +435,7 @@ export default function TradeStudioView() {
                     proseLoading={!!advisorByOffer[currentOffer.id]?.loading}
                     onPass={handlePass}
                     onEdit={handleEdit}
-                    onMakeOffer={handleMakeOffer}
+                    onMakeOffer={() => setSendModalOpen(true)}
                     sending={sendingOffer}
                   />
                   {offers.length > 1 && (
