@@ -6,15 +6,14 @@ import RosterPanel, { type AddSide } from "@/inbox/thread/RosterPanel";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 import type { PersonaKey } from "@/pro-personnel/engine/core/types";
 import {
-  postureBounds,
-  targetRatioAt,
+  counterStops,
+  targetForPosition,
   positionForRatio,
   selectCounter,
   centerpieceKey,
   gradeForRatio,
   counterProse,
   ratioOf,
-  type PostureBounds,
 } from "@/inbox/thread/counterMath";
 
 /* ------------------------------------------------------------------ */
@@ -41,8 +40,12 @@ type Offer = {
   to_value: number;
 };
 
+type Band = { min: number; max: number };
+
 type CounterFeed = {
   their_persona: PersonaKey;
+  their_band: Band;
+  our_band: Band;
   their_pool: OfferAsset[];
   our_pool: OfferAsset[];
   offer_values: Record<string, number>;
@@ -159,6 +162,8 @@ export default function CounterDrawer({
         if (live && j && j.their_persona) {
           setFeed({
             their_persona: j.their_persona,
+            their_band: j.their_band ?? { min: 0.9, max: 1.1 },
+            our_band: j.our_band ?? { min: 0.9, max: 1.1 },
             their_pool: j.their_pool ?? [],
             our_pool: j.our_pool ?? [],
             offer_values: j.offer_values ?? {},
@@ -171,19 +176,15 @@ export default function CounterDrawer({
     };
   }, [threadId, myRosterId]);
 
-  // When the intent-aware values arrive, re-seed the working deal at their offer
-  // so the slider math runs on our-perspective currency from the start.
-  useEffect(() => {
-    if (!feed) return;
-    setPosition(0);
-    setDeal({ send: ourSend, receive: ourReceive });
-  }, [feed, ourSend, ourReceive]);
-
   const theirPersona: PersonaKey = feed?.their_persona ?? "straight_shooter";
+  const ourBandMin = feed?.our_band?.min ?? 0.9;
+  const theirBandMin = feed?.their_band?.min ?? 0.9;
 
-  const bounds: PostureBounds = useMemo(
-    () => postureBounds(theirPersona, sumValue(ourSend), sumValue(ourReceive)),
-    [theirPersona, ourSend, ourReceive],
+  // Discrete slider stops in OUR ratio: left = our floor (most generous), up to
+  // a notch past their floor (aggressive).
+  const stops = useMemo(
+    () => counterStops(ourBandMin, theirBandMin),
+    [ourBandMin, theirBandMin],
   );
 
   // Margins the slider may touch — centerpiece fenced off.
@@ -196,11 +197,26 @@ export default function CounterDrawer({
     [feed],
   );
 
+  // When the intent-aware values land, open the deal at OUR floor (stop 0) so
+  // the slider starts on our-perspective currency, not their raw lowball.
+  useEffect(() => {
+    if (!feed) return;
+    setPosition(0);
+    const pkg = selectCounter(
+      ourSend,
+      ourReceive,
+      trimFromSend,
+      demandFromThem,
+      targetForPosition(0, stops),
+    );
+    setDeal({ send: pkg.send, receive: pkg.receive });
+  }, [feed, stops, ourSend, ourReceive, trimFromSend, demandFromThem]);
+
   const ratio = ratioOf(sumValue(deal.send), sumValue(deal.receive));
   const grade = gradeForRatio(ratio);
   const prose = counterProse(
     ratio,
-    bounds,
+    theirBandMin,
     PERSONA_PROSE_LABEL[theirPersona],
     position < 0.02,
   );
@@ -210,23 +226,25 @@ export default function CounterDrawer({
     (send: OfferAsset[], receive: OfferAsset[]) => {
       setDeal({ send, receive });
       const r = ratioOf(sumValue(send), sumValue(receive));
-      setPosition(positionForRatio(r, bounds));
+      setPosition(positionForRatio(r, stops));
     },
-    [bounds],
+    [stops],
   );
 
   /* ---- slider drag ---- */
   const slideTo = useCallback(
     (pos: number) => {
-      // Snap to 5 stops so the counter only changes at meaningful jumps, not
-      // every pixel — kills the precision-chasing that assembled scrub piles.
-      const snapped = Math.round(Math.max(0, Math.min(1, pos)) * 4) / 4;
+      // Snap to the discrete stops so the counter changes only at meaningful
+      // jumps, not every pixel.
+      const n = stops.length;
+      const snapped =
+        n > 1 ? Math.round(Math.max(0, Math.min(1, pos)) * (n - 1)) / (n - 1) : 0;
       setPosition(snapped);
-      const target = targetRatioAt(snapped, bounds);
+      const target = targetForPosition(snapped, stops);
       const pkg = selectCounter(ourSend, ourReceive, trimFromSend, demandFromThem, target);
       setDeal({ send: pkg.send, receive: pkg.receive });
     },
-    [bounds, ourSend, ourReceive, trimFromSend, demandFromThem],
+    [stops, ourSend, ourReceive, trimFromSend, demandFromThem],
   );
 
   const setFromClientX = useCallback(
@@ -358,17 +376,12 @@ export default function CounterDrawer({
         }}
         style={{ position: "relative", height: 30, background: "#FEFCF9", border: "1.5px solid #1A1A1A", cursor: "pointer", touchAction: "none" }}
       >
-        <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 14, background: "repeating-linear-gradient(45deg,#E4E0D6,#E4E0D6 4px,#D3D1C7 4px,#D3D1C7 8px)", borderRight: "1.5px solid #C8C3B8" }} />
-        <div style={{ position: "absolute", left: 14, width: `calc(${pct}% - 14px)`, minWidth: 0, top: 0, bottom: 0, background: "#1A1A1A" }} />
+        <div style={{ position: "absolute", left: 0, width: `${pct}%`, minWidth: 0, top: 0, bottom: 0, background: "#1A1A1A" }} />
         <div style={{ position: "absolute", left: `calc(${pct}% - 9px)`, top: 3, width: 18, height: 22, background: "#1A1A1A", border: "2px solid #FEFCF9" }} />
       </div>
-      <div style={{ position: "relative", height: 16, marginTop: 6 }}>
-        <span style={{ position: "absolute", left: 0, fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>↑ Their offer</span>
-        {position > 0.02 ? (
-          <span style={{ position: "absolute", left: `${Math.min(Math.max(pct, 20), 94)}%`, transform: "translateX(-50%)", whiteSpace: "nowrap", fontFamily: FM, fontSize: 9, color: "#1A1A1A", fontWeight: 700 }}>↑ Our counter</span>
-        ) : (
-          <span style={{ position: "absolute", right: 0, fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>slide right to counter →</span>
-        )}
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
+        <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>Generous</span>
+        <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>Aggressive</span>
       </div>
     </div>
   );

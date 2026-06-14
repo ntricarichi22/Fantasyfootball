@@ -187,13 +187,19 @@ export async function POST(request: NextRequest) {
       .from("cfc_team_strategy_profiles")
       .select("team_id, gm_persona")
       .eq("league_id", league_id)
-      .eq("team_id", partnerTeamId),
+      .in("team_id", [partnerTeamId, counter_team_id]),
     fetchSleeperData(),
     buildValuationContext(),
   ]);
 
-  const their_persona = normalizePersona(stratRows?.[0]?.gm_persona);
+  const personaOf = (teamId: string) =>
+    normalizePersona(
+      (stratRows ?? []).find((r) => String(r.team_id) === String(teamId))?.gm_persona,
+    );
+  const their_persona = personaOf(partnerTeamId);
   const their_band = bandFor(their_persona);
+  const our_persona = personaOf(counter_team_id);
+  const our_band = bandFor(our_persona);
 
   const existingKeys = new Set([
     ...(latestOffer.assets_from ?? []).map((a: OfferAsset) => a.key),
@@ -225,6 +231,8 @@ export async function POST(request: NextRequest) {
     latest_offer_id: latestOffer.id,
     their_persona,
     their_band,
+    our_persona,
+    our_band,
     their_pool,
     our_pool,
     offer_values,

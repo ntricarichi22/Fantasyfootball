@@ -4,28 +4,24 @@
 // canonical OfferCard off these helpers as you drag the posture slider.
 //
 // The model (locked with Nick):
-//   - The slider axis is OUR ratio = receiveValue / sendValue. It opens parked
-//     at THEIR offer (left) and you only ever slide RIGHT (more in our favor) —
-//     we never counter softer than what they already asked.
-//   - The right-hand HARD CAP is 0.20 of ratio below the partner's persona
-//     accept-band floor (their `bandFor().min`). That's the most aggressive
-//     lowball we'll let you pitch — past it, it stops being worth sending.
-//   - As you drag, we pick the package whose ratio is closest to the target,
-//     touching only the MARGINS: the centerpiece swap is sacred, we trim our
-//     throw-ins first, then start demanding pieces from them. Each step is one
-//     marginal asset, so it's always recognizably the same deal — never a
-//     reinvented trade.
+//   - Axis = OUR ratio = receiveValue / sendValue.
+//   - The slider is a row of DISCRETE STOPS in our ratio. The leftmost stop is
+//     OUR persona's floor — the most generous counter we'd ever make (we never
+//     offer below our own floor). Stops climb in 0.10 increments up to one notch
+//     PAST their floor (their floor on our ratio = 1 / theirFloor) — the
+//     aggressive end. So OUR persona sets the floor of the bar; THEIRS sets the
+//     ceiling and where "realistic accept" lands.
+//   - At each stop: gap = targetRatio × what-we-give − what-we-already-get, then
+//     we demand the FEWEST best-fit pieces to fill it. The pool is valued from
+//     OUR seat (intent baked in), so "biggest" already means "best fits our
+//     goals." Anchor on their best, size the next piece to the leftover, cap at
+//     three (≈ four total on their side) — never a scrub pile.
 //
-// The verdict shown on the card is OUR-POV (good for us) via verdictFromRatio +
-// gradeFromVerdict, so it greens up as you push right. Whether THEY accept lives
-// in the director's prose, not the chip.
+// The verdict on the card is OUR-POV (good for us) via verdictFromRatio +
+// gradeFromVerdict; whether THEY accept lives in the director's prose.
 
-import { bandFor } from "@/pro-personnel/engine/core/personas";
 import { verdictFromRatio, gradeFromVerdict } from "@/pro-personnel/engine/core/gap";
-import type { PersonaKey, Grade } from "@/pro-personnel/engine/core/types";
-
-// How far below the partner's floor the far-right end of the slider sits.
-export const HARDBALL_OFFSET = 0.2;
+import type { Grade } from "@/pro-personnel/engine/core/types";
 
 // Minimal asset shape this module needs. Structural so it stays decoupled from
 // the thread's OfferAsset / the engine's RosterAsset.
@@ -33,11 +29,6 @@ export type CounterAsset = {
   key: string;
   value: number;
   type: "player" | "pick";
-};
-
-export type PostureBounds = {
-  startRatio: number; // their offer, on our ratio — the left edge of the usable track
-  capRatio: number; // hardball cap — the right edge
 };
 
 const sumValue = (assets: CounterAsset[]): number =>
@@ -52,39 +43,44 @@ export function ratioOf(sendValue: number, receiveValue: number): number {
   return receiveValue > 0 ? 99 : 0;
 }
 
-// The two ends of the usable slider track for this deal + partner.
-export function postureBounds(
-  theirPersona: PersonaKey,
-  offerSendValue: number,
-  offerReceiveValue: number,
-): PostureBounds {
-  const band = bandFor(theirPersona);
-  // Left: their offer exactly, on our ratio.
-  const startRatio = ratioOf(offerSendValue, offerReceiveValue);
-  // Right: the ratio at which the deal sits HARDBALL_OFFSET below their floor.
-  // Their floor is on THEIR ratio (receive/give from their seat) = 1 / ourRatio,
-  // so their floor of `band.min` maps to our ratio of `1 / band.min`. Pushing
-  // 0.20 below their floor → our ratio of 1 / (band.min - 0.20).
-  const capThemFloor = Math.max(0.05, band.min - HARDBALL_OFFSET);
-  const capRatio = 1 / capThemFloor;
-  return { startRatio, capRatio };
+// The slider's discrete stops, in OUR ratio. Left = our floor (most generous we
+// go), climbing 0.10 to one notch past their floor on our ratio (1/theirFloor).
+export function counterStops(ourFloor: number, theirFloor: number): number[] {
+  const start = Math.max(0.1, ourFloor);
+  const end = 1 / Math.max(0.1, theirFloor) + 0.1; // a notch past their floor
+  const stops: number[] = [];
+  for (let r = start; r <= end + 1e-9; r += 0.1) {
+    stops.push(Math.round(r * 100) / 100);
+  }
+  if (stops.length < 2) stops.push(Math.round((start + 0.1) * 100) / 100);
+  return stops;
 }
 
-// Slider position [0,1] → target our-ratio. 0 = their offer, 1 = hardball cap.
-// Degenerate offers that already beat the cap (they handed us a steal) collapse
-// to a flat track — there's nothing to push for, you'd just Accept.
-export function targetRatioAt(position: number, bounds: PostureBounds): number {
-  const span = bounds.capRatio - bounds.startRatio;
-  if (span <= 0) return bounds.startRatio;
-  return bounds.startRatio + clamp01(position) * span;
+// Slider position [0,1] → the index of the nearest stop.
+export function stopIndex(position: number, stops: number[]): number {
+  if (stops.length <= 1) return 0;
+  return Math.round(clamp01(position) * (stops.length - 1));
 }
 
-// Where their offer's own ratio falls as a [0,1] position on the usable track.
-// Always 0 by construction, but exposed so the UI can place the greyed anchor.
-export function positionForRatio(ratio: number, bounds: PostureBounds): number {
-  const span = bounds.capRatio - bounds.startRatio;
-  if (span <= 0) return 0;
-  return clamp01((ratio - bounds.startRatio) / span);
+// Slider position [0,1] → target our-ratio (snapped to the nearest stop).
+export function targetForPosition(position: number, stops: number[]): number {
+  return stops[stopIndex(position, stops)] ?? 1;
+}
+
+// The [0,1] position whose stop is nearest a given ratio — for re-anchoring the
+// thumb after a manual edit.
+export function positionForRatio(ratio: number, stops: number[]): number {
+  if (stops.length <= 1) return 0;
+  let best = 0;
+  let bestDist = Infinity;
+  for (let i = 0; i < stops.length; i++) {
+    const d = Math.abs(stops[i] - ratio);
+    if (d < bestDist) {
+      bestDist = d;
+      best = i;
+    }
+  }
+  return best / (stops.length - 1);
 }
 
 export type CounterPackage<T extends CounterAsset> = {
@@ -93,12 +89,8 @@ export type CounterPackage<T extends CounterAsset> = {
   ratio: number;
 };
 
-// Build the counter at a target ratio by walking marginal moves in order:
-//   1. trim our throw-ins (cheapest first) — stop overpaying
-//   2. then demand their pieces (cheapest first) — sweeten our side
-// Both lists EXCLUDE the centerpiece, so it never moves. Ratio climbs
-// monotonically across the moves, so we keep the cumulative package whose ratio
-// lands closest to the target and stop once we cross it.
+// Build the counter at a target ratio: trim our throw-ins first (stop
+// overpaying), then demand the FEWEST best-fit pieces to fill the gap.
 export function selectCounter<T extends CounterAsset>(
   offerSend: T[],
   offerReceive: T[],
@@ -122,21 +114,32 @@ export function selectCounter<T extends CounterAsset>(
     }
   }
 
-  // 2. Demand the FEWEST, BEST-FIT pieces — never a scrub pile. Because the pool
-  //    is valued from OUR perspective (intent baked in), "biggest value" already
-  //    means "best fits our goals." So: if a single piece covers the gap, take
-  //    the smallest one that does (least overpay). If nothing single can — the
-  //    asset we're after is bigger than anything they have — demand their TWO
-  //    best (e.g. two 1sts for a stud). Hard cap at two; we never dribble.
+  // 2. Demand the FEWEST, best-fit pieces to fill the gap. Pool is our-seat
+  //    valued, so biggest = best fit. Each step: if a single remaining piece
+  //    covers the leftover, take the SMALLEST that does and stop; otherwise
+  //    anchor on their biggest and keep filling. Cap at THREE demanded
+  //    (≈ four total their side) — never dribble in scrubs.
   const sendValue = sumValue(send);
-  const need = targetRatio * sendValue - receiveValue;
-  let demanded: T[] = [];
-  if (need > 1e-9 && demandFromThem.length > 0) {
-    const ascending = [...demandFromThem].sort((a, b) => a.value - b.value);
-    const single = ascending.find((c) => c.value >= need);
-    demanded = single
-      ? [single]
-      : [...demandFromThem].sort((a, b) => b.value - a.value).slice(0, 2);
+  let remaining = targetRatio * sendValue - receiveValue;
+  const demanded: T[] = [];
+  if (remaining > 1e-9 && demandFromThem.length > 0) {
+    const used = new Set<string>();
+    for (let step = 0; step < 3 && remaining > 1e-9; step++) {
+      const avail = demandFromThem.filter((a) => !used.has(a.key));
+      if (avail.length === 0) break;
+      const single = [...avail]
+        .sort((a, b) => a.value - b.value)
+        .find((c) => c.value >= remaining);
+      if (single) {
+        demanded.push(single);
+        used.add(single.key);
+        break;
+      }
+      const biggest = avail.reduce((top, a) => (a.value > top.value ? a : top), avail[0]);
+      demanded.push(biggest);
+      used.add(biggest.key);
+      remaining -= biggest.value;
+    }
   }
 
   const finalReceive = [...receive, ...demanded];
@@ -160,42 +163,33 @@ export function gradeForRatio(ratio: number): Grade {
   return gradeFromVerdict(verdictFromRatio(ratio, true, true));
 }
 
-// Director's read for the current posture. Deterministic so it can update on
-// every drag with zero latency (the LLM never sits in the slide loop). The
-// chip says "good for us"; this prose carries the "will they take it" read,
-// scaling from "they lowballed, push back" up to "you're past their floor, they
-// may balk." At the parked start we append the slider CTA.
+// Director's read for the current posture — deterministic, zero-latency. Reads
+// off where our ratio sits relative to the landmarks: even (1.0) and their
+// realistic-accept line (their floor on our ratio = 1/theirFloor).
 export function counterProse(
   ratio: number,
-  bounds: PostureBounds,
+  theirFloor: number,
   theirPersonaLabel: string,
   atStart: boolean,
 ): string {
-  const cta =
-    " Tell me how aggressive you want to get using the slider below and I'll update the deal.";
   const who = theirPersonaLabel || "this GM";
+  const acceptLine = 1 / Math.max(0.1, theirFloor); // our ratio where they'd just say yes
 
-  // How close are we to the hardball wall?
-  const span = bounds.capRatio - bounds.startRatio;
-  const reach = span > 0 ? (ratio - bounds.startRatio) / span : 0;
-
-  let read: string;
   if (atStart) {
-    read =
-      ratio < 0.9
-        ? `This is light — they're getting the better of it. I wouldn't take it as-is.`
-        : `It's close to fair, but there's room to nudge it our way.`;
-    return read + cta;
+    return (
+      "I've set our most generous counter — fair-leaning, an easy yes for them. " +
+      "Slide right to squeeze more out of it and I'll rework the pieces."
+    );
   }
 
-  if (reach >= 0.85) {
-    read = `That's about as hard as I'd push — any further and it stops being worth sending. ${who} will have to really want this.`;
-  } else if (ratio >= 1.1) {
-    read = `Now you're winning this outright. It's a real ask for a ${who} — they may balk, but it tells them you saw the lowball.`;
-  } else if (ratio >= 0.95) {
-    read = `This lands fair-to-good for us — a clean, reasonable counter they can actually say yes to.`;
-  } else {
-    read = `Closer, but you're still giving up the edge. Keep sliding if you want to flip it our way.`;
+  if (ratio < 0.99) {
+    return `Generous — we're giving up a touch of value. A ${who} takes this in a heartbeat.`;
   }
-  return read;
+  if (ratio < acceptLine - 0.01) {
+    return `Fair-to-good for us and still above their line — a clean yes for a ${who}.`;
+  }
+  if (ratio <= acceptLine + 0.05) {
+    return `Right about what a ${who} would realistically accept — this is the sweet spot.`;
+  }
+  return `Aggressive — you're past their line. They may balk, but it tells them you saw the lowball.`;
 }
