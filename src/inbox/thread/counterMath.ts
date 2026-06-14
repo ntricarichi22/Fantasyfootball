@@ -5,13 +5,13 @@
 //
 // The model (locked with Nick):
 //   - Axis = OUR ratio = receiveValue / sendValue.
-//   - The slider is a row of DISCRETE STOPS in our ratio. The leftmost stop is
-//     OUR persona's floor — the most generous counter we'd ever make (we never
-//     offer below our own floor). Stops climb in 0.10 increments up to one notch
-//     PAST their floor (their floor on our ratio = 1 / theirFloor) — the
-//     aggressive end. So OUR persona sets the floor of the bar; THEIRS sets the
-//     ceiling and where "realistic accept" lands.
-//   - At each stop: gap = targetRatio × what-we-give − what-we-already-get, then
+//   - The slider is a CONTINUOUS axis in our ratio. The left end is the lesser of
+//     the offer's implied ratio and OUR persona floor; the right end is the hard
+//     cap 1/(theirFloor − 0.20). Two FIXED dashed reference lines mark "Our floor"
+//     (ourFloor) and "Their floor" (1/theirFloor); they never move. The thumb
+//     opens at the offer's implied ratio, so a lowball reads as the thumb sitting
+//     left of "Our floor." See counterAxis().
+//   - At a target ratio: gap = targetRatio × what-we-give − what-we-already-get, then
 //     we demand the FEWEST best-fit pieces to fill it. The pool is valued from
 //     OUR seat (intent baked in), so "biggest" already means "best fits our
 //     goals." Anchor on their best, size the next piece to the leftover, cap at
@@ -43,44 +43,54 @@ export function ratioOf(sendValue: number, receiveValue: number): number {
   return receiveValue > 0 ? 99 : 0;
 }
 
-// The slider's discrete stops, in OUR ratio. Left = our floor (most generous we
-// go), climbing 0.10 to one notch past their floor on our ratio (1/theirFloor).
-export function counterStops(ourFloor: number, theirFloor: number): number[] {
-  const start = Math.max(0.1, ourFloor);
-  const end = 1 / Math.max(0.1, theirFloor) + 0.1; // a notch past their floor
-  const stops: number[] = [];
-  for (let r = start; r <= end + 1e-9; r += 0.1) {
-    stops.push(Math.round(r * 100) / 100);
-  }
-  if (stops.length < 2) stops.push(Math.round((start + 0.1) * 100) / 100);
-  return stops;
+// The slider's CONTINUOUS axis, all in OUR ratio (receive / send):
+//   - left  = the lesser of the offer's implied ratio and OUR persona floor, so
+//     the opening thumb is always on-track and "Our floor" is always in view.
+//   - right = the hard cap: their persona floor pushed 0.20 more aggressive and
+//     inverted to our ratio — 1 / (theirFloor − 0.20).
+//   - ourFloorPos / theirFloorPos = fixed [0,1] positions of the two dashed
+//     reference lines ("Our floor" at ourFloor, "Their floor" at 1/theirFloor).
+//     They never move as the thumb slides.
+//   - startPos = the [0,1] position of the offer's implied ratio (where the
+//     thumb opens).
+export type CounterAxis = {
+  left: number;
+  right: number;
+  ourFloorPos: number;
+  theirFloorPos: number;
+  startPos: number;
+};
+
+export function counterAxis(
+  offerRatio: number,
+  ourFloor: number,
+  theirFloor: number,
+): CounterAxis {
+  const tf = Math.max(0.1, theirFloor);
+  const left = Math.min(offerRatio, ourFloor);
+  const right = 1 / Math.max(0.1, tf - 0.2); // a touch past their floor, our ratio
+  const span = right - left || 1;
+  const pos = (r: number) => clamp01((r - left) / span);
+  return {
+    left,
+    right,
+    ourFloorPos: pos(ourFloor),
+    theirFloorPos: pos(1 / tf),
+    startPos: pos(offerRatio),
+  };
 }
 
-// Slider position [0,1] → the index of the nearest stop.
-export function stopIndex(position: number, stops: number[]): number {
-  if (stops.length <= 1) return 0;
-  return Math.round(clamp01(position) * (stops.length - 1));
+// Slider position [0,1] → target our-ratio (linear across the axis). Continuous —
+// no snapping; the deal's own integer-piece selection is what "snaps."
+export function ratioForPosition(position: number, axis: CounterAxis): number {
+  return axis.left + clamp01(position) * (axis.right - axis.left);
 }
 
-// Slider position [0,1] → target our-ratio (snapped to the nearest stop).
-export function targetForPosition(position: number, stops: number[]): number {
-  return stops[stopIndex(position, stops)] ?? 1;
-}
-
-// The [0,1] position whose stop is nearest a given ratio — for re-anchoring the
-// thumb after a manual edit.
-export function positionForRatio(ratio: number, stops: number[]): number {
-  if (stops.length <= 1) return 0;
-  let best = 0;
-  let bestDist = Infinity;
-  for (let i = 0; i < stops.length; i++) {
-    const d = Math.abs(stops[i] - ratio);
-    if (d < bestDist) {
-      bestDist = d;
-      best = i;
-    }
-  }
-  return best / (stops.length - 1);
+// The [0,1] position of a given ratio on the axis — for re-anchoring the thumb
+// after a manual edit.
+export function positionForRatio(ratio: number, axis: CounterAxis): number {
+  const span = axis.right - axis.left || 1;
+  return clamp01((ratio - axis.left) / span);
 }
 
 export type CounterPackage<T extends CounterAsset> = {

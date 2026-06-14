@@ -6,8 +6,8 @@ import RosterPanel, { type AddSide } from "@/inbox/thread/RosterPanel";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 import type { PersonaKey } from "@/pro-personnel/engine/core/types";
 import {
-  counterStops,
-  targetForPosition,
+  counterAxis,
+  ratioForPosition,
   positionForRatio,
   selectCounter,
   centerpieceKey,
@@ -180,11 +180,18 @@ export default function CounterDrawer({
   const ourBandMin = feed?.our_band?.min ?? 0.9;
   const theirBandMin = feed?.their_band?.min ?? 0.9;
 
-  // Discrete slider stops in OUR ratio: left = our floor (most generous), up to
-  // a notch past their floor (aggressive).
-  const stops = useMemo(
-    () => counterStops(ourBandMin, theirBandMin),
-    [ourBandMin, theirBandMin],
+  // The offer's implied ratio (our seat) anchors where the thumb opens.
+  const offerRatio = useMemo(
+    () => ratioOf(sumValue(ourSend), sumValue(ourReceive)),
+    [ourSend, ourReceive],
+  );
+
+  // The continuous slider axis in OUR ratio: left = lesser of the offer ratio and
+  // our floor; right = the hard cap 1/(theirFloor − 0.20). Fixed floor lines live
+  // on the axis too (ourFloorPos / theirFloorPos).
+  const axis = useMemo(
+    () => counterAxis(offerRatio, ourBandMin, theirBandMin),
+    [offerRatio, ourBandMin, theirBandMin],
   );
 
   // Margins the slider may touch — centerpiece fenced off.
@@ -197,20 +204,21 @@ export default function CounterDrawer({
     [feed],
   );
 
-  // When the intent-aware values land, open the deal at OUR floor (stop 0) so
-  // the slider starts on our-perspective currency, not their raw lowball.
+  // When the intent-aware values land, open parked at the offer's own ratio — the
+  // card shows the active offer unmodified (selectCounter at the offer ratio trims
+  // nothing and demands nothing) and the thumb sits at startPos.
   useEffect(() => {
     if (!feed) return;
-    setPosition(0);
+    setPosition(axis.startPos);
     const pkg = selectCounter(
       ourSend,
       ourReceive,
       trimFromSend,
       demandFromThem,
-      targetForPosition(0, stops),
+      ratioForPosition(axis.startPos, axis),
     );
     setDeal({ send: pkg.send, receive: pkg.receive });
-  }, [feed, stops, ourSend, ourReceive, trimFromSend, demandFromThem]);
+  }, [feed, axis, ourSend, ourReceive, trimFromSend, demandFromThem]);
 
   const ratio = ratioOf(sumValue(deal.send), sumValue(deal.receive));
   const grade = gradeForRatio(ratio);
@@ -218,7 +226,7 @@ export default function CounterDrawer({
     ratio,
     theirBandMin,
     PERSONA_PROSE_LABEL[theirPersona],
-    position < 0.02,
+    false,
   );
 
   // Apply a deal (manual or slider) and keep the slider thumb anchored to it.
@@ -226,24 +234,24 @@ export default function CounterDrawer({
     (send: OfferAsset[], receive: OfferAsset[]) => {
       setDeal({ send, receive });
       const r = ratioOf(sumValue(send), sumValue(receive));
-      setPosition(positionForRatio(r, stops));
+      setPosition(positionForRatio(r, axis));
     },
-    [stops],
+    [axis],
   );
 
   /* ---- slider drag ---- */
   const slideTo = useCallback(
     (pos: number) => {
-      // The thumb glides continuously (smooth UI); the DEAL only changes when
-      // the position crosses into a new stop's bucket (targetForPosition snaps
-      // internally). So it slides smoothly but the pieces update at thresholds.
+      // The thumb glides continuously (smooth UI); the DEAL re-builds against the
+      // continuous target ratio, so pieces only change when a new piece becomes
+      // the best fit. Slides smoothly, snaps the package at thresholds.
       const clamped = Math.max(0, Math.min(1, pos));
       setPosition(clamped);
-      const target = targetForPosition(clamped, stops);
+      const target = ratioForPosition(clamped, axis);
       const pkg = selectCounter(ourSend, ourReceive, trimFromSend, demandFromThem, target);
       setDeal({ send: pkg.send, receive: pkg.receive });
     },
-    [stops, ourSend, ourReceive, trimFromSend, demandFromThem],
+    [axis, ourSend, ourReceive, trimFromSend, demandFromThem],
   );
 
   const setFromClientX = useCallback(
@@ -343,7 +351,43 @@ export default function CounterDrawer({
     }
   };
 
-  const pct = Math.round(position * 100);
+  const pct = Math.round(position * 1000) / 10;
+  const ourFloorPct = Math.round(axis.ourFloorPos * 1000) / 10;
+  const theirFloorPct = Math.round(axis.theirFloorPos * 1000) / 10;
+
+  const floorLabel = (left: number, text: string) => (
+    <span
+      style={{
+        position: "absolute",
+        top: -19,
+        left: `${left}%`,
+        transform: "translateX(-50%)",
+        fontFamily: FM,
+        fontSize: 9,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        color: "#1A1A1A",
+        whiteSpace: "nowrap",
+        pointerEvents: "none",
+      }}
+    >
+      {text}
+    </span>
+  );
+  const floorLine = (left: number) => (
+    <div
+      style={{
+        position: "absolute",
+        top: -2,
+        bottom: -2,
+        left: `${left}%`,
+        borderLeft: "2px dashed #1A1A1A",
+        pointerEvents: "none",
+        zIndex: 2,
+      }}
+    />
+  );
 
   /* ---- render pieces ---- */
   const card = (
@@ -366,21 +410,28 @@ export default function CounterDrawer({
   );
 
   const slider = (
-    <div>
+    <div style={{ marginTop: 18 }}>
       <div
         ref={trackRef}
         onPointerDown={(e) => {
           draggingRef.current = true;
           setFromClientX(e.clientX);
         }}
-        style={{ position: "relative", height: 30, background: "#FEFCF9", border: "1.5px solid #1A1A1A", cursor: "pointer", touchAction: "none" }}
+        style={{ position: "relative", height: 34, background: "#FEFCF9", border: "2px solid #1A1A1A", cursor: "pointer", touchAction: "none" }}
       >
-        <div style={{ position: "absolute", left: 0, width: `${pct}%`, minWidth: 0, top: 0, bottom: 0, background: "#1A1A1A" }} />
-        <div style={{ position: "absolute", left: `calc(${pct}% - 9px)`, top: 3, width: 18, height: 22, background: "#1A1A1A", border: "2px solid #FEFCF9" }} />
+        {/* progress fill — left end → thumb */}
+        <div style={{ position: "absolute", left: 0, width: `${pct}%`, minWidth: 0, top: 0, bottom: 0, background: "#1A1A1A", pointerEvents: "none" }} />
+        {/* fixed reference lines — never move as the thumb slides */}
+        {floorLine(ourFloorPct)}
+        {floorLabel(ourFloorPct, "Our floor")}
+        {floorLine(theirFloorPct)}
+        {floorLabel(theirFloorPct, "Their floor")}
+        {/* thumb */}
+        <div style={{ position: "absolute", left: `${pct}%`, transform: "translateX(-50%)", top: 3, width: 16, height: 26, background: "#1A1A1A", border: "2px solid #FEFCF9", boxShadow: "2px 2px 0 rgba(26,26,26,0.25)", zIndex: 4 }} />
       </div>
-      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-        <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>Generous</span>
-        <span style={{ fontFamily: FM, fontSize: 9, color: "#8C7E6A" }}>Aggressive</span>
+      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7 }}>
+        <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#8C7E6A" }}>Generous</span>
+        <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#8C7E6A" }}>Aggressive</span>
       </div>
     </div>
   );
