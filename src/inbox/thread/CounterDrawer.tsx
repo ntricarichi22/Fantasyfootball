@@ -45,6 +45,7 @@ type CounterFeed = {
   their_persona: PersonaKey;
   their_pool: OfferAsset[];
   our_pool: OfferAsset[];
+  offer_values: Record<string, number>;
 };
 
 type Props = {
@@ -118,13 +119,18 @@ export default function CounterDrawer({
   // Their offer, flipped to OUR point of view — the seed every slider package is
   // built from (never mutated).
   const isReceiver = offer.to_team_id === myRosterId;
+  // Re-price the offer's assets from OUR seat (intent-aware) once the feed lands.
+  const reval = useCallback(
+    (a: OfferAsset): OfferAsset => ({ ...a, value: feed?.offer_values?.[a.key] ?? a.value }),
+    [feed],
+  );
   const ourReceive = useMemo<OfferAsset[]>(
-    () => (isReceiver ? offer.assets_from : offer.assets_to),
-    [isReceiver, offer.assets_from, offer.assets_to],
+    () => (isReceiver ? offer.assets_from : offer.assets_to).map(reval),
+    [isReceiver, offer.assets_from, offer.assets_to, reval],
   );
   const ourSend = useMemo<OfferAsset[]>(
-    () => (isReceiver ? offer.assets_to : offer.assets_from),
-    [isReceiver, offer.assets_from, offer.assets_to],
+    () => (isReceiver ? offer.assets_to : offer.assets_from).map(reval),
+    [isReceiver, offer.assets_from, offer.assets_to, reval],
   );
 
   // The working deal — driven by the slider, overridable by hand.
@@ -155,6 +161,7 @@ export default function CounterDrawer({
             their_persona: j.their_persona,
             their_pool: j.their_pool ?? [],
             our_pool: j.our_pool ?? [],
+            offer_values: j.offer_values ?? {},
           });
         }
       })
@@ -163,6 +170,14 @@ export default function CounterDrawer({
       live = false;
     };
   }, [threadId, myRosterId]);
+
+  // When the intent-aware values arrive, re-seed the working deal at their offer
+  // so the slider math runs on our-perspective currency from the start.
+  useEffect(() => {
+    if (!feed) return;
+    setPosition(0);
+    setDeal({ send: ourSend, receive: ourReceive });
+  }, [feed, ourSend, ourReceive]);
 
   const theirPersona: PersonaKey = feed?.their_persona ?? "straight_shooter";
 
@@ -203,9 +218,11 @@ export default function CounterDrawer({
   /* ---- slider drag ---- */
   const slideTo = useCallback(
     (pos: number) => {
-      const clamped = Math.max(0, Math.min(1, pos));
-      setPosition(clamped);
-      const target = targetRatioAt(clamped, bounds);
+      // Snap to 5 stops so the counter only changes at meaningful jumps, not
+      // every pixel — kills the precision-chasing that assembled scrub piles.
+      const snapped = Math.round(Math.max(0, Math.min(1, pos)) * 4) / 4;
+      setPosition(snapped);
+      const target = targetRatioAt(snapped, bounds);
       const pkg = selectCounter(ourSend, ourReceive, trimFromSend, demandFromThem, target);
       setDeal({ send: pkg.send, receive: pkg.receive });
     },

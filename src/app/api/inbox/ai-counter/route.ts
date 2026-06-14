@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
-import { getPickValue } from "@/pro-personnel/trade-engine/value";
-import type { DraftPick } from "@/infrastructure/picks";
 import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas";
+import {
+  buildValuationContext,
+  valueAsset,
+  type AssetRef,
+  type ValuationContext,
+} from "@/shared/asset-values";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -22,17 +26,17 @@ interface OfferAsset {
   value: number;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Constants                                                           */
-/* ------------------------------------------------------------------ */
-
 const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 
+// trade_offers / roster keys → a valuation AssetRef.
+function refFor(key: string): AssetRef {
+  if (key.startsWith("pick:")) return { type: "pick", key };
+  if (key.startsWith("player:")) return { type: "player", sleeperPlayerId: key.slice(7) };
+  return { type: "player", sleeperPlayerId: key };
+}
+
 /* ------------------------------------------------------------------ */
-/*  Sleeper roster loading                                              */
-/*                                                                      */
-/*  The player dictionary is ~5MB, so we fetch league data ONCE and     */
-/*  build assets for both teams off the shared payload.                 */
+/*  Sleeper roster loading (fetched once, shared by both teams)         */
 /* ------------------------------------------------------------------ */
 
 type SleeperData = {
@@ -63,10 +67,13 @@ async function fetchSleeperData(): Promise<SleeperData | null> {
   }
 }
 
+// A team's tradeable assets, each valued from `perspective`'s seat — so the
+// pool reflects what those pieces are worth to US (intent baked in).
 function buildRosterAssets(
   rosterId: string,
   data: SleeperData,
-  cfcValues: Record<string, number>,
+  ctx: ValuationContext,
+  perspective: string,
 ): OfferAsset[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const roster = data.rosters.find((r: any) => String(r.roster_id) === String(rosterId));
@@ -77,7 +84,7 @@ function buildRosterAssets(
   for (const pid of roster.players ?? []) {
     const id = String(pid);
     const info = data.playerDict[id];
-    const value = cfcValues[id] ?? 0;
+    const value = valueAsset({ type: "player", sleeperPlayerId: id }, ctx, { perspective });
     if (!value) continue;
     const name =
       info?.full_name ||
@@ -96,16 +103,11 @@ function buildRosterAssets(
 
   for (const tp of data.traded) {
     if (String(tp.owner_id) !== String(rosterId)) continue;
-    const pick: DraftPick = {
-      season: tp.season,
-      round: tp.round,
-      roster_id: tp.owner_id,
-      original_roster_id: tp.roster_id,
-    };
-    const value = getPickValue(pick, { teamCount: data.teamCount, cfcValues });
+    const key = `pick:${tp.season}-${tp.round}-${tp.roster_id}`;
+    const value = valueAsset({ type: "pick", key }, ctx, { perspective });
     if (!value) continue;
     assets.push({
-      key: `pick:${tp.season}-${tp.round}-${tp.roster_id}`,
+      key,
       label: `${tp.season} Round ${tp.round} Pick`,
       type: "pick",
       value,
@@ -118,13 +120,11 @@ function buildRosterAssets(
 /* ------------------------------------------------------------------ */
 /*  POST /api/inbox/ai-counter                                          */
 /*                                                                      */
-/*  Data feed for the counter-mode slider. Returns the partner's        */
-/*  demandable pieces, our own pool (for manual add), and the partner's  */
-/*  persona accept-band so the client can drive the posture math.        */
+/*  Data feed for the counter slider, all valued from OUR seat:         */
+/*  the partner's demandable pieces, our own pool, the partner's        */
+/*  persona band, and the on-the-table offer re-valued for us.          */
 /*                                                                      */
 /*  Body:    { thread_id, counter_team_id }                             */
-/*  Returns: { latest_offer_id, their_persona, their_band,              */
-/*             their_pool, our_pool }                                    */
 /* ------------------------------------------------------------------ */
 
 export async function POST(request: NextRequest) {
@@ -180,25 +180,17 @@ export async function POST(request: NextRequest) {
       ? String(latestOffer.to_team_id)
       : String(latestOffer.from_team_id);
 
-  // CFC values, persona, and Sleeper data in parallel.
-  const [{ data: pvData }, { data: stratRows }, sleeper] = await Promise.all([
-    client
-      .from("cfc_trade_values_current")
-      .select("sleeper_player_id, asset_key, cfc_value"),
+  // Partner persona, Sleeper data, and the valuation context (intent-aware,
+  // ttl-cached) in parallel.
+  const [{ data: stratRows }, sleeper, ctx] = await Promise.all([
     client
       .from("cfc_team_strategy_profiles")
       .select("team_id, gm_persona")
       .eq("league_id", league_id)
       .eq("team_id", partnerTeamId),
     fetchSleeperData(),
+    buildValuationContext(),
   ]);
-
-  const cfcValues: Record<string, number> = {};
-  for (const row of pvData ?? []) {
-    if (typeof row.cfc_value !== "number") continue;
-    if (row.sleeper_player_id) cfcValues[row.sleeper_player_id] = row.cfc_value;
-    if (row.asset_key?.startsWith("pick.")) cfcValues[row.asset_key] = row.cfc_value;
-  }
 
   const their_persona = normalizePersona(stratRows?.[0]?.gm_persona);
   const their_band = bandFor(their_persona);
@@ -211,12 +203,22 @@ export async function POST(request: NextRequest) {
   let their_pool: OfferAsset[] = [];
   let our_pool: OfferAsset[] = [];
   if (sleeper) {
-    their_pool = buildRosterAssets(partnerTeamId, sleeper, cfcValues).filter(
+    their_pool = buildRosterAssets(partnerTeamId, sleeper, ctx, counter_team_id).filter(
       (a) => !existingKeys.has(a.key),
     );
-    our_pool = buildRosterAssets(counter_team_id, sleeper, cfcValues).filter(
+    our_pool = buildRosterAssets(counter_team_id, sleeper, ctx, counter_team_id).filter(
       (a) => !existingKeys.has(a.key),
     );
+  }
+
+  // The on-the-table offer's assets, re-valued from OUR seat so the slider math
+  // runs on the same intent-aware currency as the pool.
+  const offer_values: Record<string, number> = {};
+  for (const a of [
+    ...(latestOffer.assets_from ?? []),
+    ...(latestOffer.assets_to ?? []),
+  ] as OfferAsset[]) {
+    offer_values[a.key] = valueAsset(refFor(a.key), ctx, { perspective: counter_team_id });
   }
 
   return NextResponse.json({
@@ -225,5 +227,6 @@ export async function POST(request: NextRequest) {
     their_band,
     their_pool,
     our_pool,
+    offer_values,
   });
 }

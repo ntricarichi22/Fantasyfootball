@@ -99,42 +99,11 @@ export type CounterPackage<T extends CounterAsset> = {
 // Both lists EXCLUDE the centerpiece, so it never moves. Ratio climbs
 // monotonically across the moves, so we keep the cumulative package whose ratio
 // lands closest to the target and stop once we cross it.
-// Smallest-total package whose value meets `need`: the smallest sufficient
-// SINGLE, else the tightest PAIR, else the tightest TRIPLE — capped at three.
-// Ported from the trade-builder's balancing engine (advisor/route.ts
-// `findPackage`) so a counter demands one meaningful piece (a pick, a starter),
-// never a pile of scrubs. `cands` must be sorted ascending by value.
-function findPackage<T extends CounterAsset>(cands: T[], need: number): T[] | null {
-  for (const c of cands) if (c.value >= need) return [c];
-  const N = Math.min(cands.length, 24);
-  let best: T[] | null = null;
-  let bestSum = Infinity;
-  for (let i = 0; i < N; i++)
-    for (let j = i + 1; j < N; j++) {
-      const sum = cands[i].value + cands[j].value;
-      if (sum >= need && sum < bestSum) {
-        best = [cands[i], cands[j]];
-        bestSum = sum;
-      }
-    }
-  if (best) return best;
-  for (let i = 0; i < N; i++)
-    for (let j = i + 1; j < N; j++)
-      for (let k = j + 1; k < N; k++) {
-        const sum = cands[i].value + cands[j].value + cands[k].value;
-        if (sum >= need && sum < bestSum) {
-          best = [cands[i], cands[j], cands[k]];
-          bestSum = sum;
-        }
-      }
-  return best;
-}
-
 export function selectCounter<T extends CounterAsset>(
   offerSend: T[],
   offerReceive: T[],
   trimFromSend: T[], // our removable throw-ins (centerpiece already fenced out)
-  demandFromThem: T[], // their addable pieces
+  demandFromThem: T[], // their addable pieces, valued from OUR seat
   targetRatio: number,
 ): CounterPackage<T> {
   let send = [...offerSend];
@@ -142,9 +111,7 @@ export function selectCounter<T extends CounterAsset>(
   const receiveValue = sumValue(receive);
 
   // 1. Stop overpaying first: peel our throw-ins (smallest first) as long as
-  //    dropping one doesn't push us PAST the target. At the parked start
-  //    (target = their offer) nothing peels; as you slide right, throw-ins go
-  //    before we ever ask them for anything.
+  //    dropping one doesn't push us PAST the target.
   const throwins = [...trimFromSend].sort((a, b) => a.value - b.value);
   for (const t of throwins) {
     const trial = send.filter((a) => a.key !== t.key);
@@ -155,16 +122,21 @@ export function selectCounter<T extends CounterAsset>(
     }
   }
 
-  // 2. Demand the SMALLEST sensible package to close what's left — one piece if
-  //    it covers the gap, else the tightest pair/triple. If their roster simply
-  //    can't get there even with three, take their three best (the most we can
-  //    squeeze) rather than dribbling in scrubs.
+  // 2. Demand the FEWEST, BEST-FIT pieces — never a scrub pile. Because the pool
+  //    is valued from OUR perspective (intent baked in), "biggest value" already
+  //    means "best fits our goals." So: if a single piece covers the gap, take
+  //    the smallest one that does (least overpay). If nothing single can — the
+  //    asset we're after is bigger than anything they have — demand their TWO
+  //    best (e.g. two 1sts for a stud). Hard cap at two; we never dribble.
   const sendValue = sumValue(send);
   const need = targetRatio * sendValue - receiveValue;
   let demanded: T[] = [];
   if (need > 1e-9 && demandFromThem.length > 0) {
-    const pool = [...demandFromThem].sort((a, b) => a.value - b.value);
-    demanded = findPackage(pool, need) ?? pool.slice(-3);
+    const ascending = [...demandFromThem].sort((a, b) => a.value - b.value);
+    const single = ascending.find((c) => c.value >= need);
+    demanded = single
+      ? [single]
+      : [...demandFromThem].sort((a, b) => b.value - a.value).slice(0, 2);
   }
 
   const finalReceive = [...receive, ...demanded];
