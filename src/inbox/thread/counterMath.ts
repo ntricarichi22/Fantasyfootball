@@ -174,6 +174,16 @@ export function gradeForRatio(ratio: number): Grade {
   return gradeFromVerdict(verdictFromRatio(ratio, true, true));
 }
 
+// The director's read of an INCOMING offer (our-POV ratio = receive / send).
+// Tees the offer up in the thread, above it: where it lands on our scale + a
+// nudge toward counter / accept. Deterministic, zero-latency.
+export function offerRead(ratio: number): string {
+  if (ratio < 0.85) return "They're lowballing you — this lands well under fair value. I'd counter hard or pass.";
+  if (ratio < 0.97) return "A touch under fair. Worth a counter to nudge it your way.";
+  if (ratio <= 1.08) return "Right around fair value. Fine to take as-is, or counter for a little more.";
+  return "This one favors you — a strong offer. You could take it.";
+}
+
 // Director's read for the current posture — deterministic, zero-latency. Reads
 // off where our ratio sits relative to the landmarks: even (1.0) and their
 // realistic-accept line (their floor on our ratio = 1/theirFloor).
@@ -188,8 +198,8 @@ export function counterProse(
 
   if (atStart) {
     return (
-      "I've set our most generous counter — fair-leaning, an easy yes for them. " +
-      "Slide right to squeeze more out of it and I'll rework the pieces."
+      "Tell me how you want to play it — drag right to set your price and I'll " +
+      "rebuild the deal, or add pieces by hand."
     );
   }
 

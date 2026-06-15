@@ -8,7 +8,8 @@ import AcceptModal from "@/inbox/thread/AcceptModal";
 import RejectModal from "@/inbox/thread/RejectModal";
 import CounterDrawer from "@/inbox/thread/CounterDrawer";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
-import { gradeForRatio, ratioOf } from "@/inbox/thread/counterMath";
+import DirectorNote from "@/inbox/thread/DirectorNote";
+import { gradeForRatio, ratioOf, offerRead } from "@/inbox/thread/counterMath";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                               */
@@ -138,18 +139,6 @@ async function fetchRosterNames(): Promise<Record<string, string>> {
     return m;
   } catch {
     return {};
-  }
-}
-
-function getQuip(aiQuip: string | null, myId: string, o: TradeOffer): string | null {
-  if (!aiQuip) return null;
-  try {
-    const p = JSON.parse(aiQuip) as { to?: string; from?: string };
-    if (o.to_team_id === myId) return p.to ?? null;
-    if (o.from_team_id === myId) return p.from ?? null;
-    return p.to ?? p.from ?? null;
-  } catch {
-    return null;
   }
 }
 
@@ -304,24 +293,6 @@ const scrollToBottom = useCallback(() => {
     if (!loading && counterMode && !latestPending) setCounterMode(false);
   }, [counterMode, latestPending, loading]);
 
-  useEffect(() => {
-    if (!latestPending || latestPending.ai_quip) return;
-    fetch("/api/inbox/ai-quip", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ offer_id: latestPending.id }),
-    })
-      .then((r) => r.json())
-      .then((j) => {
-        if (j.quip) {
-          setOffers((prev) =>
-            prev.map((o) => o.id === latestPending.id ? { ...o, ai_quip: JSON.stringify(j.quip) } : o),
-          );
-        }
-      })
-      .catch(() => {});
-  }, [latestPending]);
-
   const handleStatus = async (status: string) => {
     if (!rosterId || actionLoading || !latestPending) return;
     setActionLoading(true);
@@ -402,12 +373,19 @@ const scrollToBottom = useCallback(() => {
     const recv = offer.to_team_id === rosterId;
     const youGet = recv ? offer.assets_from : offer.assets_to;
     const youGive = recv ? offer.assets_to : offer.assets_from;
-    const grade = gradeForRatio(ratioOf(sumVal(youGive), sumVal(youGet)));
-    const quip = getQuip(offer.ai_quip, rosterId, offer) || "Reading the matchup…";
+    const ratio = ratioOf(sumVal(youGive), sumVal(youGet));
+    const grade = gradeForRatio(ratio);
     const showActions = !counterMode && !isClosed && isMyTurn;
+    // The director reads the incoming offer for the recipient — above it, at the
+    // decision moment. Suppressed in counter mode (the drawer's director takes
+    // over) and once the thread is closed.
+    const showRead = recv && !isClosed && !counterMode;
 
     return (
-      <div key={offer.id} style={{ opacity: counterMode ? 0.6 : 1 }}>
+      <div key={offer.id} style={{ opacity: counterMode ? 0.6 : 1, display: "flex", flexDirection: "column", gap: 10 }}>
+        {showRead && (
+          <DirectorNote verdict={grade.label} verdictColor={grade.color} prose={offerRead(ratio)} />
+        )}
         <OfferCard
           partnerName={theirName}
           partnerPersona={null}
@@ -415,7 +393,7 @@ const scrollToBottom = useCallback(() => {
           receiveAssets={youGet.map(toCardAsset)}
           verdict={grade.label}
           verdictColor={grade.color}
-          prose={quip}
+          prose=""
           onPass={() => setShowReject(true)}
           onEdit={() => setCounterMode(true)}
           onMakeOffer={() => setShowAccept(true)}
@@ -423,6 +401,7 @@ const scrollToBottom = useCallback(() => {
           secondaryLabel="COUNTER"
           primaryLabel="ACCEPT"
           hideActions={!showActions}
+          hideDirector
         />
         {isSender && !counterMode && !isClosed && (
           <button

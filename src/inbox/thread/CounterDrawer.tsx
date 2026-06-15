@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import RosterPanel, { type AddSide } from "@/inbox/thread/RosterPanel";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
+import DirectorNote from "@/inbox/thread/DirectorNote";
 import type { PersonaKey } from "@/pro-personnel/engine/core/types";
 import {
   counterAxis,
@@ -228,7 +229,7 @@ export default function CounterDrawer({
     ratio,
     theirBandMin,
     PERSONA_PROSE_LABEL[theirPersona],
-    false,
+    position <= axis.startPos + 0.01, // at rest on the opening offer
   );
 
   // Apply a deal (manual or slider) and keep the slider thumb anchored to it.
@@ -379,16 +380,18 @@ export default function CounterDrawer({
       {text}
     </span>
   );
-  const floorLine = (left: number) => (
+  // covered = the black fill has reached this line; flip it to cream so it never
+  // vanishes black-on-black.
+  const floorLine = (left: number, covered: boolean) => (
     <div
       style={{
         position: "absolute",
         top: -2,
         bottom: -2,
         left: `${left}%`,
-        borderLeft: "2px dashed #1A1A1A",
+        borderLeft: `2px dashed ${covered ? "#FEFCF9" : "#1A1A1A"}`,
         pointerEvents: "none",
-        zIndex: 2,
+        zIndex: 3,
       }}
     />
   );
@@ -407,10 +410,17 @@ export default function CounterDrawer({
       onEdit={() => {}}
       onMakeOffer={() => {}}
       hideActions
+      hideDirector
       onRemoveAsset={handleRemove}
       onAddSend={() => setAddMode("send")}
       onAddReceive={() => setAddMode("receive")}
     />
+  );
+
+  // One director voice for the drawer, above the slider — coaches the counter
+  // (how to play it / what they'll say). The card below is a bare ledger.
+  const directorNote = (
+    <DirectorNote verdict={grade.label} verdictColor={grade.color} prose={prose} />
   );
 
   const slider = (
@@ -427,9 +437,9 @@ export default function CounterDrawer({
         {/* progress fill — left end → thumb */}
         <div style={{ position: "absolute", left: 0, width: `${pct}%`, minWidth: 0, top: 0, bottom: 0, background: "#1A1A1A", pointerEvents: "none" }} />
         {/* fixed reference lines — never move as the thumb slides */}
-        {floorLine(ourFloorPct)}
+        {floorLine(ourFloorPct, position >= axis.ourFloorPos)}
         {floorLabel(ourFloorPct, "Our floor")}
-        {floorLine(theirFloorPct)}
+        {floorLine(theirFloorPct, position >= axis.theirFloorPos)}
         {floorLabel(theirFloorPct, "Their floor")}
         {/* thumb */}
         <div style={{ position: "absolute", left: `${pct}%`, transform: "translateX(-50%)", top: 3, width: 16, height: 26, background: "#1A1A1A", border: "2px solid #FEFCF9", boxShadow: "2px 2px 0 rgba(26,26,26,0.25)", zIndex: 4 }} />
@@ -460,6 +470,7 @@ export default function CounterDrawer({
       <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8C7E6A" }}>
         Counter · {theirTeamName}
       </div>
+      {directorNote}
       {slider}
       {card}
       {sendButton}
