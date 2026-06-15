@@ -46,8 +46,9 @@ type CounterFeed = {
   their_persona: PersonaKey;
   their_band: Band;
   our_band: Band;
-  their_pool: OfferAsset[];
-  our_pool: OfferAsset[];
+  demand_pool: OfferAsset[]; // slider auto-demand (scrub-gated partner pieces)
+  our_roster: OfferAsset[]; // entire roster, manual +add (our side)
+  their_roster: OfferAsset[]; // entire roster, manual +add (their side)
   offer_values: Record<string, number>;
 };
 
@@ -164,8 +165,9 @@ export default function CounterDrawer({
             their_persona: j.their_persona,
             their_band: j.their_band ?? { min: 0.9, max: 1.1 },
             our_band: j.our_band ?? { min: 0.9, max: 1.1 },
-            their_pool: j.their_pool ?? [],
-            our_pool: j.our_pool ?? [],
+            demand_pool: j.demand_pool ?? [],
+            our_roster: j.our_roster ?? [],
+            their_roster: j.their_roster ?? [],
             offer_values: j.offer_values ?? {},
           });
         }
@@ -200,7 +202,7 @@ export default function CounterDrawer({
     return ourSend.filter((a) => a.key !== cp).sort((a, b) => a.value - b.value);
   }, [ourSend]);
   const demandFromThem = useMemo(
-    () => [...(feed?.their_pool ?? [])].sort((a, b) => a.value - b.value),
+    () => [...(feed?.demand_pool ?? [])].sort((a, b) => a.value - b.value),
     [feed],
   );
 
@@ -244,8 +246,10 @@ export default function CounterDrawer({
     (pos: number) => {
       // The thumb glides continuously (smooth UI); the DEAL re-builds against the
       // continuous target ratio, so pieces only change when a new piece becomes
-      // the best fit. Slides smoothly, snaps the package at thresholds.
-      const clamped = Math.max(0, Math.min(1, pos));
+      // the best fit. Slides smoothly, snaps the package at thresholds. Drag floor
+      // is the opening offer (startPos) — the generous tail left of it is visual
+      // context only; we never counter MORE generously than their offer.
+      const clamped = Math.max(axis.startPos, Math.min(1, pos));
       setPosition(clamped);
       const target = ratioForPosition(clamped, axis);
       const pkg = selectCounter(ourSend, ourReceive, trimFromSend, demandFromThem, target);
@@ -459,7 +463,7 @@ export default function CounterDrawer({
 
   const rosterPanel = addMode && (
     <RosterPanel
-      pools={{ send: feed?.our_pool ?? [], receive: feed?.their_pool ?? [] }}
+      pools={{ send: feed?.our_roster ?? [], receive: feed?.their_roster ?? [] }}
       tabLabels={{ send: teamNick(myTeamName), receive: teamNick(theirTeamName) }}
       dealKeys={dealKeys}
       initialSide={addMode}

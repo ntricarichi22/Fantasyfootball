@@ -44,8 +44,11 @@ export function ratioOf(sendValue: number, receiveValue: number): number {
 }
 
 // The slider's CONTINUOUS axis, all in OUR ratio (receive / send):
-//   - left  = the lesser of the offer's implied ratio and OUR persona floor, so
-//     the opening thumb is always on-track and "Our floor" is always in view.
+//   - left  = the lesser of the offer's implied ratio and OUR persona floor
+//     pushed 0.20 MORE generous (ourFloor − 0.20). Mirrors the right end, so the
+//     floor lines are stable landmarks and the thumb opens off the edge instead
+//     of jamming a line against the corner. (When the offer is even more generous
+//     than that, it wins, so the opening thumb is always on-track.)
 //   - right = the hard cap: their persona floor pushed 0.20 more aggressive and
 //     inverted to our ratio — 1 / (theirFloor − 0.20).
 //   - ourFloorPos / theirFloorPos = fixed [0,1] positions of the two dashed
@@ -67,7 +70,7 @@ export function counterAxis(
   theirFloor: number,
 ): CounterAxis {
   const tf = Math.max(0.1, theirFloor);
-  const left = Math.min(offerRatio, ourFloor);
+  const left = Math.min(offerRatio, Math.max(0.1, ourFloor - 0.2)); // 0.20 below our floor, or the offer if lower
   const right = 1 / Math.max(0.1, tf - 0.2); // a touch past their floor, our ratio
   const span = right - left || 1;
   const pos = (r: number) => clamp01((r - left) / span);
