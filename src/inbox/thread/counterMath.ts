@@ -22,6 +22,11 @@
 
 import { verdictFromRatio, gradeFromVerdict } from "@/pro-personnel/engine/core/gap";
 import type { Grade } from "@/pro-personnel/engine/core/types";
+import { balanceDeal, type ValuedAsset } from "@/pro-personnel/engine/balance";
+
+// How many partner pieces a slider counter may demand on top of the offer's
+// existing receive side — mirrors the engine's lean multi-piece returns.
+const MAX_DEMANDED = 3;
 
 // Minimal asset shape this module needs. Structural so it stays decoupled from
 // the thread's OfferAsset / the engine's RosterAsset.
@@ -102,8 +107,11 @@ export type CounterPackage<T extends CounterAsset> = {
   ratio: number;
 };
 
-// Build the counter at a target ratio: trim our throw-ins first (stop
-// overpaying), then demand the FEWEST best-fit pieces to fill the gap.
+// Build the counter at a target ratio. Counter-specific scaffolding: we START
+// from an existing offer, so step 1 peels our throw-ins (stop overpaying). The
+// gap-close in step 2 is NOT reinvented — it's the engine's own balanceDeal, the
+// same gap-closer every door uses, so the demanded pieces match how the app
+// builds every other deal.
 export function selectCounter<T extends CounterAsset>(
   offerSend: T[],
   offerReceive: T[],
@@ -111,55 +119,45 @@ export function selectCounter<T extends CounterAsset>(
   demandFromThem: T[], // their addable pieces, valued from OUR seat
   targetRatio: number,
 ): CounterPackage<T> {
-  let send = [...offerSend];
-  const receive = [...offerReceive];
-  const receiveValue = sumValue(receive);
+  const byKey = new Map<string, T>();
+  for (const a of [...offerSend, ...offerReceive, ...demandFromThem]) byKey.set(a.key, a);
+  const toVA = (a: T): ValuedAsset => ({
+    key: a.key,
+    name: (a as { label?: string }).label ?? a.key,
+    type: a.type,
+    value: a.value,
+  });
 
   // 1. Stop overpaying first: peel our throw-ins (smallest first) as long as
   //    dropping one doesn't push us PAST the target.
-  const throwins = [...trimFromSend].sort((a, b) => a.value - b.value);
-  for (const t of throwins) {
+  let send = [...offerSend];
+  const receiveValue = sumValue(offerReceive);
+  for (const t of [...trimFromSend].sort((a, b) => a.value - b.value)) {
     const trial = send.filter((a) => a.key !== t.key);
-    if (ratioOf(sumValue(trial), receiveValue) <= targetRatio + 1e-9) {
-      send = trial;
-    } else {
-      break;
-    }
+    if (ratioOf(sumValue(trial), receiveValue) <= targetRatio + 1e-9) send = trial;
+    else break;
   }
 
-  // 2. Demand the FEWEST, best-fit pieces to fill the gap. Pool is our-seat
-  //    valued, so biggest = best fit. Each step: if a single remaining piece
-  //    covers the leftover, take the SMALLEST that does and stop; otherwise
-  //    anchor on their biggest and keep filling. Cap at THREE demanded
-  //    (≈ four total their side) — never dribble in scrubs.
-  const sendValue = sumValue(send);
-  let remaining = targetRatio * sendValue - receiveValue;
-  const demanded: T[] = [];
-  if (remaining > 1e-9 && demandFromThem.length > 0) {
-    const used = new Set<string>();
-    for (let step = 0; step < 3 && remaining > 1e-9; step++) {
-      const avail = demandFromThem.filter((a) => !used.has(a.key));
-      if (avail.length === 0) break;
-      const single = [...avail]
-        .sort((a, b) => a.value - b.value)
-        .find((c) => c.value >= remaining);
-      if (single) {
-        demanded.push(single);
-        used.add(single.key);
-        break;
-      }
-      const biggest = avail.reduce((top, a) => (a.value > top.value ? a : top), avail[0]);
-      demanded.push(biggest);
-      used.add(biggest.key);
-      remaining -= biggest.value;
-    }
-  }
+  // 2. Close the remaining gap with the engine's balancer — it demands the
+  //    best-fit piece(s) from their (already scrub-gated) pool to hit our target
+  //    ratio. sendPool is empty: a counter never silently adds to our own side.
+  const balanced = balanceDeal({
+    send: send.map(toVA),
+    receive: offerReceive.map(toVA),
+    sendPool: [],
+    receivePool: demandFromThem.map(toVA),
+    targetRatio,
+    maxPerSide: offerReceive.length + MAX_DEMANDED,
+  });
 
-  const finalReceive = [...receive, ...demanded];
+  const back = (vas: ValuedAsset[]): T[] =>
+    vas.map((v) => byKey.get(v.key)).filter((a): a is T => !!a);
+  const finalSend = back(balanced.send);
+  const finalReceive = back(balanced.receive);
   return {
-    send,
+    send: finalSend,
     receive: finalReceive,
-    ratio: ratioOf(sendValue, sumValue(finalReceive)),
+    ratio: ratioOf(sumValue(finalSend), sumValue(finalReceive)),
   };
 }
 

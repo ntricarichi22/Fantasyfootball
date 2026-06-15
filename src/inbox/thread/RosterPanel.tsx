@@ -62,6 +62,15 @@ function metaFor(a: RosterAsset): string {
   return [a.position, a.team, a.ageLabel].filter(Boolean).join(" · ");
 }
 
+// Picks list chronologically — year first, then round (2026 2nds, 2026 3rds,
+// 2027 1sts, …). Parsed off the canonical key `pick:YYYY-R-…`.
+function pickOrder(a: RosterAsset): number {
+  const parts = (a.key || "").replace("pick:", "").split("-");
+  const year = parseInt(parts[0], 10) || 9999;
+  const round = parseInt(parts[1], 10) || 9;
+  return year * 10 + round;
+}
+
 export default function RosterPanel({
   pools,
   tabLabels,
@@ -91,7 +100,11 @@ export default function RosterPanel({
         ...sec,
         items: filtered
           .filter((a) => posGroup(a) === sec.key)
-          .sort((a, b) => b.value - a.value),
+          .sort(
+            sec.key === "PICK"
+              ? (a, b) => pickOrder(a) - pickOrder(b)
+              : (a, b) => b.value - a.value,
+          ),
       })).filter((s) => s.items.length > 0),
     [filtered],
   );
