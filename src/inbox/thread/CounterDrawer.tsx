@@ -414,14 +414,15 @@ export default function CounterDrawer({
   );
 
   const slider = (
-    <div style={{ marginTop: 18 }}>
+    <div style={{ marginTop: 10 }}>
       <div
         ref={trackRef}
         onPointerDown={(e) => {
+          e.preventDefault(); // don't start a text selection on drag
           draggingRef.current = true;
           setFromClientX(e.clientX);
         }}
-        style={{ position: "relative", height: 34, background: "#FEFCF9", border: "2px solid #1A1A1A", cursor: "pointer", touchAction: "none" }}
+        style={{ position: "relative", height: 34, background: "#FEFCF9", border: "2px solid #1A1A1A", cursor: "grab", touchAction: "none" }}
       >
         {/* progress fill — left end → thumb */}
         <div style={{ position: "absolute", left: 0, width: `${pct}%`, minWidth: 0, top: 0, bottom: 0, background: "#1A1A1A", pointerEvents: "none" }} />
@@ -450,13 +451,17 @@ export default function CounterDrawer({
     </button>
   );
 
+  // Slider ABOVE the card: the card's height changes as you slide (rows are
+  // added/removed AND the director prose rewraps), so anything below it shifts
+  // under the cursor. Keeping the slider on top makes it a stable control and
+  // lets the card reflow downward. userSelect:none kills highlight-on-drag.
   const drawerStack = (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 16, userSelect: "none", WebkitUserSelect: "none" }}>
       <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8C7E6A" }}>
         Counter · {theirTeamName}
       </div>
-      {card}
       {slider}
+      {card}
       {sendButton}
     </div>
   );
