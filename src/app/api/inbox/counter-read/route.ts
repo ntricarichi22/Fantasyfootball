@@ -11,7 +11,7 @@ export const maxDuration = 30;
 // counterProse when there's no API key or the call fails, so the drawer always
 // gets a usable line.
 
-const ANTHROPIC_MODEL = "claude-opus-4-8";
+const ANTHROPIC_MODEL = "claude-sonnet-4-6";
 
 type AssetLite = { name?: string };
 type PartnerLite = {
