@@ -3,7 +3,8 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getLeagueData } from "@/shared/league-data";
 import { fetchPlayers } from "@/shared/league-data/sleeper";
-import { buildScrubSets, bucketOf } from "@/shared/team-profiles";
+import { buildScrubSets, bucketOf, buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
+import { buildTeamDossiers } from "@/shared/team-dossier";
 import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas";
 import {
   buildValuationContext,
@@ -95,6 +96,32 @@ export async function POST(request: NextRequest) {
   const our_band = bandFor(ourPersona);
   const their_band = bandFor(theirPersona);
 
+  // Partner's real situation — the same dossier/needs the trade engine reads, so
+  // the director's prose can ground its advice in WHO they are (direction, what
+  // they're chasing/shedding) and their biggest hole, not a bare persona label.
+  const profiles = buildTeamProfiles(data);
+  const dossiers = buildTeamDossiers(profiles, data);
+  const theirDossier = dossiers.find((d) => d.rosterId === them) ?? null;
+  const theirNeeds = computeNeeds(data).get(them) ?? null;
+  const topNeed: string | null = (() => {
+    if (!theirNeeds) return null;
+    const ranked: Array<[string, { level: string; score: number }]> = [
+      ["QB", theirNeeds.qb],
+      ["RB", theirNeeds.rb],
+      ["pass catcher", theirNeeds.passCatcher],
+    ];
+    ranked.sort((a, b) => b[1].score - a[1].score);
+    return ranked[0][1].level === "high" ? ranked[0][0] : null;
+  })();
+  const partner_context = {
+    window: theirDossier?.window ?? "",
+    verdict: theirDossier?.verdict ?? "",
+    wants: theirDossier?.wants ?? "",
+    sells: theirDossier?.sells ?? "",
+    tier_label: theirDossier?.tierLabel ?? "",
+    top_need: topNeed,
+  };
+
   const teamById = new Map(data.teams.map((t) => [t.rosterId, t]));
 
   // A team's ENTIRE roster as OfferAssets — players + spent-aware picks, every
@@ -174,6 +201,7 @@ export async function POST(request: NextRequest) {
     their_band,
     our_persona: ourPersona,
     our_band,
+    partner_context, // partner's direction / wants / sells / biggest hole — for the director's read
     demand_pool, // slider auto-demand (scrub-gated)
     our_roster, // full roster, manual +add (our side)
     their_roster, // full roster, manual +add (their side)

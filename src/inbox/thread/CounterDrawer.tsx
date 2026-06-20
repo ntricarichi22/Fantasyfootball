@@ -15,6 +15,7 @@ import {
   gradeForRatio,
   counterProse,
   ratioOf,
+  type CounterPartner,
 } from "@/inbox/thread/counterMath";
 
 /* ------------------------------------------------------------------ */
@@ -43,14 +44,33 @@ type Offer = {
 
 type Band = { min: number; max: number };
 
+type PartnerContext = {
+  window: string;
+  verdict: string;
+  wants: string;
+  sells: string;
+  tier_label: string;
+  top_need: string | null;
+};
+
 type CounterFeed = {
   their_persona: PersonaKey;
   their_band: Band;
   our_band: Band;
+  partner_context: PartnerContext; // partner direction / wants / sells / hole — for the director
   demand_pool: OfferAsset[]; // slider auto-demand (scrub-gated partner pieces)
   our_roster: OfferAsset[]; // entire roster, manual +add (our side)
   their_roster: OfferAsset[]; // entire roster, manual +add (their side)
   offer_values: Record<string, number>;
+};
+
+const EMPTY_PARTNER_CONTEXT: PartnerContext = {
+  window: "",
+  verdict: "",
+  wants: "",
+  sells: "",
+  tier_label: "",
+  top_need: null,
 };
 
 type Props = {
@@ -166,6 +186,7 @@ export default function CounterDrawer({
             their_persona: j.their_persona,
             their_band: j.their_band ?? { min: 0.9, max: 1.1 },
             our_band: j.our_band ?? { min: 0.9, max: 1.1 },
+            partner_context: j.partner_context ?? EMPTY_PARTNER_CONTEXT,
             demand_pool: j.demand_pool ?? [],
             our_roster: j.our_roster ?? [],
             their_roster: j.their_roster ?? [],
@@ -232,13 +253,24 @@ export default function CounterDrawer({
 
   const ratio = ratioOf(sumValue(deal.send), sumValue(deal.receive));
   const grade = gradeForRatio(ratio);
+  const pc = feed?.partner_context ?? EMPTY_PARTNER_CONTEXT;
+  const partner: CounterPartner = {
+    nick: teamNick(theirTeamName),
+    personaLabel: PERSONA_PROSE_LABEL[theirPersona],
+    persona: theirPersona,
+    window: pc.window,
+    verdict: pc.verdict,
+    wants: pc.wants,
+    sells: pc.sells,
+    topNeed: pc.top_need,
+  };
   const prose = counterProse(
     ratio,
     ourBandMin,
     theirBandMin,
-    PERSONA_PROSE_LABEL[theirPersona],
     offerRatio,
     position <= axis.startPos + 0.01, // at rest on the opening offer
+    partner,
   );
 
   // Apply a deal (manual or slider) and keep the slider thumb anchored to it.

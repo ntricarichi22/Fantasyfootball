@@ -184,33 +184,63 @@ export function offerRead(ratio: number): string {
   return "This one favors you — a strong offer. You could take it.";
 }
 
+// The trade partner's real situation, surfaced from the engine's dossier + needs
+// so the director can ground its advice in WHO they are — not a bare persona
+// label. Assembled by the drawer from the ai-counter feed.
+export type CounterPartner = {
+  nick: string; // team nickname, e.g. "Freaks"
+  personaLabel: string; // "Straight Shooter"
+  persona: string; // raw persona key
+  window: string; // dossier window: rebuilding | contending | closing | ascending
+  verdict: string; // dossier one-liner, e.g. "Rebuild mode. Stockpiling picks and youth…"
+  wants: string; // dossier wants phrase
+  sells: string; // dossier sells phrase
+  topNeed: string | null; // their biggest hole, e.g. "RB"
+};
+
+// How a persona negotiates — the temperament that colors how they read a counter.
+function personaTrait(persona: string): string {
+  switch (persona) {
+    case "straight_shooter": return "deals straight — a clean offer or he passes";
+    case "closer": return "loves to close — let the framing feel like a win for him";
+    case "hustler": return "always works an angle — he won't take your first number";
+    case "architect": return "buys the logic, not the flash";
+    default: return "plays it close to the vest";
+  }
+}
+
+// The currency this team actually values, from their build direction (+ their hole).
+function currencyWanted(window: string, topNeed: string | null): string {
+  const base = window === "contending" || window === "closing" ? "win-now help" : "youth and picks";
+  return topNeed ? `${base} (they're thin at ${topNeed})` : base;
+}
+
 // Director's read for the current posture — deterministic, zero-latency, and
-// TWO-DIMENSIONAL. The advice depends on BOTH:
-//   - how THEY opened (offerRatio vs our floor): a lowball, fair, or generous.
-//   - where WE'VE slid to (ratio vs our floor and their accept line).
-// The same aggressive counter reads very differently after a lowball (righteous
-// pushback — fire back) than after a fair offer (greedy — a relationship risk).
-// The director advises accordingly, flags what the partner will likely want back,
-// and weighs the relationship cost.
+// GROUNDED in the partner. It reads BOTH how they opened (offerRatio vs our
+// floor) and where we've slid to (ratio vs floors), then frames the advice
+// through the partner's direction, what they're chasing, and how their persona
+// haggles — so the same aggressive counter is "fire back" after a lowball but a
+// relationship risk after a fair offer.
 export function counterProse(
   ratio: number,
   ourFloor: number,
   theirFloor: number,
-  theirPersonaLabel: string,
   offerRatio: number,
   atStart: boolean,
+  p: CounterPartner,
 ): string {
-  const who = theirPersonaLabel || "this GM";
+  const who = p.personaLabel || "GM";
+  const trait = personaTrait(p.persona);
+  const currency = currencyWanted(p.window, p.topNeed);
   const acceptLine = 1 / Math.max(0.1, theirFloor); // our ratio where they'd just say yes
   const tone: "lowball" | "fair" | "generous" =
     offerRatio < ourFloor ? "lowball" : offerRatio > 1.05 ? "generous" : "fair";
 
   if (atStart) {
-    if (tone === "lowball")
-      return `They came in light — a lowball. Tell me how hard you want to push back: drag right to set your price and I'll rebuild the deal, or add pieces by hand.`;
-    if (tone === "generous")
-      return `They've actually overpaid us here. Tell me how you want to play it — drag to set your price, or add pieces by hand.`;
-    return `They opened fair. Tell me how you want to respond — drag to set your price and I'll rebuild the deal, or add pieces by hand.`;
+    const opened =
+      tone === "lowball" ? "light — a lowball" : tone === "generous" ? "generous, better than even" : "fair";
+    const lead = p.verdict ? `${p.verdict} ` : "";
+    return `${lead}A ${who} — ${trait}. They opened ${opened}. Tell me how you want to respond — drag to set your price and I'll rebuild the deal, or add pieces by hand.`;
   }
 
   let posture: "stillLow" | "fairForUs" | "atLine" | "aggressive";
@@ -221,28 +251,28 @@ export function counterProse(
 
   if (tone === "lowball") {
     if (posture === "stillLow")
-      return `They opened with a lowball and this barely moves it — we'd still be eating value. Slide right to at least fair before you send.`;
+      return `This barely budges their lowball — you'd still be handing the ${p.nick} value. Slide right to at least fair before you send.`;
     if (posture === "fairForUs")
-      return `Back to fair after their lowball — clean and defensible. A ${who} has no grounds to gripe, and they'll likely take it.`;
+      return `Back to fair after their lowball — clean and defensible. A ${who} ${trait}, so with no value gap left to argue he'll likely just take it.`;
     if (posture === "atLine")
-      return `Right at a ${who}'s realistic yes. After they opened light, this is a firm, fair ask — I'd send it.`;
-    return `Past their line — but they opened with a lowball, so I say fire back. It tells a ${who} we don't roll over, and a GM who pushes back earns respect. Expect them to come back wanting a mid piece or a Day 2 pick to bridge it — that's the conversation you want.`;
+      return `Right at a ${who}'s realistic yes. They opened light, so a firm-but-fair ask here is well earned — I'd send it.`;
+    return `Past their line — but they lowballed first, so firing back is fair game. A ${who} ${trait}; he'll respect the pushback, not take it personally. To close it he'll want the gap bridged with ${currency} — expect that counter, and it's the one you want.`;
   }
 
   if (tone === "generous") {
     if (posture === "stillLow" || posture === "fairForUs")
-      return `They handed us the better end already — this is more than fair for us. I'd take it, or counter only lightly.`;
+      return `The ${p.nick} already handed us the better end — more than fair for us. A ${who} won't sweat it; take it, or counter only lightly.`;
     if (posture === "atLine")
-      return `We're pushing a deal that already favored us toward their limit. Greedy, given how they opened — tread lightly.`;
-    return `They overpaid us to start and now we're reaching well past their line. A ${who} will balk and might walk — a big relationship risk for little upside. Dial it back.`;
+      return `We're nudging a deal that already favored us toward their limit. Greedy given how they opened — a ${who} may wonder if we're pressing our luck.`;
+    return `They opened generous and now we're reaching well past their line. A ${who} ${trait} — he'll balk and might walk, and you'd be burning goodwill for little. Dial it back.`;
   }
 
   // tone === "fair"
   if (posture === "stillLow")
-    return `They came in fair and this still tilts their way — no reason to send under even when they were square with us. Nudge it up.`;
+    return `They came in fair and this still tilts their way — no reason to send under even when the ${p.nick} were square with us. Nudge it up.`;
   if (posture === "fairForUs")
-    return `They opened fair and we're matching it — this is how you keep a GM you'll want to deal with again. Likely a quick yes.`;
+    return `They opened fair and we're matching it — this is how you keep a ${who} as a repeat partner. An even deal is a quick yes for him.`;
   if (posture === "atLine")
-    return `A touch firm, but still inside what a ${who} takes. They were fair with us, so I wouldn't push much past here.`;
-  return `Careful, boss — they opened fair and this gets greedy. A ${who} could read it as us trying to fleece them, and it risks souring the relationship for little gain. I'd pull it back toward even.`;
+    return `A touch firm, but still inside what a ${who} takes. They dealt fair, so I wouldn't push much past here.`;
+  return `Careful — they opened fair, and a ${who} ${trait}. Push this far past even and he reads it as a fleece, not a negotiation. Saving it means overpaying him in ${currency} anyway — not worth souring a straight partner. Pull it back toward even.`;
 }
