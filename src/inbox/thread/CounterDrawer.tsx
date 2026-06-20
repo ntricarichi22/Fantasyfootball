@@ -207,11 +207,18 @@ export default function CounterDrawer({
     [feed],
   );
 
-  // When the intent-aware values land, open parked at the offer's own ratio — the
-  // card shows the active offer unmodified (selectCounter at the offer ratio trims
-  // nothing and demands nothing) and the thumb sits at startPos.
+  // Open parked at the offer's own ratio — the card shows the active offer
+  // unmodified (selectCounter at the offer ratio trims nothing and demands
+  // nothing) and the thumb sits at startPos. Init ONCE PER OFFER: the thread
+  // polls every 10s and hands us a fresh offer object each time; without this
+  // guard that re-ran the effect and snapped the slider back to start, losing
+  // the user's spot when they tabbed away and back. A genuinely new offer (new
+  // id) still re-initializes.
+  const initOfferRef = useRef<string | null>(null);
   useEffect(() => {
     if (!feed) return;
+    if (initOfferRef.current === offer.id) return;
+    initOfferRef.current = offer.id;
     setPosition(axis.startPos);
     const pkg = selectCounter(
       ourSend,
@@ -221,14 +228,16 @@ export default function CounterDrawer({
       ratioForPosition(axis.startPos, axis),
     );
     setDeal({ send: pkg.send, receive: pkg.receive });
-  }, [feed, axis, ourSend, ourReceive, trimFromSend, demandFromThem]);
+  }, [feed, offer.id, axis, ourSend, ourReceive, trimFromSend, demandFromThem]);
 
   const ratio = ratioOf(sumValue(deal.send), sumValue(deal.receive));
   const grade = gradeForRatio(ratio);
   const prose = counterProse(
     ratio,
+    ourBandMin,
     theirBandMin,
     PERSONA_PROSE_LABEL[theirPersona],
+    offerRatio,
     position <= axis.startPos + 0.01, // at rest on the opening offer
   );
 

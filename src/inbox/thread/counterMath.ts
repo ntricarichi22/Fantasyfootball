@@ -184,33 +184,65 @@ export function offerRead(ratio: number): string {
   return "This one favors you — a strong offer. You could take it.";
 }
 
-// Director's read for the current posture — deterministic, zero-latency. Reads
-// off where our ratio sits relative to the landmarks: even (1.0) and their
-// realistic-accept line (their floor on our ratio = 1/theirFloor).
+// Director's read for the current posture — deterministic, zero-latency, and
+// TWO-DIMENSIONAL. The advice depends on BOTH:
+//   - how THEY opened (offerRatio vs our floor): a lowball, fair, or generous.
+//   - where WE'VE slid to (ratio vs our floor and their accept line).
+// The same aggressive counter reads very differently after a lowball (righteous
+// pushback — fire back) than after a fair offer (greedy — a relationship risk).
+// The director advises accordingly, flags what the partner will likely want back,
+// and weighs the relationship cost.
 export function counterProse(
   ratio: number,
+  ourFloor: number,
   theirFloor: number,
   theirPersonaLabel: string,
+  offerRatio: number,
   atStart: boolean,
 ): string {
   const who = theirPersonaLabel || "this GM";
   const acceptLine = 1 / Math.max(0.1, theirFloor); // our ratio where they'd just say yes
+  const tone: "lowball" | "fair" | "generous" =
+    offerRatio < ourFloor ? "lowball" : offerRatio > 1.05 ? "generous" : "fair";
 
   if (atStart) {
-    return (
-      "Tell me how you want to play it — drag right to set your price and I'll " +
-      "rebuild the deal, or add pieces by hand."
-    );
+    if (tone === "lowball")
+      return `They came in light — a lowball. Tell me how hard you want to push back: drag right to set your price and I'll rebuild the deal, or add pieces by hand.`;
+    if (tone === "generous")
+      return `They've actually overpaid us here. Tell me how you want to play it — drag to set your price, or add pieces by hand.`;
+    return `They opened fair. Tell me how you want to respond — drag to set your price and I'll rebuild the deal, or add pieces by hand.`;
   }
 
-  if (ratio < 0.99) {
-    return `Generous — we're giving up a touch of value. A ${who} takes this in a heartbeat.`;
+  let posture: "stillLow" | "fairForUs" | "atLine" | "aggressive";
+  if (ratio < ourFloor) posture = "stillLow";
+  else if (ratio > acceptLine + 0.05) posture = "aggressive";
+  else if (ratio >= acceptLine - 0.05) posture = "atLine";
+  else posture = "fairForUs";
+
+  if (tone === "lowball") {
+    if (posture === "stillLow")
+      return `They opened with a lowball and this barely moves it — we'd still be eating value. Slide right to at least fair before you send.`;
+    if (posture === "fairForUs")
+      return `Back to fair after their lowball — clean and defensible. A ${who} has no grounds to gripe, and they'll likely take it.`;
+    if (posture === "atLine")
+      return `Right at a ${who}'s realistic yes. After they opened light, this is a firm, fair ask — I'd send it.`;
+    return `Past their line — but they opened with a lowball, so I say fire back. It tells a ${who} we don't roll over, and a GM who pushes back earns respect. Expect them to come back wanting a mid piece or a Day 2 pick to bridge it — that's the conversation you want.`;
   }
-  if (ratio < acceptLine - 0.01) {
-    return `Fair-to-good for us and still above their line — a clean yes for a ${who}.`;
+
+  if (tone === "generous") {
+    if (posture === "stillLow" || posture === "fairForUs")
+      return `They handed us the better end already — this is more than fair for us. I'd take it, or counter only lightly.`;
+    if (posture === "atLine")
+      return `We're pushing a deal that already favored us toward their limit. Greedy, given how they opened — tread lightly.`;
+    return `They overpaid us to start and now we're reaching well past their line. A ${who} will balk and might walk — a big relationship risk for little upside. Dial it back.`;
   }
-  if (ratio <= acceptLine + 0.05) {
-    return `Right about what a ${who} would realistically accept — this is the sweet spot.`;
-  }
-  return `Aggressive — you're past their line. They may balk, but it tells them you saw the lowball.`;
+
+  // tone === "fair"
+  if (posture === "stillLow")
+    return `They came in fair and this still tilts their way — no reason to send under even when they were square with us. Nudge it up.`;
+  if (posture === "fairForUs")
+    return `They opened fair and we're matching it — this is how you keep a GM you'll want to deal with again. Likely a quick yes.`;
+  if (posture === "atLine")
+    return `A touch firm, but still inside what a ${who} takes. They were fair with us, so I wouldn't push much past here.`;
+  return `Careful, boss — they opened fair and this gets greedy. A ${who} could read it as us trying to fleece them, and it risks souring the relationship for little gain. I'd pull it back toward even.`;
 }
