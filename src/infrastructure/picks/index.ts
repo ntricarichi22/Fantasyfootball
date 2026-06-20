@@ -191,7 +191,7 @@ const invertDraftOrder = (draftOrder?: Record<string, number>) => {
   return Object.fromEntries(entries);
 };
 
-const mapDraftOrderToRosters = (
+export const mapDraftOrderToRosters = (
   draftOrder: Record<string, number> | undefined,
   rosters: Array<{ roster_id: number; owner_id?: string | number | null | undefined }>
 ) => {

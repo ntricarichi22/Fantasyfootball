@@ -1,11 +1,19 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { ttlMemo } from "@/infrastructure/ttlCache";
-import { withComputedDraftPicks, type DraftPick, type TradedPick } from "@/infrastructure/picks";
+import {
+  withComputedDraftPicks,
+  deriveDraftOrderForSeason,
+  mapDraftOrderToRosters,
+  type DraftPick,
+  type TradedPick,
+  type SleeperDraft,
+} from "@/infrastructure/picks";
 import {
   fetchPlayers,
   fetchRosters,
   fetchUsers,
   fetchTradedPicks,
+  fetchDrafts,
   fetchLeague,
   getSleeperLeagueId,
   playerName,
@@ -215,7 +223,8 @@ async function fetchDraftedPlayers(cfcYear: number): Promise<Array<{ rosterId: s
 function buildPickOwnership(
   rosters: SleeperRoster[],
   traded: unknown[],
-  spent: Set<string>
+  spent: Set<string>,
+  drafts: unknown[] = []
 ): { map: Map<string, OwnedPick[]>; teamCount: number; tradedPickCount: number; currentYearPickCount: number } {
   const cfcYear = getCFCYear();
   const rawRosters = rosters.map((r) => ({
@@ -229,10 +238,18 @@ function buildPickOwnership(
   const rosterOwnerMap: Record<number, string | null> = {};
   for (const r of rawRosters) rosterOwnerMap[r.roster_id] = r.owner_id;
 
+  // Real current-year slot order from Sleeper's draft board (roster -> slot), so
+  // a current-year pick gets its actual slot (e.g. a contender's own 2nd = X.12),
+  // not a roster-index fallback. Future seasons have no board yet → no slot.
+  const derived = deriveDraftOrderForSeason(drafts as SleeperDraft[], String(cfcYear));
+  const draftOrder = mapDraftOrderToRosters(derived.draftOrder, rawRosters);
+
   const withPicks = withComputedDraftPicks(rawRosters, traded as TradedPick[], {
     teamCountOverride: teamCount,
     rosterOwnerMap,
     seasons: [String(cfcYear), String(cfcYear + 1), String(cfcYear + 2)],
+    draftOrder,
+    draftOrderAvailable: derived.available,
   });
 
   const map = new Map<string, OwnedPick[]>();
@@ -301,12 +318,13 @@ export async function getRosters(): Promise<RosteredTeam[]> {
 
 export async function getPickOwnership(): Promise<Map<string, OwnedPick[]>> {
   const leagueId = getSleeperLeagueId();
-  const [rosters, traded, spent] = await Promise.all([
+  const [rosters, traded, spent, drafts] = await Promise.all([
     fetchRosters(leagueId),
     fetchTradedPicks(leagueId),
     fetchSpentPickNumbers(),
+    fetchDrafts(leagueId),
   ]);
-  return buildPickOwnership(rosters, traded, spent).map;
+  return buildPickOwnership(rosters, traded, spent, drafts).map;
 }
 
 // Canonical slot ladder from the pick_template rows (display_name -> cfc_value).
@@ -456,7 +474,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   const leagueId = getSleeperLeagueId();
   if (!leagueId) return { error: "NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set" };
 
-  const [players, rosters, users, traded, league, values, strat, spent, drafted] = await Promise.all([
+  const [players, rosters, users, traded, league, values, strat, spent, drafted, drafts] = await Promise.all([
     fetchPlayers(),
     fetchRosters(leagueId),
     fetchUsers(leagueId),
@@ -466,13 +484,14 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     getStrategyProfiles(),
     fetchSpentPickNumbers(),
     fetchDraftedPlayers(getCFCYear()),
+    fetchDrafts(leagueId),
   ]);
 
   if (!rosters.length) return { error: "Sleeper rosters unavailable" };
 
   const dict = buildPlayerDict(players);
   const teams = buildTeams(rosters, buildTeamNames(rosters, users), dict, drafted);
-  const ownership = buildPickOwnership(rosters, traded, spent);
+  const ownership = buildPickOwnership(rosters, traded, spent, drafts);
 
   const settings: LeagueSettings = {
     rosterPositions:

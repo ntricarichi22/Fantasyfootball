@@ -129,4 +129,27 @@ export async function rebuildPickValuesForTeam(
   await client
     .from("cfc_team_trade_values_current")
     .upsert(rows, { onConflict: "league_id,team_id,sleeper_player_id" });
+
+  // Purge stale PICK rows — a pick key changes when its slot/ownership updates
+  // (e.g. a current-year slot corrected from 2.04 to 2.12), so the old row would
+  // otherwise linger. Delete this team's PICK rows whose key is no longer owned.
+  const currentKeys = new Set(rows.map((r) => r.sleeper_player_id));
+  const { data: existing } = await client
+    .from("cfc_team_trade_values_current")
+    .select("sleeper_player_id")
+    .eq("league_id", leagueId)
+    .eq("team_id", teamId)
+    .eq("position", "PICK");
+  const stale = (existing ?? [])
+    .map((r) => (r as { sleeper_player_id: string }).sleeper_player_id)
+    .filter((k) => !currentKeys.has(k));
+  if (stale.length) {
+    await client
+      .from("cfc_team_trade_values_current")
+      .delete()
+      .eq("league_id", leagueId)
+      .eq("team_id", teamId)
+      .eq("position", "PICK")
+      .in("sleeper_player_id", stale);
+  }
 }

@@ -92,6 +92,16 @@ export function fetchTradedPicks(leagueId: string): Promise<unknown[]> {
   );
 }
 
+// The league's drafts (each carries `draft_order` — the real per-slot pick
+// order). Needed so current-year pick slots reflect the actual draft board.
+export function fetchDrafts(leagueId: string): Promise<unknown[]> {
+  return getJson<unknown[]>(
+    `https://api.sleeper.app/v1/league/${leagueId}/drafts`,
+    LEAGUE_TTL,
+    []
+  );
+}
+
 export function fetchLeague(leagueId: string): Promise<SleeperLeague | null> {
   return getJson<SleeperLeague | null>(
     `https://api.sleeper.app/v1/league/${leagueId}`,
