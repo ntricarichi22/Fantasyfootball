@@ -1,61 +1,34 @@
 // POST /api/pro-personnel/trade-studio/generate
 //
-// Trade Studio generation — on the unified engine. Request contract is unchanged
-// (team_id + shop_list_keys + optional anchor_partner_id; rosters are still
-// accepted but ignored, since the engine reads roster truth from shared). All
-// engine inputs load SERVER-SIDE here; the engine touches no database.
+// Thin door over the Studio offer engine. The Studio shows what OTHER teams
+// would realistically offer for the assets we put on the block — a GM lens where
+// the partner comes out ahead. All engine inputs load SERVER-SIDE here; the
+// engine itself touches no database.
 //
-// Response shape is frozen: { offers: StudioOffer[], totalCandidatesEvaluated,
-// isFallback }, where StudioOffer = { id, partnerTeamId, partnerTeamName,
-// persona, send, receive, sendValue, receiveValue, valueGap, gradeLabel,
-// gradeColor }. The chip is always OUR view (ourScoreboard); the partner side
-// lives in the advisor prose.
+// Request contract is unchanged (team_id + shop_list_keys + optional
+// anchor_partner_id; rosters are still accepted but ignored — the engine reads
+// roster truth from shared). Response shape is frozen: { offers: StudioOffer[],
+// totalCandidatesEvaluated, isFallback }.
 
 import { NextResponse } from "next/server";
-import { getLeagueData, getPlayoffHistory, type LeagueData } from "@/shared/league-data";
-import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
-import { buildTeamDossiers } from "@/shared/team-dossier";
-import { buildTeamNarratives } from "@/shared/team-narratives";
-import {
-  buildValuationContext,
-  valueAsset,
-  isYoung,
-  type AssetRef,
-  type ValuationContext,
-} from "@/shared/asset-values";
-import {
-  runStudio,
-  inferShopListLeans,
-  type EngineContext,
-  type ShopListItem,
-} from "@/pro-personnel/engine";
+import { getLeagueData } from "@/shared/league-data";
+import { buildValuationContext } from "@/shared/asset-values";
+import { buildDepthData, generateStudioOffers } from "@/pro-personnel/engine/studio/offers";
 
 export const dynamic = "force-dynamic";
 
-// Per-asset display value on OUR scoreboard: our assets at our perspective,
-// their assets at neutral base — consistent with the offer's sendValue/
-// receiveValue totals.
-function assetValue(
-  key: string,
-  type: "player" | "pick",
-  side: "send" | "receive",
-  ourTeamId: string,
-  ctx: ValuationContext,
-): number {
-  const ref: AssetRef = type === "pick" ? { type: "pick", key } : { type: "player", sleeperPlayerId: key };
-  return side === "send" ? valueAsset(ref, ctx, { perspective: ourTeamId }) : valueAsset(ref, ctx);
-}
-
-function positionOf(key: string, data: LeagueData): string | undefined {
-  return data.players.get(key)?.position;
+// The roster UI (and /api/pro-personnel/targets) emit player keys prefixed
+// "player:<sleeperId>", but the engine keys players by the raw Sleeper id and
+// picks by "pick:<season>-<round>[-<slot>]-<origRid>". Normalize at the door.
+function toEngineKey(key: string): string {
+  return key.startsWith("player:") ? key.slice("player:".length) : key;
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const teamId = String(body.team_id ?? "").trim();
-    const shopKeys: string[] = Array.isArray(body.shop_list_keys) ? body.shop_list_keys : [];
-    const anchorPartnerId = body.anchor_partner_id ? String(body.anchor_partner_id) : undefined;
+    const shopKeys: string[] = (Array.isArray(body.shop_list_keys) ? body.shop_list_keys : []).map(toEngineKey);
 
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
     if (shopKeys.length === 0) {
@@ -65,80 +38,10 @@ export async function POST(req: Request) {
     const data = await getLeagueData();
     if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
 
-    const profiles = buildTeamProfiles(data);
-    const needs = computeNeeds(data);
-    const dossiers = buildTeamDossiers(profiles, data);
-    const playoffHistory = await getPlayoffHistory();
-    const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
     const ctx = await buildValuationContext();
+    const depth = await buildDepthData(ctx.playerBase);
 
-    const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };
-
-    // Infer the storyline from the SHAPE of the shop list — the user telling us
-    // what they're doing by what they put on the block. Same leans the auto
-    // door fires from the roster, fed to the same constructor. A lone stud (or
-    // a lone prime vet on a contender) → prefer_picks; anything else → no lean.
-    const shopItems: ShopListItem[] = shopKeys.map((key) => {
-      const p = data.players.get(key);
-      const isPick = !p; // a key the player dict doesn't know is a pick key
-      return {
-        key,
-        type: isPick ? "pick" : "player",
-        value: data.values.value.get(key) ?? 0,
-        isStud: data.values.isStud.get(key) ?? false,
-        isYoung: p ? isYoung(p.position, p.age ?? null) : false,
-      };
-    });
-    const ourTier = profiles.find((pr) => pr.rosterId === teamId)?.tier ?? null;
-    const { leans } = inferShopListLeans(shopItems, ourTier);
-
-    const slate = runStudio(ec, teamId, shopKeys, {
-      counterpartyTeamIds: anchorPartnerId ? [anchorPartnerId] : undefined,
-      leans,
-    });
-
-    const offers = slate.offers.map((o) => {
-      const send = o.assets
-        .filter((a) => a.side === "send")
-        .map((a) => ({
-          key: a.key,
-          name: a.name,
-          type: a.type,
-          position: positionOf(a.key, data),
-          value: assetValue(a.key, a.type, "send", teamId, ctx),
-        }));
-      const receive = o.assets
-        .filter((a) => a.side === "receive")
-        .map((a) => ({
-          key: a.key,
-          name: a.name,
-          type: a.type,
-          position: positionOf(a.key, data),
-          value: assetValue(a.key, a.type, "receive", teamId, ctx),
-        }));
-      const sb = o.ourScoreboard;
-      return {
-        id: o.id,
-        partnerTeamId: o.partnerTeamId,
-        partnerTeamName: o.partnerTeamName,
-        persona: o.partnerPersona,
-        send,
-        receive,
-        sendValue: sb.sendValue,
-        receiveValue: sb.receiveValue,
-        valueGap: {
-          sendValue: sb.sendValue,
-          receiveValue: sb.receiveValue,
-          ratio: sb.ratio,
-          delta: sb.receiveValue - sb.sendValue,
-          verdict: sb.verdict,
-          hasSend: sb.sendValue > 0,
-          hasReceive: sb.receiveValue > 0,
-        },
-        gradeLabel: o.grade.label,
-        gradeColor: o.grade.color,
-      };
-    });
+    const offers = generateStudioOffers({ ourTeamId: teamId, shopKeys, data, ctx, depth });
 
     return NextResponse.json({ offers, totalCandidatesEvaluated: offers.length, isFallback: false });
   } catch (err) {

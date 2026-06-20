@@ -7,7 +7,7 @@ import {
   type PickLadder,
 } from "@/shared/league-data";
 import { buildTeamProfiles, type Tier } from "@/shared/team-profiles";
-import { TIER_TO_SLOT, yearDiscount } from "./modifiers";
+import { yearDiscount } from "./modifiers";
 
 export type AssetRef =
   | { type: "player"; sleeperPlayerId: string }
@@ -19,6 +19,9 @@ export type ValuationContext = {
   playerBase: Map<string, number>; // sleeper_player_id -> consensus value
   ladder: PickLadder; // "R.SS" (padded) -> slot value
   tierByRoster: Map<string, Tier>; // rosterId -> current tier
+  // Projected finish order, 1 = worst team (drafts 1.01). Drives future-pick
+  // value: a future pick is worth the slot its ORIGINAL owner projects to.
+  draftSlotByRoster: Map<string, number>;
   adjusted: Map<string, number>; // `${teamId}:${assetId}` -> stored final_value
 };
 
@@ -82,16 +85,22 @@ async function buildValuationContextUncached(): Promise<ValuationContext> {
   const [values, ladder] = await Promise.all([getValues(), getPickValues()]);
 
   const tierByRoster = new Map<string, Tier>();
+  const draftSlotByRoster = new Map<string, number>();
   let cfcYear = cfcYearNow();
   let leagueId = "";
   if (!("error" in league)) {
     cfcYear = league.cfcYear;
     leagueId = league.leagueId;
-    for (const p of buildTeamProfiles(league)) tierByRoster.set(p.rosterId, p.tier);
+    const profiles = buildTeamProfiles(league);
+    for (const p of profiles) tierByRoster.set(p.rosterId, p.tier);
+    // Projected draft order: weakest starting lineup picks first (slot 1).
+    [...profiles]
+      .sort((a, b) => a.strength.starterValue - b.strength.starterValue)
+      .forEach((p, i) => draftSlotByRoster.set(p.rosterId, i + 1));
   }
 
   const adjusted = await loadAdjusted(leagueId);
-  return { cfcYear, playerBase: values.value, ladder, tierByRoster, adjusted };
+  return { cfcYear, playerBase: values.value, ladder, tierByRoster, draftSlotByRoster, adjusted };
 }
 
 // Cheap, synchronous valuation given a prebuilt context.
@@ -125,9 +134,10 @@ export function valueAsset(
     return ctx.ladder.get(`${p.round}.06`) ?? 0;
   }
 
-  // future: original owner's tier -> slot -> ladder, then the year discount
-  const tier = ctx.tierByRoster.get(p.originalRosterId) ?? "retooling";
-  const base = ctx.ladder.get(`${p.round}.${pad(TIER_TO_SLOT[tier])}`) ?? 0;
+  // future: original owner's PROJECTED FINISH slot -> ladder, then year discount.
+  // (A weak team's future 1st is worth ~the 1.01; a contender's is a late pick.)
+  const slot = ctx.draftSlotByRoster.get(p.originalRosterId) ?? 6;
+  const base = ctx.ladder.get(`${p.round}.${pad(slot)}`) ?? ctx.ladder.get(`${p.round}.06`) ?? 0;
   return Math.round(base * yearDiscount(p.season - ctx.cfcYear));
 }
 
