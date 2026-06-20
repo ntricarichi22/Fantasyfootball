@@ -118,6 +118,8 @@ export async function POST(request: NextRequest) {
     verdict: theirDossier?.verdict ?? "",
     wants: theirDossier?.wants ?? "",
     sells: theirDossier?.sells ?? "",
+    trade_stance: theirDossier?.tradeStance ?? "",
+    core_label: theirDossier?.coreLabel ?? "",
     tier_label: theirDossier?.tierLabel ?? "",
     top_need: topNeed,
   };

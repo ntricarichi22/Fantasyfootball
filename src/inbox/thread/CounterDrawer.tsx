@@ -13,9 +13,7 @@ import {
   selectCounter,
   centerpieceKey,
   gradeForRatio,
-  counterProse,
   ratioOf,
-  type CounterPartner,
 } from "@/inbox/thread/counterMath";
 
 /* ------------------------------------------------------------------ */
@@ -49,6 +47,8 @@ type PartnerContext = {
   verdict: string;
   wants: string;
   sells: string;
+  trade_stance: string;
+  core_label: string;
   tier_label: string;
   top_need: string | null;
 };
@@ -69,6 +69,8 @@ const EMPTY_PARTNER_CONTEXT: PartnerContext = {
   verdict: "",
   wants: "",
   sells: "",
+  trade_stance: "",
+  core_label: "",
   tier_label: "",
   top_need: null,
 };
@@ -86,13 +88,6 @@ type Props = {
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
-
-const PERSONA_PROSE_LABEL: Record<PersonaKey, string> = {
-  hustler: "Hustler",
-  closer: "Closer",
-  straight_shooter: "Straight Shooter",
-  architect: "Architect",
-};
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                             */
@@ -138,8 +133,12 @@ export default function CounterDrawer({
   const [isMobile, setIsMobile] = useState(false);
   const [sendModal, setSendModal] = useState(false);
   const [sending, setSending] = useState(false);
+  const [llmRead, setLlmRead] = useState<string | null>(null); // the director's LLM read
+  const [readLoading, setReadLoading] = useState(false);
   const trackRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
+  const readTimer = useRef<number | null>(null);
+  const readAbort = useRef<AbortController | null>(null);
 
   // Their offer, flipped to OUR point of view — the seed every slider package is
   // built from (never mutated).
@@ -254,24 +253,56 @@ export default function CounterDrawer({
   const ratio = ratioOf(sumValue(deal.send), sumValue(deal.receive));
   const grade = gradeForRatio(ratio);
   const pc = feed?.partner_context ?? EMPTY_PARTNER_CONTEXT;
-  const partner: CounterPartner = {
-    nick: teamNick(theirTeamName),
-    personaLabel: PERSONA_PROSE_LABEL[theirPersona],
-    persona: theirPersona,
-    window: pc.window,
-    verdict: pc.verdict,
-    wants: pc.wants,
-    sells: pc.sells,
-    topNeed: pc.top_need,
-  };
-  const prose = counterProse(
-    ratio,
-    ourBandMin,
-    theirBandMin,
-    offerRatio,
-    position <= axis.startPos + 0.01, // at rest on the opening offer
-    partner,
-  );
+
+  // The director's read is written by the LLM (counter-read endpoint), grounded in
+  // the partner's real situation. It re-fetches when the deal SETTLES — debounced
+  // so a continuous drag fires one call, not dozens. While dragging (and on first
+  // open) the last good read stays put; a fresh fetch dims it via proseLoading.
+  useEffect(() => {
+    if (!feed) return;
+    if (readTimer.current) window.clearTimeout(readTimer.current);
+    const names = (assets: OfferAsset[]) => assets.map((a) => ({ name: extractName(a.label) }));
+    readTimer.current = window.setTimeout(() => {
+      readAbort.current?.abort();
+      const ac = new AbortController();
+      readAbort.current = ac;
+      setReadLoading(true);
+      fetch("/api/inbox/counter-read", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          partner: {
+            name: theirTeamName,
+            persona: theirPersona,
+            window: pc.window,
+            verdict: pc.verdict,
+            wants: pc.wants,
+            sells: pc.sells,
+            tradeStance: pc.trade_stance,
+            coreLabel: pc.core_label,
+            topNeed: pc.top_need,
+          },
+          offer: { send: names(ourSend), receive: names(ourReceive) },
+          counter: { send: names(deal.send), receive: names(deal.receive) },
+          ratio,
+          offer_ratio: offerRatio,
+          our_floor: ourBandMin,
+          their_floor: theirBandMin,
+        }),
+        signal: ac.signal,
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((j) => {
+          if (j?.read) setLlmRead(j.read);
+        })
+        .catch(() => {})
+        .finally(() => setReadLoading(false));
+    }, 450);
+    return () => {
+      if (readTimer.current) window.clearTimeout(readTimer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [feed, deal, ratio]);
 
   // Apply a deal (manual or slider) and keep the slider thumb anchored to it.
   const applyDeal = useCallback(
@@ -446,7 +477,7 @@ export default function CounterDrawer({
       receiveAssets={deal.receive.map(toCardAsset)}
       verdict={grade.label}
       verdictColor={grade.color}
-      prose={prose}
+      prose=""
       onPass={() => {}}
       onEdit={() => {}}
       onMakeOffer={() => {}}
@@ -458,10 +489,15 @@ export default function CounterDrawer({
     />
   );
 
-  // One director voice for the drawer, above the slider — coaches the counter
-  // (how to play it / what they'll say). The card below is a bare ledger.
+  // One director voice for the drawer, above the slider — the LLM read, grounded
+  // in the partner's situation. The card below is a bare ledger.
   const directorNote = (
-    <DirectorNote verdict={grade.label} verdictColor={grade.color} prose={prose} />
+    <DirectorNote
+      verdict={grade.label}
+      verdictColor={grade.color}
+      prose={llmRead ?? "Reading the matchup…"}
+      proseLoading={readLoading}
+    />
   );
 
   const slider = (
