@@ -67,6 +67,9 @@ export type EngineContext = {
   // Optional per-team empirical accept band (>= 5 accepted trades on file).
   // When present for a team it overrides the persona fallback band.
   empiricalBands?: Map<string, PersonaBand>;
+  // Optional NFL-team-by-player map (sleeper id -> NFL team). Powers stack /
+  // concentration ranking. When absent, that ranking term is simply 0.
+  nflTeamById?: Map<string, string>;
 };
 
 // ─── Tunables (calibrate against live output after wiring) ────────────────────
@@ -98,6 +101,9 @@ const W_PREMIUM = 1.0; // desperation-premium deals (selling into a thin contend
 const W_MOTIVATION = 1.0;
 const W_COMPLEMENT = 0.75;
 const W_FRICTION = 1.5;
+const W_STACK = 1.0; // received pass-catcher stacks our QB / RB handcuffs our lead back
+const W_CONCENTRATION = 1.0; // received WR doubles up an NFL team we already start
+const RB_LEAD_CFC = 120; // a "lead" RB worth handcuffing
 
 // ─── Small helpers ────────────────────────────────────────────────────────────
 
@@ -140,7 +146,6 @@ function needScore(level: NeedLevel | null): number {
 // baggage that used to ride along in the thesis folder.
 
 const NEED_BUCKETS: Bucket[] = ["QB", "RB", "PASS_CATCHER"];
-const WIN_NOW_WINDOWS = new Set(["contending", "closing"]);
 
 // Our relative-need severity (0..1) at a bucket — the ranking weight on a
 // received piece. Was thesis.buy[].severity; it's just the need score.
@@ -152,16 +157,17 @@ function needSeverity(needs: TeamNeeds | undefined, bucket: Bucket): number {
   return 0;
 }
 
-// How natural a counterparty this partner is for us: a win-now window buys what
+// How natural a counterparty this partner is for us: a win-now team buys what
 // others sell, and need/surplus mirroring (thin where we're deep, deep where
-// we're thin) makes a clean swap. Was buildPartnerFit.fitScore.
+// we're thin) makes a clean swap. "Win-now" now comes from the partner's
+// storylines (a win_now thesis), not a dossier window.
 function partnerFitScore(
-  partnerWindow: string,
+  partnerIsWinNow: boolean,
   partnerNeeds: TeamNeeds | null,
   ourNeeds: TeamNeeds | undefined,
 ): number {
   let s = 0;
-  if (WIN_NOW_WINDOWS.has(partnerWindow)) s += 1.5;
+  if (partnerIsWinNow) s += 1.5;
   for (const b of NEED_BUCKETS) {
     const theirs = partnerNeeds ? needSeverity(partnerNeeds, b) : null;
     const ours = ourNeeds ? needSeverity(ourNeeds, b) : null;
@@ -177,10 +183,10 @@ function partnerFitScore(
 // "not if accumulate-posture" guard is dropped — it read the retired wantsMore.)
 function premiumFiresFor(
   bucket: Bucket,
-  partnerWindow: string,
+  partnerIsWinNow: boolean,
   partnerNeeds: TeamNeeds | null,
 ): boolean {
-  if (!WIN_NOW_WINDOWS.has(partnerWindow)) return false;
+  if (!partnerIsWinNow) return false;
   return needLevel(partnerNeeds ?? undefined, bucket) === "high";
 }
 
@@ -382,11 +388,12 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
     const partnerStrategy = data.strategy.get(partnerId);
     const partnerPersona = normalizePersona(partnerDossier?.persona);
     const partnerNeeds = ec.needs.get(partnerId) ?? null;
-    const partnerWindow = partnerDossier?.window ?? "unknown";
+    // Win-now read from the partner's STORYLINES (a win_now thesis), not a window.
+    const partnerIsWinNow = ec.bundles?.get(partnerId)?.theses.some((t) => t.timeline === "win_now") ?? false;
 
-    // Partner-fit: how natural a counterparty this is (window complementarity +
-    // need/surplus mirroring) — a pure ranking read, no direction call.
-    const fitScore = partnerFitScore(partnerWindow, partnerNeeds, ourNeeds);
+    // Partner-fit: how natural a counterparty this is (win-now + need/surplus
+    // mirroring) — a pure ranking read, no direction call.
+    const fitScore = partnerFitScore(partnerIsWinNow, partnerNeeds, ourNeeds);
 
     // In open acquire mode, skip clearly poor-fit partners (same window, no
     // need-mirroring) so we call the right teams instead of everyone. Locked
@@ -755,7 +762,7 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       const sellingBuckets = new Set(
         sendVA.map((a) => resolve(a.key)?.bucket).filter((b): b is Bucket => !!b && b !== "PICK"),
       );
-      const premiumOn = [...sellingBuckets].some((b) => premiumFiresFor(b, partnerWindow, partnerNeeds));
+      const premiumOn = [...sellingBuckets].some((b) => premiumFiresFor(b, partnerIsWinNow, partnerNeeds));
       if (premiumOn) {
         theirBand = { ...theirBand, min: Math.max(HARD_FLOOR, theirBand.min - PARTNER_STRETCH) };
       }
@@ -818,6 +825,42 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         if (pickByKey.has(k) && shippingPickIsFriction(ourStrategy ?? null, ourDossier)) friction += 0.5;
       }
 
+      // Stack / concentration (only when building for US and NFL teams are known):
+      // reward a received pass-catcher who stacks a QB we keep, or an RB who
+      // handcuffs a lead RB we keep; penalize a received WR doubling up an NFL
+      // team we already start at WR.
+      let stackBonus = 0;
+      let concentration = 0;
+      if (aim === "us" && ec.nflTeamById) {
+        const nfl = ec.nflTeamById;
+        const sentSet = new Set(sendKeys);
+        const keptQbTeams = new Set<string>();
+        const keptWrTeams = new Set<string>();
+        const leadRbTeams = new Set<string>();
+        const rbTeamCount = new Map<string, number>();
+        for (const pid2 of teamById.get(ourTeamId)?.playerIds ?? []) {
+          if (sentSet.has(pid2)) continue;
+          const team = nfl.get(pid2);
+          if (!team) continue;
+          const pos = data.players.get(pid2)?.position;
+          if (pos === "QB") keptQbTeams.add(team);
+          else if (pos === "WR") keptWrTeams.add(team);
+          else if (pos === "RB") {
+            rbTeamCount.set(team, (rbTeamCount.get(team) ?? 0) + 1);
+            if ((data.values.value.get(pid2) ?? 0) >= RB_LEAD_CFC) leadRbTeams.add(team);
+          }
+        }
+        for (const r of recvResolved) {
+          if (r.type !== "player") continue;
+          const team = nfl.get(r.key);
+          if (!team) continue;
+          const pos = data.players.get(r.key)?.position;
+          if ((pos === "WR" || pos === "TE") && keptQbTeams.has(team)) stackBonus += 1;
+          if (pos === "RB" && leadRbTeams.has(team) && (rbTeamCount.get(team) ?? 0) < 2) stackBonus += 0.5;
+          if (pos === "WR" && keptWrTeams.has(team)) concentration += 1;
+        }
+      }
+
       const score =
         W_FIT * needFit +
         W_VOR * vorNorm +
@@ -826,7 +869,9 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
         W_PARTNERFIT * fitScore +
         W_PREMIUM * (premiumOn ? 1 : 0) +
         W_MOTIVATION * motivation +
-        W_COMPLEMENT * complement -
+        W_COMPLEMENT * complement +
+        W_STACK * stackBonus -
+        W_CONCENTRATION * concentration -
         W_FRICTION * friction;
 
       const id = `${pId}:${[...sendKeys].sort().join(",")}>${[...recvKeysAll].sort().join(",")}`;

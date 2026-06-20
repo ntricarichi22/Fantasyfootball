@@ -397,12 +397,10 @@ function buildRosterRead(
 // ── Identity sentence ────────────────────────────────────────────────────────
 function buildIdentitySentence(
   profile: TeamProfile,
-  dossier: TeamDossier,
   intent: IntentSignals,
   read: RosterRead,
 ): string {
   const tier = profile.tierLabel.toLowerCase();
-  const window = dossier.window;
   const comp = read.competitiveness.isContender
     ? "contender"
     : read.competitiveness.isWeakRoster
@@ -415,7 +413,7 @@ function buildIdentitySentence(
     : hasAccumulateSignal(intent)
       ? "owner leans accumulate (youth/picks)"
       : "owner has active market signals";
-  return `${tier}, ${window}; ${comp}, ${age}; ${hist}; ${intentClause}.`;
+  return `${tier}; ${comp}, ${age}; ${hist}; ${intentClause}.`;
 }
 
 // ── Top-level builder ─────────────────────────────────────────────────────────
@@ -464,7 +462,7 @@ export function buildTeamNarratives(
       history,
     );
     const theses = buildThesesForTeam(rosterId, rosterRead, intentSignals, data, impactSets);
-    const identitySentence = buildIdentitySentence(profile, dossier, intentSignals, rosterRead);
+    const identitySentence = buildIdentitySentence(profile, intentSignals, rosterRead);
 
     result.set(rosterId, {
       rosterId,

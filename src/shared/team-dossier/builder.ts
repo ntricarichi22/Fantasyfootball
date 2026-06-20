@@ -1,7 +1,7 @@
 import { teamNickname } from "@/shared/league-data";
 import type { LeagueData, StrategyProfile, MarketStance, OwnedPick } from "@/shared/league-data";
 import type { TeamProfile } from "@/shared/team-profiles";
-import type { TeamDossier, Window, Confidence } from "./types";
+import type { TeamDossier, Confidence } from "./types";
 
 // ── Tunable knobs ───────────────────────────────────────────────
 // Mirror the profiler's age thresholds so the two layers agree.
@@ -70,38 +70,27 @@ function computePicksLocked(p: TeamProfile, data: LeagueData): boolean {
   return false;
 }
 
-function computeWindow(p: TeamProfile): Window {
-  const old = p.strength.avgStarterAge != null && p.strength.avgStarterAge >= AGE_OLD;
-  const ascending = p.trajectory.direction === "ascending";
-  if (isStrong(p.tier)) {
-    return old && !ascending ? "closing" : "contending";
-  }
-  // Tier wins at the bottom — a rebuilding team never reads "ascending".
-  if (p.tier === "rebuilding") return "rebuilding";
-  // retooling
-  return ascending ? "ascending" : "rebuilding";
-}
-
-function computeVerdict(p: TeamProfile, window: Window): string {
+// Profile-derived scout headline (display only; the engine reads storylines, not
+// this). Same wording the old window→verdict map produced, computed inline.
+function computeVerdict(p: TeamProfile): string {
   const age = p.strength.avgStarterAge;
   const old = age != null && age >= AGE_OLD;
   const young = age != null && age <= AGE_YOUNG;
-  switch (window) {
-    case "contending":
-      return old
-        ? "Win-now contender. Loaded, but the core isn't getting younger."
-        : "Win-now contender. Deep, balanced, and built to push.";
-    case "closing":
-      return "Window's closing. Still strong, but aging fast — win now or bust.";
-    case "ascending":
-      // Only claim "young" when the core actually is. Otherwise the climb is
-      // value-vs-record, not youth.
-      return young
-        ? "On the rise. Young talent outrunning the record — dangerous soon."
-        : "On the rise. Roster's worth more than the record showed — dangerous soon.";
-    case "rebuilding":
-      return "Rebuild mode. Stockpiling picks and youth, playing the long game.";
+  const ascending = p.trajectory.direction === "ascending";
+  if (isStrong(p.tier)) {
+    if (old && !ascending) return "Window's closing. Still strong, but aging fast — win now or bust.";
+    return old
+      ? "Win-now contender. Loaded, but the core isn't getting younger."
+      : "Win-now contender. Deep, balanced, and built to push.";
   }
+  if (p.tier === "rebuilding") return "Rebuild mode. Stockpiling picks and youth, playing the long game.";
+  // retooling
+  if (ascending) {
+    return young
+      ? "On the rise. Young talent outrunning the record — dangerous soon."
+      : "On the rise. Roster's worth more than the record showed — dangerous soon.";
+  }
+  return "Rebuild mode. Stockpiling picks and youth, playing the long game.";
 }
 
 function computeWantsSells(
@@ -207,7 +196,6 @@ export function buildTeamDossiers(profiles: TeamProfile[], data: LeagueData): Te
     const strat = data.strategy.get(p.rosterId) ?? null;
     const persona = strat?.persona ?? "unknown";
     const picksLocked = computePicksLocked(p, data);
-    const window = computeWindow(p);
     const { wants, sells } = computeWantsSells(p, strat, picksLocked);
 
     const pickByKey = new Map<string, OwnedPick>();
@@ -218,8 +206,7 @@ export function buildTeamDossiers(profiles: TeamProfile[], data: LeagueData): Te
       teamName: p.teamName,
       tier: p.tier,
       tierLabel: p.tierLabel,
-      verdict: computeVerdict(p, window),
-      window,
+      verdict: computeVerdict(p),
       wants,
       sells,
       coreLabel: computeCoreLabel(p, data, pickByKey),

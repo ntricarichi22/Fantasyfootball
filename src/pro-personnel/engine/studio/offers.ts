@@ -24,6 +24,7 @@ import { fetchPlayers } from "@/shared/league-data/sleeper";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import type { LeagueData } from "@/shared/league-data";
 import { valueAsset, type ValuationContext, type AssetRef } from "@/shared/asset-values";
+import { ACQUIRE_GOAL_KINDS, type NarrativeBundle, type GoalKind } from "@/shared/team-narratives";
 import { verdictFromRatio, personaAwareGrade } from "../core/gap";
 import { normalizePersona } from "../core/personas";
 import type { Gap, Grade, PersonaKey } from "../core/types";
@@ -95,10 +96,11 @@ export type StudioInput = {
   data: LeagueData;
   ctx: ValuationContext;
   depth: DepthData;
+  bundles: Map<string, NarrativeBundle>; // per-team storylines (theses + goals)
 };
 
 export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
-  const { ourTeamId, shopKeys, data, ctx, depth } = input;
+  const { ourTeamId, shopKeys, data, ctx, depth, bundles } = input;
   const teamIds = data.teams.map((t) => t.rosterId);
   const nameOf: Record<string, string> = {};
   for (const t of data.teams) nameOf[t.rosterId] = t.teamName;
@@ -111,11 +113,21 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     return b === "QB" ? s.qbMarket : b === "RB" ? s.rbMarket : b === "PASS_CATCHER" ? s.pcMarket : s.picksMarket;
   };
   const personaOf = (tid: string): PersonaKey => normalizePersona(data.strategy.get(tid)?.persona ?? null);
-  const draftSlot = (tid: string): number => ctx.draftSlotByRoster.get(tid) ?? 6;
-  const windowOf = (tid: string): "rebuild" | "retool" | "contender" => {
-    const s = draftSlot(tid);
-    return s <= 4 ? "rebuild" : s >= 9 ? "contender" : "retool";
-  };
+
+  // Competitive direction comes from STORYLINES (theses), not a strength window.
+  const thesesOf = (tid: string) => bundles.get(tid)?.theses ?? [];
+  const hasWinNow = (tid: string): boolean => thesesOf(tid).some((t) => t.timeline === "win_now");
+  const hasBuildFuture = (tid: string): boolean => thesesOf(tid).some((t) => t.timeline === "build_future");
+  // A team's acquire goals: which buckets it's trying to add, and how.
+  type GoalView = { bucket: string | null; kind: GoalKind };
+  const acquireGoalsOf = (tid: string): GoalView[] =>
+    thesesOf(tid)
+      .flatMap((t) => t.goals)
+      .filter((g) => ACQUIRE_GOAL_KINDS.has(g.kind))
+      .map((g) => ({ bucket: g.bucket ?? null, kind: g.kind }));
+  const goalAt = (tid: string, bucket: string, kinds: GoalKind[]): boolean =>
+    acquireGoalsOf(tid).some((g) => g.bucket === bucket && kinds.includes(g.kind));
+  const wantsPicks = (tid: string): boolean => acquireGoalsOf(tid).some((g) => g.kind === "accumulate_picks");
 
   // Build a team's full asset list (players valued at CFC + the team's own
   // adjusted value; picks from the CANONICAL pickOwnership at canonical value).
@@ -206,15 +218,24 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     return { ok: false, why: "" };
   };
 
-  // Would partner P acquire our shopped headline, given THEIR window?
+  // Would partner P acquire our shopped headline, given THEIR storylines+goals?
   const partnerWantsShop = (pid: string, h: Asset): boolean => {
-    if (h.bucket === "PICK") return market(pid, "PICK") === "buy";
-    if (stackEval(h, nflSets(pid, new Set())).bad) return false;
-    const win = windowOf(pid); const st = starters(pid);
-    if (win === "rebuild") { if (isAgingVet(h)) return false; return isYoung(h) || isImpact(h); }
-    const open = st.open[h.bucket], upgrade = h.cfc > st.weak[h.bucket] * UPGRADE_MARGIN, need = market(pid, h.bucket) === "buy";
-    const ev = stackEval(h, nflSets(pid, new Set())); const qbStack = ev.good === "QB-stack" && (isImpact(h) || h.cfc >= STARTABLE_FLOOR);
-    return open || upgrade || need || qbStack;
+    if (h.bucket === "PICK") return wantsPicks(pid);
+    if (stackEval(h, nflSets(pid, new Set())).bad) return false; // wouldn't add WR concentration
+    const winNow = hasWinNow(pid);
+    if (isAgingVet(h) && !winNow) return false; // only a win-now team acquires an aging vet
+    // a young piece serving an add-youth goal
+    if (isYoung(h) && goalAt(pid, h.bucket, ["add_youth"])) return true;
+    // an impact/fill-need goal at this bucket, OR a win-now team's clear lineup upgrade
+    const st = starters(pid);
+    const upgrade = st.open[h.bucket] || h.cfc > st.weak[h.bucket] * UPGRADE_MARGIN;
+    if ((goalAt(pid, h.bucket, ["acquire_impact", "fill_need"]) || (winNow && upgrade)) && (isImpact(h) || h.cfc >= STARTABLE_FLOOR)) return true;
+    // insurance / depth goal (lower bar)
+    if (goalAt(pid, h.bucket, ["insurance", "depth"]) && h.cfc >= STARTABLE_FLOOR * 0.6) return true;
+    // a QB-stack completion they'd value
+    const ev = stackEval(h, nflSets(pid, new Set()));
+    if (ev.good === "QB-stack" && (isImpact(h) || h.cfc >= STARTABLE_FLOOR)) return true;
+    return false;
   };
 
   const combos = <T,>(arr: T[], k: number): T[][] => {
@@ -236,7 +257,8 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
   const headline = (shopPlayers.length ? shopPlayers : send).slice().sort((x, y) => y.cfc - x.cfc)[0];
   const ourSets = nflSets(ourTeamId, sendKeys);
   const ourStart = starters(ourTeamId);
-  const ourWin = windowOf(ourTeamId);
+  // build-future-only team = "rebuild lean" (won't take vets; covets youth+picks)
+  const ourRebuildLean = hasBuildFuture(ourTeamId) && !hasWinNow(ourTeamId);
   const ourPersona = personaOf(ourTeamId);
 
   type Cand = { combo: Asset[]; recv: number; ratio: number; theirGive: number; margin: number; stacks: string[]; score: number; lead: string; leadType: "player" | "pick" };
@@ -249,7 +271,7 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     const pStart = starters(pid).set;
     const pNeedy = (b: string) => market(pid, b) === "buy" || starters(pid).open[b] || starters(pid).weak[b] < (SHIP_NEED_THRESH[b] ?? 0);
     const pickGiveOk = market(pid, "PICK") !== "buy";
-    const partnerIsContender = windowOf(pid) === "contender";
+    const partnerIsContender = hasWinNow(pid); // win-now teams spend picks / will slightly overpay for a need
     const aheadTol = partnerIsContender ? 0.1 : 0;
 
     const pool = teamAssets(pid)
@@ -264,7 +286,7 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
         if (a.type === "pick") return market(ourTeamId, "PICK") !== "sell";
         if (!includable(a).ok) return false;          // kills filler / dead weight
         if (market(ourTeamId, a.bucket) === "sell" && !(a.cfc > ourStart.weak[a.bucket])) return false;
-        if (ourWin === "rebuild" && isAgingVet(a)) return false; // we won't take vets
+        if (ourRebuildLean && isAgingVet(a)) return false; // we won't take vets
         if (stackEval(a, ourSets).bad) return false;  // WR concentration
         if (a.cfc > STUD_FOR_SCRUBS * headline.cfc) return false; // no stud-for-scrubs
         return true;
@@ -291,8 +313,8 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
         const stacks = combo.map((a) => stackEval(a, ourSets).good).filter((g): g is string => !!g);
         const margin = sendCfc - theirGive; let fit = 0;
         for (const a of combo) {
-          if (a.type === "pick" && ourWin === "rebuild") fit += 12;
-          if (isYoung(a) && ourWin === "rebuild") fit += 10;
+          if (a.type === "pick" && ourRebuildLean) fit += 12;
+          if (isYoung(a) && ourRebuildLean) fit += 10;
           if (market(ourTeamId, a.bucket) === "buy") fit += 10;
         }
         const hasPick = combo.some((a) => a.type === "pick");

@@ -35,6 +35,7 @@ import {
   type GeneratedOffer,
 } from "@/shared/trade-matching";
 import { buildValuationContext } from "@/shared/asset-values";
+import { buildNflTeams } from "@/shared/nfl-teams";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import { type EngineContext } from "@/pro-personnel/engine";
 
@@ -75,8 +76,9 @@ async function buildSlatePayload(teamId: string): Promise<SlatePayload> {
     const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
     const slates = buildMatchSlates({ data, profiles, needs, dossiers, bundles });
     const ctx = await buildValuationContext();
+    const nflTeamById = await buildNflTeams();
 
-    const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };
+    const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles, nflTeamById };
 
     const slate = slates.get(teamId);
     const thesisOffers = slate ? generateOffersForTeam(slate, ec) : [];

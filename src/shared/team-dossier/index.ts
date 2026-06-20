@@ -1,2 +1,2 @@
-export type { TeamDossier, Window, Confidence } from "./types";
+export type { TeamDossier, Confidence } from "./types";
 export { buildTeamDossiers } from "./builder";

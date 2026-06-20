@@ -50,7 +50,7 @@ export async function GET() {
           rosterId: p.rosterId,
           team: p.teamName,
           tier: p.tier,
-          window: d?.window ?? null,
+          verdict: d?.verdict ?? null,
           trajectory: p.trajectory.direction,
           avgStarterAge: r2(p.strength.avgStarterAge),
           starterValue: Math.round(p.strength.starterValue),

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { fetchPlayers } from "@/shared/league-data/sleeper";
 import { buildScrubSets, bucketOf, buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
+import { buildTeamNarratives } from "@/shared/team-narratives";
 import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas";
 import {
   buildValuationContext,
@@ -101,8 +102,18 @@ export async function POST(request: NextRequest) {
   // they're chasing/shedding) and their biggest hole, not a bare persona label.
   const profiles = buildTeamProfiles(data);
   const dossiers = buildTeamDossiers(profiles, data);
+  const needs = computeNeeds(data);
+  const playoffHistory = await getPlayoffHistory();
+  const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
   const theirDossier = dossiers.find((d) => d.rosterId === them) ?? null;
-  const theirNeeds = computeNeeds(data).get(them) ?? null;
+  // Competitive direction from their STORYLINES (single source of truth).
+  const theirTheses = bundles.get(them)?.theses ?? [];
+  const theirDirection = (() => {
+    const w = theirTheses.some((t) => t.timeline === "win_now");
+    const b = theirTheses.some((t) => t.timeline === "build_future");
+    return w && b ? "win-now + building" : w ? "win-now" : b ? "building for the future" : "unknown";
+  })();
+  const theirNeeds = needs.get(them) ?? null;
   const topNeed: string | null = (() => {
     if (!theirNeeds) return null;
     const ranked: Array<[string, { level: string; score: number }]> = [
@@ -114,7 +125,7 @@ export async function POST(request: NextRequest) {
     return ranked[0][1].level === "high" ? ranked[0][0] : null;
   })();
   const partner_context = {
-    window: theirDossier?.window ?? "",
+    window: theirDirection,
     verdict: theirDossier?.verdict ?? "",
     wants: theirDossier?.wants ?? "",
     sells: theirDossier?.sells ?? "",

@@ -67,7 +67,7 @@ export async function GET(req: Request) {
           }
         : "NO NEEDS COMPUTED",
       tier: myProfile?.tier ?? "(none)",
-      window: myDossier?.window ?? "(none)",
+      verdict: myDossier?.verdict ?? "(none)",
       persona: myDossier?.persona ?? "(none)",
       picksLocked: myDossier?.picksLocked ?? null,
       attachmentsCount: attachments ? attachments.size : 0,

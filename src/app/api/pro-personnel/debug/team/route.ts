@@ -84,7 +84,7 @@ function buildTeamDump(
       rosterId: roster.rosterId,
       name: roster.teamName,
       tier: profile?.tier ?? null,
-      window: dossier?.window ?? null,
+      verdict: dossier?.verdict ?? null,
       trajectory: profile?.trajectory.direction ?? null,
       persona: dossier?.persona ?? "unknown",
       avgStarterAge: r2(profile?.strength.avgStarterAge),

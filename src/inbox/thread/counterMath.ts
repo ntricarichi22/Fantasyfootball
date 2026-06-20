@@ -191,7 +191,7 @@ export type CounterPartner = {
   nick: string; // team nickname, e.g. "Freaks"
   personaLabel: string; // "Straight Shooter"
   persona: string; // raw persona key
-  window: string; // dossier window: rebuilding | contending | closing | ascending
+  window: string; // storyline direction: "win-now" | "building for the future" | "win-now + building"
   verdict: string; // dossier one-liner, e.g. "Rebuild mode. Stockpiling picks and youth…"
   wants: string; // dossier wants phrase
   sells: string; // dossier sells phrase
@@ -211,7 +211,7 @@ function personaTrait(persona: string): string {
 
 // The currency this team actually values, from their build direction (+ their hole).
 function currencyWanted(window: string, topNeed: string | null): string {
-  const base = window === "contending" || window === "closing" ? "win-now help" : "youth and picks";
+  const base = /win-?now/i.test(window) ? "win-now help" : "youth and picks";
   return topNeed ? `${base} (they're thin at ${topNeed})` : base;
 }
 

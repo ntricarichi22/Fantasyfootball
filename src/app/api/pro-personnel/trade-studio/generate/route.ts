@@ -11,8 +11,11 @@
 // totalCandidatesEvaluated, isFallback }.
 
 import { NextResponse } from "next/server";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildValuationContext } from "@/shared/asset-values";
+import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
+import { buildTeamDossiers } from "@/shared/team-dossier";
+import { buildTeamNarratives } from "@/shared/team-narratives";
 import { buildDepthData, generateStudioOffers } from "@/pro-personnel/engine/studio/offers";
 
 export const dynamic = "force-dynamic";
@@ -38,10 +41,16 @@ export async function POST(req: Request) {
     const data = await getLeagueData();
     if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
 
+    const profiles = buildTeamProfiles(data);
+    const needs = computeNeeds(data);
+    const dossiers = buildTeamDossiers(profiles, data);
+    const playoffHistory = await getPlayoffHistory();
+    const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
+
     const ctx = await buildValuationContext();
     const depth = await buildDepthData(ctx.playerBase);
 
-    const offers = generateStudioOffers({ ourTeamId: teamId, shopKeys, data, ctx, depth });
+    const offers = generateStudioOffers({ ourTeamId: teamId, shopKeys, data, ctx, depth, bundles });
 
     return NextResponse.json({ offers, totalCandidatesEvaluated: offers.length, isFallback: false });
   } catch (err) {

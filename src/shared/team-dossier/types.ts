@@ -1,8 +1,10 @@
 import type { Tier } from "@/shared/team-profiles";
 
-// The competitive-timeline read. Distinct from tier: tier is strength NOW,
-// window is where the team sits in its build cycle.
-export type Window = "contending" | "ascending" | "closing" | "rebuilding";
+// NOTE: the old `Window` axis (contending/ascending/closing/rebuilding) is gone.
+// A team's competitive direction is now expressed ONLY through its storylines
+// (team-narratives theses: win_now / build_future) — single source of truth.
+// The dossier keeps a profile-derived `verdict` string for display only; the
+// trade engine never reads it for decisions.
 
 // How much to trust the posture read. Flips to "strong" automatically once a
 // team sets a real market (everything is "hold" pre-launch => "thin" for now).
@@ -16,8 +18,7 @@ export type TeamDossier = {
   teamName: string;
   tier: Tier;
   tierLabel: string;
-  verdict: string; // scout-voice headline
-  window: Window;
+  verdict: string; // scout-voice headline (profile-derived, display only)
   wants: string; // what they're chasing
   sells: string; // what they're shedding
   coreLabel: string; // untouchable players + locked picks vs. everyone-else-moveable
