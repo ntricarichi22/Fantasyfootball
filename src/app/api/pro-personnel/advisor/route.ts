@@ -63,9 +63,10 @@ function getCFCYear(): number {
   return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
 }
 
-// Lightweight team mode inference based on roster composition.
-// If we can't compute it confidently, we say "unknown" and the prompt skips that line.
-function inferTeamMode(roster: RosterAsset[]): "contend" | "retool" | "rebuild" | "unknown" {
+// Lightweight win-now / rebuild read for prose flavor only (the engine's trade
+// decisions run off storylines, not this). Confident contender or rebuild, else
+// "unknown" and the prompt skips the line. No "retool" — that concept is dead.
+function inferTeamMode(roster: RosterAsset[]): "contend" | "rebuild" | "unknown" {
   if (!roster.length) return "unknown";
   const players = roster.filter(p => p.type === "player");
   if (players.length < 5) return "unknown";
@@ -77,7 +78,7 @@ function inferTeamMode(roster: RosterAsset[]): "contend" | "retool" | "rebuild" 
 
   if (studCount >= 3 && avgValue >= 90) return "contend";
   if (youthCount >= 5 && studCount <= 1) return "rebuild";
-  return "retool";
+  return "unknown";
 }
 
 // ── One-tap balancing package ──────────────────────────────────────────────

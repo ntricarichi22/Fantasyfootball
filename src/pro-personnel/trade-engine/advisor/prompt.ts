@@ -22,7 +22,7 @@ export type PromptInputs = {
   otherTeamPersonality: TeamPersonality;
   otherProfile: StrategyProfile | null;
   otherRoster: RosterAsset[];
-  otherTeamMode: "contend" | "retool" | "rebuild" | "unknown";
+  otherTeamMode: "contend" | "rebuild" | "unknown";
   dealAssets: DealAsset[];
   myTeamId: string;
   otherTeamId: string;
