@@ -94,6 +94,7 @@ type StudioOfferWire = {
   send: Array<{ key: string; name: string; type: "player" | "pick"; position?: string; value: number }>;
   receive: Array<{ key: string; name: string; type: "player" | "pick"; position?: string; value: number }>;
   sendValue: number; receiveValue: number; valueGap: Gap; gradeLabel: string; gradeColor: string;
+  blockIntent?: string; // the lean inferred from our shop block (consolidate/teardown/…); same for every offer in a run
 };
 
 export type StudioInput = {
@@ -290,6 +291,64 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
   const ourRebuildLean = hasBuildFuture(ourTeamId) && !hasWinNow(ourTeamId);
   const ourPersona = personaOf(ourTeamId);
 
+  // ── Block intent: what the SHOP BLOCK signals we want back ───────────────────
+  // The block composition is itself a want-signal. A CLEAN signal steers the
+  // RANKING (never a filter — per the Studio lens we still surface every partner-
+  // viable offer; intent just floats matches to the top). A cloudy/mixed block
+  // steers nothing. "good" = not a scrub; "stud" = league-impact (top-N).
+  type BlockIntent = "consolidate" | "upgrade_one" | "teardown" | "retool" | "cloudy";
+  const blockPlayers = send.filter((a) => a.type === "player" && !isScrub(a));
+  const blockStuds = blockPlayers.filter((a) => isImpact(a));
+  const blockBuckets = new Set(blockPlayers.map((a) => a.bucket));
+  let blockIntent: BlockIntent = "cloudy";
+  if (blockStuds.length >= 2) blockIntent = "teardown";                                       // 2+ studs → picks + youth
+  else if (blockPlayers.length === 1 && blockStuds.length === 1) blockIntent = "retool";       // 1 stud → haul OR replacement + youth
+  else if (blockPlayers.length === 2 && blockBuckets.size === 1) blockIntent = "consolidate";  // 2 good same pos → one better player
+  else if (blockPlayers.length === 2 && blockBuckets.size === 2) blockIntent = "upgrade_one";  // 2 good diff pos → upgrade one
+  const ourNeedBucket = (b: string) => needLevel(ourTeamId, b) !== "low";
+  const studBucket = [...blockBuckets][0] ?? "";
+
+  const W_INTENT = 20; // block-intent matches float to the top (scaled by match strength)
+  const intentScore = (combo: Asset[]): number => {
+    if (blockIntent === "cloudy") return 0;
+    const players = combo.filter((a) => a.type === "player");
+    const picks = combo.filter((a) => a.type === "pick");
+    const young = players.filter(isYoungA).length;
+    const aging = players.filter(isAgingVet).length;
+    switch (blockIntent) {
+      case "teardown": // want picks + youth, not vets
+        return (picks.length + young - aging) * W_INTENT;
+      case "consolidate": { // want ONE better single player at the blocked bucket or a bucket we need
+        if (players.length === 1 && picks.length === 0) {
+          const p = players[0];
+          const stepUp = p.cfc > headline.cfc;
+          const rightBucket = blockBuckets.has(p.bucket) || ourNeedBucket(p.bucket);
+          if (isImpact(p) && (stepUp || rightBucket)) return 4 * W_INTENT;
+          if (stepUp || rightBucket) return 2 * W_INTENT;
+          return 0;
+        }
+        return -(players.length + picks.length - 1) * W_INTENT; // multi-piece is the opposite of consolidating
+      }
+      case "upgrade_one": { // want a single clearly-better player at one of the two blocked buckets
+        if (players.length === 1 && picks.length === 0) {
+          const p = players[0];
+          if (blockBuckets.has(p.bucket) && p.cfc > headline.cfc && isImpact(p)) return 4 * W_INTENT;
+          if (blockBuckets.has(p.bucket)) return 2 * W_INTENT;
+        }
+        return 0;
+      }
+      case "retool": { // want a pick haul OR (replacement starter at the stud's bucket + young guy elsewhere)
+        let s = picks.length; // haul
+        const replacement = players.some((p) => p.bucket === studBucket && !isScrub(p));
+        const youngElsewhere = players.some((p) => p.bucket !== studBucket && isYoungA(p));
+        if (replacement && youngElsewhere) s += 2;
+        return s * W_INTENT;
+      }
+      default:
+        return 0;
+    }
+  };
+
   type Cand = { combo: Asset[]; recv: number; ratio: number; theirGive: number; margin: number; stacks: string[]; score: number; lead: string; leadType: "player" | "pick" };
   const offers: Array<Cand & { pid: string }> = [];
 
@@ -312,11 +371,12 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
         return true;
       })
       .filter((a) => {
-        if (a.type === "pick") return market(ourTeamId, "PICK") !== "sell";
-        if (!includable(a).ok) return false;          // kills filler / dead weight
-        if (market(ourTeamId, a.bucket) === "sell" && !(a.cfc > ourStart.weak[a.bucket])) return false;
-        if (ourRebuildLean && isAgingVet(a)) return false; // we won't take vets
-        if (stackEval(a, ourSets).bad) return false;  // WR concentration
+        // Studio lens: surface what works for the PARTNER even if it doesn't fit
+        // us. Only quality/sanity gates filter here; our-storyline fit (pick/bucket
+        // sell market, rebuild-vet aversion, WR concentration) is demoted to a
+        // ranking signal below, never a hard filter.
+        if (a.type === "pick") return true;
+        if (!includable(a).ok) return false;          // kills filler / dead weight (not a scrub)
         if (a.cfc > STUD_FOR_SCRUBS * headline.cfc) return false; // no stud-for-scrubs
         return true;
       })
@@ -340,15 +400,23 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
         const theirGive = combo.reduce((s, a) => s + a.teamVal, 0);
         if (theirGive > sendCfc * (1 + aheadTol)) continue; // partner must come out >= even (their eyes)
         const stacks = combo.map((a) => stackEval(a, ourSets).good).filter((g): g is string => !!g);
-        const margin = sendCfc - theirGive; let fit = 0;
+        const margin = sendCfc - theirGive;
+        // Our-side fit is now a RANKING signal (demoted from the hard filters
+        // above): positives float offers that suit us, penalties sink offers we'd
+        // reject — but they still surface (the Studio lens).
+        let ourFit = 0;
         for (const a of combo) {
-          if (a.type === "pick" && ourRebuildLean) fit += 12;
-          if (isYoungA(a) && ourRebuildLean) fit += 10;
-          if (market(ourTeamId, a.bucket) === "buy") fit += 10;
+          if (a.type === "pick" && ourRebuildLean) ourFit += 12;
+          if (isYoungA(a) && ourRebuildLean) ourFit += 10;
+          if (market(ourTeamId, a.bucket) === "buy") ourFit += 10;
+          if (a.type === "pick" && market(ourTeamId, "PICK") === "sell") ourFit -= 8;
+          if (a.type === "player" && market(ourTeamId, a.bucket) === "sell" && !(a.cfc > ourStart.weak[a.bucket])) ourFit -= 8;
+          if (ourRebuildLean && isAgingVet(a)) ourFit -= 12;
+          if (stackEval(a, ourSets).bad) ourFit -= 15; // WR concentration on our side
         }
         const hasPick = combo.some((a) => a.type === "pick");
         const pickPref = hasPick ? (partnerIsContender ? 8 : -4) : 0;
-        const score = stacks.length * 30 + fit + pickPref + margin * 0.2 - combo.length * 8;
+        const score = intentScore(combo) + stacks.length * 30 + ourFit + pickPref + margin * 0.2 - combo.length * 8;
         const lead = combo.slice().sort((x, y) => y.cfc - x.cfc)[0];
         cands.push({ combo, recv, ratio, theirGive, margin, stacks, score, lead: lead.key, leadType: lead.type });
       }
@@ -414,6 +482,7 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
       valueGap: gap,
       gradeLabel: grade.label,
       gradeColor: grade.color,
+      blockIntent,
     });
   });
   return out;
