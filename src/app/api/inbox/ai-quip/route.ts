@@ -31,7 +31,7 @@ type QuipPair = {
   from: string;
 };
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 
 function extractPlayerName(label: string | undefined): string {
   if (!label) return "Unknown";

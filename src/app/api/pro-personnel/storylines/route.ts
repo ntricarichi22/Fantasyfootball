@@ -26,7 +26,7 @@ import { buildTeamNarratives, ACQUIRE_GOAL_KINDS, type Thesis, type Goal } from 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 
 const BUCKET_LABEL: Record<string, string> = {
   QB: "QB",

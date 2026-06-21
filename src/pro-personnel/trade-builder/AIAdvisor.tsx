@@ -85,8 +85,10 @@ export default function AIAdvisor({ grade, gradeColor, prose, suggestions, onTap
               Personnel director
             </div>
           )}
-          <div style={{ fontSize: 13, lineHeight: 1.45, color: "#1A1A1A", fontFamily: F, opacity: loading ? 0.5 : 1 }}>
-            {prose || (loading ? "Analyzing this deal…" : "")}
+          <div style={{ fontSize: 13, lineHeight: 1.45, color: "#1A1A1A", fontFamily: F, opacity: loading ? 0.6 : 1, fontStyle: loading ? "italic" : "normal" }}>
+            {loading
+              ? (prose ? "Let me take a look at the new terms, one sec…" : "Let me take a look at this deal, one sec…")
+              : (prose || "")}
           </div>
         </div>
       </div>

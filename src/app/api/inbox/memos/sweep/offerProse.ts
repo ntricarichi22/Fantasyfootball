@@ -13,7 +13,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 
 type Asset = { key?: string; label?: string; value?: number };
 type StrategyRow = {

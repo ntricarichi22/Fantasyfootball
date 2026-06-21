@@ -283,17 +283,14 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     if (threeTeam) { setRoutingPopup({ key, name, fromTeamId: activeTab }); return; }
     if (activeTab === myTeamId) {
       const o = otherTeams[0];
-      if (o) {
-        addDealAsset(key, name, myTeamId, o.id);
-      } else {
-        // No partner yet (fresh entry): pick one, then complete this add.
-        pendingAddRef.current = { key, name };
-        openSwapPicker();
-      }
+      // Our own guys go straight onto our side. No partner yet? Add anyway with
+      // a TBD recipient — the partner (and this asset's toTeamId) is filled in
+      // when one is chosen. The picker only opens for "+ add from their roster".
+      addDealAsset(key, name, myTeamId, o ? o.id : "");
     } else {
       addDealAsset(key, name, activeTab, myTeamId);
     }
-  }, [activeTab, threeTeam, myTeamId, otherTeams, dealKeys, addDealAsset, removeDealAsset, openSwapPicker]);
+  }, [activeTab, threeTeam, myTeamId, otherTeams, dealKeys, addDealAsset, removeDealAsset]);
 
   const handleRoutingSelect = useCallback((toTeamId: string) => {
     if (!routingPopup) return;
@@ -365,6 +362,13 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
           { id: newTeamId, name: newTeamName },
         ];
       });
+      // Fill the just-chosen partner into any of OUR assets added before a
+      // partner existed (toTeamId left blank).
+      setDealAssets(prev => prev.map(a =>
+        a.fromTeamId === myTeamId && !a.toTeamId
+          ? { ...a, toTeamId: newTeamId, toTeamName: newTeamName }
+          : a
+      ));
       if (pending) {
         setDealAssets(prev => prev.some(a => a.key === pending.key) ? prev : [...prev, {
           key: pending.key, name: pending.name,
@@ -419,6 +423,12 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
         const me = prev.find(t => t.id === myTeamId);
         return [me ?? { id: myTeamId, name: myName }, { id: teamId, name: teamName }];
       });
+      // Backfill the partner onto our assets added before one existed.
+      setDealAssets(prev => prev.map(a =>
+        a.fromTeamId === myTeamId && !a.toTeamId
+          ? { ...a, toTeamId: teamId, toTeamName: teamName }
+          : a
+      ));
       if (pending) {
         setDealAssets(prev => prev.some(a => a.key === pending.key) ? prev : [...prev, {
           key: pending.key, name: pending.name,

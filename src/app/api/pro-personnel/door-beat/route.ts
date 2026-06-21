@@ -16,7 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 const LLM_TIMEOUT_MS = 6_000;
 
 type BeatGoal = { label: string; evidence: string; count: number };
