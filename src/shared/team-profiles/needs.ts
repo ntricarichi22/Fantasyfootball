@@ -12,7 +12,9 @@ const LEVEL_HIGH = 0.7; // score >= -> high
 const LEVEL_MED = 0.34; // score >= -> med, else low
 
 // Starter unit size per bucket; the depth man is the next one (QB3 / RB3 / PC5).
-const STARTERS: Record<NeedBucket, number> = { QB: 2, RB: 2, PASS_CATCHER: 4 };
+// Exported as the single source of truth for the league's "functional" starting
+// lineup (2 QB / 2 RB / 4 PC) — the Studio engine reads it instead of its own.
+export const STARTERS: Record<NeedBucket, number> = { QB: 2, RB: 2, PASS_CATCHER: 4 };
 const BUCKETS: NeedBucket[] = ["QB", "RB", "PASS_CATCHER"];
 
 // PASS_CATCHER = WR + TE (no dedicated TE slot in this league).

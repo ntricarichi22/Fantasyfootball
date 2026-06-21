@@ -23,29 +23,33 @@
 import { fetchPlayers } from "@/shared/league-data/sleeper";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import type { LeagueData } from "@/shared/league-data";
-import { valueAsset, type ValuationContext, type AssetRef } from "@/shared/asset-values";
+import { valueAsset, isYoung, isAging, type ValuationContext, type AssetRef } from "@/shared/asset-values";
+import {
+  buildImpactSets,
+  buildScrubSets,
+  STARTERS,
+  type NeedBucket,
+  type NeedLevel,
+  type TeamNeeds,
+} from "@/shared/team-profiles";
 import { ACQUIRE_GOAL_KINDS, type NarrativeBundle, type GoalKind } from "@/shared/team-narratives";
 import { buildStackContext, classifyStack, type StackContext } from "@/shared/roster-stacks";
 import { verdictFromRatio, personaAwareGrade } from "../core/gap";
 import { normalizePersona } from "../core/personas";
 import type { Gap, Grade, PersonaKey } from "../core/types";
 
-// ── tunables (mirror the validated sim) ──────────────────────────────────────
+// ── tunables (shape/score knobs only) ────────────────────────────────────────
+// Player-tier, starter-slot, age, and need definitions are NOT defined here —
+// they come from the canonical single source of truth (@/shared/team-profiles
+// impact/scrub sets + STARTERS, and @/shared/asset-values age). These are the
+// remaining studio-specific deal-shaping knobs.
 const BAND: [number, number] = [0.8, 1.05];
 const MAX_PLAYERS_PER_SIDE = 3;
 const MAX_PIECES = 4;
 const MAX_PER_POS = 2;
 const MAX_PICKS_PER_ROUND: Record<number, number> = { 1: 9, 2: 2, 3: 2 };
-const SLOTS: Record<string, number> = { QB: 2, RB: 2, PASS_CATCHER: 3 }; // our lineup-protected counts
-const SF_QB_STARTABLE = 130; // a QB at/above this is a real Superflex starter
-const NFL_SLOTS: Record<string, number> = { QB: 1, RB: 2, WR: 3, TE: 1 }; // NFL depth-chart "impact" cutoff
-const SHIP_NEED_THRESH: Record<string, number> = { QB: 150, RB: 70, PASS_CATCHER: 85 };
-const STARTABLE_FLOOR = 45;
-const CORNERSTONE_CFC = 80;
-const OLD_AGE = 28;
 const UPGRADE_MARGIN = 1.1;
 const STUD_FOR_SCRUBS = 1.5;
-const RB_LEAD_CFC = 120;
 const OFFERS_PER_PARTNER = 2;
 const MAX_OFFERS = 12;
 
@@ -99,10 +103,25 @@ export type StudioInput = {
   ctx: ValuationContext;
   depth: DepthData;
   bundles: Map<string, NarrativeBundle>; // per-team storylines (theses + goals)
+  needs: Map<string, TeamNeeds>; // canonical per-team need levels
 };
 
 export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
-  const { ourTeamId, shopKeys, data, ctx, depth, bundles } = input;
+  const { ourTeamId, shopKeys, data, ctx, depth, bundles, needs } = input;
+  // Canonical player-tier sets (top-N impact / scrub floor), the single source
+  // of truth shared with the Builder + narratives. Built once per call.
+  const impactSets = buildImpactSets(data);
+  const scrubSets = buildScrubSets(data);
+  const asBucket = (a: Asset): NeedBucket => a.bucket as NeedBucket;
+  const isImpact = (a: Asset): boolean => a.type === "player" && (impactSets.get(asBucket(a))?.has(a.key) ?? false);
+  const isScrub = (a: Asset): boolean => a.type === "player" && (scrubSets.get(asBucket(a))?.has(a.key) ?? false);
+  const isYoungA = (a: Asset): boolean => a.type === "player" && isYoung(a.pos, a.age, a.exp);
+  const isAgingVet = (a: Asset): boolean => a.type === "player" && isAging(a.pos, a.age);
+  const needLevel = (tid: string, b: string): NeedLevel => {
+    const n = needs.get(tid);
+    if (!n) return "low";
+    return b === "QB" ? n.qb.level : b === "RB" ? n.rb.level : b === "PASS_CATCHER" ? n.passCatcher.level : "low";
+  };
   const teamIds = data.teams.map((t) => t.rosterId);
   const nameOf: Record<string, string> = {};
   for (const t of data.teams) nameOf[t.rosterId] = t.teamName;
@@ -168,7 +187,7 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     const set = new Set<string>(); const weak: Record<string, number> = {}; const open: Record<string, boolean> = {};
     for (const b of ["QB", "RB", "PASS_CATCHER"]) {
       const pl = teamAssets(tid).filter((a) => a.type === "player" && a.bucket === b).sort((x, y) => y.cfc - x.cfc);
-      const n = SLOTS[b]; const top = pl.slice(0, n);
+      const n = STARTERS[b as NeedBucket]; const top = pl.slice(0, n);
       for (const a of top) set.add(a.key);
       weak[b] = pl.length >= n ? top[top.length - 1].cfc : -Infinity;
       open[b] = pl.length < n;
@@ -184,7 +203,7 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     buildStackContext(
       teamAssets(tid)
         .filter((a) => a.type === "player" && !drop.has(a.key) && !!a.nfl)
-        .map((a) => ({ nflTeam: a.nfl, position: a.pos, isLeadRb: a.cfc >= RB_LEAD_CFC })),
+        .map((a) => ({ nflTeam: a.nfl, position: a.pos, isLeadRb: isImpact(a) })),
     );
   const stackEval = (a: Asset, sets: StackContext): { good: string | null; bad: string | null } => {
     let good: string | null = null, bad: string | null = null;
@@ -196,28 +215,27 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     return { good, bad };
   };
 
-  const depthRank = (a: Asset): number | null => {
-    const arr = depth.room.get(`${a.nfl}|${a.pos}`); if (!arr) return null;
-    const i = arr.findIndex((x) => x.id === a.key); return i < 0 ? null : i + 1;
-  };
+  // NFL depth-chart "path": is there a real opening ahead of this guy on his NFL
+  // room (the man above him is aging and there's no rookie competitor)? Used to
+  // rescue a young, low-ranked player who'd otherwise read as a scrub.
   const hasPath = (a: Asset): boolean => {
     const arr = depth.room.get(`${a.nfl}|${a.pos}`) || []; const me = arr.find((x) => x.id === a.key); const my = me?.cfc ?? 0;
     const ahead = arr.filter((x) => x.id !== a.key && x.cfc > my); const top = ahead[0];
-    const aging = !top || (top.age != null && top.age >= OLD_AGE);
+    const aging = !top || isAging(top.pos, top.age);
     const rookieComp = arr.some((x) => x.id !== a.key && x.exp === 0);
     return aging && !rookieComp;
   };
-  const isImpact = (a: Asset): boolean => a.cfc >= CORNERSTONE_CFC || ((depthRank(a) ?? 99) <= (NFL_SLOTS[a.pos] ?? 99) && a.cfc >= STARTABLE_FLOOR);
   const isPickRound1 = (a: Asset) => a.type === "pick" && a.round === 1;
-  const isYoung = (a: Asset) => a.type === "player" && (a.exp != null ? a.exp <= 2 : a.age != null && a.age <= 24);
-  const isAgingVet = (a: Asset) => a.type === "player" && a.age != null && a.age >= OLD_AGE;
 
-  // A received player must be a real asset (stack/insurance do NOT rescue a dead guy).
+  // A received player is includable if he's NOT a scrub (canonical bottom — above
+  // the league scrub-rank floor, so he has a real trade market). Rookies and
+  // young players with a clear NFL path still count even when their value rank
+  // reads as a scrub.
   const includable = (a: Asset): { ok: boolean; why: string } => {
     if (a.type === "pick") return { ok: true, why: isPickRound1(a) ? "1st-rd pick" : "pick" };
-    if (isImpact(a)) return { ok: true, why: "starter/impact" };
+    if (!isScrub(a)) return { ok: true, why: isImpact(a) ? "starter/impact" : "startable" };
     if (a.exp === 0) return { ok: true, why: "rookie upside" };
-    if (a.exp != null && a.exp <= 2) return hasPath(a) ? { ok: true, why: "upside path" } : { ok: false, why: "" };
+    if (isYoungA(a) && hasPath(a)) return { ok: true, why: "upside path" };
     return { ok: false, why: "" };
   };
 
@@ -230,22 +248,22 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     // force them to ship a QB back). Kills "elite QB for no QB" offers from
     // already-QB-rich teams.
     if (h.bucket === "QB" &&
-        teamAssets(pid).filter((a) => a.type === "player" && a.bucket === "QB" && a.cfc >= SF_QB_STARTABLE).length >= SLOTS.QB) {
+        teamAssets(pid).filter((a) => a.type === "player" && a.bucket === "QB" && isImpact(a)).length >= STARTERS.QB) {
       return false;
     }
     const winNow = hasWinNow(pid);
     if (isAgingVet(h) && !winNow) return false; // only a win-now team acquires an aging vet
     // a young piece serving an add-youth goal
-    if (isYoung(h) && goalAt(pid, h.bucket, ["add_youth"])) return true;
+    if (isYoungA(h) && goalAt(pid, h.bucket, ["add_youth"])) return true;
     // an impact/fill-need goal at this bucket, OR a win-now team's clear lineup upgrade
     const st = starters(pid);
     const upgrade = st.open[h.bucket] || h.cfc > st.weak[h.bucket] * UPGRADE_MARGIN;
-    if ((goalAt(pid, h.bucket, ["acquire_impact", "fill_need"]) || (winNow && upgrade)) && (isImpact(h) || h.cfc >= STARTABLE_FLOOR)) return true;
-    // insurance / depth goal (lower bar)
-    if (goalAt(pid, h.bucket, ["insurance", "depth"]) && h.cfc >= STARTABLE_FLOOR * 0.6) return true;
+    if ((goalAt(pid, h.bucket, ["acquire_impact", "fill_need"]) || (winNow && upgrade)) && !isScrub(h)) return true;
+    // insurance / depth goal (lower bar — anything with a real market)
+    if (goalAt(pid, h.bucket, ["insurance", "depth"]) && includable(h).ok) return true;
     // a QB-stack completion they'd value
     const ev = stackEval(h, nflSets(pid, new Set()));
-    if (ev.good === "QB-stack" && (isImpact(h) || h.cfc >= STARTABLE_FLOOR)) return true;
+    if (ev.good === "QB-stack" && !isScrub(h)) return true;
     return false;
   };
 
@@ -280,7 +298,7 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     if (!partnerWantsShop(pid, headline)) continue;
 
     const pStart = starters(pid).set;
-    const pNeedy = (b: string) => market(pid, b) === "buy" || starters(pid).open[b] || starters(pid).weak[b] < (SHIP_NEED_THRESH[b] ?? 0);
+    const pNeedy = (b: string) => market(pid, b) === "buy" || starters(pid).open[b] || needLevel(pid, b) !== "low";
     const pickGiveOk = market(pid, "PICK") !== "buy";
     const partnerIsContender = hasWinNow(pid); // win-now teams spend picks / will slightly overpay for a need
     const aheadTol = partnerIsContender ? 0.1 : 0;
@@ -325,7 +343,7 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
         const margin = sendCfc - theirGive; let fit = 0;
         for (const a of combo) {
           if (a.type === "pick" && ourRebuildLean) fit += 12;
-          if (isYoung(a) && ourRebuildLean) fit += 10;
+          if (isYoungA(a) && ourRebuildLean) fit += 10;
           if (market(ourTeamId, a.bucket) === "buy") fit += 10;
         }
         const hasPick = combo.some((a) => a.type === "pick");

@@ -9,7 +9,7 @@ export {
   candidatesFor,
 } from "./strength";
 export { buildTeamProfiles } from "./profiler";
-export { computeNeeds } from "./needs";
+export { computeNeeds, STARTERS } from "./needs";
 export {
   IMPACT_TOPN,
   SCRUB_RANK_FLOOR,

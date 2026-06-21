@@ -50,7 +50,7 @@ export async function POST(req: Request) {
     const ctx = await buildValuationContext();
     const depth = await buildDepthData(ctx.playerBase);
 
-    const offers = generateStudioOffers({ ourTeamId: teamId, shopKeys, data, ctx, depth, bundles });
+    const offers = generateStudioOffers({ ourTeamId: teamId, shopKeys, data, ctx, depth, bundles, needs });
 
     return NextResponse.json({ offers, totalCandidatesEvaluated: offers.length, isFallback: false });
   } catch (err) {
