@@ -356,8 +356,9 @@ export async function getLeagueSettings(): Promise<LeagueSettings> {
 export async function getValues(): Promise<ValueMaps> {
   const value = new Map<string, number>();
   const isStud = new Map<string, boolean>();
+  const rookieQbBoost = new Map<string, number>();
   const admin = getSupabaseAdminClient();
-  if (!admin.client) return { value, isStud };
+  if (!admin.client) return { value, isStud, rookieQbBoost };
   const { data } = await admin.client
     .from("cfc_trade_values_current")
     .select("sleeper_player_id, cfc_value, elite_multiplier_applied")
@@ -373,7 +374,29 @@ export async function getValues(): Promise<ValueMaps> {
       isStud.set(row.sleeper_player_id, row.elite_multiplier_applied > 1.0);
     }
   }
-  return { value, isStud };
+  // rookie_qb_boost lives on the same table but may not exist on every
+  // deployment. Queried in isolation so a missing column degrades the QB-stash
+  // behavior (empty map => boost 1 => not a stash candidate) instead of breaking
+  // the whole value load.
+  try {
+    const { data: boostRows, error: boostErr } = await admin.client
+      .from("cfc_trade_values_current")
+      .select("sleeper_player_id, rookie_qb_boost")
+      .not("rookie_qb_boost", "is", null);
+    if (!boostErr) {
+      for (const row of (boostRows ?? []) as Array<{
+        sleeper_player_id: string;
+        rookie_qb_boost: number | null;
+      }>) {
+        if (row.sleeper_player_id && typeof row.rookie_qb_boost === "number") {
+          rookieQbBoost.set(row.sleeper_player_id, row.rookie_qb_boost);
+        }
+      }
+    }
+  } catch {
+    // column absent — leave rookieQbBoost empty
+  }
+  return { value, isStud, rookieQbBoost };
 }
 
 export async function getStrategyProfiles(): Promise<{

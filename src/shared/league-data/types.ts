@@ -115,6 +115,11 @@ export type ValueMaps = {
   value: Map<string, number>;
   // elite_multiplier_applied > 1.0, keyed by sleeper_player_id.
   isStud: Map<string, boolean>;
+  // rookie_qb_boost multiplier, keyed by sleeper_player_id. Encodes a rookie
+  // QB's draft capital (1.25 ≈ #1 overall … 1.05 ≈ pick 15-20) for the draft-sim
+  // QB-stash behavior. Empty when the source column is absent — the engine
+  // treats a missing boost as 1 (not a stash candidate), so it degrades cleanly.
+  rookieQbBoost: Map<string, number>;
 };
 
 // Canonical draft-pick slot ladder. Key = "R.SS" with a ZERO-PADDED slot

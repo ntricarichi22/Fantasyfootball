@@ -1,0 +1,65 @@
+import { NextResponse } from "next/server";
+import { getLeagueData } from "@/shared/league-data";
+import { buildTeamProfiles } from "@/shared/team-profiles";
+import { computeDraftFit } from "@/scouting/draft-fit";
+import { getAllBoards, runDraftEngine } from "@/scouting/draft-sim";
+
+export const dynamic = "force-dynamic";
+export const maxDuration = 30;
+
+// GET /api/scouting/draft-sim — full engine. projectionTop = the simulated
+// draft (who falls where). teams = each team's slot reads with curation,
+// successor pressure, four signals per survivor, and the rec. Successor pressure
+// is now per-starter (age OR placeholder quality), and team needs/floors
+// recompute mid-draft, so a team can't stack a position on a stale need.
+export async function GET() {
+  const data = await getLeagueData();
+  if ("error" in data) return NextResponse.json(data, { status: 500 });
+
+  const profiles = buildTeamProfiles(data);
+  const grid = computeDraftFit(data, profiles);
+  const boards = await getAllBoards(data, grid);
+
+  const { projection, reads, poolSize, draftPicks } = runDraftEngine(
+    data,
+    grid,
+    profiles,
+    boards
+  );
+
+  const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
+
+  const teams = reads.map((r) => ({
+    team: r.teamName,
+    tier: r.tier,
+    winNow: r.winNow,
+    curation: Number(r.curation.toFixed(2)),
+    successor: {
+      QB: Number(r.successor.QB.toFixed(2)),
+      RB: Number(r.successor.RB.toFixed(2)),
+      PC: Number(r.successor.PASS_CATCHER.toFixed(2)),
+    },
+    picks: r.picks.map((p) => ({
+      pick: `${p.round}.${String(p.slot ?? 0).padStart(2, "0")}`,
+      rec: p.recommendation,
+      projected: p.projectedPick ? `${p.projectedPick.name} (${p.projectedPick.position})` : null,
+      rationale: p.rationale,
+      survivors: p.topSurvivors.map(
+        (s) =>
+          `${s.starred ? "\u2605 " : ""}${s.name} ${s.position} [need ${s.needLevel}, upg ${
+            s.upgrade > 0 ? "+" + Math.round(s.upgrade) : 0
+          }, asset ${s.asset}]`
+      ),
+    })),
+  }));
+
+  const projectionTop = projection.slice(0, 24).map((s) => ({
+    overall: s.overall,
+    pick: `${s.round}.${String(s.slot ?? 0).padStart(2, "0")}`,
+    team: nameByRoster.get(s.rosterId) ?? s.rosterId,
+    player: s.name ? `${s.name} (${s.position})` : "\u2014",
+    reason: s.reason,
+  }));
+
+  return NextResponse.json({ poolSize, draftPicks, projectionTop, teams });
+}
