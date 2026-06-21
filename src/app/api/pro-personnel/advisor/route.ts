@@ -29,7 +29,10 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-5";
+// Haiku for the deal-read prose: a short (~350-token) advisory blurb where
+// speed matters more than the extra nuance of Sonnet. Revert to a Sonnet id if
+// the director's voice regresses.
+const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 
 type RequestBody = {
   my_team_id?: string;
