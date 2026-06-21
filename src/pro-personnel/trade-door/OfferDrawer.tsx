@@ -249,8 +249,26 @@ export default function OfferDrawer({
         ✕
       </div>
 
-      {/* Carousel — margin:auto centers the card vertically when it fits and
-          falls back to normal scrolling when it doesn't. */}
+      {/* Carousel controls pinned above the card (mirrors Trade Studio): the
+          prev/next + dots stay put while the card area below scrolls. */}
+      {currentOffer && offers.length > 1 && (
+        <div style={{ flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "10px 16px 0" }}>
+          <button onClick={goPrev} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
+            ← PREV
+          </button>
+          <div style={{ display: "flex", gap: 6 }}>
+            {offers.map((_, i) => (
+              <div key={i} style={{ width: 8, height: 8, border: "1.5px solid #1A1A1A", background: i === activeIndex ? "#1A1A1A" : "#FEFCF9" }} />
+            ))}
+          </div>
+          <button onClick={goNext} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
+            NEXT →
+          </button>
+        </div>
+      )}
+
+      {/* margin:auto centers the card vertically when it fits and falls back to
+          normal scrolling when it doesn't. */}
       <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px", minHeight: 0, display: "flex", flexDirection: "column" }}>
         {currentOffer ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 12, margin: "auto 0", width: "100%" }}>
@@ -268,21 +286,6 @@ export default function OfferDrawer({
               onMakeOffer={() => setSendModalOpen(true)}
               sending={sendingOffer}
             />
-            {offers.length > 1 && (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-                <button onClick={goPrev} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
-                  ← PREV
-                </button>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {offers.map((_, i) => (
-                    <div key={i} style={{ width: 8, height: 8, border: "1.5px solid #1A1A1A", background: i === activeIndex ? "#1A1A1A" : "#FEFCF9" }} />
-                  ))}
-                </div>
-                <button onClick={goNext} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
-                  NEXT →
-                </button>
-              </div>
-            )}
           </div>
         ) : (
           <div style={{ border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", background: "#FEFCF9", padding: "22px 24px", margin: "auto 0" }}>
