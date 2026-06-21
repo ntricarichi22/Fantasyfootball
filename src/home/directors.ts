@@ -55,7 +55,7 @@ export const DIRECTORS: DirectorConfig[] = [
     ],
     workrooms: [
       { title: "Build a Trade", href: "/pro-personnel/trade-builder?seed=fresh", icon: "arrows-exchange" },
-      { title: "Shop My Guys", href: "/pro-personnel/shop", icon: "tag" },
+      { title: "Shop My Guys", href: "/pro-personnel/trade-studio", icon: "tag" },
     ],
   },
   {
