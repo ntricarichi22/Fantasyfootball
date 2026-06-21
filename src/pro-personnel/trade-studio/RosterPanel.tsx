@@ -29,28 +29,15 @@ const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
 
 const POS_SECTIONS = [
-  { key: "QB", label: "Quarterbacks" },
-  { key: "RB", label: "Running Backs" },
-  { key: "PASS", label: "Pass Catchers" },
+  { key: "QB", label: "Quarterback Room" },
+  { key: "RB", label: "Running Back Room" },
+  { key: "PASS", label: "Pass Catcher Room" },
   { key: "PICK", label: "Draft Picks" },
 ];
 
-const TIER_ORDER: Record<string, number> = {
-  moveable: 0,
-  listening: 1,
-  core: 2,
-  core_piece: 2,
-  untouchable: 3,
-};
-
+// Sort each room strictly by this team's own value, highest first.
 function sortAssets(items: RosterAssetItem[]): RosterAssetItem[] {
-  return [...items].sort((a, b) => {
-    if (a.type === "pick" && b.type === "pick") return b.value - a.value;
-    const tierA = TIER_ORDER[a.tier] ?? 4;
-    const tierB = TIER_ORDER[b.tier] ?? 4;
-    if (tierA !== tierB) return tierA - tierB;
-    return b.value - a.value;
-  });
+  return [...items].sort((a, b) => b.value - a.value);
 }
 
 function AssetRow({ asset, selected, onToggle }: { asset: RosterAssetItem; selected: boolean; onToggle: () => void }) {
@@ -176,9 +163,9 @@ export default function RosterPanel({ assets, selectedKeys, onToggle, onGenerate
             paddingBottom: 4,
           }}
         >
-          <QuadrantBox title="Quarterbacks" count={grouped.QB.length} items={grouped.QB} selectedKeys={selectedKeys} onToggle={onToggle} />
-          <QuadrantBox title="Running Backs" count={grouped.RB.length} items={grouped.RB} selectedKeys={selectedKeys} onToggle={onToggle} />
-          <QuadrantBox title="Pass Catchers" count={grouped.PASS.length} items={grouped.PASS} selectedKeys={selectedKeys} onToggle={onToggle} />
+          <QuadrantBox title="Quarterback Room" count={grouped.QB.length} items={grouped.QB} selectedKeys={selectedKeys} onToggle={onToggle} />
+          <QuadrantBox title="Running Back Room" count={grouped.RB.length} items={grouped.RB} selectedKeys={selectedKeys} onToggle={onToggle} />
+          <QuadrantBox title="Pass Catcher Room" count={grouped.PASS.length} items={grouped.PASS} selectedKeys={selectedKeys} onToggle={onToggle} />
           <QuadrantBox title="Draft Picks" count={grouped.PICK.length} items={grouped.PICK} selectedKeys={selectedKeys} onToggle={onToggle} />
         </div>
         {generateButton}

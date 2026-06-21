@@ -36,6 +36,7 @@ const MAX_PIECES = 4;
 const MAX_PER_POS = 2;
 const MAX_PICKS_PER_ROUND: Record<number, number> = { 1: 9, 2: 2, 3: 2 };
 const SLOTS: Record<string, number> = { QB: 2, RB: 2, PASS_CATCHER: 3 }; // our lineup-protected counts
+const SF_QB_STARTABLE = 130; // a QB at/above this is a real Superflex starter
 const NFL_SLOTS: Record<string, number> = { QB: 1, RB: 2, WR: 3, TE: 1 }; // NFL depth-chart "impact" cutoff
 const SHIP_NEED_THRESH: Record<string, number> = { QB: 150, RB: 70, PASS_CATCHER: 85 };
 const STARTABLE_FLOOR = 45;
@@ -222,6 +223,14 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
   const partnerWantsShop = (pid: string, h: Asset): boolean => {
     if (h.bucket === "PICK") return wantsPicks(pid);
     if (stackEval(h, nflSets(pid, new Set())).bad) return false; // wouldn't add WR concentration
+    // QB saturation: a team that already rosters its Superflex starting QBs won't
+    // acquire ANOTHER QB — they'd just hoard, not consolidate (the studio can't
+    // force them to ship a QB back). Kills "elite QB for no QB" offers from
+    // already-QB-rich teams.
+    if (h.bucket === "QB" &&
+        teamAssets(pid).filter((a) => a.type === "player" && a.bucket === "QB" && a.cfc >= SF_QB_STARTABLE).length >= SLOTS.QB) {
+      return false;
+    }
     const winNow = hasWinNow(pid);
     if (isAgingVet(h) && !winNow) return false; // only a win-now team acquires an aging vet
     // a young piece serving an add-youth goal
@@ -338,11 +347,25 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     for (const c of kept) offers.push({ ...c, pid });
   }
 
-  offers.sort((a, b) => b.stacks.length - a.stacks.length || b.margin - a.margin);
+  // Group a partner's offers back-to-back; order partners by their best offer.
+  const byPartner = new Map<string, typeof offers>();
+  for (const o of offers) {
+    const arr = byPartner.get(o.pid);
+    if (arr) arr.push(o); else byPartner.set(o.pid, [o]);
+  }
+  for (const arr of byPartner.values()) arr.sort((a, b) => b.score - a.score);
+  const ordered = [...byPartner.values()]
+    .sort((a, b) => Math.max(...b.map((o) => o.score)) - Math.max(...a.map((o) => o.score)))
+    .flat();
+
+  // Within a side, all players first, then all picks — never interleaved.
+  const playersThenPicks = (arr: Asset[]) =>
+    [...arr].sort((a, b) => (a.type === "pick" ? 1 : 0) - (b.type === "pick" ? 1 : 0));
+  const sendOrdered = playersThenPicks(send);
 
   const posLabel = (a: Asset) => (a.type === "pick" ? undefined : a.pos);
   const out: StudioOfferWire[] = [];
-  offers.slice(0, MAX_OFFERS).forEach((o, i) => {
+  ordered.slice(0, MAX_OFFERS).forEach((o, i) => {
     const ratio = o.recv / sendTeam;
     const gap: Gap = {
       sendValue: Math.round(sendTeam), receiveValue: Math.round(o.recv), ratio,
@@ -354,8 +377,8 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
       partnerTeamId: o.pid,
       partnerTeamName: nameOf[o.pid] ?? `Team ${o.pid}`,
       persona: personaOf(o.pid),
-      send: send.map((a) => ({ key: a.key, name: a.name, type: a.type, position: posLabel(a), value: Math.round(a.teamVal) })),
-      receive: o.combo.map((a) => ({ key: a.key, name: a.name, type: a.type, position: posLabel(a), value: Math.round(a.cfc) })),
+      send: sendOrdered.map((a) => ({ key: a.key, name: a.name, type: a.type, position: posLabel(a), value: Math.round(a.teamVal) })),
+      receive: playersThenPicks(o.combo).map((a) => ({ key: a.key, name: a.name, type: a.type, position: posLabel(a), value: Math.round(a.cfc) })),
       sendValue: Math.round(sendTeam),
       receiveValue: Math.round(o.recv),
       valueGap: gap,

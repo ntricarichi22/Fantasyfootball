@@ -41,8 +41,10 @@ function synthFitFromRatio(ratio: number, perspective: "you" | "them"): number {
 }
 
 // Convert a StudioOffer's send/receive into the unified CardAsset shape.
+// Group all players first, then all picks — never interleaved.
 function toCardAssets(items: StudioOffer["send"]): CardAsset[] {
-  return items.map(a => {
+  const ordered = [...items].sort((a, b) => (a.type === "pick" ? 1 : 0) - (b.type === "pick" ? 1 : 0));
+  return ordered.map(a => {
     const metaParts: string[] = [];
     if (a.position) metaParts.push(a.position);
     if (a.team) metaParts.push(a.team);
@@ -409,7 +411,24 @@ export default function TradeStudioView() {
             <div style={{ padding: "20px 24px 0 24px", flexShrink: 0 }}>
               <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={currentOffer ? REVIEW_INTRO : NO_OFFERS_INTRO} />
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "20px 24px" }}>
+            {/* Carousel controls are PINNED here (between director + card) so they
+                never move as the card height changes, and are always in view. */}
+            {!loading && !generating && currentOffer && offers.length > 1 && (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "12px 24px 4px", flexShrink: 0 }}>
+                <button onClick={goPrev} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
+                  ← PREV
+                </button>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "center", maxWidth: 280 }}>
+                  {offers.map((_, i) => (
+                    <div key={i} style={{ width: 8, height: 8, border: "1.5px solid #1A1A1A", background: i === activeIndex ? "#1A1A1A" : "#FEFCF9" }} />
+                  ))}
+                </div>
+                <button onClick={goNext} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
+                  NEXT →
+                </button>
+              </div>
+            )}
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 24px 20px" }}>
               {loading || generating ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40, fontFamily: FM, fontSize: 11, color: "#8C7E6A" }}>
                   Generating offers…
@@ -438,26 +457,6 @@ export default function TradeStudioView() {
                     onMakeOffer={() => setSendModalOpen(true)}
                     sending={sendingOffer}
                   />
-                  {offers.length > 1 && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 18 }}>
-                      <button onClick={goPrev} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
-                        ← PREV
-                      </button>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        {offers.map((_, i) => (
-                          <div key={i} style={{
-                            width: 8,
-                            height: 8,
-                            border: "1.5px solid #1A1A1A",
-                            background: i === activeIndex ? "#1A1A1A" : "#FEFCF9",
-                          }} />
-                        ))}
-                      </div>
-                      <button onClick={goNext} style={{ background: "transparent", border: "none", padding: "4px 8px", fontFamily: FM, fontSize: 11, fontWeight: 700, color: "#1A1A1A", cursor: "pointer", letterSpacing: "0.1em" }}>
-                        NEXT →
-                      </button>
-                    </div>
-                  )}
                 </>
               ) : (
                 <div /> /* empty state — director two-box above already speaks */
