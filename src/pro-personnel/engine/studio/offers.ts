@@ -437,13 +437,17 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
       }
     }
     cands.sort((a, b) => b.score - a.score);
-    // up to 2 per partner: best, plus a different-shape alternative (pick-led vs player-led)
+    // Up to 2 per partner: the best, plus a PLAYER-BEARING alternative with a
+    // genuinely different player set. Never two offers from one team that share
+    // the same player(s) and only swap the pick combo — that's the samey padding.
+    const playerSig = (c: Cand) => c.combo.filter((a) => a.type === "player").map((a) => a.key).sort().join(",");
+    const hasPlayer = (c: Cand) => c.combo.some((a) => a.type === "player");
     const kept: Cand[] = [];
     if (cands.length) {
       kept.push(cands[0]);
       if (OFFERS_PER_PARTNER > 1) {
-        const ft = cands[0].leadType;
-        const alt = cands.find((c) => c !== cands[0] && c.leadType !== ft) || cands.find((c) => c !== cands[0] && c.lead !== cands[0].lead);
+        const sig0 = playerSig(cands[0]);
+        const alt = cands.find((c) => c !== cands[0] && hasPlayer(c) && playerSig(c) !== sig0);
         if (alt) kept.push(alt);
       }
     }
