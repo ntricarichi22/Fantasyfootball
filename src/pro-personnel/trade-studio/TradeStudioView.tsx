@@ -450,7 +450,9 @@ export default function TradeStudioView() {
                     receiveAssets={toCardAssets(currentOffer.receive)}
                     verdict={advisorByOffer[currentOffer.id]?.grade ?? currentOffer.gradeLabel}
                     verdictColor={advisorByOffer[currentOffer.id]?.gradeColor ?? currentOffer.gradeColor}
-                    prose={advisorByOffer[currentOffer.id]?.prose ?? "Reading the matchup…"}
+                    prose={advisorByOffer[currentOffer.id]?.loading
+                      ? "Let me take a look at the terms, one sec…"
+                      : (advisorByOffer[currentOffer.id]?.prose ?? "Reading the matchup…")}
                     proseLoading={!!advisorByOffer[currentOffer.id]?.loading}
                     onPass={handlePass}
                     onEdit={handleEdit}

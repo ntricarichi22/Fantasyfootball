@@ -35,9 +35,20 @@ const POS_SECTIONS = [
   { key: "PICK", label: "Draft Picks" },
 ];
 
-// Sort each room strictly by this team's own value, highest first.
+// Player rooms: sort by this team's own value, highest first. The Draft Picks
+// room is chronological instead — earliest draft year first, then round.
+function pickYearRound(key: string): [number, number] {
+  const m = key.match(/^pick:(\d+)-(\d+)/);
+  return m ? [Number(m[1]), Number(m[2])] : [9999, 9];
+}
 function sortAssets(items: RosterAssetItem[]): RosterAssetItem[] {
-  return [...items].sort((a, b) => b.value - a.value);
+  return [...items].sort((a, b) => {
+    if (a.type === "pick" && b.type === "pick") {
+      const [ay, ar] = pickYearRound(a.key), [by, br] = pickYearRound(b.key);
+      return ay - by || ar - br || b.value - a.value;
+    }
+    return b.value - a.value;
+  });
 }
 
 function AssetRow({ asset, selected, onToggle }: { asset: RosterAssetItem; selected: boolean; onToggle: () => void }) {

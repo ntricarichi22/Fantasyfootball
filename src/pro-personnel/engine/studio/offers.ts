@@ -358,9 +358,19 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     .sort((a, b) => Math.max(...b.map((o) => o.score)) - Math.max(...a.map((o) => o.score)))
     .flat();
 
-  // Within a side, all players first, then all picks — never interleaved.
+  // Within a side: all players first, then all picks; picks chronological
+  // (earliest draft year first, then round). Player order is left as-is.
+  const pickYearRound = (a: Asset): [number, number] => {
+    const m = a.key.match(/^pick:(\d+)-(\d+)/);
+    return m ? [Number(m[1]), Number(m[2])] : [9999, 9];
+  };
   const playersThenPicks = (arr: Asset[]) =>
-    [...arr].sort((a, b) => (a.type === "pick" ? 1 : 0) - (b.type === "pick" ? 1 : 0));
+    [...arr].sort((a, b) => {
+      const ap = a.type === "pick" ? 1 : 0, bp = b.type === "pick" ? 1 : 0;
+      if (ap !== bp) return ap - bp;
+      if (ap === 1) { const [ay, ar] = pickYearRound(a), [by, br] = pickYearRound(b); return ay - by || ar - br; }
+      return 0;
+    });
   const sendOrdered = playersThenPicks(send);
 
   const posLabel = (a: Asset) => (a.type === "pick" ? undefined : a.pos);
