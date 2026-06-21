@@ -12,6 +12,7 @@ import TierDivider from "@/pro-personnel/trade-builder/TierDivider";
 import RoutingPopup from "@/pro-personnel/trade-builder/RoutingPopup";
 import TeamPickerModal, { type PartnerFit } from "@/pro-personnel/trade-builder/TeamPickerModal";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 
 type Team = { id: string; name: string };
 type Props = {
@@ -42,7 +43,7 @@ const POS_SECTIONS = [
   { key: "PICK", label: "Draft Picks" },
 ];
 
-export default function TradeBuilder({ initialTeams, initialDealAssets, initialAdvisor, onBack }: Props) {
+export default function TradeBuilder({ initialTeams, initialDealAssets, initialAdvisor }: Props) {
   const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
   const myTeamId = rosterId;
 
@@ -646,17 +647,14 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     const myRecvNames = dealAssets.filter(a => a.toTeamId === myTeamId).map(a => a.name).join(", ");
     const closeSheet = () => setSheetOpen(null);
     return (
-      <div style={{ height: "calc(100dvh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ height: "100dvh", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         {toastEl}
-        <div style={{ background: "#F5F0E6", padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <div onClick={onBack} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer", flexShrink: 0 }}>← Back</div>
-            <div style={{ width: 1, height: 14, background: "#C8C3B8", flexShrink: 0 }} />
-            <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
-          </div>
-          <div onClick={openSwapPicker} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 8px", letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0 }}>Change team</div>
-        </div>
+        <UnifiedTopbar />
         <div style={{ flex: 1, overflowY: "auto", padding: "14px 14px 8px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+            <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
+            <div onClick={openSwapPicker} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 8px", letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0 }}>Change team</div>
+          </div>
           <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={false} />
           <AIAdvisor
             grade={advisorGrade}
@@ -715,21 +713,9 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
   }
 
   return (
-    <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ height: "100vh", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {toastEl}
-      <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div onClick={onBack} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer" }}>← Back</div>
-          <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
-          <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <div onClick={openSwapPicker} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Change team</div>
-          {teams.length < 3 && (
-            <div onClick={() => setPickerMode("add")} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>+ Add team</div>
-          )}
-        </div>
-      </div>
+      <UnifiedTopbar />
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "58% 42%", minHeight: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", flexDirection: "column", borderRight: "2px solid #1A1A1A", overflow: "hidden" }}>
           <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
@@ -760,6 +746,12 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
                 </div>
               );
             })}
+          </div>
+          <div style={{ padding: "8px 14px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1.5px solid #C8C3B8", flexShrink: 0 }}>
+            <div onClick={openSwapPicker} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>Change team</div>
+            {teams.length < 3 && (
+              <div onClick={() => setPickerMode("add")} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 10px", letterSpacing: "0.04em", textTransform: "uppercase" }}>+ Add team</div>
+            )}
           </div>
           <div style={{ padding: "8px 14px", borderBottom: "1.5px solid #C8C3B8", flexShrink: 0 }}>
             {rosterSearchInput}

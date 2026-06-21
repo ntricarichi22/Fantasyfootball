@@ -11,7 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
-import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
   DirectorChat,
   type Message,
@@ -203,7 +203,7 @@ export function PersonnelOffice() {
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#F5F0E6" }}>
-      <InnerTopbar breadcrumb="PRO PERSONNEL" />
+      <UnifiedTopbar />
 
       <div style={{ padding: "28px 26px 14px 26px", flexShrink: 0 }}>
         <div style={{

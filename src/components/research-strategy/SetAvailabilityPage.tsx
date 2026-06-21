@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
-import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 
 import RosterPlayerCard from "./RosterPlayerCard";
@@ -330,7 +330,7 @@ export default function SetAvailabilityPage() {
   return (
     <div style={{ minHeight: "100vh", background: "#F5F0E6", color: "#1A1A1A" }}>
       <style>{SA_CSS}</style>
-      <InnerTopbar breadcrumb="SET AVAILABILITY" />
+      <UnifiedTopbar />
       <div style={{ height: 3, background: "#E8503A" }} />
 
       <div

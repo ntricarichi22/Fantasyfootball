@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { HomeTopbar } from "./HomeTopbar"
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar"
 import { GMPersonCard } from "./GMPersonCard"
 import { MobileOrgLines } from "./MobileOrgLines"
 import { DirectorPersonCard } from "./DirectorPersonCard"
@@ -250,7 +250,7 @@ export function HomeScreen() {
 
     return (
       <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-        <HomeTopbar teamName={teamName} />
+        <UnifiedTopbar />
 
         <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
           <div style={{ flex: 1, minHeight: 0, padding: "8px 10px 0", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -282,7 +282,7 @@ export function HomeScreen() {
   // ── Desktop: team masthead + one row of four portrait cards ──
   return (
     <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      <HomeTopbar teamName={teamName} />
+      <UnifiedTopbar />
 
       <div
         style={{

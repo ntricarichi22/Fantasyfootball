@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { Icon } from "@/shared/ui/Icon";
-import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import { Sidebar } from "@/inbox/InboxParts";
 
@@ -272,7 +272,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
   if (loading) {
     return (
       <div style={{ minHeight: "100vh", background: "#F5F0E6" }}>
-        <InnerTopbar breadcrumb="INBOX › MEMO" />
+        <UnifiedTopbar />
         <div style={{ height: 3, background: "#E8503A" }} />
         <div
           style={{
@@ -292,7 +292,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
   if (error || !memo) {
     return (
       <div style={{ minHeight: "100vh", background: "#F5F0E6" }}>
-        <InnerTopbar breadcrumb="INBOX › MEMO" />
+        <UnifiedTopbar />
         <div style={{ height: 3, background: "#E8503A" }} />
         <div style={{ padding: 40, textAlign: "center" }}>
           <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 22, marginBottom: 12 }}>
@@ -403,7 +403,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
         </div>
       )}
 
-      <InnerTopbar breadcrumb="INBOX › MEMO" />
+      <UnifiedTopbar />
       <div style={{ height: 3, background: "#E8503A" }} />
 
       <div style={{ display: "flex", alignItems: "stretch" }}>

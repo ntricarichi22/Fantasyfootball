@@ -6,6 +6,7 @@ import RosterPanel, { type RosterAssetItem } from "./RosterPanel";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import type { StudioOffer } from "@/pro-personnel/trade-engine/studio/types";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
@@ -350,18 +351,12 @@ export default function TradeStudioView() {
   }
 
   return (
-    <div style={{ height: "calc(100vh - 44px)", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ height: "100vh", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {toast && (
         <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#185FA5", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>{toast}</div>
       )}
 
-      <div style={{ background: "#F5F0E6", padding: "10px 20px", display: "flex", alignItems: "center", gap: 12, borderBottom: "2px solid #C8C3B8", flexShrink: 0 }}>
-        <div onClick={() => { window.location.href = "/inbox"; }} style={{ fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: FM, letterSpacing: "0.04em" }}>← BACK</div>
-        <div style={{ width: 1, height: 14, background: "#C8C3B8" }} />
-        <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15 }}>Trade Studio</div>
-        <div style={{ flex: 1 }} />
-        <div style={{ fontFamily: FM, fontSize: 10, color: "#8C7E6A", letterSpacing: "0.04em", textTransform: "uppercase" }}>{teamName}</div>
-      </div>
+      <UnifiedTopbar />
 
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: drawerOpen ? "40% 60%" : "1fr", minHeight: 0, overflow: "hidden" }}>
         {/* LEFT: roster panel. In selection state, director two-box sits

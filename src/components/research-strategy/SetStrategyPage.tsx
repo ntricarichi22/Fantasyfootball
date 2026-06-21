@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
-import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 import StrategyEditorOverlay from "./StrategyEditorOverlay";
 
@@ -272,7 +272,7 @@ export default function SetStrategyPage() {
   return (
     <div style={{ minHeight: "100vh", background: CREAM }}>
       <style>{CSS}</style>
-      <InnerTopbar breadcrumb="SET STRATEGY" />
+      <UnifiedTopbar />
       <div style={{ height: 3, background: RED }} />
 
       <div className="ss-wrap" style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 20px 60px" }}>

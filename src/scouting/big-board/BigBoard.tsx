@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 
 const F  = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -707,25 +708,30 @@ export function BigBoard() {
 
   if (loading) {
     return (
-      <div style={{
-        height: "60vh",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        fontFamily: FM,
-        fontSize: 12,
-        color: COLORS.muted,
-        letterSpacing: "0.18em",
-        textTransform: "uppercase",
-      }}>
-        Loading board…
+      <div style={{ background: COLORS.cream, minHeight: "100vh" }}>
+        <UnifiedTopbar />
+        <div style={{
+          height: "60vh",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontFamily: FM,
+          fontSize: 12,
+          color: COLORS.muted,
+          letterSpacing: "0.18em",
+          textTransform: "uppercase",
+        }}>
+          Loading board…
+        </div>
       </div>
     );
   }
 
   if (isMobile) {
     return (
-      <MobileBigBoard
+      <>
+        <UnifiedTopbar />
+        <MobileBigBoard
         pool={pool}
         state={state}
         starredSet={starredSet}
@@ -743,11 +749,13 @@ export function BigBoard() {
         tiersByOrder={tiersByOrder}
         groupedRows={groupedRows}
       />
+      </>
     );
   }
 
   return (
     <div style={{ background: COLORS.cream, minHeight: "100vh", paddingBottom: 60 }}>
+      <UnifiedTopbar />
       <div style={{
         padding: "26px 26px 18px 26px",
         display: "flex",

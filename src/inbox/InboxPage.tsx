@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { Icon } from "@/shared/ui/Icon";
-import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
   Sidebar,
   ActionBar,
@@ -421,18 +421,7 @@ export default function InboxPage() {
         </div>
       )}
 
-      <InnerTopbar
-        breadcrumb={
-          filter === "trades"
-            ? "TRADE THREADS"
-            : filter === "sent"
-              ? "SENT"
-              : filter === "trash"
-                ? "TRASH"
-                : filter === "archive"
-                  ? "ARCHIVE"
-                  : "INBOX"
-        }
+      <UnifiedTopbar
         onMenuClick={isMobile ? () => setDrawerOpen(true) : undefined}
         mobileSearch={
           isMobile

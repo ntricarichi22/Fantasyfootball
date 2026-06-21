@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
-import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
   DirectorChat,
   type Message,
@@ -457,7 +457,7 @@ export default function TradeDoor() {
         </div>
       )}
 
-      <InnerTopbar breadcrumb="PRO PERSONNEL" />
+      <UnifiedTopbar />
 
       <div style={{ padding: "28px 26px 14px 26px", flexShrink: 0 }}>
         <div style={{

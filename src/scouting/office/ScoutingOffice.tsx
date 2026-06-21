@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
-import { InnerTopbar } from "@/shared/ui/InnerTopbar";
+import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
   DirectorChat,
   type Message,
@@ -230,7 +230,7 @@ export function ScoutingOffice() {
       flexDirection: "column",
       background: "#F5F0E6",
     }}>
-      <InnerTopbar breadcrumb="SCOUTING" />
+      <UnifiedTopbar />
 
       <div style={{ padding: "28px 26px 14px 26px", flexShrink: 0 }}>
         <div style={{
