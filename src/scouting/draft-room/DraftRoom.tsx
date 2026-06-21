@@ -992,7 +992,7 @@ handleStartClockRequest,
       ) : isDraftRoute && isMobile === null ? (
     <div style={{ height: "100dvh", background: "#1A1A1A" }} />
   ) : (
-    <div className="flex h-[calc(100vh_-_50px_-_69px_-_38px)] min-h-[480px] flex-col gap-4 px-4 pt-4 pb-4 overflow-hidden">
+    <div className="flex h-[calc(100vh_-_46px_-_50px_-_69px_-_38px)] min-h-[480px] flex-col gap-4 px-4 pt-4 pb-4 overflow-hidden">
           {/* Header */}
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="cfc-section" style={{ marginBottom: 0 }}>
