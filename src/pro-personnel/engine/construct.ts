@@ -31,6 +31,7 @@ import { computeStrength, bucketOf, buildScrubSets } from "@/shared/team-profile
 import type { TeamDossier } from "@/shared/team-dossier";
 import type { NarrativeBundle } from "@/shared/team-narratives";
 import { startsForAtLeast } from "@/shared/team-narratives";
+import { buildStackContext, classifyStack, STACK_WEIGHTS } from "@/shared/roster-stacks";
 import { valueAsset, isYoung, type AssetRef, type ValuationContext } from "@/shared/asset-values";
 
 import type {
@@ -834,30 +835,25 @@ export function construct(req: DealRequest, ec: EngineContext): EngineSlate {
       if (aim === "us" && ec.nflTeamById) {
         const nfl = ec.nflTeamById;
         const sentSet = new Set(sendKeys);
-        const keptQbTeams = new Set<string>();
-        const keptWrTeams = new Set<string>();
-        const leadRbTeams = new Set<string>();
-        const rbTeamCount = new Map<string, number>();
-        for (const pid2 of teamById.get(ourTeamId)?.playerIds ?? []) {
-          if (sentSet.has(pid2)) continue;
-          const team = nfl.get(pid2);
-          if (!team) continue;
-          const pos = data.players.get(pid2)?.position;
-          if (pos === "QB") keptQbTeams.add(team);
-          else if (pos === "WR") keptWrTeams.add(team);
-          else if (pos === "RB") {
-            rbTeamCount.set(team, (rbTeamCount.get(team) ?? 0) + 1);
-            if ((data.values.value.get(pid2) ?? 0) >= RB_LEAD_CFC) leadRbTeams.add(team);
-          }
-        }
+        // Stack / concentration via the shared single source of truth
+        // (@/shared/roster-stacks). Lead-RB predicate stays here (value ≥
+        // RB_LEAD_CFC) so the threshold remains the Builder's to own.
+        const stackCtx = buildStackContext(
+          (teamById.get(ourTeamId)?.playerIds ?? [])
+            .filter((pid2) => !sentSet.has(pid2))
+            .map((pid2) => ({
+              nflTeam: nfl.get(pid2),
+              position: data.players.get(pid2)?.position,
+              isLeadRb: (data.values.value.get(pid2) ?? 0) >= RB_LEAD_CFC,
+            })),
+        );
         for (const r of recvResolved) {
           if (r.type !== "player") continue;
-          const team = nfl.get(r.key);
-          if (!team) continue;
-          const pos = data.players.get(r.key)?.position;
-          if ((pos === "WR" || pos === "TE") && keptQbTeams.has(team)) stackBonus += 1;
-          if (pos === "RB" && leadRbTeams.has(team) && (rbTeamCount.get(team) ?? 0) < 2) stackBonus += 0.5;
-          if (pos === "WR" && keptWrTeams.has(team)) concentration += 1;
+          const recv = { nflTeam: nfl.get(r.key), position: data.players.get(r.key)?.position };
+          for (const kind of classifyStack(recv, stackCtx)) {
+            if (kind === "wr-concentration") concentration += STACK_WEIGHTS[kind];
+            else stackBonus += STACK_WEIGHTS[kind];
+          }
         }
       }
 

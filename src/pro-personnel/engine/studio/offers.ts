@@ -25,6 +25,7 @@ import { ttlMemo } from "@/infrastructure/ttlCache";
 import type { LeagueData } from "@/shared/league-data";
 import { valueAsset, type ValuationContext, type AssetRef } from "@/shared/asset-values";
 import { ACQUIRE_GOAL_KINDS, type NarrativeBundle, type GoalKind } from "@/shared/team-narratives";
+import { buildStackContext, classifyStack, type StackContext } from "@/shared/roster-stacks";
 import { verdictFromRatio, personaAwareGrade } from "../core/gap";
 import { normalizePersona } from "../core/personas";
 import type { Gap, Grade, PersonaKey } from "../core/types";
@@ -175,22 +176,23 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     const s = { set, weak, open }; startersCache.set(tid, s); return s;
   };
 
-  type NflSets = { qb: Set<string>; wr: Set<string>; rbLead: Set<string>; rbCount: Record<string, number> };
-  const nflSets = (tid: string, drop: Set<string>): NflSets => {
-    const qb = new Set<string>(), wr = new Set<string>(), rbLead = new Set<string>(); const rbCount: Record<string, number> = {};
-    for (const a of teamAssets(tid)) {
-      if (a.type !== "player" || drop.has(a.key) || !a.nfl) continue;
-      if (a.pos === "QB") qb.add(a.nfl);
-      else if (a.pos === "WR") wr.add(a.nfl);
-      else if (a.pos === "RB") { rbCount[a.nfl] = (rbCount[a.nfl] || 0) + 1; if (a.cfc >= RB_LEAD_CFC) rbLead.add(a.nfl); }
-    }
-    return { qb, wr, rbLead, rbCount };
-  };
-  const stackEval = (a: Asset, sets: NflSets): { good: string | null; bad: string | null } => {
+  // Stack / concentration now reads from the shared single source of truth
+  // (@/shared/roster-stacks). nflSets builds the canonical StackContext from a
+  // team's kept assets; stackEval maps the shared kinds back to Studio's
+  // good/bad tags so downstream callers are unchanged.
+  const nflSets = (tid: string, drop: Set<string>): StackContext =>
+    buildStackContext(
+      teamAssets(tid)
+        .filter((a) => a.type === "player" && !drop.has(a.key) && !!a.nfl)
+        .map((a) => ({ nflTeam: a.nfl, position: a.pos, isLeadRb: a.cfc >= RB_LEAD_CFC })),
+    );
+  const stackEval = (a: Asset, sets: StackContext): { good: string | null; bad: string | null } => {
     let good: string | null = null, bad: string | null = null;
-    if (a.bucket === "PASS_CATCHER" && a.nfl && sets.qb.has(a.nfl)) good = "QB-stack";
-    if (a.pos === "RB" && a.nfl && sets.rbLead.has(a.nfl) && (sets.rbCount[a.nfl] || 0) < 2) good = good || "RB-insurance";
-    if (a.pos === "WR" && a.nfl && sets.wr.has(a.nfl)) bad = "WR-concentration";
+    for (const kind of classifyStack({ nflTeam: a.nfl, position: a.pos }, sets)) {
+      if (kind === "qb-stack") good = good ?? "QB-stack";
+      else if (kind === "rb-handcuff") good = good ?? "RB-insurance";
+      else if (kind === "wr-concentration") bad = "WR-concentration";
+    }
     return { good, bad };
   };
 
