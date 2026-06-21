@@ -308,6 +308,20 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
   const ourNeedBucket = (b: string) => needLevel(ourTeamId, b) !== "low";
   const studBucket = [...blockBuckets][0] ?? "";
 
+  // Deconsolidation: when our block signals consolidate/upgrade, a partner who is
+  // THIN at the target bucket (no surplus depth) may ship a STARTER there — because
+  // turning their one good body into our two startable bodies fixes their depth
+  // ("ship a starter, get starters back"). This is the ONLY case a partner ships a
+  // starter / deals from a position they're short at; the value band still gates it.
+  const consolTargetBuckets = new Set<string>(
+    blockIntent === "consolidate" || blockIntent === "upgrade_one" ? blockBuckets : [],
+  );
+  const blockHasStartableAt = (b: string) => blockPlayers.some((a) => a.bucket === b);
+  const partnerThinAt = (pid: string, b: string) =>
+    teamAssets(pid).filter((a) => a.type === "player" && a.bucket === b && !isScrub(a)).length <= (STARTERS[b as NeedBucket] ?? 99);
+  const canDeconsolidate = (pid: string, b: string) =>
+    consolTargetBuckets.has(b) && blockHasStartableAt(b) && partnerThinAt(pid, b);
+
   const W_INTENT = 20; // block-intent matches float to the top (scaled by match strength)
   const intentScore = (combo: Asset[]): number => {
     if (blockIntent === "cloudy") return 0;
@@ -365,9 +379,10 @@ export function generateStudioOffers(input: StudioInput): StudioOfferWire[] {
     const pool = teamAssets(pid)
       .filter((a) => {
         if (a.type === "pick") return pickGiveOk;
-        if (pStart.has(a.key)) return false;          // never ship their starters
-        if (pNeedy(a.bucket)) return false;           // never ship a position they're short at
-        if (market(pid, a.bucket) === "buy") return false;
+        const deconsolidate = canDeconsolidate(pid, a.bucket); // they may ship a starter here for our two
+        if (pStart.has(a.key) && !deconsolidate) return false; // never ship their starters (except a deconsolidation swap)
+        if (pNeedy(a.bucket) && !deconsolidate) return false;  // never ship a short position (except deconsolidation)
+        if (market(pid, a.bucket) === "buy" && !deconsolidate) return false;
         return true;
       })
       .filter((a) => {
