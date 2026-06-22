@@ -11,7 +11,9 @@ import { normalizeName } from "@/infrastructure/strings/normalize";
 import { playChime, toggleChimeMuted, useChimeMuted } from "@/scouting/draft-room/chime";
 import { readStoredTeam, type StoredTeam } from "@/infrastructure/identity/storedTeam";
 
-const DRAFT_ROUTE = "/scouting/draft-room";
+// The live war room moved under the Draft Room lobby; /scouting/draft-room is
+// now the lobby. The clock bar navigates straight to the live room.
+const DRAFT_ROUTE = "/scouting/draft-room/live";
 const TRADE_ROUTE = "/inbox";
 
 // Color palette — Item 1 / spec.
