@@ -1,502 +1,312 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { Icon } from "@/shared/ui/Icon";
 
-// ── types mirroring /api/scouting/mock-draft ────────────────────────────────
-type PoolPlayer = { id: string; name: string; pos: string; value: number; wouldStart: boolean; isRookie: boolean };
-type BoardPick = { pick: string; overall: number; team: string; player: string | null; pos: string | null; reason: string; mine: boolean };
-type FieldPlayer = { id: string; name: string; pos: string; value: number; wouldStart: boolean; starred: boolean };
-type DirectorRead = {
-  pick: string;
-  rec: "stand_pat" | "trade_up" | "trade_back";
-  rationale: string;
-  projected: { playerId: string; name: string; position: string } | null;
-  starGone: string[];
-  field: FieldPlayer[];
-};
 type Scenario = "standard" | "qb-run" | "rb-run" | "wr-run" | "chalk";
-type Payload = {
-  scenario: Scenario;
-  you: { rosterId: string; name: string; picks: string[] };
-  poolSize: number;
-  pool: PoolPlayer[];
-  board: BoardPick[];
-  directorRead: DirectorRead | null;
+type PoolPlayer = { id: string; name: string; pos: string; value: number; wouldStart: boolean; isRookie: boolean };
+type BoardPick = {
+  pick: string; round: number; overall: number; rosterId: string; team: string;
+  player: string | null; playerId: string | null; pos: string | null; reason: string; mine: boolean;
+  needs: string[]; why: string; tradeCandidate: boolean;
 };
+type FieldPlayer = { id: string; name: string; pos: string; value: number; wouldStart: boolean; starred: boolean };
+type DirectorRead = { pick: string; rec: "stand_pat" | "trade_up" | "trade_back"; rationale: string; field: FieldPlayer[] };
+type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null };
 type Offer = { partner: string; give: { pick: string; value: number }; get: { pick: string; value: number }[]; net: number };
-type TradeResponse = { offer: Offer | null; reason?: string; board: BoardPick[]; directorRead: DirectorRead | null; you: { rosterId: string; name: string; picks: string[] } };
-type SavedMock = { id: string; name: string; savedAt: number; scenario: Scenario; picks: PoolPlayer[] };
 
-type PosFilter = "ALL" | "QB" | "RB" | "PASS" | "ROOKIE";
-
-const INK = "#1A1A1A";
-const CANVAS = "#F5F0E6";
-const CARD = "#FEFCF9";
-const MUTED = "#8C7E6A";
-const RED = "#E8503A";
-const YELLOW = "#F5C230";
-const BLUE = "#3366CC";
-const GREEN = "#2f8a52";
-
+const INK = "#1A1A1A", CANVAS = "#F5F0E6", CARD = "#FEFCF9", MUTED = "#8C7E6A";
+const RED = "#E8503A", YELLOW = "#F5C230", BLUE = "#3366CC", PAPER = "#F3EEE2", LINE = "#EDE5D4";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
-const SAVE_KEY = "cfc_mock_drafts";
+const FB = "var(--font-body, 'DM Sans', sans-serif)";
+const SIM_SECONDS = 10;
 
 const SCENARIOS: { key: Scenario; label: string }[] = [
-  { key: "standard", label: "Standard" },
-  { key: "qb-run", label: "QB Run" },
-  { key: "rb-run", label: "RB Run" },
-  { key: "wr-run", label: "WR Run" },
-  { key: "chalk", label: "Chalk" },
+  { key: "standard", label: "Standard" }, { key: "qb-run", label: "QB Run" }, { key: "rb-run", label: "RB Run" },
+  { key: "wr-run", label: "WR Run" }, { key: "chalk", label: "Chalk" },
 ];
-const SCENARIO_LABEL: Record<Scenario, string> = {
-  standard: "Standard",
-  "qb-run": "QB Run",
-  "rb-run": "RB Run",
-  "wr-run": "WR Run",
-  chalk: "Chalk",
-};
-
-function posColor(pos: string): { bg: string; fg: string } {
-  if (pos === "QB") return { bg: RED, fg: "#fff" };
-  if (pos === "RB") return { bg: BLUE, fg: "#fff" };
-  if (pos === "WR" || pos === "TE") return { bg: YELLOW, fg: INK };
-  return { bg: MUTED, fg: "#fff" };
-}
-
-const FILTERS: { key: PosFilter; label: string }[] = [
-  { key: "ALL", label: "All" },
-  { key: "QB", label: "QB" },
-  { key: "RB", label: "RB" },
-  { key: "PASS", label: "Pass" },
-  { key: "ROOKIE", label: "Rookie" },
+const RUNS: { key: Scenario; label: string }[] = [
+  { key: "qb-run", label: "QB Run" }, { key: "rb-run", label: "RB Run" }, { key: "wr-run", label: "WR Run" },
 ];
-
-function matchesFilter(p: PoolPlayer, f: PosFilter): boolean {
-  if (f === "ALL") return true;
-  if (f === "QB") return p.pos === "QB";
-  if (f === "RB") return p.pos === "RB";
-  if (f === "PASS") return p.pos === "WR" || p.pos === "TE";
-  if (f === "ROOKIE") return p.isRookie;
-  return true;
-}
-
-const REC_PROMOTE: Record<DirectorRead["rec"], boolean> = { stand_pat: false, trade_up: true, trade_back: true };
+const LABEL: Record<Scenario, string> = { standard: "Standard", "qb-run": "QB Run", "rb-run": "RB Run", "wr-run": "WR Run", chalk: "Chalk" };
 
 export function MockDraftView() {
-  const [pool, setPool] = useState<PoolPlayer[]>([]);
+  const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
   const [board, setBoard] = useState<BoardPick[]>([]);
-  const [standardBoard, setStandardBoard] = useState<BoardPick[]>([]);
-  const [read, setRead] = useState<DirectorRead | null>(null);
+  const [pool, setPool] = useState<PoolPlayer[]>([]);
   const [you, setYou] = useState<{ rosterId: string; name: string; picks: string[] }>({ rosterId: "", name: "", picks: [] });
+  const [read, setRead] = useState<DirectorRead | null>(null);
   const [scenario, setScenario] = useState<Scenario>("standard");
+
+  const [phase, setPhase] = useState<"setup" | "running" | "paused">("setup");
+  const [revealed, setRevealed] = useState(0);
+  const [viewRound, setViewRound] = useState(2);
+  const [seconds, setSeconds] = useState(SIM_SECONDS);
+  const [tab, setTab] = useState<"clock" | "our" | "trades">("clock");
+
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [scnOpen, setScnOpen] = useState(false);
+  const [runOpen, setRunOpen] = useState(false);
+  const [offer, setOffer] = useState<Offer | null>(null);
+  const [offerLoading, setOfferLoading] = useState(false);
 
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<PosFilter>("ALL");
-  const [drafted, setDrafted] = useState<PoolPlayer[]>([]);
-  const [traded, setTraded] = useState(false);
-  const [drawer, setDrawer] = useState<null | "board" | "team" | "scenario" | "trade">(null);
+  const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
+  const onClock = revealed < board.length ? board[revealed] : null;
+  const yourTurn = phase === "running" && !!onClock?.mine;
+  const isComplete = phase !== "setup" && board.length > 0 && revealed >= board.length;
 
-  const [pendingTrade, setPendingTrade] = useState<TradeResponse | null>(null);
-  const [saved, setSaved] = useState<SavedMock[]>([]);
-
-  const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
-
-  // Re-mock under a scenario (called from handlers, never an effect).
-  const load = useCallback(
-    (scn: Scenario) => {
-      setBusy(true);
-      fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=${scn}`)
-        .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load mock draft"))))
-        .then((j: Payload) => {
-          setPool(j.pool);
-          setBoard(j.board);
-          setRead(j.directorRead);
-          setYou(j.you);
-          setScenario(j.scenario);
-          setTraded(false);
-        })
-        .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
-        .finally(() => setBusy(false));
-    },
-    [teamId]
-  );
-
-  // Initial load — all state set inside the async chain (never synchronously).
+  // ── data ───────────────────────────────────────────────────────────────────
+  function applyPayload(j: Payload) {
+    setBoard(j.board); setPool(j.pool); setYou(j.you); setRead(j.directorRead); setScenario(j.scenario);
+  }
+  // Initial projection (all setState inside the async chain — no sync effect setState).
   useEffect(() => {
     fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=standard`)
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Failed to load mock draft"))))
-      .then((j: Payload) => {
-        setPool(j.pool);
-        setBoard(j.board);
-        setStandardBoard(j.board);
-        setRead(j.directorRead);
-        setYou(j.you);
-        setScenario(j.scenario);
-      })
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load"))
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
+      .then((j: Payload) => applyPayload(j))
+      .catch(() => setError("Couldn't load the draft."))
       .finally(() => setLoading(false));
   }, [teamId]);
 
-  // Restore saved mocks (deferred off the effect body to avoid a sync setState).
-  useEffect(() => {
-    Promise.resolve().then(() => {
-      try {
-        const raw = localStorage.getItem(SAVE_KEY);
-        if (raw) setSaved(JSON.parse(raw) as SavedMock[]);
-      } catch {
-        /* ignore */
-      }
-    });
-  }, []);
-
-  const draftedIds = useMemo(() => new Set(drafted.map((p) => p.id)), [drafted]);
-  const visiblePool = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return pool
-      .filter((p) => !draftedIds.has(p.id))
-      .filter((p) => matchesFilter(p, filter))
-      .filter((p) => (q ? p.name.toLowerCase().includes(q) : true));
-  }, [pool, query, filter, draftedIds]);
-
-  const leanId = read?.field?.find((f) => f.starred)?.id ?? read?.field?.[0]?.id ?? null;
-
-  // Diff: which board slots changed vs the straight Standard read.
-  const { changedKeys, standardByKey } = useMemo(() => {
-    const byKey = new Map(standardBoard.map((b) => [b.pick, b.player]));
-    const changed = new Set<string>();
-    for (const b of board) if (byKey.get(b.pick) !== b.player) changed.add(b.pick);
-    return { changedKeys: changed, standardByKey: byKey };
-  }, [board, standardBoard]);
-  const diffCount = scenario === "standard" && !traded ? 0 : changedKeys.size;
-
-  // ── actions ───────────────────────────────────────────────────────────────
-  function draftPlayer(p: PoolPlayer) {
-    setDrafted((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]));
-  }
-
-  function applyScenario(s: Scenario) {
-    setDrawer(null);
-    load(s);
-  }
-
-  function requestTradeBack() {
-    if (!read) return;
+  function fetchScenario(s: Scenario) {
     setBusy(true);
+    fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=${s}`)
+      .then((r) => r.json()).then((j: Payload) => applyPayload(j)).catch(() => setError("Re-mock failed.")).finally(() => setBusy(false));
+  }
+  // Re-project the tail with the picks made so far locked (your picks / triggered runs).
+  function reproject(scn: Scenario, after: () => void = () => {}) {
+    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    setBusy(true);
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario: scn, forcedPicks }) })
+      .then((r) => r.json()).then((j: Payload) => { applyPayload(j); after(); }).catch(() => setError("Re-mock failed.")).finally(() => setBusy(false));
+  }
+
+  // ── the clock ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (phase !== "running" || busy) return;
+    if (revealed >= board.length) return;        // complete (derived)
+    if (board[revealed]?.mine) return;           // your pick (derived) — no auto-advance
+    let remaining = SIM_SECONDS;
+    Promise.resolve().then(() => setSeconds(SIM_SECONDS));
+    const id = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(id);
+        const next = revealed + 1;
+        if (board[next] && board[next].round !== board[revealed].round) setViewRound(board[next].round);
+        setRevealed(next);
+      } else {
+        setSeconds(remaining);
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [phase, revealed, board, busy]);
+
+  // ── actions ────────────────────────────────────────────────────────────────
+  function start() { setRevealed(0); setViewRound(board[0]?.round ?? 2); setSeconds(SIM_SECONDS); setPhase("running"); }
+  function makePick(playerId: string) {
+    const cur = board[revealed];
+    if (!cur) return;
+    const forcedPicks = [
+      ...board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string })),
+      { overall: cur.overall, playerId },
+    ];
+    setBusy(true);
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks }) })
+      .then((r) => r.json()).then((j: Payload) => {
+        applyPayload(j);
+        const next = revealed + 1;
+        if (j.board[next] && j.board[next].round !== j.board[revealed].round) setViewRound(j.board[next].round);
+        setRevealed(next); setTab("clock");
+      }).catch(() => setError("Pick failed.")).finally(() => setBusy(false));
+  }
+  function triggerRun(s: Scenario) { setRunOpen(false); reproject(s); }
+  function pullTrade() {
+    if (!read) return;
+    setOfferLoading(true); setOffer(null);
     fetch(`/api/scouting/mock-draft/trade-back?teamId=${encodeURIComponent(teamId)}&pick=${read.pick}&scenario=${scenario}`)
-      .then((r) => r.json())
-      .then((j: TradeResponse) => {
-        setPendingTrade(j);
-        setDrawer("trade");
-      })
-      .catch(() => setError("Couldn't pull a trade-back offer."))
-      .finally(() => setBusy(false));
+      .then((r) => r.json()).then((j: { offer: Offer | null }) => setOffer(j.offer)).catch(() => {}).finally(() => setOfferLoading(false));
   }
 
-  function acceptTrade() {
-    if (!pendingTrade || !pendingTrade.offer) return;
-    setBoard(pendingTrade.board);
-    setRead(pendingTrade.directorRead);
-    setYou(pendingTrade.you);
-    setTraded(true);
-    setPendingTrade(null);
-    setDrawer(null);
-  }
-
-  function persist(next: SavedMock[]) {
-    setSaved(next);
-    try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify(next));
-    } catch {
-      /* ignore */
-    }
-  }
-  function saveMock() {
-    const d = new Date();
-    const stamp = `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    const mock: SavedMock = {
-      id: `m_${d.getTime()}`,
-      name: `${SCENARIO_LABEL[scenario]} · ${drafted.length} pick${drafted.length === 1 ? "" : "s"} · ${stamp}`,
-      savedAt: d.getTime(),
-      scenario,
-      picks: drafted,
-    };
-    persist([mock, ...saved].slice(0, 20));
-  }
-  function loadMock(m: SavedMock) {
-    setDrafted(m.picks);
-    if (m.scenario !== scenario) load(m.scenario);
-    setDrawer("team");
-  }
-  function deleteMock(id: string) {
-    persist(saved.filter((m) => m.id !== id));
-  }
-
-  // ── presentational helpers ────────────────────────────────────────────────
+  // ── presentation ───────────────────────────────────────────────────────────
   const panel: CSSProperties = { background: CARD, border: `2.5px solid ${INK}`, boxShadow: `4px 4px 0 ${INK}` };
-  const chipBtn = (active: boolean): CSSProperties => ({
-    fontFamily: FH, fontWeight: 700, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase",
-    background: active ? INK : CARD, color: active ? "#fff" : INK, border: `1.5px solid ${INK}`,
-    padding: "5px 11px", cursor: "pointer", borderRadius: 0,
-  });
-  const utilBtn = (active = false): CSSProperties => ({
-    fontFamily: FH, fontWeight: 700, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase",
-    background: active ? INK : CARD, color: active ? YELLOW : INK, border: `2px solid ${INK}`, padding: "7px 12px", cursor: "pointer",
-  });
+  const viewPicks = board.map((b, i) => ({ b, i })).filter((x) => x.b.round === viewRound);
+  const startBtnLabel = isComplete ? "Restart" : phase === "running" ? "Pause" : phase === "paused" ? "Resume" : "Start Draft";
+  function startBtn() {
+    if (isComplete) { setPhase("setup"); setRevealed(0); fetchScenario(scenario); return; }
+    if (phase === "setup") return start();
+    setPhase(phase === "running" ? "paused" : "running");
+  }
+
+  function pickSlot(b: BoardPick, i: number) {
+    const made = i < revealed, clock = i === revealed && phase !== "setup" && !isComplete;
+    const mineUpcoming = b.mine && !made;
+    const accent = clock ? RED : mineUpcoming ? BLUE : null;
+    return (
+      <div key={b.overall} style={{ padding: "8px 12px", borderBottom: `1px solid ${LINE}`, background: clock ? "#FDEFEC" : mineUpcoming ? "#EEF3FC" : "transparent", boxShadow: accent ? `inset 3px 0 0 ${accent}` : "none" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 12, color: clock ? "#fff" : made || mineUpcoming ? "#fff" : "#B4AB95", background: clock ? RED : mineUpcoming ? BLUE : made ? INK : PAPER, padding: "1px 6px" }}>{b.pick}</span>
+            <span style={{ fontFamily: FB, fontWeight: made || clock || mineUpcoming ? 700 : 700, fontSize: 13, color: made || clock || mineUpcoming ? INK : "#9a9384", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.team}</span>
+          </div>
+          {clock && <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 13, color: RED }}>0:{String(seconds).padStart(2, "0")}</span>}
+          {mineUpcoming && <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 9, letterSpacing: "0.08em", color: "#fff", background: BLUE, padding: "2px 6px" }}>YOU</span>}
+        </div>
+        {made && b.player ? (
+          <div style={{ fontFamily: FB, fontSize: 13, color: "#444", marginTop: 3, paddingLeft: 2 }}>{b.player} <span style={{ color: MUTED, fontSize: 11, fontFamily: FM }}>{b.pos}</span></div>
+        ) : clock ? (
+          <div style={{ fontFamily: FH, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", color: RED, marginTop: 4, paddingLeft: 2 }}>ON THE CLOCK…</div>
+        ) : (
+          <div style={{ height: 9, marginTop: 6, marginLeft: 2, background: `repeating-linear-gradient(90deg, ${mineUpcoming ? "#bcd0f0" : "#E3DBC9"} 0 8px, transparent 8px 14px)` }} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div style={{ minHeight: "100vh", background: CANVAS, display: "flex", flexDirection: "column" }}>
       <UnifiedTopbar />
+      <div style={{ maxWidth: 1080, width: "100%", margin: "0 auto", padding: "16px 16px 32px", boxSizing: "border-box" }}>
 
-      <div style={{ maxWidth: 980, width: "100%", margin: "0 auto", padding: "16px 16px 32px", boxSizing: "border-box" }}>
-        {/* Status bar */}
-        <div style={{ ...panel, padding: "10px 14px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 11 }}>
-          <div>
-            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 16, color: INK, letterSpacing: "-0.01em" }}>Day Two Mock</div>
-            <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", color: MUTED, marginTop: 1 }}>
-              {you.name ? `ROUNDS 2–3 · ${you.name.toUpperCase()}` : "LOADING…"}{traded ? " · TRADED BACK" : ""}
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontWeight: 700, fontSize: 9, letterSpacing: "0.12em", color: MUTED }}>YOUR NEXT PICK</div>
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 5, background: RED, border: `2px solid ${INK}`, padding: "2px 9px", marginTop: 2 }}>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", background: "#fff" }} />
-                <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 13, color: "#fff" }}>{read?.pick ?? "—"}</span>
+        {/* CONTROL DECK */}
+        <div style={{ ...panel, padding: "9px 12px", display: "flex", alignItems: "center", gap: 10, marginBottom: 11, flexWrap: "wrap", position: "relative" }}>
+          <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.14em", color: MUTED }}>SCENARIO</span>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setScnOpen((o) => !o)} disabled={phase !== "setup"} style={{ display: "flex", alignItems: "center", gap: 6, border: `2px solid ${INK}`, background: CARD, padding: "5px 10px", cursor: phase === "setup" ? "pointer" : "default", opacity: phase === "setup" ? 1 : 0.55 }}>
+              <span style={{ fontFamily: FH, fontWeight: 700, fontSize: 12, color: INK }}>{LABEL[scenario]}</span><span style={{ color: MUTED }}>▾</span>
+            </button>
+            {scnOpen && phase === "setup" && (
+              <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 30, ...panel, minWidth: 150 }}>
+                {SCENARIOS.map((s) => (
+                  <button key={s.key} onClick={() => { setScenario(s.key); setScnOpen(false); fetchScenario(s.key); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: s.key === scenario ? INK : "transparent", color: s.key === scenario ? YELLOW : INK, border: "none", borderBottom: `1px solid ${LINE}`, fontFamily: FH, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                ))}
               </div>
-            </div>
-            <div style={{ textAlign: "right", borderLeft: `2px solid #C8C3B8`, paddingLeft: 12 }}>
-              <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 18, color: INK, lineHeight: 1 }}>{you.picks.length || "—"}</div>
-              <div style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontWeight: 700, fontSize: 8, letterSpacing: "0.1em", color: MUTED }}>YOUR PICKS</div>
-            </div>
+            )}
+          </div>
+          <div style={{ flex: 1 }} />
+          {busy && <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 10, color: RED, letterSpacing: "0.08em" }}>RE-MOCKING…</span>}
+          <button onClick={startBtn} disabled={loading} style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: FH, fontWeight: 800, fontSize: 12, letterSpacing: "0.05em", textTransform: "uppercase", background: INK, color: YELLOW, border: `2px solid ${INK}`, padding: "8px 16px", cursor: "pointer" }}>
+            <Icon name={phase === "running" ? "square" : "chevron-right"} size={13} /> {startBtnLabel}
+          </button>
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setRunOpen((o) => !o)} disabled={phase === "setup"} style={{ fontFamily: FB, fontWeight: 700, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase", background: "transparent", color: phase === "setup" ? "#C8C3B8" : MUTED, border: `1.5px solid ${phase === "setup" ? "#DAD4C6" : "#C8C3B8"}`, padding: "8px 12px", cursor: phase === "setup" ? "default" : "pointer" }}>Trigger a run</button>
+            {runOpen && phase !== "setup" && (
+              <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, ...panel, minWidth: 130 }}>
+                {RUNS.map((s) => (
+                  <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", color: INK, border: "none", borderBottom: `1px solid ${LINE}`, fontFamily: FH, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Utility row */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-          <button onClick={() => setDrawer("scenario")} style={utilBtn(scenario !== "standard")}>
-            Scenario: {SCENARIO_LABEL[scenario]} ▾
-          </button>
-          <button onClick={() => setDrawer("board")} style={utilBtn()}>
-            The Board{diffCount ? ` · ${diffCount} moved` : ""}
-          </button>
-          <button onClick={() => setDrawer("team")} style={utilBtn()}>
-            My Team{drafted.length ? ` (${drafted.length})` : ""}
-          </button>
-          {busy && <span style={{ fontFamily: FM, fontSize: 10, fontWeight: 700, color: RED, letterSpacing: "0.08em" }}>RE-MOCKING…</span>}
+        {error && <div style={{ ...panel, padding: 12, marginBottom: 11, fontFamily: FM, fontSize: 12, color: RED, fontWeight: 700 }}>{error}</div>}
+
+        {/* SCOREBOARD */}
+        <div style={{ ...panel, marginBottom: 11 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 13px", borderBottom: `2px solid ${INK}`, background: PAPER }}>
+            <div style={{ display: "flex", gap: 0, border: `2px solid ${INK}` }}>
+              {rounds.map((r) => (
+                <button key={r} onClick={() => setViewRound(r)} style={{ fontFamily: FH, fontWeight: 800, fontSize: 12, letterSpacing: "0.02em", padding: "4px 12px", border: "none", background: viewRound === r ? INK : CARD, color: viewRound === r ? "#fff" : INK, cursor: "pointer" }}>Round {r}</button>
+              ))}
+            </div>
+            <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 11, color: MUTED, letterSpacing: "0.06em" }}>
+              {isComplete ? "DRAFT COMPLETE" : phase === "setup" ? "READY" : `PICK ${Math.min(revealed + 1, board.length)} OF ${board.length}`}
+            </span>
+          </div>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: "center", fontFamily: FM, fontSize: 12, color: MUTED }}>Loading the board…</div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr" }}>
+              <div style={{ borderRight: `2px solid ${LINE}` }}>{viewPicks.slice(0, Math.ceil(viewPicks.length / 2)).map((x) => pickSlot(x.b, x.i))}</div>
+              <div>{viewPicks.slice(Math.ceil(viewPicks.length / 2)).map((x) => pickSlot(x.b, x.i))}</div>
+            </div>
+          )}
         </div>
 
-        {error && <div style={{ ...panel, padding: 14, marginBottom: 12, fontFamily: FM, fontSize: 12, color: RED, fontWeight: 700 }}>{error}</div>}
-
-        {/* Director two-box */}
-        {read && (
-          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", border: `2.5px solid ${INK}`, boxShadow: `4px 4px 0 ${INK}`, marginBottom: 12 }}>
-            <div style={{ background: INK, padding: "12px 16px", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, borderRight: `2.5px solid ${INK}` }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src="/avatars/scouting.png" alt="" style={{ width: 46, height: 46, borderRadius: "50%", objectFit: "cover" }} />
-              <div style={{ fontFamily: FM, fontSize: 8, letterSpacing: "0.14em", fontWeight: 700, color: CARD, textTransform: "uppercase", textAlign: "center", lineHeight: 1.3 }}>Scouting<br />Director</div>
+        {/* BOTTOM */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 11 }}>
+          {/* Tabbed Director */}
+          <div style={{ ...panel, display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", borderBottom: `2px solid ${INK}` }}>
+              {([["clock", "On the Clock"], ["our", "Our Pick"], ["trades", "Trades"]] as const).map(([k, lbl], i) => (
+                <button key={k} onClick={() => setTab(k)} style={{ flex: 1, textAlign: "center", padding: "9px 6px", background: tab === k ? INK : "transparent", color: tab === k ? YELLOW : MUTED, fontFamily: FH, fontWeight: tab === k ? 800 : 700, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", border: "none", borderLeft: i ? `1px solid ${LINE}` : "none", cursor: "pointer" }}>{lbl}</button>
+              ))}
             </div>
-            <div style={{ background: CARD, padding: "12px 15px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 8 }}>
-              <div style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontSize: 13.5, lineHeight: 1.45, color: INK, fontWeight: 500 }}>{read.rationale}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 9, flexWrap: "wrap" }}>
-                <button
-                  onClick={requestTradeBack}
-                  style={{
-                    fontFamily: FH, fontWeight: 700, fontSize: 11, letterSpacing: "0.04em", textTransform: "uppercase",
-                    background: REC_PROMOTE[read.rec] && read.rec === "trade_back" ? RED : CARD,
-                    color: REC_PROMOTE[read.rec] && read.rec === "trade_back" ? "#fff" : INK,
-                    border: `2px solid ${INK}`, boxShadow: `2px 2px 0 ${INK}`, padding: "6px 11px", cursor: "pointer",
-                  }}
-                >
-                  Explore trade back <Icon name="arrow-right" size={13} />
-                </button>
-                <span style={{ fontFamily: FM, fontSize: 10, color: MUTED }}>
-                  {read.rec === "trade_back" ? "Director's nudge" : read.rec === "trade_up" ? "Or move up" : "He'd stand pat"}
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Pool */}
-        <div style={panel}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "11px 13px 9px", borderBottom: `2.5px solid ${INK}` }}>
-            <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 15, color: INK }}>
-              On the Board <span style={{ fontFamily: FM, fontSize: 12, color: MUTED, fontWeight: 700 }}>{visiblePool.length}</span>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, background: CANVAS, border: `2px solid ${INK}`, padding: "4px 9px", flex: 1, maxWidth: 220 }}>
-              <Icon name="search" size={14} />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search players" style={{ border: "none", outline: "none", background: "transparent", fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontSize: 12, color: INK, width: "100%" }} />
-            </div>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 13px", borderBottom: "2px solid #EDE5D4", flexWrap: "wrap" }}>
-            {FILTERS.map((f) => (
-              <button key={f.key} onClick={() => setFilter(f.key)} style={chipBtn(filter === f.key)}>{f.label}</button>
-            ))}
-            <span style={{ marginLeft: "auto", fontFamily: FM, fontWeight: 700, fontSize: 10, color: MUTED }}>SORT: VALUE ▾</span>
-          </div>
-
-          <div style={{ padding: 9 }}>
-            {loading && <div style={{ padding: 24, textAlign: "center", fontFamily: FM, fontSize: 12, color: MUTED }}>Loading the board…</div>}
-            {!loading && visiblePool.length === 0 && <div style={{ padding: 24, textAlign: "center", fontFamily: FM, fontSize: 12, color: MUTED }}>No players match.</div>}
-            {visiblePool.slice(0, 60).map((p, i) => {
-              const pc = posColor(p.pos);
-              const lean = p.id === leanId;
-              return (
-                <div key={p.id} style={{ display: "flex", alignItems: "stretch", border: `2px solid ${INK}`, boxShadow: `3px 3px 0 ${INK}`, background: CARD, marginBottom: 8 }}>
-                  <div style={{ width: 7, background: pc.bg, flexShrink: 0 }} />
-                  <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, padding: "9px 11px", minWidth: 0 }}>
-                    <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 12, color: MUTED, width: 22, flexShrink: 0 }}>{i + 1}</span>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
-                        <span style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontWeight: 700, fontSize: 15, color: INK }}>{p.name}</span>
-                        {lean && <span style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontWeight: 700, fontSize: 8, letterSpacing: "0.06em", color: "#fff", background: RED, border: `1.5px solid ${INK}`, padding: "1px 5px" }}>★ DIRECTOR’S LEAN</span>}
-                      </div>
-                      <div style={{ fontFamily: FM, fontSize: 10, color: MUTED, marginTop: 2 }}>
-                        {p.isRookie ? "Rookie" : "Vet"} · {p.wouldStart ? <span style={{ color: GREEN, fontWeight: 700 }}>would start</span> : "depth"}
-                      </div>
-                    </div>
-                    <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, color: pc.fg, background: pc.bg, border: `1.5px solid ${INK}`, padding: "2px 6px", flexShrink: 0 }}>{p.pos}</span>
-                    <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 16, color: INK, width: 36, textAlign: "right", flexShrink: 0 }}>{Math.round(p.value)}</span>
-                    <button onClick={() => draftPlayer(p)} style={{ fontFamily: FH, fontWeight: 800, fontSize: 11, letterSpacing: "0.04em", background: YELLOW, color: INK, border: `2px solid ${INK}`, boxShadow: `2px 2px 0 ${INK}`, padding: "6px 11px", cursor: "pointer", flexShrink: 0 }}>DRAFT</button>
+            <div style={{ padding: "12px 13px", flex: 1, minHeight: 150 }}>
+              {tab === "clock" && (
+                phase === "setup" ? <div style={{ fontFamily: FB, fontSize: 13, color: MUTED }}>Pick a scenario and hit Start. The Director will call each pick as it comes in.</div>
+                : isComplete ? <div style={{ fontFamily: FB, fontSize: 13, color: INK }}>That&rsquo;s a wrap. {you.name} made {board.filter((b) => b.mine).length} picks.</div>
+                : onClock ? (
+                  <div>
+                    <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 14, color: INK }}>{onClock.team}</div>
+                    <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, color: MUTED, letterSpacing: "0.08em", marginBottom: 9 }}>PICK {onClock.pick} · ON THE CLOCK</div>
+                    {onClock.needs.length > 0 && (<><div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>THEY NEED</div>
+                      <div style={{ display: "flex", gap: 5, margin: "5px 0 10px" }}>{onClock.needs.map((n) => <span key={n} style={{ fontFamily: FB, fontWeight: 700, fontSize: 11, color: INK, border: `1.5px solid ${INK}`, padding: "2px 8px" }}>{n}</span>)}</div></>)}
+                    {onClock.mine ? (
+                      <div style={{ fontFamily: FB, fontSize: 13.5, lineHeight: 1.5, color: BLUE, fontWeight: 600 }}>You&rsquo;re up. Check <b>Our Pick</b> for the board read, then take your guy from the pool.</div>
+                    ) : (<>
+                      <div style={{ fontFamily: FB, fontSize: 13.5, lineHeight: 1.5, color: INK }}><b>Likely:</b> {onClock.player ?? "—"}{onClock.pos ? ` (${onClock.pos})` : ""}. {onClock.why}</div>
+                      <div style={{ fontFamily: FB, fontSize: 13, lineHeight: 1.5, color: "#444", marginTop: 9, paddingTop: 9, borderTop: `1px solid ${LINE}` }}><b style={{ color: INK }}>Trade candidate?</b> {onClock.tradeCandidate ? "Yes — they could move." : "No — they sit and pick."}</div>
+                    </>)}
                   </div>
-                </div>
-              );
-            })}
-            {!loading && visiblePool.length > 60 && <div style={{ textAlign: "center", padding: "6px 0 2px", fontFamily: FM, fontWeight: 700, fontSize: 11, color: MUTED }}>{visiblePool.length - 60} more ▾</div>}
-          </div>
-        </div>
-
-        <div style={{ textAlign: "center", marginTop: 11, fontFamily: FM, fontSize: 9, letterSpacing: "0.1em", color: "#A89F8C" }}>DRAFT GRADES UNLOCK AT THE FINAL PICK</div>
-      </div>
-
-      {/* Drawer */}
-      {drawer && (
-        <>
-          <div onClick={() => setDrawer(null)} style={{ position: "fixed", inset: 0, background: "rgba(26,26,26,0.45)", zIndex: 60 }} />
-          <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(440px, 94vw)", background: CANVAS, borderLeft: `3px solid ${INK}`, zIndex: 61, display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: `2.5px solid ${INK}`, background: CARD }}>
-              <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 16, color: INK }}>
-                {drawer === "board" ? "The Board" : drawer === "team" ? "My Team" : drawer === "scenario" ? "Run a Scenario" : "Trade Back"}
-              </div>
-              <button onClick={() => setDrawer(null)} aria-label="Close" style={{ background: "none", border: "none", cursor: "pointer", color: INK, display: "flex" }}><Icon name="x" size={20} /></button>
-            </div>
-            <div style={{ flex: 1, overflowY: "auto", padding: 14 }}>
-              {drawer === "board" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                  {diffCount > 0 && <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 10, color: RED, letterSpacing: "0.06em", marginBottom: 2 }}>{diffCount} PICKS MOVED VS STANDARD</div>}
-                  {board.map((b) => {
-                    const changed = changedKeys.has(b.pick) && (scenario !== "standard" || traded);
-                    return (
-                      <div key={b.pick} style={{ display: "flex", alignItems: "center", gap: 9, background: b.mine ? "#fff5f3" : CARD, border: `2px solid ${changed ? YELLOW : b.mine ? RED : INK}`, padding: "7px 10px" }}>
-                        <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 13, color: b.mine ? "#fff" : INK, background: b.mine ? RED : "#E7DFCC", padding: "1px 6px" }}>{b.pick}</span>
-                        <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 10, color: MUTED, width: 86, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.team}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <span style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontWeight: 700, fontSize: 13, color: INK }}>{b.player ?? "—"} {b.pos ? <span style={{ color: MUTED, fontSize: 11 }}>{b.pos}</span> : null}</span>
-                          {changed && standardByKey.get(b.pick) && standardByKey.get(b.pick) !== b.player && (
-                            <div style={{ fontFamily: FM, fontSize: 9, color: MUTED }}>was {standardByKey.get(b.pick)}</div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                ) : null
               )}
-
-              {drawer === "team" && (
+              {tab === "our" && (read ? (
                 <div>
-                  <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", color: MUTED, marginBottom: 8 }}>YOUR PICKS: {you.picks.join(" · ") || "—"}</div>
-                  {drafted.length === 0 && <div style={{ fontFamily: FM, fontSize: 12, color: MUTED, padding: "12px 0" }}>No picks made yet. Hit DRAFT on a card.</div>}
-                  {drafted.map((p, i) => {
-                    const pc = posColor(p.pos);
-                    return (
-                      <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 9, background: CARD, border: `2px solid ${INK}`, padding: "8px 10px", marginBottom: 7 }}>
-                        <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 12, color: MUTED, width: 18 }}>{i + 1}</span>
-                        <span style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontWeight: 700, fontSize: 14, color: INK, flex: 1 }}>{p.name}</span>
-                        <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, color: pc.fg, background: pc.bg, border: `1.5px solid ${INK}`, padding: "2px 6px" }}>{p.pos}</span>
-                        <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 14, color: INK }}>{Math.round(p.value)}</span>
-                      </div>
-                    );
-                  })}
-
-                  <button onClick={saveMock} disabled={drafted.length === 0} style={{ width: "100%", marginTop: 10, fontFamily: FH, fontWeight: 800, fontSize: 12, letterSpacing: "0.05em", textTransform: "uppercase", background: drafted.length ? BLUE : "#C8C3B8", color: "#fff", border: `2.5px solid ${INK}`, boxShadow: `3px 3px 0 ${INK}`, padding: "10px", cursor: drafted.length ? "pointer" : "default" }}>
-                    Save this mock
-                  </button>
-
-                  {saved.length > 0 && (
-                    <div style={{ marginTop: 16 }}>
-                      <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", color: MUTED, marginBottom: 8 }}>SAVED MOCKS</div>
-                      {saved.map((m) => (
-                        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, background: CARD, border: `2px solid ${INK}`, padding: "8px 10px", marginBottom: 7 }}>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontWeight: 700, fontSize: 12, color: INK, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.name}</div>
-                          </div>
-                          <button onClick={() => loadMock(m)} style={{ fontFamily: FH, fontWeight: 700, fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase", background: YELLOW, color: INK, border: `1.5px solid ${INK}`, padding: "4px 9px", cursor: "pointer" }}>Load</button>
-                          <button onClick={() => deleteMock(m.id)} aria-label="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: MUTED, display: "flex" }}><Icon name="trash" size={15} /></button>
-                        </div>
-                      ))}
+                  <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>YOUR NEXT PICK · {read.pick}</div>
+                  <div style={{ fontFamily: FB, fontSize: 13.5, lineHeight: 1.5, color: INK, margin: "8px 0 10px" }}>{read.rationale}</div>
+                  <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>LIKELY THERE</div>
+                  {read.field.slice(0, 5).map((f) => (
+                    <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${LINE}` }}>
+                      <span style={{ flex: 1, fontFamily: FB, fontWeight: 600, fontSize: 13, color: INK }}>{f.name}</span>
+                      <span style={{ fontFamily: FM, fontSize: 11, color: MUTED }}>{f.pos}</span>
+                      <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 12, color: INK }}>{Math.round(f.value)}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
-              )}
-
-              {drawer === "scenario" && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
-                  <div style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontSize: 13, color: INK, marginBottom: 4 }}>
-                    Re-run the mock under a different league mood. The pool stays — the projected board and the Director&rsquo;s read change.
-                  </div>
-                  {SCENARIOS.map((s) => {
-                    const active = s.key === scenario;
-                    return (
-                      <button key={s.key} onClick={() => applyScenario(s.key)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: active ? INK : CARD, color: active ? YELLOW : INK, border: `2.5px solid ${INK}`, boxShadow: active ? "none" : `3px 3px 0 ${INK}`, padding: "11px 13px", cursor: "pointer", textAlign: "left" }}>
-                        <span style={{ fontFamily: FH, fontWeight: 700, fontSize: 14, letterSpacing: "0.04em", textTransform: "uppercase" }}>{s.label}</span>
-                        <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700 }}>{active ? "ACTIVE" : "RUN ▸"}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {drawer === "trade" && (
+              ) : <div style={{ fontFamily: FB, fontSize: 13, color: MUTED }}>No upcoming pick.</div>)}
+              {tab === "trades" && (
                 <div>
-                  {!pendingTrade?.offer ? (
-                    <div style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontSize: 13, color: INK }}>{pendingTrade?.reason ?? "No trade-back available right now."}</div>
-                  ) : (
+                  {!offer && <button onClick={pullTrade} disabled={offerLoading || !read} style={{ fontFamily: FH, fontWeight: 800, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase", background: CARD, color: INK, border: `2px solid ${INK}`, boxShadow: `2px 2px 0 ${INK}`, padding: "8px 12px", cursor: "pointer" }}>{offerLoading ? "Pulling…" : "Pull a trade-back"}</button>}
+                  {offer && (
                     <div>
-                      <div style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontSize: 13, color: INK, marginBottom: 12 }}>
-                        The <b>{pendingTrade.offer.partner}</b> want to move up. Slide back and pick up an extra pick:
-                      </div>
-                      <div style={{ ...panel, padding: 12, marginBottom: 12 }}>
-                        <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>YOU GIVE</div>
-                        <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 16, color: INK, marginTop: 2 }}>{pendingTrade.offer.give.pick} <span style={{ color: MUTED, fontSize: 12 }}>({pendingTrade.offer.give.value})</span></div>
-                        <div style={{ height: 2, background: "#EDE5D4", margin: "10px 0" }} />
-                        <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>YOU GET</div>
-                        <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 16, color: INK, marginTop: 2 }}>
-                          {pendingTrade.offer.get.map((g) => `${g.pick} (${g.value})`).join("  +  ")}
-                        </div>
-                        <div style={{ marginTop: 10, display: "inline-block", fontFamily: FM, fontWeight: 700, fontSize: 12, color: pendingTrade.offer.net >= 0 ? GREEN : RED, background: pendingTrade.offer.net >= 0 ? "#e6f3ea" : "#fbe7e3", border: `1.5px solid ${INK}`, padding: "3px 8px" }}>
-                          {pendingTrade.offer.net >= 0 ? "+" : ""}{pendingTrade.offer.net} your way
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={acceptTrade} style={{ flex: 1, fontFamily: FH, fontWeight: 800, fontSize: 12, letterSpacing: "0.05em", textTransform: "uppercase", background: GREEN, color: "#fff", border: `2.5px solid ${INK}`, boxShadow: `3px 3px 0 ${INK}`, padding: "11px", cursor: "pointer" }}>Accept &amp; re-mock</button>
-                        <button onClick={() => { setPendingTrade(null); setDrawer(null); }} style={{ fontFamily: FH, fontWeight: 700, fontSize: 12, letterSpacing: "0.04em", textTransform: "uppercase", background: CARD, color: INK, border: `2.5px solid ${INK}`, padding: "11px 16px", cursor: "pointer" }}>Pass</button>
-                      </div>
+                      <div style={{ fontFamily: FB, fontSize: 13, color: INK, marginBottom: 9 }}>The <b>{offer.partner}</b> want to move up:</div>
+                      <div style={{ fontFamily: FM, fontSize: 12, color: INK }}><b>Give</b> {offer.give.pick} ({offer.give.value})</div>
+                      <div style={{ fontFamily: FM, fontSize: 12, color: INK, marginTop: 4 }}><b>Get</b> {offer.get.map((g) => `${g.pick} (${g.value})`).join("  +  ")}</div>
+                      <div style={{ marginTop: 8, display: "inline-block", fontFamily: FM, fontWeight: 700, fontSize: 12, color: offer.net >= 0 ? "#2f8a52" : RED }}>{offer.net >= 0 ? "+" : ""}{offer.net} your way</div>
+                      <div style={{ fontFamily: FB, fontSize: 11, color: MUTED, marginTop: 8 }}>Advisory for now — the Director&rsquo;s read on moving back.</div>
                     </div>
                   )}
                 </div>
               )}
             </div>
           </div>
-        </>
-      )}
+
+          {/* Pool (colorless) */}
+          <div style={{ ...panel, display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderBottom: `2px solid ${INK}` }}>
+              <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: INK }}>Best Available <span style={{ fontFamily: FM, fontSize: 11, color: MUTED, fontWeight: 700 }}>{pool.length}</span></span>
+              {yourTurn && <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 9, letterSpacing: "0.06em", color: "#fff", background: BLUE, padding: "2px 7px" }}>YOUR PICK — TAP TO DRAFT</span>}
+            </div>
+            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+              {pool.slice(0, 40).map((p, i) => (
+                <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${LINE}`, cursor: yourTurn ? "pointer" : "default", background: yourTurn ? CARD : "transparent" }}>
+                  <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 11, color: "#B4AB95", width: 18 }}>{i + 1}</span>
+                  <span style={{ flex: 1, fontFamily: FB, fontWeight: 600, fontSize: 13, color: INK }}>{p.name}</span>
+                  <span style={{ fontFamily: FM, fontSize: 11, color: MUTED, width: 24 }}>{p.pos}</span>
+                  <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 13, color: INK, width: 26, textAlign: "right" }}>{Math.round(p.value)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

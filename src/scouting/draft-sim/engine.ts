@@ -131,7 +131,11 @@ export function runDraftEngine(
   profiles: TeamProfile[],
   boards: Map<string, TeamBoard>,
   orderOverride?: OwnedPick[],
-  scenario: DraftScenario = "standard"
+  scenario: DraftScenario = "standard",
+  // overall pick number -> playerId that's already locked (the user's own
+  // in-sim picks). Forced picks are assigned as-is; everything else projects
+  // around them, so the board stays correct when you draft your own guy.
+  forcedPicks?: Map<number, string>
 ): { projection: SimPick[]; reads: TeamSlotRead[]; poolSize: number; draftPicks: number } {
   const runPositions = RUN_POSITIONS[scenario] ?? null;
   const isChalk = scenario === "chalk";
@@ -297,6 +301,34 @@ export function runDraftEngine(
 
   for (const pick of order) {
     const rid = pick.currentRosterId;
+
+    // Locked pick (the user already made this one in the sim): assign it and
+    // let the rest of the draft project around it.
+    const forcedId = forcedPicks?.get(pick.overall!);
+    if (forcedId && available.has(forcedId)) {
+      const meta = nameOf.get(forcedId)!;
+      projection.push({
+        overall: pick.overall!,
+        round: pick.round,
+        slot: pick.slot,
+        rosterId: rid,
+        playerId: forcedId,
+        name: meta.name,
+        position: meta.position,
+        reason: "your-pick",
+      });
+      goneAt.set(forcedId, pick.overall!);
+      available.delete(forcedId);
+      snapshot.set(pick.overall!, []);
+      const info = data.players.get(forcedId);
+      const team = working.get(rid);
+      if (info && team) {
+        team.players.push(info);
+        recompute(rid);
+      }
+      continue;
+    }
+
     const starredSet = new Set(boards.get(rid)?.starred ?? []);
 
     const ranked: Array<{ id: string; want: number }> = [];
