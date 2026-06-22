@@ -41,6 +41,7 @@ const SHIPPED_ROUTES = new Set<string>([
   "/scouting",
   "/scouting/big-board",
   "/scouting/draft-room",
+  "/scouting/mock-draft",
   "/personnel-office",
   "/pro-personnel/trade-builder",
   "/pro-personnel/trade-studio",
