@@ -11,6 +11,7 @@ import type {
   PickRead,
   TeamSlotRead,
   Recommendation,
+  DraftScenario,
 } from "./types";
 
 // Want blend. Asset/upgrade/need/successor — none collapsed for display. Tunable.
@@ -45,6 +46,15 @@ function stashSlotFloor(boost: number): number {
 // roster shouldn't block stashing Ty Simpson).
 const STASH_MARGINAL_UPGRADE = 20; // value points; under this the leader isn't a real starter bump
 const STASH_ASSET_TOLERANCE = 0.8; // only stash over a leader whose asset the QB roughly matches
+
+// Scenario want premium for a positional run — added to every team's want for
+// the run position so it flies off the board. Strong enough to visibly cascade.
+const RUN_PREMIUM = 0.25;
+const RUN_POSITIONS: Record<string, Position[]> = {
+  "qb-run": ["QB"],
+  "rb-run": ["RB"],
+  "wr-run": ["WR", "TE"],
+};
 
 function bucketOf(pos: Position): NeedBucket {
   if (pos === "QB") return "QB";
@@ -120,8 +130,11 @@ export function runDraftEngine(
   grid: DraftFitGrid,
   profiles: TeamProfile[],
   boards: Map<string, TeamBoard>,
-  orderOverride?: OwnedPick[]
+  orderOverride?: OwnedPick[],
+  scenario: DraftScenario = "standard"
 ): { projection: SimPick[]; reads: TeamSlotRead[]; poolSize: number; draftPicks: number } {
+  const runPositions = RUN_POSITIONS[scenario] ?? null;
+  const isChalk = scenario === "chalk";
   const baseCells = grid.teams[0]?.cells ?? [];
   const poolSize = baseCells.length;
 
@@ -199,8 +212,11 @@ export function runDraftEngine(
   const wantScore = (rid: string, playerId: string, pickOverall: number): number => {
     const cell = cellByTeam.get(rid)?.get(playerId);
     if (!cell) return 0;
-    const succ = liveSucc.get(rid)!;
     const assetNorm = cell.asset / globalMaxAsset;
+    // Scenario: CHALK — every team drafts pure best value, ignoring need,
+    // upgrade, successor pressure, and stored boards.
+    if (isChalk) return assetNorm;
+    const succ = liveSucc.get(rid)!;
     const liveUpgrade = liveUpgradeOf(rid, playerId);
     const upgradeNorm = liveUpgrade / (initMaxUpgrade.get(rid) ?? 1);
     // Band gate (Fix A): a ranked rookie QB taken BEFORE his draft-capital band
@@ -223,6 +239,9 @@ export function runDraftEngine(
       const w = qbWeakness(rid);
       if (w >= QB_AMP_GATE) signalWant += QB_AMP_MAX * ((w - QB_AMP_GATE) / (1 - QB_AMP_GATE));
     }
+    // Scenario: positional RUN — a scarcity premium so this position is chased
+    // up the board across every team.
+    if (runPositions && runPositions.includes(cell.position)) signalWant += RUN_PREMIUM;
     const curation = boards.get(rid)?.curation ?? 0;
     const rank = boardRankByTeam.get(rid)?.get(playerId);
     const boardWant = rank == null ? 0 : 1 - rank / poolSize;
@@ -289,7 +308,7 @@ export function runDraftEngine(
     // leader is only a marginal starter upgrade whose asset the QB roughly
     // matches (Fix B: a +10 RB on a deep roster shouldn't block the QB).
     let stashId: string | null = null;
-    if (ranked.length) {
+    if (ranked.length && !isChalk) {
       const leader = ranked[0];
       const probe = ranked[Math.min(2, ranked.length - 1)];
       const flat = leader.want > 0 && (leader.want - probe.want) / leader.want <= 0.08;

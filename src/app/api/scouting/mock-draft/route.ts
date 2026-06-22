@@ -2,10 +2,12 @@ import { NextResponse } from "next/server";
 import { getLeagueData } from "@/shared/league-data";
 import { buildTeamProfiles } from "@/shared/team-profiles";
 import { computeDraftFit } from "@/scouting/draft-fit";
-import { getAllBoards, runDraftEngine } from "@/scouting/draft-sim";
+import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
+
+const SCENARIOS: DraftScenario[] = ["standard", "qb-run", "rb-run", "wr-run", "chalk"];
 
 // GET /api/scouting/mock-draft?teamId=<rosterId>
 // UI-shaped payload for the Mock Draft page: the browsable prospect pool from
@@ -15,6 +17,10 @@ export const maxDuration = 30;
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const teamId = searchParams.get("teamId") ?? "";
+  const scenarioParam = searchParams.get("scenario") ?? "standard";
+  const scenario: DraftScenario = SCENARIOS.includes(scenarioParam as DraftScenario)
+    ? (scenarioParam as DraftScenario)
+    : "standard";
 
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json(data, { status: 500 });
@@ -22,7 +28,7 @@ export async function GET(req: Request) {
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
-  const { projection, reads, poolSize } = runDraftEngine(data, grid, profiles, boards);
+  const { projection, reads, poolSize } = runDraftEngine(data, grid, profiles, boards, undefined, scenario);
 
   // Resolve "you": explicit teamId, else the Founders, else the first roster.
   const you =
@@ -86,6 +92,7 @@ export async function GET(req: Request) {
     : null;
 
   return NextResponse.json({
+    scenario,
     you: { rosterId: youId, name: you.teamName, picks: myPicks },
     poolSize,
     pool,

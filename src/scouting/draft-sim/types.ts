@@ -32,6 +32,11 @@ export type SimPick = {
 
 export type Recommendation = "stand_pat" | "trade_up" | "trade_back";
 
+// What-if mood for a mock run. "standard" is the engine's straight read.
+// The *-run scenarios add a scarcity premium so that position flies off the
+// board (a positional run); "chalk" makes every team draft pure best-value.
+export type DraftScenario = "standard" | "qb-run" | "rb-run" | "wr-run" | "chalk";
+
 // A player still on the board when a team is on the clock, with the four signals
 // exposed (never blended into one number for display) plus the team's overall
 // want for that player — the margin that decides close calls.
