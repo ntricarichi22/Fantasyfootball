@@ -141,10 +141,8 @@ export function MockDraftView() {
 
   // ── derived ────────────────────────────────────────────────────────────────
   const viewPicks = board.map((b, i) => ({ b, i })).filter((x) => x.b.round === viewRound);
-  const statusText = isComplete ? "DRAFT COMPLETE" : phase === "setup" ? "READY" : `PICK ${Math.min(revealed + 1, board.length)} OF ${board.length}`;
   const playLabel = isComplete ? "Restart" : phase === "running" ? "Pause" : phase === "paused" ? "Resume" : "Start";
-  const runHint = phase === "running" ? "ON THE CLOCK" : phase === "paused" ? "PAUSED" : isComplete ? "BOARD FULL" : "PRESS START";
-  const railBtn: CSSProperties = { fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", background: FRAME, color: BINK, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "8px 14px", cursor: "pointer" };
+  const railBtn: CSSProperties = { fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", background: FRAME, color: BINK, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "7px 13px", cursor: "pointer" };
   const panel: CSSProperties = { background: CARD, border: `2.5px solid ${INK}`, boxShadow: `4px 4px 0 ${INK}` };
 
   function slot(b: BoardPick, i: number) {
@@ -191,27 +189,55 @@ export function MockDraftView() {
   }
 
   return (
-    <div style={{ minHeight: "100vh", background: CANVAS, display: "flex", flexDirection: "column" }}>
+    <div style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 3px ${ARED},inset 0 0 20px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 3px rgba(201,68,46,.45),inset 0 0 8px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
 
-      <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "16px 22px 32px", boxSizing: "border-box" }}>
+      <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
 
         {/* ── VINTAGE SCOREBOARD ── */}
-        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, marginBottom: 14 }}>
+        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, marginBottom: 14, flexShrink: 0 }}>
           {([["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]] as const).map(([v, h]) => (
             <div key={v + h} style={{ position: "absolute", [v]: 7, [h]: 7, width: 9, height: 9, borderRadius: "50%", background: BINK, boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.25)", zIndex: 5 }} />
           ))}
 
           <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "8px 16px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
-                <div style={{ width: 38, height: 38, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 2px rgba(0,0,0,0.4)", flexShrink: 0 }}><span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 0.5, color: GOLD }}>CFC</span></div>
-                <span style={{ fontFamily: ANTON, fontSize: 23, letterSpacing: 3, color: SCREAM, whiteSpace: "nowrap" }}>MOCK DRAFT</span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "7px 12px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
+              {/* LEFT: badge · wordmark · round toggle */}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+                <div style={{ width: 34, height: 34, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 2px rgba(0,0,0,0.4)", flexShrink: 0 }}><span style={{ fontFamily: ANTON, fontSize: 12, letterSpacing: 0.5, color: GOLD }}>CFC</span></div>
+                <span style={{ fontFamily: ANTON, fontSize: 22, letterSpacing: 3, color: SCREAM, whiteSpace: "nowrap" }}>MOCK DRAFT</span>
+                <div style={{ display: "flex", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", boxShadow: `2px 2px 0 ${BINK}`, marginLeft: 4 }}>
+                  {rounds.map((r, idx) => (
+                    <button key={r} onClick={() => setViewRound(r)} style={{ fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, padding: "5px 13px", border: "none", borderRight: idx < rounds.length - 1 ? `2px solid ${BINK}` : "none", background: viewRound === r ? GOLD : FRAME, color: BINK, cursor: "pointer", whiteSpace: "nowrap" }}>RD {r}</button>
+                  ))}
+                </div>
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 14, flexShrink: 0 }}>
-                <span style={{ fontFamily: ANTON, fontSize: 18, letterSpacing: 4, color: GOLD }}>ROUND {viewRound}</span>
-                <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 2, color: SCREAM, opacity: 0.85 }}>{statusText}</span>
+              {/* RIGHT: scenario · trigger · reset · start */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                {busy && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: CRED }}>RE-MOCKING…</span>}
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setScnOpen((o) => !o)} disabled={phase !== "setup"} style={{ ...railBtn, opacity: phase === "setup" ? 1 : 0.5, cursor: phase === "setup" ? "pointer" : "default" }}>{LABEL[scenario]} ▾</button>
+                  {scnOpen && phase === "setup" && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 130 }}>
+                      {SCENARIOS.map((s) => (
+                        <button key={s.key} onClick={() => { setScenario(s.key); setScnOpen(false); fetchScenario(s.key); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: s.key === scenario ? GOLD : "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setRunOpen((o) => !o)} disabled={phase === "setup" || isComplete} style={{ ...railBtn, opacity: phase === "setup" || isComplete ? 0.5 : 1, cursor: phase === "setup" || isComplete ? "default" : "pointer" }}>Trigger Run ▾</button>
+                  {runOpen && phase !== "setup" && !isComplete && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 110 }}>
+                      {RUNS.map((s) => (
+                        <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={resetSim} style={railBtn}>Reset</button>
+                <button onClick={startBtn} disabled={loading} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase", background: ARED, color: SCREAM, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "6px 18px", cursor: "pointer" }}>{playLabel}</button>
               </div>
             </div>
 
@@ -225,56 +251,19 @@ export function MockDraftView() {
               )}
             </div>
           </div>
-
-          {/* control rail */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap", padding: "13px 4px 3px", position: "relative" }}>
-            <div style={{ display: "flex", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", boxShadow: `3px 3px 0 ${BINK}` }}>
-              {rounds.map((r, idx) => (
-                <button key={r} onClick={() => setViewRound(r)} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, padding: "8px 18px", border: "none", borderRight: idx < rounds.length - 1 ? `2px solid ${BINK}` : "none", background: viewRound === r ? GOLD : FRAME, color: BINK, cursor: "pointer", whiteSpace: "nowrap" }}>RD {r}</button>
-              ))}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              {busy && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: ARED }}>RE-MOCKING…</span>}
-              <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, letterSpacing: 2, color: "#8a7d63" }}>{runHint}</span>
-              {/* scenario (pre-start) */}
-              <div style={{ position: "relative" }}>
-                <button onClick={() => setScnOpen((o) => !o)} disabled={phase !== "setup"} style={{ ...railBtn, opacity: phase === "setup" ? 1 : 0.5, cursor: phase === "setup" ? "pointer" : "default" }}>{LABEL[scenario]} ▾</button>
-                {scnOpen && phase === "setup" && (
-                  <div style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, zIndex: 30, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 130 }}>
-                    {SCENARIOS.map((s) => (
-                      <button key={s.key} onClick={() => { setScenario(s.key); setScnOpen(false); fetchScenario(s.key); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: s.key === scenario ? GOLD : "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              {/* trigger a run (during play) */}
-              <div style={{ position: "relative" }}>
-                <button onClick={() => setRunOpen((o) => !o)} disabled={phase === "setup" || isComplete} style={{ ...railBtn, opacity: phase === "setup" || isComplete ? 0.5 : 1, cursor: phase === "setup" || isComplete ? "default" : "pointer" }}>Trigger Run ▾</button>
-                {runOpen && phase !== "setup" && !isComplete && (
-                  <div style={{ position: "absolute", bottom: "calc(100% + 4px)", left: 0, zIndex: 30, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 110 }}>
-                    {RUNS.map((s) => (
-                      <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <button onClick={resetSim} style={railBtn}>Reset</button>
-              <button onClick={startBtn} disabled={loading} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase", background: ARED, color: SCREAM, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "8px 22px", cursor: "pointer" }}>{playLabel}</button>
-            </div>
-          </div>
         </div>
 
-        {error && <div style={{ ...panel, padding: 12, marginBottom: 11, fontFamily: FM, fontSize: 12, color: RED, fontWeight: 700 }}>{error}</div>}
+        {error && <div style={{ ...panel, padding: 12, marginBottom: 11, fontFamily: FM, fontSize: 12, color: RED, fontWeight: 700, flexShrink: 0 }}>{error}</div>}
 
-        {/* ── BOTTOM: Director + pool (CFC neobrutalist, unchanged) ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 11 }}>
+        {/* ── BOTTOM: Director + pool (CFC neobrutalist) ── */}
+        <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 11, flex: 1, minHeight: 0 }}>
           <div style={{ ...panel, display: "flex", flexDirection: "column" }}>
             <div style={{ display: "flex", borderBottom: `2px solid ${INK}` }}>
               {([["clock", "On the Clock"], ["our", "Our Pick"], ["trades", "Trades"]] as const).map(([k, lbl], i) => (
                 <button key={k} onClick={() => setTab(k)} style={{ flex: 1, textAlign: "center", padding: "9px 6px", background: tab === k ? INK : "transparent", color: tab === k ? YELLOW : MUTED, fontFamily: FH, fontWeight: tab === k ? 800 : 700, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", border: "none", borderLeft: i ? `1px solid ${LINE}` : "none", cursor: "pointer" }}>{lbl}</button>
               ))}
             </div>
-            <div style={{ padding: "12px 13px", flex: 1, minHeight: 150 }}>
+            <div style={{ padding: "12px 13px", flex: 1, minHeight: 0, overflowY: "auto" }}>
               {tab === "clock" && (
                 phase === "setup" ? <div style={{ fontFamily: FB, fontSize: 13, color: MUTED }}>Pick a scenario and hit Start. The Director will call each pick as it comes in.</div>
                 : isComplete ? <div style={{ fontFamily: FB, fontSize: 13, color: INK }}>That&rsquo;s a wrap. {you.name} made {board.filter((b) => b.mine).length} picks.</div>
@@ -329,7 +318,7 @@ export function MockDraftView() {
               <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: INK }}>Best Available <span style={{ fontFamily: FM, fontSize: 11, color: MUTED, fontWeight: 700 }}>{pool.length}</span></span>
               {yourTurn && <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 9, letterSpacing: "0.06em", color: "#fff", background: BLUE, padding: "2px 7px" }}>YOUR PICK — TAP TO DRAFT</span>}
             </div>
-            <div style={{ maxHeight: 320, overflowY: "auto" }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
               {pool.slice(0, 40).map((p, i) => (
                 <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${LINE}`, cursor: yourTurn ? "pointer" : "default", background: yourTurn ? CARD : "transparent" }}>
                   <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 11, color: "#B4AB95", width: 18 }}>{i + 1}</span>
