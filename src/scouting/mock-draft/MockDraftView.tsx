@@ -151,13 +151,13 @@ export function MockDraftView() {
     const filled = i < revealed;
     const clock = i === revealed && phase !== "setup" && !isComplete;
     return (
-      <div key={b.overall} style={{ position: "relative", height: 66, borderRadius: 4, overflow: "hidden", background: RECESS, boxShadow: "inset 0 3px 5px rgba(0,0,0,0.75), inset 0 -2px 0 rgba(255,255,255,0.05)", animation: clock ? "cfcGlow 1.2s ease-in-out infinite" : "none" }}>
-        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", padding: "0 13px", gap: 11 }}>
-          <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 1, color: clock ? CRED : FUT, minWidth: 42 }}>{b.pick}</span>
+      <div key={b.overall} style={{ position: "relative", height: 48, borderRadius: 4, overflow: "hidden", background: RECESS, boxShadow: "inset 0 3px 5px rgba(0,0,0,0.75), inset 0 -2px 0 rgba(255,255,255,0.05)", animation: clock ? "cfcGlow 1.2s ease-in-out infinite" : "none" }}>
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", padding: "0 14px", gap: 11 }}>
+          <span style={{ fontFamily: ANTON, fontSize: 16, letterSpacing: 1, color: clock ? CRED : FUT, minWidth: 44 }}>{b.pick}</span>
           {clock ? (
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.5, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.team}</div>
+                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, letterSpacing: 0.4, color: SCREAM, whiteSpace: "nowrap" }}>{teamNickname(b.team)}</div>
                 <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 2, color: CRED, animation: "cfcBlink 1s steps(2) infinite" }}>{b.mine ? "YOUR PICK — ON THE CLOCK" : "ON THE CLOCK"}</div>
               </div>
               <span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, color: CRED }}>ON&nbsp;CLOCK</span>
@@ -169,15 +169,15 @@ export function MockDraftView() {
             </>
           ) : !filled ? (
             <>
-              <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 500, fontSize: 12, letterSpacing: 1, color: FUT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.team}</span>
-              <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 3, color: "#2c4a3d" }}>····</span>
+              <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 600, fontSize: 18, letterSpacing: 0.4, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden" }}>{teamNickname(b.team)}</span>
+              <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 3, color: "#3f6657" }}>····</span>
             </>
           ) : null}
         </div>
         {filled && (
           <div style={{ position: "absolute", top: 3, left: 3, right: 3, bottom: 3, display: "flex", alignItems: "center", gap: 10, padding: "0 12px 0 0", borderRadius: 3, border: `2px solid ${BINK}`, background: PLACARD, boxShadow: "0 2px 4px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.7)", animation: "cfcSlide 0.5s cubic-bezier(0.33,0.9,0.42,1) both" }}>
             <div style={{ alignSelf: "stretch", display: "flex", alignItems: "center", justifyContent: "center", width: 48, background: BINK, color: PLACARD, fontFamily: ANTON, fontSize: 14, letterSpacing: 0.5, borderRight: `2px solid ${BINK}` }}>{b.pick}</div>
-            <div style={{ flexShrink: 0, width: 40, height: 40, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(b.team)}') center / cover`, boxShadow: "0 1px 2px rgba(0,0,0,0.4)" }} />
+            <div style={{ flexShrink: 0, width: 34, height: 34, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(b.team)}') center / cover`, boxShadow: "0 1px 2px rgba(0,0,0,0.4)" }} />
             <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
               <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, letterSpacing: 0.3, color: BINK, lineHeight: 1.1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.player ?? "—"}</span>
               <span style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, letterSpacing: 1.5, color: META, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.team.toUpperCase()}</span>
@@ -195,7 +195,7 @@ export function MockDraftView() {
       <UnifiedTopbar />
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 3px ${ARED},inset 0 0 20px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 3px rgba(201,68,46,.45),inset 0 0 8px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
 
-      <div style={{ maxWidth: 1140, width: "100%", margin: "0 auto", padding: "18px 16px 32px", boxSizing: "border-box" }}>
+      <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "16px 22px 32px", boxSizing: "border-box" }}>
 
         {/* ── VINTAGE SCOREBOARD ── */}
         <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, marginBottom: 14 }}>
@@ -204,7 +204,7 @@ export function MockDraftView() {
           ))}
 
           <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "12px 16px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "8px 16px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
               <div style={{ display: "flex", alignItems: "center", gap: 11, minWidth: 0 }}>
                 <div style={{ width: 38, height: 38, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 2px rgba(0,0,0,0.4)", flexShrink: 0 }}><span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 0.5, color: GOLD }}>CFC</span></div>
                 <span style={{ fontFamily: ANTON, fontSize: 23, letterSpacing: 3, color: SCREAM, whiteSpace: "nowrap" }}>MOCK DRAFT</span>
@@ -215,11 +215,11 @@ export function MockDraftView() {
               </div>
             </div>
 
-            <div style={{ padding: 16 }}>
+            <div style={{ padding: 12 }}>
               {loading ? (
-                <div style={{ padding: 30, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, letterSpacing: 2, color: FUT }}>LOADING THE BOARD…</div>
+                <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, letterSpacing: 2, color: SCREAM }}>LOADING THE BOARD…</div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "repeat(4, auto)", gridAutoFlow: "column", gap: 11 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "repeat(4, auto)", gridAutoFlow: "column", gap: 8 }}>
                   {viewPicks.map((x) => slot(x.b, x.i))}
                 </div>
               )}
