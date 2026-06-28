@@ -1,6 +1,8 @@
 export type DirectorWorkroom = {
   title: string
   href: string
+  /** One-line description shown under the title on the badge row */
+  subtitle?: string
   /** Legacy icon name - kept in the data but no longer rendered */
   icon?: string
 }
@@ -35,10 +37,10 @@ export const DIRECTORS: DirectorConfig[] = [
       "Late-round sleeper hitting my radar",
     ],
     workrooms: [
-      { title: "Big Board", href: "/scouting/big-board", icon: "clipboard-list" },
+      { title: "Big Board", href: "/scouting/big-board", subtitle: "Your ranked prospect list", icon: "clipboard-list" },
       // Draft Room is now the lobby (mock / review / live war room) — Mock Draft
       // folded in as one of its doors rather than a separate workroom.
-      { title: "Draft Room", href: "/scouting/draft-room", icon: "presentation" },
+      { title: "Draft Room", href: "/scouting/draft-room", subtitle: "Live Draft + Results + Mock", icon: "presentation" },
     ],
   },
   {
@@ -55,8 +57,8 @@ export const DIRECTORS: DirectorConfig[] = [
       "Owner X looking to move a vet",
     ],
     workrooms: [
-      { title: "Build a Trade", href: "/pro-personnel/trade-builder?seed=fresh", icon: "arrows-exchange" },
-      { title: "Shop My Guys", href: "/pro-personnel/trade-studio", icon: "tag" },
+      { title: "Build a Trade", href: "/pro-personnel/trade-builder?seed=fresh", subtitle: "Propose a new offer to another team", icon: "arrows-exchange" },
+      { title: "Shop My Guys", href: "/pro-personnel/trade-studio", subtitle: "Gauge the market on your players", icon: "tag" },
     ],
   },
   {
@@ -72,8 +74,8 @@ export const DIRECTORS: DirectorConfig[] = [
       "Your posture might need a refresh",
     ],
     workrooms: [
-      { title: "Set Strategy", href: "/strategy/set-strategy", icon: "compass" },
-      { title: "Set Availability", href: "/strategy/set-availability", icon: "calendar-check" },
+      { title: "Set Strategy", href: "/strategy/set-strategy", subtitle: "Map your needs + your direction", icon: "compass" },
+      { title: "Set Availability", href: "/strategy/set-availability", subtitle: "Flag who's available + set your price", icon: "calendar-check" },
     ],
   },
 ]

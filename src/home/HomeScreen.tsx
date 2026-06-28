@@ -3,9 +3,7 @@
 import { useEffect, useState } from "react"
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar"
 import { GMPersonCard } from "./GMPersonCard"
-import { MobileOrgLines } from "./MobileOrgLines"
 import { DirectorPersonCard } from "./DirectorPersonCard"
-import { DirectorTabBar, type DirectorTab } from "./DirectorTabBar"
 import { TeamMasthead } from "./TeamMasthead"
 import { teamTheme } from "./teamTheme"
 import { DIRECTORS } from "./directors"
@@ -27,9 +25,9 @@ const PERSONA_LABELS: Record<GmPersona, string> = {
   hustler: "The Hustler",
 }
 
-const GRID_GAP = 14
 const MOBILE_BREAKPOINT = 768
-const TICKER_INTERVAL_MS = 3500
+/** Warm khaki field the laminated badges sit on. */
+const TAN = "#C7BA9B"
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-")
 
@@ -38,30 +36,17 @@ function gmAvatarFor(teamName: string): string {
   return `/avatars/gm/${slugify(teamNickname(teamName))}.png`
 }
 
-/** Short tab label: drop the "Pro " from "Pro Personnel". */
-function tabLabel(title: string): string {
-  return title.replace(/^Pro\s+/i, "")
-}
-
 export function HomeScreen() {
-  const [tickerTick, setTickerTick] = useState(0)
   const [teamName, setTeamName] = useState<string>("Virginia Founders")
   const [rosterId, setRosterId] = useState<string>("")
   const [unreadCount, setUnreadCount] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
   const [persona, setPersona] = useState<GmPersona>(FALLBACK_PERSONA)
   const [personaModalOpen, setPersonaModalOpen] = useState(false)
-  const [activeDirector, setActiveDirector] = useState<string | null>(null)
   const [gmStats, setGmStats] = useState<GmStats>({ championships: 0, tenure: 0, titleYears: [] })
   // Full strategy profile - the save endpoint upserts the whole row, so we
   // must POST the complete profile with only gm_persona changed.
   const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null)
-
-  // Single shared ticker interval so all door teasers stay in sync
-  useEffect(() => {
-    const id = setInterval(() => setTickerTick((t) => t + 1), TICKER_INTERVAL_MS)
-    return () => clearInterval(id)
-  }, [])
 
   // Pull team identity from stored auth
   useEffect(() => {
@@ -71,24 +56,27 @@ export function HomeScreen() {
         | { teamName?: string; name?: string; rosterId?: string }
         | null
       const name = stored?.teamName ?? stored?.name
-      if (name && typeof name === "string" && name.trim().length > 0) {
-        setTeamName(name)
-      }
-      if (stored?.rosterId) {
-        setRosterId(stored.rosterId)
-      }
+      // Defer off the synchronous effect path (avoids cascading-render lint).
+      queueMicrotask(() => {
+        if (name && typeof name === "string" && name.trim().length > 0) {
+          setTeamName(name)
+        }
+        if (stored?.rosterId) {
+          setRosterId(stored.rosterId)
+        }
+      })
     } catch {
       /* keep the default placeholder team */
     }
   }, [])
 
-  // Fetch inbox unread count for the GM door status
+  // Fetch inbox unread count for the GM badge status
   useEffect(() => {
     fetch("/api/inbox/unread-count")
       .then((r) => (r.ok ? r.json() : { count: 0 }))
       .then((d) => setUnreadCount(d?.count ?? 0))
       .catch(() => {
-        // silent - the door just stays at "all caught up"
+        // silent - the badge just stays at "all clear"
       })
   }, [])
 
@@ -103,7 +91,7 @@ export function HomeScreen() {
         }
       })
       .catch(() => {
-        // silent - card falls back to zeros until data loads
+        // silent - badge falls back to zeros until data loads
       })
   }, [rosterId])
 
@@ -151,18 +139,18 @@ export function HomeScreen() {
   const nicknameSlug = slugify(teamNickname(teamName))
   const theme = teamTheme(nicknameSlug)
   const crestSrc = `/teams/${nicknameSlug}.png`
-  const gmName = gmNameFor(teamName)
-  const gmDisplayName = gmName ? `${gmName}, GM` : "General Manager"
+  const gmName = gmNameFor(teamName) ?? "General Manager"
 
+  // The torn "FRONT OFFICE" hero strip that sits under the team banner.
   const frontOfficeHero = (small: boolean) => {
     const d = small ? 4 : 6 // 3D extrude depth
     const shadow = Array.from({ length: d }, (_, i) => `${i + 1}px ${i + 1}px 0 #0E2A4E`).join(",")
     return (
-      <div style={{ display: "flex", alignItems: "center", gap: small ? 12 : 20, flexShrink: 0, marginTop: small ? 10 : 34, marginBottom: small ? 4 : 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: small ? 12 : 20, flexShrink: 0, marginTop: small ? 10 : 22, marginBottom: small ? 4 : 12 }}>
         <span
           style={{
             fontFamily: "'Bowlby One SC', system-ui, sans-serif",
-            fontSize: small ? 19 : 33,
+            fontSize: small ? 19 : 30,
             letterSpacing: "0.02em",
             textTransform: "uppercase",
             color: "#E2B23C",
@@ -179,9 +167,11 @@ export function HomeScreen() {
     )
   }
 
-  const gmCard = (fixedPortrait: boolean) => (
+  const gmCard = (
     <GMPersonCard
-      name={gmDisplayName}
+      name={gmName}
+      teamName={teamName}
+      crestSrc={crestSrc}
       persona={persona}
       personaLabel={PERSONA_LABELS[persona]}
       championships={gmStats.championships}
@@ -189,7 +179,6 @@ export function HomeScreen() {
       unreadCount={unreadCount}
       avatarSrc={gmAvatarFor(teamName)}
       onPersonaClick={() => setPersonaModalOpen(true)}
-      fixedPortrait={fixedPortrait}
     />
   )
 
@@ -235,61 +224,41 @@ export function HomeScreen() {
     </div>
   )
 
-  // ── Mobile: compact masthead, fixed GM card, tabs, slide-up sheet ──
+  // ── Mobile: vertical scroll of the four full badges ──
   if (isMobile) {
-    const tabs: DirectorTab[] = DIRECTORS.map((d) => ({
-      key: d.key,
-      label: tabLabel(d.title),
-      avatarSrc: d.avatarSrc,
-      color: d.accentColor,
-      active: true,
-    }))
-    const activeCfg = DIRECTORS.find((d) => d.key === activeDirector) ?? null
-    const closeSheet = () => setActiveDirector(null)
-    const toggleSheet = (key: string) => setActiveDirector((cur) => (cur === key ? null : key))
-
     return (
-      <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ background: TAN, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <UnifiedTopbar />
-
-        <div style={{ flex: 1, minHeight: 0, position: "relative", display: "flex", flexDirection: "column" }}>
-          <div style={{ flex: 1, minHeight: 0, padding: "8px 10px 0", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "12px 12px 28px" }}>
+          <div style={{ maxWidth: 430, width: "100%", margin: "0 auto" }}>
             <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} compact />
             {frontOfficeHero(true)}
-            <div style={{ flex: 1, minHeight: 0 }}>{gmCard(false)}</div>
-            <MobileOrgLines />
-          </div>
-
-          {activeCfg && (
-            <>
-              <div onClick={closeSheet} style={{ position: "absolute", inset: 0, background: "rgba(26,26,26,0.4)", zIndex: 5 }} />
-              <div style={{ position: "absolute", left: 8, right: 8, bottom: 8, top: 56, zIndex: 6, display: "flex", flexDirection: "column" }}>
-                <div onClick={closeSheet} style={{ width: 38, height: 4, borderRadius: 2, background: "#B4B2A9", margin: "0 auto 8px", flexShrink: 0, cursor: "pointer" }} />
-                <div style={{ flex: 1, minHeight: 0 }}>
-                  <DirectorPersonCard director={activeCfg} tickerTick={tickerTick} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 6 }}>
+              <div style={{ height: 460, flexShrink: 0 }}>{gmCard}</div>
+              {DIRECTORS.map((d) => (
+                <div key={d.key} style={{ height: 460, flexShrink: 0 }}>
+                  <DirectorPersonCard director={d} teamName={teamName} crestSrc={crestSrc} />
                 </div>
-              </div>
-            </>
-          )}
+              ))}
+            </div>
+          </div>
         </div>
-
-        <DirectorTabBar items={tabs} activeKey={activeDirector} onSelect={toggleSheet} />
         {personaModal}
       </div>
     )
   }
 
-  // ── Desktop: team masthead + one row of four portrait cards ──
+  // ── Desktop: one row of four ID badges ──
   return (
-    <div style={{ background: "#F5F0E6", height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ background: TAN, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
 
       <div
         style={{
-          maxWidth: 1180,
+          maxWidth: 1228,
           width: "100%",
           margin: "0 auto",
-          padding: "26px 24px 20px",
+          padding: "22px 24px 18px",
           boxSizing: "border-box",
           flex: 1,
           minHeight: 0,
@@ -302,11 +271,18 @@ export function HomeScreen() {
         {frontOfficeHero(false)}
 
         <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: GRID_GAP, height: "min(100%, 460px)" }}>
-            <div style={{ minHeight: 0 }}>{gmCard(true)}</div>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(4, 1fr)",
+              gap: 16,
+              height: "min(100%, 460px)",
+            }}
+          >
+            <div style={{ minHeight: 0, minWidth: 0 }}>{gmCard}</div>
             {DIRECTORS.map((d) => (
-              <div key={d.key} style={{ minHeight: 0 }}>
-                <DirectorPersonCard director={d} tickerTick={tickerTick} fixedPortrait />
+              <div key={d.key} style={{ minHeight: 0, minWidth: 0 }}>
+                <DirectorPersonCard director={d} teamName={teamName} crestSrc={crestSrc} />
               </div>
             ))}
           </div>
