@@ -14,6 +14,7 @@ export type PlayerInfo = {
   position: Position;
   age: number | null;
   exp: number | null;
+  team: string | null; // NFL team code, e.g. "SF" (null for free agents / undeclared)
 };
 
 // A team's roster composition. No values or judgment here — just who is on it.

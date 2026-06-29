@@ -40,6 +40,7 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
     const youId = you?.rosterId ?? "";
 
     const isRookie = (id: string) => (data.players.get(id)?.exp ?? 99) === 0;
+    const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
     const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
     const profileByRoster = new Map(profiles.map((p) => [p.rosterId, p]));
     const readByOverall = new Map<number, (typeof reads)[number]["picks"][number]>();
@@ -49,7 +50,7 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
     const pool = (myFit?.cells ?? [])
       .slice()
       .sort((a, b) => b.asset - a.asset)
-      .map((c) => ({ id: c.playerId, name: c.name, pos: c.position, value: c.asset, wouldStart: c.upgrade > 0, isRookie: isRookie(c.playerId) }));
+      .map((c) => ({ id: c.playerId, name: c.name, pos: c.position, nflTeam: nflTeamOf(c.playerId), value: c.asset, wouldStart: c.upgrade > 0, isRookie: isRookie(c.playerId) }));
 
     const board = projection.map((s) => {
       const pr = readByOverall.get(s.overall);
@@ -67,6 +68,16 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
         needs: needLabels(profileByRoster.get(s.rosterId)),
         why: pr?.rationale ?? "",
         tradeCandidate: pr ? pr.recommendation !== "stand_pat" : false,
+        // Top survivors with their want scores — the UI softmaxes these into
+        // "who this team takes" odds, and chains them across picks for "still
+        // there at our pick" survival odds.
+        survivors: (pr?.topSurvivors ?? []).map((sv) => ({
+          playerId: sv.playerId,
+          name: sv.name,
+          pos: sv.position,
+          nflTeam: nflTeamOf(sv.playerId),
+          want: sv.want,
+        })),
       };
     });
 
@@ -76,9 +87,13 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
     const directorRead = next
       ? {
           pick: `${next.round}.${String(next.slot ?? 0).padStart(2, "0")}`,
+          overall: next.overall,
           rec: next.recommendation,
           rationale: next.rationale,
-          field: next.topSurvivors.map((s) => ({ id: s.playerId, name: s.name, pos: s.position, value: s.asset, wouldStart: s.upgrade > 0, starred: s.starred })),
+          projected: next.projectedPick
+            ? { name: next.projectedPick.name, pos: next.projectedPick.position, nflTeam: nflTeamOf(next.projectedPick.playerId) }
+            : null,
+          field: next.topSurvivors.map((s) => ({ id: s.playerId, name: s.name, pos: s.position, nflTeam: nflTeamOf(s.playerId), want: s.want, wouldStart: s.upgrade > 0, starred: s.starred })),
         }
       : null;
 

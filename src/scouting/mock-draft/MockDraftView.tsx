@@ -6,26 +6,35 @@ import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname } from "@/shared/league-data/nicknames";
 
 type Scenario = "standard" | "qb-run" | "rb-run" | "wr-run" | "chalk";
-type PoolPlayer = { id: string; name: string; pos: string; value: number; wouldStart: boolean; isRookie: boolean };
+type PoolPlayer = { id: string; name: string; pos: string; nflTeam: string | null; value: number; wouldStart: boolean; isRookie: boolean };
+type Survivor = { playerId: string; name: string; pos: string; nflTeam: string | null; want: number };
 type BoardPick = {
   pick: string; round: number; overall: number; rosterId: string; team: string;
   player: string | null; playerId: string | null; pos: string | null; reason: string; mine: boolean;
-  needs: string[]; why: string; tradeCandidate: boolean;
+  needs: string[]; why: string; tradeCandidate: boolean; survivors: Survivor[];
 };
-type FieldPlayer = { id: string; name: string; pos: string; value: number; wouldStart: boolean; starred: boolean };
-type DirectorRead = { pick: string; rec: "stand_pat" | "trade_up" | "trade_back"; rationale: string; field: FieldPlayer[] };
+type DirectorRead = {
+  pick: string; overall: number; rec: "stand_pat" | "trade_up" | "trade_back"; rationale: string;
+  projected: { name: string; pos: string; nflTeam: string | null } | null;
+};
 type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null };
-type Offer = { partner: string; give: { pick: string; value: number }; get: { pick: string; value: number }[]; net: number };
 
-// CFC neobrutalist tokens (the bottom Director/pool section)
-const INK = "#1A1A1A", CANVAS = "#F5F0E6", CARD = "#FEFCF9", MUTED = "#8C7E6A";
-const RED = "#E8503A", YELLOW = "#F5C230", BLUE = "#3366CC", LINE = "#EDE5D4";
-const FH = "var(--font-headline, 'Syne', sans-serif)";
-const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
-const FB = "var(--font-body, 'DM Sans', sans-serif)";
+// Softmax the engine's want scores into pick probabilities.
+function softmax(wants: number[], T = 0.12): number[] {
+  if (!wants.length) return [];
+  const m = Math.max(...wants);
+  const exps = wants.map((w) => Math.exp((w - m) / T));
+  const sum = exps.reduce((a, b) => a + b, 0) || 1;
+  return exps.map((e) => e / sum);
+}
+
+// Page shell tokens.
+const CANVAS = "#F5F0E6";
 // Vintage scoreboard theme (the board) — bespoke, departs from the global tokens.
 const FRAME = "#E6D9BD", BINK = "#161310", GREEN = "#235440", HGREEN = "#1d4536", RECESS = "#10241c";
 const PLACARD = "#EDE3CD", SCREAM = "#F3ECD9", GOLD = "#E9C46A", CRED = "#E07A5F", ARED = "#C9442E", FUT = "#3f6657", META = "#6f6450";
+// Bottom tabbed component (vintage, not green): dark espresso recess + tin plates.
+const RECESS2 = "#1e1a15", HLINE = "#322c24", TAN = "#cdbf9e", DIM = "#8a7d63", FADE = "#b9ab8d";
 const ANTON = "'Anton', sans-serif", OSWALD = "'Oswald', sans-serif";
 const SIM_SECONDS = 10;
 
@@ -45,7 +54,6 @@ export function MockDraftView() {
   const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
   const [board, setBoard] = useState<BoardPick[]>([]);
   const [pool, setPool] = useState<PoolPlayer[]>([]);
-  const [you, setYou] = useState<{ rosterId: string; name: string; picks: string[] }>({ rosterId: "", name: "", picks: [] });
   const [read, setRead] = useState<DirectorRead | null>(null);
   const [scenario, setScenario] = useState<Scenario>("standard");
 
@@ -53,15 +61,15 @@ export function MockDraftView() {
   const [revealed, setRevealed] = useState(0);
   const [viewRound, setViewRound] = useState(2);
   const [seconds, setSeconds] = useState(SIM_SECONDS);
-  const [tab, setTab] = useState<"clock" | "our" | "trades">("clock");
+  const [tab, setTab] = useState<"clock" | "our" | "trade">("clock");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState<"ALL" | "QB" | "RB" | "PC">("ALL");
 
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [scnOpen, setScnOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
-  const [offer, setOffer] = useState<Offer | null>(null);
-  const [offerLoading, setOfferLoading] = useState(false);
 
   const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
   const onClock = revealed < board.length ? board[revealed] : null;
@@ -70,7 +78,7 @@ export function MockDraftView() {
 
   // ── data ───────────────────────────────────────────────────────────────────
   function applyPayload(j: Payload) {
-    setBoard(j.board); setPool(j.pool); setYou(j.you); setRead(j.directorRead); setScenario(j.scenario);
+    setBoard(j.board); setPool(j.pool); setRead(j.directorRead); setScenario(j.scenario);
   }
   useEffect(() => {
     fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=standard`)
@@ -132,18 +140,50 @@ export function MockDraftView() {
       }).catch(() => setError("Pick failed.")).finally(() => setBusy(false));
   }
   function triggerRun(s: Scenario) { setRunOpen(false); reproject(s); }
-  function pullTrade() {
-    if (!read) return;
-    setOfferLoading(true); setOffer(null);
-    fetch(`/api/scouting/mock-draft/trade-back?teamId=${encodeURIComponent(teamId)}&pick=${read.pick}&scenario=${scenario}`)
-      .then((r) => r.json()).then((j: { offer: Offer | null }) => setOffer(j.offer)).catch(() => {}).finally(() => setOfferLoading(false));
-  }
 
   // ── derived ────────────────────────────────────────────────────────────────
   const viewPicks = board.map((b, i) => ({ b, i })).filter((x) => x.b.round === viewRound);
   const playLabel = isComplete ? "Restart" : phase === "running" ? "Pause" : phase === "paused" ? "Resume" : "Start";
   const railBtn: CSSProperties = { fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", background: FRAME, color: BINK, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "7px 13px", cursor: "pointer" };
-  const panel: CSSProperties = { background: CARD, border: `2.5px solid ${INK}`, boxShadow: `4px 4px 0 ${INK}` };
+
+  // The pool, searched + filtered, minus already-revealed picks.
+  const drafted = useMemo(() => new Set(board.slice(0, revealed).map((b) => b.playerId).filter(Boolean) as string[]), [board, revealed]);
+  const visiblePool = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return pool
+      .filter((p) => !drafted.has(p.id))
+      .filter((p) => (filter === "ALL" ? true : filter === "PC" ? p.pos === "WR" || p.pos === "TE" : p.pos === filter))
+      .filter((p) => (q ? p.name.toLowerCase().includes(q) : true));
+  }, [pool, query, filter, drafted]);
+
+  // On the Clock — softmax the on-clock team's survivors into pick odds.
+  const onClockOdds = useMemo(() => {
+    const sv = onClock?.survivors ?? [];
+    const probs = softmax(sv.map((s) => s.want));
+    return sv.map((s, i) => ({ ...s, pct: probs[i] ?? 0 })).sort((a, b) => b.pct - a.pct).slice(0, 5);
+  }, [onClock]);
+
+  // Our Pick — index of our next pick, and survival odds (chance each survivor
+  // is still on the board when we're up) by chaining softmax across the picks
+  // between now and our slot.
+  const ourIdx = useMemo(() => board.findIndex((b, i) => i >= revealed && b.mine), [board, revealed]);
+  const ourPick = ourIdx >= 0 ? board[ourIdx] : null;
+  const survivalOdds = useMemo(() => {
+    if (!ourPick) return [];
+    return ourPick.survivors
+      .map((c) => {
+        let p = 1;
+        for (let i = revealed; i < ourIdx; i++) {
+          const sv = board[i]?.survivors ?? [];
+          const probs = softmax(sv.map((s) => s.want));
+          const idx = sv.findIndex((s) => s.playerId === c.playerId);
+          if (idx >= 0) p *= 1 - (probs[idx] ?? 0);
+        }
+        return { ...c, pct: p };
+      })
+      .sort((a, b) => b.pct - a.pct)
+      .slice(0, 5);
+  }, [ourPick, ourIdx, revealed, board]);
 
   function slot(b: BoardPick, i: number) {
     const filled = i < revealed;
@@ -253,82 +293,147 @@ export function MockDraftView() {
           </div>
         </div>
 
-        {error && <div style={{ ...panel, padding: 12, marginBottom: 11, fontFamily: FM, fontSize: 12, color: RED, fontWeight: 700, flexShrink: 0 }}>{error}</div>}
+        {error && <div style={{ background: PLACARD, border: `2px solid ${BINK}`, padding: 10, marginBottom: 10, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: ARED, flexShrink: 0 }}>{error}</div>}
 
-        {/* ── BOTTOM: Director + pool (CFC neobrutalist) ── */}
-        <div style={{ display: "grid", gridTemplateColumns: "1.15fr 1fr", gap: 11, flex: 1, minHeight: 0 }}>
-          <div style={{ ...panel, display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", borderBottom: `2px solid ${INK}` }}>
-              {([["clock", "On the Clock"], ["our", "Our Pick"], ["trades", "Trades"]] as const).map(([k, lbl], i) => (
-                <button key={k} onClick={() => setTab(k)} style={{ flex: 1, textAlign: "center", padding: "9px 6px", background: tab === k ? INK : "transparent", color: tab === k ? YELLOW : MUTED, fontFamily: FH, fontWeight: tab === k ? 800 : 700, fontSize: 10.5, letterSpacing: "0.04em", textTransform: "uppercase", border: "none", borderLeft: i ? `1px solid ${LINE}` : "none", cursor: "pointer" }}>{lbl}</button>
-              ))}
-            </div>
-            <div style={{ padding: "12px 13px", flex: 1, minHeight: 0, overflowY: "auto" }}>
-              {tab === "clock" && (
-                phase === "setup" ? <div style={{ fontFamily: FB, fontSize: 13, color: MUTED }}>Pick a scenario and hit Start. The Director will call each pick as it comes in.</div>
-                : isComplete ? <div style={{ fontFamily: FB, fontSize: 13, color: INK }}>That&rsquo;s a wrap. {you.name} made {board.filter((b) => b.mine).length} picks.</div>
-                : onClock ? (
-                  <div>
-                    <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 14, color: INK }}>{onClock.team}</div>
-                    <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, color: MUTED, letterSpacing: "0.08em", marginBottom: 9 }}>PICK {onClock.pick} · ON THE CLOCK</div>
-                    {onClock.needs.length > 0 && (<><div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>THEY NEED</div>
-                      <div style={{ display: "flex", gap: 5, margin: "5px 0 10px" }}>{onClock.needs.map((n) => <span key={n} style={{ fontFamily: FB, fontWeight: 700, fontSize: 11, color: INK, border: `1.5px solid ${INK}`, padding: "2px 8px" }}>{n}</span>)}</div></>)}
-                    {onClock.mine ? (
-                      <div style={{ fontFamily: FB, fontSize: 13.5, lineHeight: 1.5, color: BLUE, fontWeight: 600 }}>You&rsquo;re up. Check <b>Our Pick</b> for the board read, then take your guy from the pool.</div>
-                    ) : (<>
-                      <div style={{ fontFamily: FB, fontSize: 13.5, lineHeight: 1.5, color: INK }}><b>Likely:</b> {onClock.player ?? "—"}{onClock.pos ? ` (${onClock.pos})` : ""}. {onClock.why}</div>
-                      <div style={{ fontFamily: FB, fontSize: 13, lineHeight: 1.5, color: "#444", marginTop: 9, paddingTop: 9, borderTop: `1px solid ${LINE}` }}><b style={{ color: INK }}>Trade candidate?</b> {onClock.tradeCandidate ? "Yes — they could move." : "No — they sit and pick."}</div>
-                    </>)}
+        {/* ── BOTTOM: vintage tabbed component (On the Clock / Our Pick / Trade) ── */}
+        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `6px 6px 0 ${BINK}`, padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+          <div style={{ position: "absolute", top: 6, left: 6, width: 8, height: 8, borderRadius: "50%", background: BINK }} />
+          <div style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: BINK }} />
+
+          <div style={{ display: "flex", background: "#1b1813", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", marginBottom: 10, flexShrink: 0 }}>
+            {([["clock", "ON THE CLOCK"], ["our", "OUR PICK"], ["trade", "TRADE"]] as const).map(([k, lbl], i) => (
+              <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 18px", border: "none", borderLeft: i ? `2px solid ${BINK}` : "none", background: tab === k ? GOLD : "transparent", color: tab === k ? BINK : FADE, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, cursor: "pointer" }}>{lbl}</button>
+            ))}
+          </div>
+
+          {tab === "trade" ? (
+            <div style={{ flex: 1, minHeight: 0, border: `2px solid ${BINK}`, borderRadius: 4, background: RECESS2, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 3, color: DIM }}>TRADE — COMING SOON</div>
+          ) : (
+            <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {tab === "clock" ? (
+                <>
+                  {/* LEFT: Player Pool */}
+                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>PLAYER POOL</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#2a251e", border: "1px solid #4a4135", borderRadius: 3, padding: "3px 6px" }}>
+                          <span style={{ color: DIM, fontSize: 11 }}>⌕</span>
+                          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={{ border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontSize: 11, color: SCREAM, width: 64 }} />
+                        </div>
+                        <div style={{ display: "flex", border: "1px solid #4a4135", borderRadius: 3, overflow: "hidden" }}>
+                          {(["ALL", "QB", "RB", "PC"] as const).map((f, i) => (
+                            <button key={f} onClick={() => setFilter(f)} style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, padding: "3px 7px", border: "none", borderLeft: i ? "1px solid #4a4135" : "none", background: filter === f ? GOLD : "transparent", color: filter === f ? BINK : FADE, cursor: "pointer" }}>{f}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ padding: 7, display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
+                      {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
+                      {visiblePool.slice(0, 60).map((p, i) => (
+                        <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 8, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0 9px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 32, boxSizing: "border-box", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
+                          <span style={{ fontFamily: ANTON, fontSize: 11, color: DIM, minWidth: 16 }}>{i + 1}</span>
+                          <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: BINK }}>{p.name}</span> <span style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span></span>
+                          {yourTurn && <span style={{ fontFamily: ANTON, fontSize: 9, color: SCREAM, background: ARED, border: `1px solid ${BINK}`, borderRadius: 2, padding: "2px 7px" }}>DRAFT</span>}
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ) : null
-              )}
-              {tab === "our" && (read ? (
-                <div>
-                  <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>YOUR NEXT PICK · {read.pick}</div>
-                  <div style={{ fontFamily: FB, fontSize: 13.5, lineHeight: 1.5, color: INK, margin: "8px 0 10px" }}>{read.rationale}</div>
-                  <div style={{ fontFamily: FM, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em", color: MUTED }}>LIKELY THERE</div>
-                  {read.field.slice(0, 5).map((f) => (
-                    <div key={f.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: `1px solid ${LINE}` }}>
-                      <span style={{ flex: 1, fontFamily: FB, fontWeight: 600, fontSize: 13, color: INK }}>{f.name}</span>
-                      <span style={{ fontFamily: FM, fontSize: 11, color: MUTED }}>{f.pos}</span>
-                      <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 12, color: INK }}>{Math.round(f.value)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : <div style={{ fontFamily: FB, fontSize: 13, color: MUTED }}>No upcoming pick.</div>)}
-              {tab === "trades" && (
-                <div>
-                  {!offer && <button onClick={pullTrade} disabled={offerLoading || !read} style={{ fontFamily: FH, fontWeight: 800, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase", background: CARD, color: INK, border: `2px solid ${INK}`, boxShadow: `2px 2px 0 ${INK}`, padding: "8px 12px", cursor: "pointer" }}>{offerLoading ? "Pulling…" : "Pull a trade-back"}</button>}
-                  {offer && (
-                    <div>
-                      <div style={{ fontFamily: FB, fontSize: 13, color: INK, marginBottom: 9 }}>The <b>{offer.partner}</b> want to move up:</div>
-                      <div style={{ fontFamily: FM, fontSize: 12, color: INK }}><b>Give</b> {offer.give.pick} ({offer.give.value})</div>
-                      <div style={{ fontFamily: FM, fontSize: 12, color: INK, marginTop: 4 }}><b>Get</b> {offer.get.map((g) => `${g.pick} (${g.value})`).join("  +  ")}</div>
-                      <div style={{ marginTop: 8, display: "inline-block", fontFamily: FM, fontWeight: 700, fontSize: 12, color: offer.net >= 0 ? "#2f8a52" : RED }}>{offer.net >= 0 ? "+" : ""}{offer.net} your way</div>
-                      <div style={{ fontFamily: FB, fontSize: 11, color: MUTED, marginTop: 8 }}>Advisory for now — the Director&rsquo;s read on moving back.</div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
 
-          <div style={{ ...panel, display: "flex", flexDirection: "column" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderBottom: `2px solid ${INK}` }}>
-              <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 13, color: INK }}>Best Available <span style={{ fontFamily: FM, fontSize: 11, color: MUTED, fontWeight: 700 }}>{pool.length}</span></span>
-              {yourTurn && <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 9, letterSpacing: "0.06em", color: "#fff", background: BLUE, padding: "2px 7px" }}>YOUR PICK — TAP TO DRAFT</span>}
+                  {/* RIGHT: Most Likely Pick */}
+                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>MOST LIKELY PICK</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        {(onClock?.needs ?? []).length > 0 && <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: FADE }}>NEEDS</span>}
+                        {(onClock?.needs ?? []).map((n) => <span key={n} style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, color: GOLD, border: "1px solid #6b5e44", borderRadius: 2, padding: "2px 6px" }}>{n}</span>)}
+                        {onClock && <div style={{ width: 26, height: 26, borderRadius: "50%", background: `#fff url('${logoFor(onClock.team)}') center / cover`, border: `2px solid ${BINK}`, flexShrink: 0 }} />}
+                      </div>
+                    </div>
+                    <div style={{ padding: 7, display: "flex", flexDirection: "column", gap: 5, flex: 1, minHeight: 0 }}>
+                      {(!onClock || isComplete) && <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>{isComplete ? "Draft complete." : "Start the sim to see the board."}</div>}
+                      {onClock && !isComplete && onClockOdds.map((o, i) => {
+                        const maxPct = onClockOdds[0]?.pct || 1;
+                        return (
+                          <div key={o.playerId} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                              <span style={{ fontFamily: ANTON, fontSize: 13, color: DIM, minWidth: 16 }}>{i + 1}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, color: BINK, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                <div style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                              </div>
+                              <span style={{ fontFamily: ANTON, fontSize: 20, color: BINK }}>{Math.round(o.pct * 100)}%</span>
+                            </div>
+                            <div style={{ height: 9, background: TAN, border: `1px solid ${BINK}`, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.max(6, (o.pct / maxPct) * 88)}%`, background: ARED }} /></div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* LEFT: Likely there at our pick */}
+                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM }}>OUR NEXT PICK · <span style={{ color: GOLD }}>{ourPick?.pick ?? "—"}</span></span>
+                      {ourPick && <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 1, color: DIM }}>{Math.max(0, ourIdx - revealed)} AWAY</span>}
+                    </div>
+                    <div style={{ padding: 7, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                      <div style={{ height: 22, display: "flex", alignItems: "center", marginBottom: 5, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.3, color: GOLD, flexShrink: 0 }}>Likely there when we pick&hellip;</div>
+                      {!ourPick && <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No upcoming pick.</div>}
+                      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 5 }}>
+                        {survivalOdds.map((o) => {
+                          const maxPct = survivalOdds[0]?.pct || 1;
+                          return (
+                            <div key={o.playerId} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, color: BINK, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                                </div>
+                                <span style={{ fontFamily: ANTON, fontSize: 20, color: BINK }}>{Math.round(o.pct * 100)}%</span>
+                              </div>
+                              <div style={{ height: 9, background: TAN, border: `1px solid ${BINK}`, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.max(6, (o.pct / maxPct) * 88)}%`, background: ARED }} /></div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT: My Take */}
+                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 9, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/avatars/scouting.png" alt="" style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover" }} />
+                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM }}>MY TAKE</span>
+                    </div>
+                    <div style={{ padding: 7, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                      {!read ? (
+                        <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>{phase === "setup" ? "Start the sim for my read." : "No upcoming pick."}</div>
+                      ) : (
+                        <>
+                          <div style={{ height: 22, display: "flex", alignItems: "center", marginBottom: 5, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.3, color: GOLD, flexShrink: 0 }}>Here&rsquo;s who I&rsquo;d take &mdash;</div>
+                          <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px 6px 0", boxShadow: "0 2px 3px rgba(0,0,0,.45)", gap: 10, maxHeight: 56 }}>
+                            <div style={{ width: 5, alignSelf: "stretch", background: ARED }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontFamily: ANTON, fontSize: 17, letterSpacing: 0.4, color: BINK, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(read.projected?.name ?? "—").toUpperCase()}</div>
+                              <div style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META, marginTop: 1 }}>{read.projected ? `${read.projected.pos}${read.projected.nflTeam ? ` · ${read.projected.nflTeam}` : ""}` : ""}</div>
+                            </div>
+                            <span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, color: SCREAM, background: ARED, border: `2px solid ${BINK}`, borderRadius: 2, padding: "4px 9px", flexShrink: 0 }}>TAKE HIM</span>
+                          </div>
+                          <div style={{ flex: 3, minHeight: 0, overflowY: "auto", marginTop: 12, fontFamily: OSWALD, fontWeight: 400, fontSize: 13, lineHeight: 1.5, color: "#e6dcc4" }}>
+                            {read.rationale}{read.projected ? ` After ${read.projected.name}, the value drops off fast at the position — I'd lock it up here rather than reach back later.` : ""}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
-              {pool.slice(0, 40).map((p, i) => (
-                <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: `1px solid ${LINE}`, cursor: yourTurn ? "pointer" : "default", background: yourTurn ? CARD : "transparent" }}>
-                  <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 11, color: "#B4AB95", width: 18 }}>{i + 1}</span>
-                  <span style={{ flex: 1, fontFamily: FB, fontWeight: 600, fontSize: 13, color: INK }}>{p.name}</span>
-                  <span style={{ fontFamily: FM, fontSize: 11, color: MUTED, width: 24 }}>{p.pos}</span>
-                  <span style={{ fontFamily: FM, fontWeight: 700, fontSize: 13, color: INK, width: 26, textAlign: "right" }}>{Math.round(p.value)}</span>
-                </div>
-              ))}
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

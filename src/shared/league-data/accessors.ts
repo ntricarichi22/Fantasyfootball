@@ -91,6 +91,7 @@ function buildPlayerDict(players: Record<string, SleeperPlayer>): Map<string, Pl
       position: pos,
       age: playerAge(p),
       exp: typeof p.years_exp === "number" ? p.years_exp : null,
+      team: typeof p.team === "string" && p.team ? p.team : null,
     });
   }
   return dict;
