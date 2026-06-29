@@ -32,9 +32,9 @@ function softmax(wants: number[], T = 0.12): number[] {
 const CANVAS = "#F5F0E6";
 // Vintage scoreboard theme (the board) — bespoke, departs from the global tokens.
 const FRAME = "#E6D9BD", BINK = "#161310", GREEN = "#235440", HGREEN = "#1d4536", RECESS = "#10241c";
-const PLACARD = "#EDE3CD", SCREAM = "#F3ECD9", GOLD = "#E9C46A", CRED = "#E07A5F", ARED = "#C9442E", FUT = "#3f6657", META = "#6f6450";
-// Bottom tabbed component (vintage, not green): dark espresso recess + tin plates.
-const RECESS2 = "#1e1a15", HLINE = "#322c24", TAN = "#cdbf9e", DIM = "#8a7d63", FADE = "#b9ab8d";
+const PLACARD = "#EDE3CD", SCREAM = "#F3ECD9", GOLD = "#E9C46A", CRED = "#E07A5F", ARED = "#C9442E", FUT = "#3f6657", META = "#6f6450", GSUB = "#3a6b56";
+// Bottom tabbed component: dark espresso recess, cream plates, draft-green ink + bars + buttons.
+const RECESS2 = "#1e1a15", HLINE = "#322c24", DIM = "#8a7d63", FADE = "#b9ab8d";
 const ANTON = "'Anton', sans-serif", OSWALD = "'Oswald', sans-serif";
 const SIM_SECONDS = 10;
 
@@ -145,6 +145,12 @@ export function MockDraftView() {
   const viewPicks = board.map((b, i) => ({ b, i })).filter((x) => x.b.round === viewRound);
   const playLabel = isComplete ? "Restart" : phase === "running" ? "Pause" : phase === "paused" ? "Resume" : "Start";
   const railBtn: CSSProperties = { fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", background: FRAME, color: BINK, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "7px 13px", cursor: "pointer" };
+  // Draft-green meter bar carved into a cream plate. frac = pct ÷ leader's pct (0..1).
+  const meter = (frac: number) => (
+    <div style={{ height: 10, flexShrink: 0, borderRadius: 5, background: "#d8cdb1", boxShadow: "inset 0 1px 2px rgba(0,0,0,0.28)", overflow: "hidden", marginTop: 4 }}>
+      <div style={{ height: "100%", width: `${Math.max(6, frac * 100)}%`, background: GREEN, borderRadius: 5 }} />
+    </div>
+  );
 
   // The pool, searched + filtered, minus already-revealed picks.
   const drafted = useMemo(() => new Set(board.slice(0, revealed).map((b) => b.playerId).filter(Boolean) as string[]), [board, revealed]);
@@ -235,13 +241,13 @@ export function MockDraftView() {
 
       <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
 
-        {/* ── VINTAGE SCOREBOARD ── */}
-        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, marginBottom: 14, flexShrink: 0 }}>
+        {/* ── ONE CONTINUOUS CREAM PANEL (scoreboard + tabbed bottom) ── */}
+        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
           {([["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]] as const).map(([v, h]) => (
             <div key={v + h} style={{ position: "absolute", [v]: 7, [h]: 7, width: 9, height: 9, borderRadius: "50%", background: BINK, boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.25)", zIndex: 5 }} />
           ))}
 
-          <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)" }}>
+          <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "7px 12px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
               {/* LEFT: badge · wordmark · round toggle */}
               <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
@@ -291,20 +297,15 @@ export function MockDraftView() {
               )}
             </div>
           </div>
-        </div>
+          {error && <div style={{ background: PLACARD, border: `2px solid ${BINK}`, padding: 10, marginTop: 14, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: ARED, flexShrink: 0 }}>{error}</div>}
 
-        {error && <div style={{ background: PLACARD, border: `2px solid ${BINK}`, padding: 10, marginBottom: 10, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: ARED, flexShrink: 0 }}>{error}</div>}
-
-        {/* ── BOTTOM: vintage tabbed component (On the Clock / Our Pick / Trade) ── */}
-        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `6px 6px 0 ${BINK}`, padding: 12, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ position: "absolute", top: 6, left: 6, width: 8, height: 8, borderRadius: "50%", background: BINK }} />
-          <div style={{ position: "absolute", top: 6, right: 6, width: 8, height: 8, borderRadius: "50%", background: BINK }} />
-
-          <div style={{ display: "flex", background: "#1b1813", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", marginBottom: 10, flexShrink: 0 }}>
-            {([["clock", "ON THE CLOCK"], ["our", "OUR PICK"], ["trade", "TRADE"]] as const).map(([k, lbl], i) => (
-              <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 18px", border: "none", borderLeft: i ? `2px solid ${BINK}` : "none", background: tab === k ? GOLD : "transparent", color: tab === k ? BINK : FADE, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, cursor: "pointer" }}>{lbl}</button>
-            ))}
-          </div>
+          {/* ── BOTTOM: tabbed component on the same cream backdrop (no separate frame) ── */}
+          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", marginTop: 15 }}>
+            <div style={{ display: "flex", background: "#1b1813", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", flexShrink: 0 }}>
+              {([["clock", "ON THE CLOCK"], ["our", "OUR PICK"], ["trade", "TRADE"]] as const).map(([k, lbl], i) => (
+                <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 18px", border: "none", borderLeft: i ? `2px solid ${BINK}` : "none", background: tab === k ? GREEN : "transparent", color: tab === k ? SCREAM : FADE, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, cursor: "pointer" }}>{lbl}</button>
+              ))}
+            </div>
 
           {tab === "trade" ? (
             <div style={{ flex: 1, minHeight: 0, border: `2px solid ${BINK}`, borderRadius: 4, background: RECESS2, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 3, color: DIM }}>TRADE — COMING SOON</div>
@@ -319,11 +320,11 @@ export function MockDraftView() {
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#2a251e", border: "1px solid #4a4135", borderRadius: 3, padding: "3px 6px" }}>
                           <span style={{ color: DIM, fontSize: 11 }}>⌕</span>
-                          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={{ border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontSize: 11, color: SCREAM, width: 64 }} />
+                          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={{ border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontSize: 11, color: SCREAM, width: 128 }} />
                         </div>
                         <div style={{ display: "flex", border: "1px solid #4a4135", borderRadius: 3, overflow: "hidden" }}>
                           {(["ALL", "QB", "RB", "PC"] as const).map((f, i) => (
-                            <button key={f} onClick={() => setFilter(f)} style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, padding: "3px 7px", border: "none", borderLeft: i ? "1px solid #4a4135" : "none", background: filter === f ? GOLD : "transparent", color: filter === f ? BINK : FADE, cursor: "pointer" }}>{f}</button>
+                            <button key={f} onClick={() => setFilter(f)} style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, padding: "3px 7px", border: "none", borderLeft: i ? "1px solid #4a4135" : "none", background: filter === f ? GREEN : "transparent", color: filter === f ? SCREAM : FADE, cursor: "pointer" }}>{f}</button>
                           ))}
                         </div>
                       </div>
@@ -331,43 +332,67 @@ export function MockDraftView() {
                     <div style={{ padding: 7, display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
                       {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
                       {visiblePool.slice(0, 60).map((p, i) => (
-                        <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 8, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0 9px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 32, boxSizing: "border-box", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
-                          <span style={{ fontFamily: ANTON, fontSize: 11, color: DIM, minWidth: 16 }}>{i + 1}</span>
-                          <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}><span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: BINK }}>{p.name}</span> <span style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span></span>
-                          {yourTurn && <span style={{ fontFamily: ANTON, fontSize: 9, color: SCREAM, background: ARED, border: `1px solid ${BINK}`, borderRadius: 2, padding: "2px 7px" }}>DRAFT</span>}
+                        <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 12, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0 12px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 32, boxSizing: "border-box", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
+                          <span style={{ fontFamily: ANTON, fontSize: 12, color: GSUB, minWidth: 16 }}>{i + 1}</span>
+                          <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                          <span style={{ flexShrink: 0, fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.6, color: GSUB, whiteSpace: "nowrap" }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
+                          {yourTurn && <span style={{ fontFamily: ANTON, fontSize: 9, color: SCREAM, background: GREEN, border: `1px solid ${BINK}`, borderRadius: 2, padding: "2px 7px" }}>DRAFT</span>}
                         </div>
                       ))}
                     </div>
                   </div>
 
-                  {/* RIGHT: Most Likely Pick */}
+                  {/* RIGHT: Most Likely Pick — our director's read on the on-clock team */}
                   <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
-                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>MOST LIKELY PICK</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/avatars/scouting.png" alt="" style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
+                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>MOST LIKELY PICK</span>
+                      </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                        {(onClock?.needs ?? []).length > 0 && <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: FADE }}>NEEDS</span>}
                         {(onClock?.needs ?? []).map((n) => <span key={n} style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, color: GOLD, border: "1px solid #6b5e44", borderRadius: 2, padding: "2px 6px" }}>{n}</span>)}
                         {onClock && <div style={{ width: 26, height: 26, borderRadius: "50%", background: `#fff url('${logoFor(onClock.team)}') center / cover`, border: `2px solid ${BINK}`, flexShrink: 0 }} />}
                       </div>
                     </div>
-                    <div style={{ padding: 7, display: "flex", flexDirection: "column", gap: 5, flex: 1, minHeight: 0 }}>
+                    <div style={{ padding: 7, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
                       {(!onClock || isComplete) && <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>{isComplete ? "Draft complete." : "Start the sim to see the board."}</div>}
-                      {onClock && !isComplete && onClockOdds.map((o, i) => {
+                      {onClock && !isComplete && onClockOdds.length > 0 && (() => {
                         const maxPct = onClockOdds[0]?.pct || 1;
+                        const head = onClockOdds[0];
+                        const rest = onClockOdds.slice(1, 3);
                         return (
-                          <div key={o.playerId} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                              <span style={{ fontFamily: ANTON, fontSize: 13, color: DIM, minWidth: 16 }}>{i + 1}</span>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, color: BINK, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
-                                <div style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                          <>
+                            <div style={{ height: 22, display: "flex", alignItems: "center", marginBottom: 5, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.3, color: GOLD, flexShrink: 0 }}>{teamNickname(onClock.team)} takes &mdash;</div>
+                            <div style={{ flex: 1.35, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, background: PLACARD, border: `1.5px solid ${BINK}`, borderLeft: `6px solid ${GREEN}`, borderRadius: 3, padding: "8px 13px", boxShadow: "0 2px 3px rgba(0,0,0,.45)" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontFamily: ANTON, fontSize: 19, letterSpacing: 0.4, color: GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.name}</div>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.5, color: GSUB, marginTop: 2 }}>{head.pos}{head.nflTeam ? ` · ${head.nflTeam}` : ""}</div>
+                                </div>
+                                <span style={{ fontFamily: ANTON, fontSize: 27, color: GREEN }}>{Math.round(head.pct * 100)}%</span>
                               </div>
-                              <span style={{ fontFamily: ANTON, fontSize: 20, color: BINK }}>{Math.round(o.pct * 100)}%</span>
+                              {meter(1)}
                             </div>
-                            <div style={{ height: 9, background: TAN, border: `1px solid ${BINK}`, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.max(6, (o.pct / maxPct) * 88)}%`, background: ARED }} /></div>
-                          </div>
+                            {rest.length > 0 && (
+                              <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 6, marginTop: 6 }}>
+                                {rest.map((o) => (
+                                  <div key={o.playerId} style={{ flex: 1, minWidth: 0, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
+                                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                                      <div style={{ minWidth: 0 }}>
+                                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 13.5, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                        <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10.5, letterSpacing: 0.4, color: GSUB }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                                      </div>
+                                      <span style={{ fontFamily: ANTON, fontSize: 17, color: GREEN }}>{Math.round(o.pct * 100)}%</span>
+                                    </div>
+                                    {meter(o.pct / maxPct)}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </>
                         );
-                      })}
+                      })()}
                     </div>
                   </div>
                 </>
@@ -386,15 +411,15 @@ export function MockDraftView() {
                         {survivalOdds.map((o) => {
                           const maxPct = survivalOdds[0]?.pct || 1;
                           return (
-                            <div key={o.playerId} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                            <div key={o.playerId} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 12px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                 <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, color: BINK, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
-                                  <div style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, color: GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 0.5, color: GSUB, marginTop: 2 }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
                                 </div>
-                                <span style={{ fontFamily: ANTON, fontSize: 20, color: BINK }}>{Math.round(o.pct * 100)}%</span>
+                                <span style={{ fontFamily: ANTON, fontSize: 20, color: GREEN }}>{Math.round(o.pct * 100)}%</span>
                               </div>
-                              <div style={{ height: 9, background: TAN, border: `1px solid ${BINK}`, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.max(6, (o.pct / maxPct) * 88)}%`, background: ARED }} /></div>
+                              {meter(o.pct / maxPct)}
                             </div>
                           );
                         })}
@@ -416,12 +441,12 @@ export function MockDraftView() {
                         <>
                           <div style={{ height: 22, display: "flex", alignItems: "center", marginBottom: 5, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.3, color: GOLD, flexShrink: 0 }}>Here&rsquo;s who I&rsquo;d take &mdash;</div>
                           <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px 6px 0", boxShadow: "0 2px 3px rgba(0,0,0,.45)", gap: 10, maxHeight: 56 }}>
-                            <div style={{ width: 5, alignSelf: "stretch", background: ARED }} />
+                            <div style={{ width: 6, alignSelf: "stretch", background: GREEN }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontFamily: ANTON, fontSize: 17, letterSpacing: 0.4, color: BINK, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(read.projected?.name ?? "—").toUpperCase()}</div>
-                              <div style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, color: META, marginTop: 1 }}>{read.projected ? `${read.projected.pos}${read.projected.nflTeam ? ` · ${read.projected.nflTeam}` : ""}` : ""}</div>
+                              <div style={{ fontFamily: ANTON, fontSize: 17, letterSpacing: 0.4, color: GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(read.projected?.name ?? "—").toUpperCase()}</div>
+                              <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 0.5, color: GSUB, marginTop: 2 }}>{read.projected ? `${read.projected.pos}${read.projected.nflTeam ? ` · ${read.projected.nflTeam}` : ""}` : ""}</div>
                             </div>
-                            <span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, color: SCREAM, background: ARED, border: `2px solid ${BINK}`, borderRadius: 2, padding: "4px 9px", flexShrink: 0 }}>TAKE HIM</span>
+                            <span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 2, padding: "4px 9px", flexShrink: 0 }}>TAKE HIM</span>
                           </div>
                           <div style={{ flex: 3, minHeight: 0, overflowY: "auto", marginTop: 12, fontFamily: OSWALD, fontWeight: 400, fontSize: 13, lineHeight: 1.5, color: "#e6dcc4" }}>
                             {read.rationale}{read.projected ? ` After ${read.projected.name}, the value drops off fast at the position — I'd lock it up here rather than reach back later.` : ""}
@@ -434,6 +459,7 @@ export function MockDraftView() {
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>
