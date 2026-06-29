@@ -13,9 +13,11 @@ type BoardPick = {
   player: string | null; playerId: string | null; pos: string | null; reason: string; mine: boolean;
   needs: string[]; why: string; tradeCandidate: boolean; survivors: Survivor[];
 };
+type FieldPlayer = { id: string; name: string; pos: string; nflTeam: string | null; want: number; wouldStart: boolean; starred: boolean };
 type DirectorRead = {
   pick: string; overall: number; rec: "stand_pat" | "trade_up" | "trade_back"; rationale: string;
   projected: { name: string; pos: string; nflTeam: string | null } | null;
+  field: FieldPlayer[];
 };
 type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null };
 
@@ -174,7 +176,7 @@ export function MockDraftView() {
   // between now and our slot.
   const ourIdx = useMemo(() => board.findIndex((b, i) => i >= revealed && b.mine), [board, revealed]);
   const ourPick = ourIdx >= 0 ? board[ourIdx] : null;
-  const survivalOdds = useMemo(() => {
+  const survivalRanked = useMemo(() => {
     if (!ourPick) return [];
     return ourPick.survivors
       .map((c) => {
@@ -187,9 +189,19 @@ export function MockDraftView() {
         }
         return { ...c, pct: p };
       })
-      .sort((a, b) => b.pct - a.pct)
-      .slice(0, 5);
+      .sort((a, b) => b.pct - a.pct);
   }, [ourPick, ourIdx, revealed, board]);
+  const survivalTop = useMemo(() => survivalRanked.slice(0, 5), [survivalRanked]);
+  const survivalByPlayer = useMemo(() => new Map(survivalRanked.map((s) => [s.playerId, s.pct])), [survivalRanked]);
+  // The director's two alternative fits for OUR pick: his fit-ranked board minus
+  // the headline rec, each tagged with its survival odds (chance it's still there).
+  const ourAlts = useMemo(() => {
+    const recName = read?.projected?.name;
+    return (read?.field ?? [])
+      .filter((f) => f.name !== recName)
+      .slice(0, 2)
+      .map((f) => ({ key: f.id, name: f.name, posTeam: `${f.pos}${f.nflTeam ? ` · ${f.nflTeam}` : ""}`, pct: survivalByPlayer.get(f.id) ?? 0 }));
+  }, [read, survivalByPlayer]);
 
   function slot(b: BoardPick, i: number) {
     const filled = i < revealed;
@@ -234,10 +246,54 @@ export function MockDraftView() {
     );
   }
 
+  // Shared body for the "Here's how I see it" pane (used on both tabs): a big
+  // headline plate, the director's prose, then a lead-in + two smaller alt plates.
+  function seeItBody(p: {
+    headName: string; headPosTeam: string; headPct: number | null; headAction?: string;
+    prose: string; transition: string; alts: { key: string; name: string; posTeam: string; pct: number }[]; altMax: number;
+  }) {
+    return (
+      <div style={{ padding: 9, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+        <div style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, background: PLACARD, border: `1.5px solid ${BINK}`, borderLeft: `6px solid ${GREEN}`, borderRadius: 3, padding: "9px 13px", boxShadow: "0 2px 3px rgba(0,0,0,.45)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: ANTON, fontSize: 19, letterSpacing: 0.4, color: GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.headName}</div>
+              <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.5, color: GSUB, marginTop: 2 }}>{p.headPosTeam}</div>
+            </div>
+            {p.headAction
+              ? <span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 2, padding: "5px 10px", flexShrink: 0 }}>{p.headAction}</span>
+              : <span style={{ fontFamily: ANTON, fontSize: 27, color: GREEN }}>{Math.round((p.headPct ?? 0) * 100)}%</span>}
+          </div>
+          {meter(1)}
+        </div>
+        <div className="mdScroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", marginTop: 11, fontFamily: OSWALD, fontWeight: 400, fontSize: 13, lineHeight: 1.55, color: "#e6dcc4" }}>{p.prose}</div>
+        {p.alts.length > 0 && (
+          <>
+            <div style={{ flex: "0 0 auto", marginTop: 9, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 0.2, color: GOLD, lineHeight: 1.4 }}>{p.transition}</div>
+            <div style={{ flex: "0 0 auto", display: "flex", gap: 6, marginTop: 6 }}>
+              {p.alts.map((a) => (
+                <div key={a.key} style={{ flex: 1, minWidth: 0, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "5px 10px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 3 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 13, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.name}</div>
+                      <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, letterSpacing: 0.3, color: GSUB }}>{a.posTeam}</div>
+                    </div>
+                    <span style={{ fontFamily: ANTON, fontSize: 15, color: GREEN }}>{Math.round(a.pct * 100)}%</span>
+                  </div>
+                  {meter(p.altMax ? a.pct / p.altMax : 0)}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 3px ${ARED},inset 0 0 20px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 3px rgba(201,68,46,.45),inset 0 0 8px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 3px ${ARED},inset 0 0 20px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 3px rgba(201,68,46,.45),inset 0 0 8px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
 
       <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
 
@@ -299,166 +355,128 @@ export function MockDraftView() {
           </div>
           {error && <div style={{ background: PLACARD, border: `2px solid ${BINK}`, padding: 10, marginTop: 14, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: ARED, flexShrink: 0 }}>{error}</div>}
 
-          {/* ── BOTTOM: tabbed component on the same cream backdrop (no separate frame) ── */}
-          <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", marginTop: 15 }}>
-            <div style={{ display: "flex", background: "#1b1813", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", flexShrink: 0 }}>
+          {/* ── BOTTOM: one integrated card — tabs + two divider-separated panes ── */}
+          <div style={{ flex: 1, minHeight: 0, marginTop: 15, display: "flex", flexDirection: "column", background: RECESS2, border: `2.5px solid ${BINK}`, borderRadius: 8, overflow: "hidden", boxShadow: `4px 4px 0 ${BINK}` }}>
+            <div style={{ display: "flex", flexShrink: 0, borderBottom: `2px solid ${BINK}` }}>
               {([["clock", "ON THE CLOCK"], ["our", "OUR PICK"], ["trade", "TRADE"]] as const).map(([k, lbl], i) => (
-                <button key={k} onClick={() => setTab(k)} style={{ padding: "8px 18px", border: "none", borderLeft: i ? `2px solid ${BINK}` : "none", background: tab === k ? GREEN : "transparent", color: tab === k ? SCREAM : FADE, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, cursor: "pointer" }}>{lbl}</button>
+                <button key={k} onClick={() => setTab(k)} style={{ padding: "9px 20px", border: "none", borderRight: i < 2 ? `2px solid ${BINK}` : "none", background: tab === k ? GREEN : "transparent", color: tab === k ? SCREAM : FADE, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, cursor: "pointer" }}>{lbl}</button>
               ))}
             </div>
 
-          {tab === "trade" ? (
-            <div style={{ flex: 1, minHeight: 0, border: `2px solid ${BINK}`, borderRadius: 4, background: RECESS2, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 3, color: DIM }}>TRADE — COMING SOON</div>
-          ) : (
-            <div style={{ flex: 1, minHeight: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-              {tab === "clock" ? (
-                <>
-                  {/* LEFT: Player Pool */}
-                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
-                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>PLAYER POOL</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#2a251e", border: "1px solid #4a4135", borderRadius: 3, padding: "3px 6px" }}>
-                          <span style={{ color: DIM, fontSize: 11 }}>⌕</span>
-                          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={{ border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontSize: 11, color: SCREAM, width: 128 }} />
+            {tab === "trade" ? (
+              <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 3, color: DIM }}>TRADE — COMING SOON</div>
+            ) : (
+              <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+                {tab === "clock" ? (
+                  <>
+                    {/* LEFT PANE: Player Pool */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", borderRight: `1.5px solid ${HLINE}` }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 40, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>PLAYER POOL</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#2a251e", border: "1px solid #4a4135", borderRadius: 3, padding: "3px 6px" }}>
+                            <span style={{ color: DIM, fontSize: 11 }}>⌕</span>
+                            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={{ border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontSize: 11, color: SCREAM, width: 128 }} />
+                          </div>
+                          <div style={{ display: "flex", border: "1px solid #4a4135", borderRadius: 3, overflow: "hidden" }}>
+                            {(["ALL", "QB", "RB", "PC"] as const).map((f, i) => (
+                              <button key={f} onClick={() => setFilter(f)} style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, padding: "3px 7px", border: "none", borderLeft: i ? "1px solid #4a4135" : "none", background: filter === f ? GREEN : "transparent", color: filter === f ? SCREAM : FADE, cursor: "pointer" }}>{f}</button>
+                            ))}
+                          </div>
                         </div>
-                        <div style={{ display: "flex", border: "1px solid #4a4135", borderRadius: 3, overflow: "hidden" }}>
-                          {(["ALL", "QB", "RB", "PC"] as const).map((f, i) => (
-                            <button key={f} onClick={() => setFilter(f)} style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, padding: "3px 7px", border: "none", borderLeft: i ? "1px solid #4a4135" : "none", background: filter === f ? GREEN : "transparent", color: filter === f ? SCREAM : FADE, cursor: "pointer" }}>{f}</button>
+                      </div>
+                      <div className="mdScroll" style={{ padding: 7, display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
+                        {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
+                        {visiblePool.slice(0, 60).map((p, i) => (
+                          <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 12, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0 12px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 32, boxSizing: "border-box", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
+                            <span style={{ fontFamily: ANTON, fontSize: 12, color: GSUB, minWidth: 16 }}>{i + 1}</span>
+                            <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                            <span style={{ flexShrink: 0, fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.6, color: GSUB, whiteSpace: "nowrap" }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
+                            {yourTurn && <span style={{ fontFamily: ANTON, fontSize: 9, color: SCREAM, background: GREEN, border: `1px solid ${BINK}`, borderRadius: 2, padding: "2px 7px" }}>DRAFT</span>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* RIGHT PANE: Here's how I see it (on-clock team) */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 40, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/avatars/scouting.png" alt="" style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
+                          <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>HERE&rsquo;S HOW I SEE IT</span>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          {(onClock?.needs ?? []).map((n) => <span key={n} style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, color: GOLD, border: "1px solid #6b5e44", borderRadius: 2, padding: "2px 6px" }}>{n}</span>)}
+                          {onClock && <div style={{ width: 26, height: 26, borderRadius: "50%", background: `#fff url('${logoFor(onClock.team)}') center / cover`, border: `2px solid ${BINK}`, flexShrink: 0 }} />}
+                        </div>
+                      </div>
+                      {(!onClock || isComplete)
+                        ? <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>{isComplete ? "Draft complete." : "Start the sim to see the board."}</div>
+                        : onClockOdds.length > 0
+                          ? seeItBody({
+                              headName: onClockOdds[0].name,
+                              headPosTeam: `${onClockOdds[0].pos}${onClockOdds[0].nflTeam ? ` · ${onClockOdds[0].nflTeam}` : ""}`,
+                              headPct: onClockOdds[0].pct,
+                              prose: onClock.why || onClock.reason || `${teamNickname(onClock.team)} look most likely to turn in ${onClockOdds[0].name} here.`,
+                              transition: `If they don't take ${onClockOdds[0].name}, I think the next two most likely guys on their board are:`,
+                              alts: onClockOdds.slice(1, 3).map((o) => ({ key: o.playerId, name: o.name, posTeam: `${o.pos}${o.nflTeam ? ` · ${o.nflTeam}` : ""}`, pct: o.pct })),
+                              altMax: onClockOdds[1]?.pct || onClockOdds[0].pct || 1,
+                            })
+                          : <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No read yet.</div>}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    {/* LEFT PANE: Next Pick — survival odds */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", borderRight: `1.5px solid ${HLINE}` }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 40, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM }}>NEXT PICK: <span style={{ color: GOLD }}>{ourPick?.pick ?? "—"}</span></span>
+                        {ourPick && <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 1, color: DIM }}>{Math.max(0, ourIdx - revealed)} AWAY</span>}
+                      </div>
+                      <div style={{ padding: 9, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                        <div style={{ flex: "0 0 auto", marginBottom: 7, fontFamily: OSWALD, fontWeight: 700, fontSize: 13, letterSpacing: 0.3, color: GOLD }}>Likely there when we pick&hellip;</div>
+                        {!ourPick && <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No upcoming pick.</div>}
+                        <div className="mdScroll" style={{ flex: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+                          {survivalTop.map((o) => (
+                            <div key={o.playerId} style={{ flex: "1 0 56px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 5, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0 14px", boxShadow: "0 1px 2px rgba(0,0,0,.4)" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 0.5, color: GSUB }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                                </div>
+                                <span style={{ fontFamily: ANTON, fontSize: 20, color: GREEN }}>{Math.round(o.pct * 100)}%</span>
+                              </div>
+                              {meter(o.pct / (survivalTop[0]?.pct || 1))}
+                            </div>
                           ))}
                         </div>
                       </div>
                     </div>
-                    <div style={{ padding: 7, display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
-                      {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
-                      {visiblePool.slice(0, 60).map((p, i) => (
-                        <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", gap: 12, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0 12px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 32, boxSizing: "border-box", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
-                          <span style={{ fontFamily: ANTON, fontSize: 12, color: GSUB, minWidth: 16 }}>{i + 1}</span>
-                          <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                          <span style={{ flexShrink: 0, fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.6, color: GSUB, whiteSpace: "nowrap" }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
-                          {yourTurn && <span style={{ fontFamily: ANTON, fontSize: 9, color: SCREAM, background: GREEN, border: `1px solid ${BINK}`, borderRadius: 2, padding: "2px 7px" }}>DRAFT</span>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
 
-                  {/* RIGHT: Most Likely Pick — our director's read on the on-clock team */}
-                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                    {/* RIGHT PANE: Here's how I see it (our pick) */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, height: 40, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/avatars/scouting.png" alt="" style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
-                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>MOST LIKELY PICK</span>
+                        <img src="/avatars/scouting.png" alt="" style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover" }} />
+                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM }}>HERE&rsquo;S HOW I SEE IT</span>
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                        {(onClock?.needs ?? []).map((n) => <span key={n} style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, color: GOLD, border: "1px solid #6b5e44", borderRadius: 2, padding: "2px 6px" }}>{n}</span>)}
-                        {onClock && <div style={{ width: 26, height: 26, borderRadius: "50%", background: `#fff url('${logoFor(onClock.team)}') center / cover`, border: `2px solid ${BINK}`, flexShrink: 0 }} />}
-                      </div>
+                      {!read
+                        ? <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>{phase === "setup" ? "Start the sim for my read." : "No upcoming pick."}</div>
+                        : seeItBody({
+                            headName: read.projected?.name ?? "—",
+                            headPosTeam: read.projected ? `${read.projected.pos}${read.projected.nflTeam ? ` · ${read.projected.nflTeam}` : ""}` : "",
+                            headPct: null, headAction: "TAKE HIM",
+                            prose: `${read.rationale}${read.projected ? ` After ${read.projected.name}, the value drops off fast at the position — I'd lock it up here rather than reach back later.` : ""}`,
+                            transition: "If you want to go a different direction, I think these guys would be a great fit too:",
+                            alts: ourAlts,
+                            altMax: ourAlts[0]?.pct || 1,
+                          })}
                     </div>
-                    <div style={{ padding: 7, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-                      {(!onClock || isComplete) && <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>{isComplete ? "Draft complete." : "Start the sim to see the board."}</div>}
-                      {onClock && !isComplete && onClockOdds.length > 0 && (() => {
-                        const maxPct = onClockOdds[0]?.pct || 1;
-                        const head = onClockOdds[0];
-                        const rest = onClockOdds.slice(1, 3);
-                        return (
-                          <>
-                            <div style={{ height: 22, display: "flex", alignItems: "center", marginBottom: 5, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.3, color: GOLD, flexShrink: 0 }}>{teamNickname(onClock.team)} takes &mdash;</div>
-                            <div style={{ flex: 1.35, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 6, background: PLACARD, border: `1.5px solid ${BINK}`, borderLeft: `6px solid ${GREEN}`, borderRadius: 3, padding: "8px 13px", boxShadow: "0 2px 3px rgba(0,0,0,.45)" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontFamily: ANTON, fontSize: 19, letterSpacing: 0.4, color: GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{head.name}</div>
-                                  <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.5, color: GSUB, marginTop: 2 }}>{head.pos}{head.nflTeam ? ` · ${head.nflTeam}` : ""}</div>
-                                </div>
-                                <span style={{ fontFamily: ANTON, fontSize: 27, color: GREEN }}>{Math.round(head.pct * 100)}%</span>
-                              </div>
-                              {meter(1)}
-                            </div>
-                            {rest.length > 0 && (
-                              <div style={{ flex: 1, minHeight: 0, display: "flex", gap: 6, marginTop: 6 }}>
-                                {rest.map((o) => (
-                                  <div key={o.playerId} style={{ flex: 1, minWidth: 0, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
-                                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
-                                      <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 13.5, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
-                                        <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10.5, letterSpacing: 0.4, color: GSUB }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
-                                      </div>
-                                      <span style={{ fontFamily: ANTON, fontSize: 17, color: GREEN }}>{Math.round(o.pct * 100)}%</span>
-                                    </div>
-                                    {meter(o.pct / maxPct)}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* LEFT: Likely there at our pick */}
-                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
-                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM }}>OUR NEXT PICK · <span style={{ color: GOLD }}>{ourPick?.pick ?? "—"}</span></span>
-                      {ourPick && <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 1, color: DIM }}>{Math.max(0, ourIdx - revealed)} AWAY</span>}
-                    </div>
-                    <div style={{ padding: 7, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-                      <div style={{ height: 22, display: "flex", alignItems: "center", marginBottom: 5, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.3, color: GOLD, flexShrink: 0 }}>Likely there when we pick&hellip;</div>
-                      {!ourPick && <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No upcoming pick.</div>}
-                      <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", gap: 5 }}>
-                        {survivalOdds.map((o) => {
-                          const maxPct = survivalOdds[0]?.pct || 1;
-                          return (
-                            <div key={o.playerId} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 12px", boxShadow: "0 1px 2px rgba(0,0,0,.4)", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "center", gap: 4 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                                <div style={{ flex: 1, minWidth: 0 }}>
-                                  <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 15, color: GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
-                                  <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 0.5, color: GSUB, marginTop: 2 }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
-                                </div>
-                                <span style={{ fontFamily: ANTON, fontSize: 20, color: GREEN }}>{Math.round(o.pct * 100)}%</span>
-                              </div>
-                              {meter(o.pct / maxPct)}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* RIGHT: My Take */}
-                  <div style={{ border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", background: RECESS2, display: "flex", flexDirection: "column", minHeight: 0 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 9, height: 38, boxSizing: "border-box", padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src="/avatars/scouting.png" alt="" style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover" }} />
-                      <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM }}>MY TAKE</span>
-                    </div>
-                    <div style={{ padding: 7, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-                      {!read ? (
-                        <div style={{ margin: "auto", fontFamily: OSWALD, fontSize: 12, color: DIM }}>{phase === "setup" ? "Start the sim for my read." : "No upcoming pick."}</div>
-                      ) : (
-                        <>
-                          <div style={{ height: 22, display: "flex", alignItems: "center", marginBottom: 5, fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 0.3, color: GOLD, flexShrink: 0 }}>Here&rsquo;s who I&rsquo;d take &mdash;</div>
-                          <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px 6px 0", boxShadow: "0 2px 3px rgba(0,0,0,.45)", gap: 10, maxHeight: 56 }}>
-                            <div style={{ width: 6, alignSelf: "stretch", background: GREEN }} />
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontFamily: ANTON, fontSize: 17, letterSpacing: 0.4, color: GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{(read.projected?.name ?? "—").toUpperCase()}</div>
-                              <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 0.5, color: GSUB, marginTop: 2 }}>{read.projected ? `${read.projected.pos}${read.projected.nflTeam ? ` · ${read.projected.nflTeam}` : ""}` : ""}</div>
-                            </div>
-                            <span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 2, padding: "4px 9px", flexShrink: 0 }}>TAKE HIM</span>
-                          </div>
-                          <div style={{ flex: 3, minHeight: 0, overflowY: "auto", marginTop: 12, fontFamily: OSWALD, fontWeight: 400, fontSize: 13, lineHeight: 1.5, color: "#e6dcc4" }}>
-                            {read.rationale}{read.projected ? ` After ${read.projected.name}, the value drops off fast at the position — I'd lock it up here rather than reach back later.` : ""}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
