@@ -83,37 +83,16 @@ export async function POST(request: NextRequest) {
 
   const now = new Date().toISOString();
 
-  // Withdraw = hard delete the entire thread and all related data
-  if (status === "withdrawn" && offer.thread_id) {
-    const threadId = offer.thread_id;
-    const { error: msgDeleteError } = await client
-      .from("trade_messages")
-      .delete()
-      .eq("thread_id", threadId);
-    if (msgDeleteError) {
-      return NextResponse.json({ error: msgDeleteError.message }, { status: 500 });
-    }
-    const { error: offersDeleteError } = await client
-      .from("trade_offers")
-      .delete()
-      .eq("thread_id", threadId);
-    if (offersDeleteError) {
-      return NextResponse.json({ error: offersDeleteError.message }, { status: 500 });
-    }
-    const { error: deleteError } = await client
-      .from("trade_threads")
-      .delete()
-      .eq("id", threadId)
-      .eq("league_id", league_id);
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
-    }
-    return NextResponse.json({ ok: true, thread_id: threadId, deleted: true });
-  }
-
+  // All resolutions are SOFT — the thread survives so the negotiation board
+  // can show WITHDRAWN cards and the full version history stays browsable.
+  //
+  // read_at tracks whoever needs to see the offer's latest state. While
+  // pending that's the recipient; once resolved it flips to the NON-ACTOR
+  // (accept/decline → the sender; withdraw → the recipient), whose card
+  // pulses until they open the thread — so clear it here.
   const { error: updateError } = await client
     .from("trade_offers")
-    .update({ status, updated_at: now })
+    .update({ status, updated_at: now, read_at: null })
     .eq("id", offer_id)
     .eq("league_id", league_id);
 

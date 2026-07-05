@@ -293,6 +293,36 @@ const scrollToBottom = useCallback(() => {
     if (!loading && counterMode && !latestPending) setCounterMode(false);
   }, [counterMode, latestPending, loading]);
 
+  // Opening the thread reads the offer's latest state: as recipient of a
+  // pending offer it stops the card's pulse; as the non-actor on a resolved
+  // one it acknowledges the outcome (accept/decline → sender acks, withdraw
+  // → recipient acks).
+  const markedReadRef = useRef<string | null>(null);
+  const lastOffer = offers.length > 0 ? offers[offers.length - 1] : null;
+  useEffect(() => {
+    if (!rosterId) return;
+    let target: TradeOffer | null = null;
+    if (latestPending && latestPending.to_team_id === rosterId) {
+      target = latestPending;
+    } else if (
+      lastOffer &&
+      (((lastOffer.status === "accepted" || lastOffer.status === "declined") &&
+        lastOffer.from_team_id === rosterId) ||
+        (lastOffer.status === "withdrawn" && lastOffer.to_team_id === rosterId))
+    ) {
+      target = lastOffer;
+    }
+    if (!target || markedReadRef.current === target.id) return;
+    markedReadRef.current = target.id;
+    fetch("/api/inbox/mark-read", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ offer_id: target.id, team_id: rosterId }),
+    }).catch(() => {
+      /* silent */
+    });
+  }, [latestPending, lastOffer, rosterId]);
+
   const handleStatus = async (status: string) => {
     if (!rosterId || actionLoading || !latestPending) return;
     setActionLoading(true);

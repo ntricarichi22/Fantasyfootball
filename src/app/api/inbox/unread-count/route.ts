@@ -22,21 +22,63 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
-  // Count open threads where this team has unread activity:
-  // Any thread where the team is a participant and there's a pending offer they received
-  const { count, error } = await client
-    .from("trade_offers")
-    .select("id", { count: "exact", head: true })
-    .eq("league_id", league_id)
-    .eq("to_team_id", teamId)
-    .eq("status", "pending")
-    .is("read_at", null);
+  // One inbox, one number: unopened inbound pending offers, unacknowledged
+  // verdicts on offers you sent (closure rows, freshness-capped to match the
+  // inbox), and unread director mail (offer_card memos are retired — an offer
+  // is a DM from the other team).
+  const closureSince = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  const [offersRes, closureRes, withdrawnRes, memosRes] = await Promise.all([
+    client
+      .from("trade_offers")
+      .select("id", { count: "exact", head: true })
+      .eq("league_id", league_id)
+      .eq("to_team_id", teamId)
+      .eq("status", "pending")
+      .is("read_at", null),
+    client
+      .from("trade_offers")
+      .select("id", { count: "exact", head: true })
+      .eq("league_id", league_id)
+      .eq("from_team_id", teamId)
+      .in("status", ["accepted", "declined"])
+      .is("read_at", null)
+      .gte("updated_at", closureSince),
+    client
+      .from("trade_offers")
+      .select("id", { count: "exact", head: true })
+      .eq("league_id", league_id)
+      .eq("to_team_id", teamId)
+      .eq("status", "withdrawn")
+      .is("read_at", null)
+      .gte("updated_at", closureSince),
+    client
+      .from("cfc_director_memos")
+      .select("id", { count: "exact", head: true })
+      .eq("team_id", teamId)
+      .eq("status", "unread")
+      .neq("play_mode", "offer_card"),
+  ]);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (offersRes.error) {
+    return NextResponse.json({ error: offersRes.error.message }, { status: 500 });
+  }
+  if (closureRes.error) {
+    return NextResponse.json({ error: closureRes.error.message }, { status: 500 });
+  }
+  if (withdrawnRes.error) {
+    return NextResponse.json({ error: withdrawnRes.error.message }, { status: 500 });
+  }
+  if (memosRes.error) {
+    return NextResponse.json({ error: memosRes.error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ count: count ?? 0 });
+  return NextResponse.json({
+    count:
+      (offersRes.count ?? 0) +
+      (closureRes.count ?? 0) +
+      (withdrawnRes.count ?? 0) +
+      (memosRes.count ?? 0),
+  });
   } catch (err) {
     console.error('[API GET /api/inbox/unread-count]', err);
     return NextResponse.json(

@@ -72,13 +72,14 @@ export function HomeScreen() {
 
   // Fetch inbox unread count for the GM badge status
   useEffect(() => {
-    fetch("/api/inbox/unread-count")
+    if (!rosterId) return
+    fetch(`/api/inbox/unread-count?teamId=${encodeURIComponent(rosterId)}`)
       .then((r) => (r.ok ? r.json() : { count: 0 }))
       .then((d) => setUnreadCount(d?.count ?? 0))
       .catch(() => {
         // silent - the badge just stays at "all clear"
       })
-  }, [])
+  }, [rosterId])
 
   // Fetch the GM's all-time record (championships, tenure, title years)
   useEffect(() => {

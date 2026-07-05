@@ -7,18 +7,16 @@ const FH = "Syne, sans-serif";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FB = "var(--font-body, 'DM Sans', sans-serif)";
 
-export type Filter = "inbox" | "trades" | "sent" | "trash" | "archive";
+// The front-office page has two independent sections: staff mail (true
+// email — read-only dispatches from the directors) and the negotiation board
+// (one tile per trade thread, state on its sleeve). No shared sidebar.
 
-export const FILTER_LABELS: { value: Filter; label: string }[] = [
-  { value: "inbox", label: "Inbox" },
-  { value: "trades", label: "Trade Threads" },
-  { value: "sent", label: "Sent" },
-  { value: "trash", label: "Trash" },
-  { value: "archive", label: "Archive" },
-];
+export type MailTab = "inbox" | "archive" | "trash";
 
+export type BoardFilter = "all" | "active" | "closed";
+
+// A staff-mail row (director memos only — trades live on the board).
 export type InboxItem = {
-  kind: "trade" | "memo";
   id: string;
   sender: string;
   subject: string;
@@ -26,10 +24,339 @@ export type InboxItem = {
   unread: boolean;
   timestamp: string;
   href: string;
-  trade?: boolean;
-  tradeFromUser?: boolean;
-  tradeStatus?: string;
 };
+
+export type TileStatus = "our_court" | "on_them" | "accepted" | "declined" | "withdrawn";
+
+// One revision of the deal — every offer in the thread is a version the card
+// can flip to. Last entry is the paper currently (or finally) on the table.
+export type TileVersion = {
+  label: string;   // "V1.0"
+  caption: string; // "THEIR OPENING" / "YOUR COUNTER"
+  youGet: string;
+  youGive: string;
+};
+
+export type NegotiationTileData = {
+  threadId: string;
+  counterpart: string;
+  logoUrl: string | null;
+  versions: TileVersion[];
+  status: TileStatus;
+  // Pulses the status dot until the thread is opened: an unread inbound
+  // offer, or a verdict/withdrawal you haven't acknowledged.
+  unseen: boolean;
+  timestamp: string;
+};
+
+/* ------------------------------------------------------------------ */
+/*  Sender avatars & trade status chips                                 */
+/* ------------------------------------------------------------------ */
+
+// Vintage plate colors for team monograms — deterministic per team name.
+const AVATAR_PALETTE: { bg: string; fg: string }[] = [
+  { bg: "#3366CC", fg: "#FEFCF9" },
+  { bg: "#E8503A", fg: "#FEFCF9" },
+  { bg: "#019942", fg: "#FEFCF9" },
+  { bg: "#F5C230", fg: "#5F4A00" },
+  { bg: "#7B5EA7", fg: "#FEFCF9" },
+  { bg: "#C2542B", fg: "#FEFCF9" },
+];
+
+export function monogram(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+}
+
+export function avatarColors(name: string, kind: "trade" | "memo"): { bg: string; fg: string } {
+  // Directors write on the house letterhead — always the black plate.
+  if (kind === "memo") return { bg: "#1A1A1A", fg: "#F5C230" };
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+}
+
+function AvatarPlate({
+  name,
+  kind,
+  size = 30,
+}: {
+  name: string;
+  kind: "trade" | "memo";
+  size?: number;
+}) {
+  const { bg, fg } = avatarColors(name, kind);
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        background: bg,
+        color: fg,
+        border: "2px solid #1A1A1A",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: FM,
+        fontSize: size * 0.34,
+        fontWeight: 700,
+        letterSpacing: "0.04em",
+      }}
+    >
+      {monogram(name)}
+    </span>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  NegotiationTile — the locked card: logo hero, version chips, deal   */
+/*  block with revision caption, status/action footer. Near-monochrome; */
+/*  the status dot is the only standing color and pulses while unseen.  */
+/* ------------------------------------------------------------------ */
+
+const TILE_FOOTER: Record<
+  TileStatus,
+  { label: string; action: string; dot: string; dotBorder: string; muted: boolean }
+> = {
+  our_court: { label: "IN OUR COURT", action: "RESPOND", dot: "#F5C230", dotBorder: "#1A1A1A", muted: false },
+  on_them: { label: "ON THEM", action: "FOLLOW UP", dot: "#FEFCF9", dotBorder: "#8C7E6A", muted: true },
+  accepted: { label: "ACCEPTED", action: "SEE THE DEAL", dot: "#019942", dotBorder: "#1A1A1A", muted: false },
+  declined: { label: "DECLINED", action: "REVIEW", dot: "#E8503A", dotBorder: "#1A1A1A", muted: false },
+  withdrawn: { label: "WITHDRAWN", action: "REVIEW", dot: "#C8C3B8", dotBorder: "#1A1A1A", muted: true },
+};
+
+export function NegotiationTile({
+  tile,
+  onOpen,
+}: {
+  tile: NegotiationTileData;
+  onOpen: () => void;
+}) {
+  const currentIdx = tile.versions.length - 1;
+  const [selectedIdx, setSelectedIdx] = useState(currentIdx);
+  // Refetches can append a version — never leave the selection out of range,
+  // and snap to the new current when one arrives.
+  const idx = Math.min(selectedIdx, currentIdx);
+  const version = tile.versions[idx];
+  const viewingCurrent = idx === currentIdx;
+
+  const footer = TILE_FOOTER[tile.status];
+  const isOurCourt = tile.status === "our_court";
+  const isClosed = tile.status !== "our_court" && tile.status !== "on_them";
+  const ago = timeAgo(tile.timestamp);
+
+  if (!version) return null;
+
+  const microLabel: React.CSSProperties = {
+    fontFamily: FM,
+    fontSize: 8,
+    fontWeight: 700,
+    letterSpacing: "0.14em",
+    color: "#8C7E6A",
+  };
+  const dealLine: React.CSSProperties = {
+    fontSize: 12,
+    fontWeight: 700,
+    lineHeight: 1.3,
+    fontFamily: FB,
+    color: viewingCurrent ? "#1A1A1A" : "#5F5A50",
+  };
+
+  return (
+    <div
+      onClick={onOpen}
+      style={{
+        background: "#FEFCF9",
+        border: isOurCourt ? "3px solid #1A1A1A" : "2px solid #1A1A1A",
+        borderRadius: 12,
+        boxShadow: isOurCourt ? "4px 4px 0 #1A1A1A" : "none",
+        overflow: "hidden",
+        cursor: "pointer",
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
+      <style>{`
+        @keyframes cfc-tile-pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.3; }
+        }
+      `}</style>
+
+      <div style={{ opacity: isClosed ? 0.62 : 1, flex: 1 }}>
+        <div style={{ padding: "9px 9px 0" }}>
+          <div
+            style={{
+              background: "#F5F0E6",
+              border: "2px solid #1A1A1A",
+              borderRadius: 8,
+              height: 58,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              overflow: "hidden",
+            }}
+          >
+            {tile.logoUrl ? (
+              <img
+                src={tile.logoUrl}
+                alt=""
+                style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: "2px solid #1A1A1A" }}
+              />
+            ) : (
+              <span
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: "50%",
+                  background: avatarColors(tile.counterpart, "trade").bg,
+                  color: avatarColors(tile.counterpart, "trade").fg,
+                  border: "2px solid #1A1A1A",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontFamily: "Impact, system-ui, sans-serif",
+                  fontSize: 17,
+                }}
+              >
+                {monogram(tile.counterpart)}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div style={{ padding: "9px 11px 0" }}>
+          <p
+            style={{
+              fontFamily: "Impact, system-ui, sans-serif",
+              fontSize: 16,
+              margin: 0,
+              lineHeight: 1.05,
+              letterSpacing: "0.01em",
+              color: "#1A1A1A",
+            }}
+          >
+            {tile.counterpart.toUpperCase()}
+          </p>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 6,
+              marginTop: 7,
+            }}
+          >
+            <span style={{ display: "inline-flex", gap: 3, flexWrap: "wrap" }}>
+              {tile.versions.map((v, i) => {
+                const active = i === idx;
+                return (
+                  <button
+                    key={v.label}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedIdx(i);
+                    }}
+                    style={{
+                      fontFamily: FM,
+                      fontSize: 8,
+                      fontWeight: 700,
+                      background: active ? "#1A1A1A" : "transparent",
+                      border: `1.5px solid ${active ? "#1A1A1A" : "#C8C3B8"}`,
+                      color: active ? "#FEFCF9" : "#8C7E6A",
+                      borderRadius: 5,
+                      padding: "2px 5px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {v.label}
+                  </button>
+                );
+              })}
+            </span>
+            <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#8C7E6A", flexShrink: 0 }}>
+              {ago.toUpperCase()}
+            </span>
+          </div>
+        </div>
+
+        <div
+          style={{
+            margin: "8px 11px 10px",
+            borderTop: "1.5px solid #C8C3B8",
+            padding: "7px 0 0",
+            background: viewingCurrent
+              ? "transparent"
+              : "repeating-linear-gradient(-45deg, transparent, transparent 7px, rgba(200,195,184,0.18) 7px, rgba(200,195,184,0.18) 8px)",
+          }}
+        >
+          <div style={{ ...microLabel, fontSize: 7, marginBottom: 4 }}>
+            {version.label} · {version.caption} · {viewingCurrent ? "CURRENT" : "SUPERSEDED"}
+          </div>
+          <div style={microLabel}>GET</div>
+          <div style={dealLine}>{version.youGet}</div>
+          <div style={{ ...microLabel, marginTop: 5 }}>GIVE</div>
+          <div style={dealLine}>{version.youGive}</div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          background: "#F5F0E6",
+          borderTop: "2px solid #1A1A1A",
+          padding: "8px 11px",
+          display: "flex",
+          alignItems: "flex-end",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
+        <span
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            fontFamily: FM,
+            fontSize: 9.5,
+            fontWeight: 800,
+            letterSpacing: "0.08em",
+            color: footer.muted ? "#8C7E6A" : "#1A1A1A",
+          }}
+        >
+          <span
+            style={{
+              width: 9,
+              height: 9,
+              background: footer.dot,
+              border: `1.5px solid ${footer.dotBorder}`,
+              borderRadius: "50%",
+              flexShrink: 0,
+              animation: tile.unseen ? "cfc-tile-pulse 1.6s ease-in-out infinite" : undefined,
+            }}
+          />
+          {footer.label}
+        </span>
+        <span
+          style={{
+            fontFamily: FM,
+            fontSize: 8.5,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: footer.muted ? "#8C7E6A" : "#1A1A1A",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {footer.action} →
+        </span>
+      </div>
+    </div>
+  );
+}
 
 export function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -41,158 +368,6 @@ export function timeAgo(dateStr: string): string {
   const days = Math.floor(hrs / 24);
   if (days < 7) return `${days}d`;
   return `${Math.floor(days / 7)}w`;
-}
-
-/* ------------------------------------------------------------------ */
-/*  Sidebar — Compose + filter chips. Used on desktop AND in mobile    */
-/*  drawer.                                                              */
-/* ------------------------------------------------------------------ */
-
-export function Sidebar({
-  active,
-  onChange,
-  isMobile,
-  onClose,
-  unreadCount,
-  tradeUnreadCount,
-}: {
-  active: Filter;
-  onChange: (f: Filter) => void;
-  isMobile: boolean;
-  onClose?: () => void;
-  unreadCount?: number;
-  tradeUnreadCount?: number;
-}) {
-  return (
-    <div
-      style={{
-        width: isMobile ? "78%" : 168,
-        flexShrink: 0,
-        padding: 14,
-        borderRight: isMobile ? "none" : "3px solid #1A1A1A",
-        display: "flex",
-        flexDirection: "column",
-        gap: 10,
-        background: "#F5F0E6",
-        height: isMobile ? "100%" : "auto",
-      }}
-    >
-      {isMobile && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            marginBottom: 4,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: FM,
-              fontSize: 9,
-              fontWeight: 700,
-              letterSpacing: "0.18em",
-              color: "#8C7E6A",
-              textTransform: "uppercase",
-            }}
-          >
-            Inbox
-          </span>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close menu"
-            style={{
-              background: "none",
-              border: "none",
-              cursor: "pointer",
-              color: "#1A1A1A",
-              padding: 0,
-              display: "flex",
-            }}
-          >
-            <Icon name="x" size={18} />
-          </button>
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={() => {
-          window.location.href = "/pro-personnel/trade-builder";
-        }}
-        style={{
-          background: "#3366CC",
-          color: "#FEFCF9",
-          border: "3px solid #1A1A1A",
-          boxShadow: "3px 3px 0 #1A1A1A",
-          padding: "10px 12px",
-          fontSize: 11,
-          fontWeight: 800,
-          letterSpacing: "0.08em",
-          textTransform: "uppercase",
-          cursor: "pointer",
-          fontFamily: FB,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        <Icon name="plus" size={14} />
-        New offer
-      </button>
-
-      <div style={{ display: "flex", flexDirection: "column", gap: 4, marginTop: 6 }}>
-        {FILTER_LABELS.map((f) => {
-          const isActive = active === f.value;
-          const dotCount =
-            f.value === "inbox" ? unreadCount ?? 0 : f.value === "trades" ? tradeUnreadCount ?? 0 : 0;
-          const showUnreadDot = dotCount > 0;
-          return (
-            <button
-              key={f.value}
-              type="button"
-              onClick={() => {
-                onChange(f.value);
-                if (isMobile && onClose) onClose();
-              }}
-              style={{
-                background: isActive ? "#1A1A1A" : "#FEFCF9",
-                color: isActive ? "#FEFCF9" : "#1A1A1A",
-                border: "2px solid #1A1A1A",
-                padding: isMobile ? "10px 14px" : "8px 12px",
-                fontSize: isMobile ? 11 : 10,
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                textTransform: "uppercase",
-                cursor: "pointer",
-                fontFamily: FB,
-                textAlign: "left",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
-            >
-              <span>{f.label}</span>
-              {showUnreadDot && (
-                <span
-                  style={{
-                    width: 7,
-                    height: 7,
-                    background: "#E8503A",
-                    borderRadius: "50%",
-                    display: "inline-block",
-                    flexShrink: 0,
-                  }}
-                  aria-label={`${dotCount} unread`}
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -469,6 +644,9 @@ export function InboxRow({
         <div style={{ marginTop: 4 }}>
           <Checkbox selected={selected} unread={isUnread} onToggle={onToggle} />
         </div>
+        <div style={{ marginTop: 1 }}>
+          <AvatarPlate name={item.sender} kind="memo" size={28} />
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{
@@ -542,22 +720,23 @@ export function InboxRow({
       onClick={onOpen}
       style={{
         background: "#FEFCF9",
-        padding: "11px 14px",
+        padding: "10px 14px",
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        gap: 12,
         borderBottom: "1px solid #C8C3B8",
         opacity,
         cursor: "pointer",
       }}
     >
       <Checkbox selected={selected} unread={isUnread} onToggle={onToggle} />
+      <AvatarPlate name={item.sender} kind="memo" />
       <div
         style={{
           fontSize: 11,
           fontWeight: isUnread ? 700 : 500,
           color: isUnread ? "#1A1A1A" : "#8C7E6A",
-          width: 150,
+          width: 140,
           flexShrink: 0,
           whiteSpace: "nowrap",
           overflow: "hidden",
@@ -603,6 +782,8 @@ export function InboxRow({
           fontWeight: isUnread ? 700 : 500,
           color: isUnread ? "#1A1A1A" : "#8C7E6A",
           flexShrink: 0,
+          width: 34,
+          textAlign: "right",
         }}
       >
         {timeAgo(item.timestamp)}
@@ -615,65 +796,42 @@ export function InboxRow({
 /*  EmptyState                                                          */
 /* ------------------------------------------------------------------ */
 
-export function EmptyState({ filter }: { filter: Filter }) {
-  const COPY: Record<Filter, { eyebrow: string; head: string; sub: string }> = {
-    inbox: { eyebrow: "Inbox · 0 messages", head: "Your inbox is empty.", sub: "Nothing from the directors yet." },
-    trades: {
-      eyebrow: "Trade threads · 0",
-      head: "No offers on the table.",
-      sub: "Incoming trades land here for your call.",
-    },
-    sent: {
-      eyebrow: "Sent · 0 offers",
-      head: "You haven't sent any offers yet.",
-      sub: "Make the first move.",
-    },
-    trash: { eyebrow: "Trash · 0 items", head: "Trash is empty.", sub: "Nothing to clean up." },
-    archive: {
-      eyebrow: "Archive · 0 closed",
-      head: "No closed deals yet.",
-      sub: "Anything you wrap up will land here.",
-    },
+export type EmptyStateKind = MailTab | BoardFilter;
+
+export function EmptyState({ kind, compact }: { kind: EmptyStateKind; compact?: boolean }) {
+  const COPY: Record<EmptyStateKind, { head: string; sub: string }> = {
+    inbox: { head: "No dispatches.", sub: "Nothing from your directors yet." },
+    archive: { head: "Archive is empty.", sub: "Filed dispatches land here." },
+    trash: { head: "Trash is empty.", sub: "Nothing to clean up." },
+    all: { head: "No negotiations yet.", sub: "Make the first move — send an offer." },
+    active: { head: "Nothing in motion.", sub: "No live negotiations right now." },
+    closed: { head: "No closed deals yet.", sub: "Verdicts land here once they're in." },
   };
-  const c = COPY[filter];
+  const c = COPY[kind];
   return (
     <div
       style={{
-        flex: 1,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: "64px 24px",
+        padding: compact ? "26px 20px" : "48px 24px",
       }}
     >
       <div style={{ textAlign: "center" }}>
         <div
           style={{
-            fontFamily: FM,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.22em",
-            color: "#8C7E6A",
-            textTransform: "uppercase",
-            marginBottom: 14,
-          }}
-        >
-          {c.eyebrow}
-        </div>
-        <div
-          style={{
             fontFamily: FH,
             fontWeight: 800,
-            fontSize: 26,
+            fontSize: compact ? 17 : 22,
             letterSpacing: "-0.01em",
             color: "#1A1A1A",
             lineHeight: 1.15,
-            marginBottom: 8,
+            marginBottom: 6,
           }}
         >
           {c.head}
         </div>
-        <div style={{ fontSize: 13, color: "#8C7E6A", lineHeight: 1.5, fontFamily: FB }}>
+        <div style={{ fontSize: 12.5, color: "#8C7E6A", lineHeight: 1.5, fontFamily: FB }}>
           {c.sub}
         </div>
       </div>
