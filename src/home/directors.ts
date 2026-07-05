@@ -38,9 +38,10 @@ export const DIRECTORS: DirectorConfig[] = [
     ],
     workrooms: [
       { title: "Big Board", href: "/scouting/big-board", subtitle: "Your ranked prospect list", icon: "clipboard-list" },
-      // Draft Room is now the lobby (mock / review / live war room) — Mock Draft
-      // folded in as one of its doors rather than a separate workroom.
-      { title: "Draft Room", href: "/scouting/draft-room", subtitle: "Live Draft + Results + Mock", icon: "presentation" },
+      // The lobby (mock / results / live war room) — Mock Draft folded in as
+      // one of its doors rather than a separate workroom. The home card swaps
+      // this title for "Enter Live Draft" while the draft is live.
+      { title: "Draft Lobby", href: "/scouting/draft-room", subtitle: "Live Draft + Results + Mock", icon: "presentation" },
     ],
   },
   {
