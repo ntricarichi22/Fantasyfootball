@@ -20,6 +20,11 @@ type DirectorRead = {
   field: FieldPlayer[];
 };
 type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null };
+type TBPick = { pick: string; value: number };
+type TradeOverride = { overall: number; rosterId: string };
+// One slide-back offer from the trade-back route: the swapped picks plus a fully
+// re-mocked board so the client can read survival odds at the new slot.
+type TBOffer = { partner: string; partnerId: string; fromPick: string; toPick: string; give: TBPick[]; get: TBPick[]; net: number; rationale: string; overrides: TradeOverride[]; board: BoardPick[] };
 
 // Softmax the engine's want scores into pick probabilities.
 function softmax(wants: number[], T = 0.12): number[] {
@@ -79,6 +84,13 @@ export function MockDraftView() {
   const [simSeconds, setSimSeconds] = useState(SIM_SECONDS);
   const [control, setControl] = useState<Set<string> | null>(null);
 
+  // Trade Back tab: accepted sim trades (accumulated ownership swaps that thread
+  // into every re-mock), plus the current slide-back offers + carousel index.
+  const [tradeOverrides, setTradeOverrides] = useState<TradeOverride[]>([]);
+  const [tbOffers, setTbOffers] = useState<TBOffer[]>([]);
+  const [tbIdx, setTbIdx] = useState(0);
+  const [tbLoading, setTbLoading] = useState(false);
+
   const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
   const onClock = revealed < board.length ? board[revealed] : null;
   const isMine = (b: BoardPick) => (control ? control.has(b.rosterId) : b.mine);
@@ -112,7 +124,7 @@ export function MockDraftView() {
   function reproject(scn: Scenario) {
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     setBusy(true);
-    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario: scn, forcedPicks }) })
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario: scn, forcedPicks, tradeOverrides }) })
       .then((r) => r.json()).then((j: Payload) => applyPayload(j)).catch(() => setError("Re-mock failed.")).finally(() => setBusy(false));
   }
 
@@ -136,6 +148,33 @@ export function MockDraftView() {
     return () => clearInterval(id);
   }, [phase, revealed, board, busy, control, simSeconds]);
 
+  // ── trade back ───────────────────────────────────────────────────────────────
+  // Fetch slide-back offers when you open the Trade Back tab on the clock. Only
+  // then (your clock is paused, so the board is stable) — never mid-sim.
+  useEffect(() => {
+    if (tab !== "trade" || !yourTurn) return;
+    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    let cancelled = false;
+    Promise.resolve().then(() => { if (!cancelled) setTbLoading(true); });
+    fetch(`/api/scouting/mock-draft/trade-back`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides }) })
+      .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => { if (!cancelled) { setTbOffers(j.offers ?? []); setTbIdx(0); } })
+      .catch(() => { if (!cancelled) setTbOffers([]); })
+      .finally(() => { if (!cancelled) setTbLoading(false); });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, yourTurn, revealed, scenario, teamId]);
+
+  function acceptTradeBack(offer: TBOffer) {
+    const owner = new Map(tradeOverrides.map((o) => [o.overall, o.rosterId]));
+    for (const o of offer.overrides) owner.set(o.overall, o.rosterId);
+    const nextOverrides = [...owner.entries()].map(([overall, rosterId]) => ({ overall, rosterId }));
+    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    setTradeOverrides(nextOverrides); setTbOffers([]); setTbIdx(0); setBusy(true);
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides: nextOverrides }) })
+      .then((r) => r.json()).then((j: Payload) => { applyPayload(j); setTab("clock"); })
+      .catch(() => setError("Trade failed.")).finally(() => setBusy(false));
+  }
+
   // ── actions ────────────────────────────────────────────────────────────────
   function start() { setRevealed(0); setViewRound(board[0]?.round ?? 2); setSeconds(simSeconds); setPhase("running"); }
   function startBtn() { if (phase === "setup" || isComplete) return start(); setPhase(phase === "running" ? "paused" : "running"); }
@@ -148,7 +187,7 @@ export function MockDraftView() {
       { overall: cur.overall, playerId },
     ];
     setBusy(true);
-    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks }) })
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides }) })
       .then((r) => r.json()).then((j: Payload) => {
         applyPayload(j);
         const next = revealed + 1;
@@ -305,6 +344,30 @@ export function MockDraftView() {
     );
   }
 
+  // Who the director thinks survives to our NEW slot if we take a slide-back:
+  // survival-chain the offer's re-mocked board, tag each with our big-board rank
+  // (their index in our fit-sorted pool) and flag a steal (rank ahead of slot).
+  function whosThereForOffer(offer: TBOffer) {
+    const b = offer.board;
+    const newIdx = b.findIndex((x, i) => i >= revealed && x.mine);
+    if (newIdx < 0) return [] as { playerId: string; name: string; pos: string; nflTeam: string | null; pct: number; rank: number; steal: boolean }[];
+    const rankById = new Map(pool.map((p, i) => [p.id, i + 1]));
+    return (b[newIdx].survivors ?? [])
+      .map((c) => {
+        let p = 1;
+        for (let i = revealed; i < newIdx; i++) {
+          const sv = b[i]?.survivors ?? [];
+          const probs = softmax(sv.map((s) => s.want));
+          const idx = sv.findIndex((s) => s.playerId === c.playerId);
+          if (idx >= 0) p *= 1 - (probs[idx] ?? 0);
+        }
+        const rank = rankById.get(c.playerId) ?? 0;
+        return { playerId: c.playerId, name: c.name, pos: c.pos, nflTeam: c.nflTeam, pct: p, rank, steal: rank > 0 && rank < newIdx + 1 };
+      })
+      .sort((a, b2) => b2.pct - a.pct)
+      .slice(0, 3);
+  }
+
   return (
     <div style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
@@ -373,13 +436,113 @@ export function MockDraftView() {
           {/* ── BOTTOM: one integrated card — tabs + two divider-separated panes ── */}
           <div style={{ flex: 1, minHeight: 0, marginTop: 15, display: "flex", flexDirection: "column", background: RECESS2, border: `2.5px solid ${BINK}`, borderRadius: 8, overflow: "hidden", boxShadow: `4px 4px 0 ${BINK}` }}>
             <div style={{ display: "flex", flexShrink: 0, borderBottom: `2px solid ${BINK}` }}>
-              {([["clock", "ON THE CLOCK"], ["our", "OUR PICK"], ["trade", "TRADE"]] as const).map(([k, lbl], i) => (
+              {([["clock", "ON THE CLOCK"], ["our", "OUR PICK"], ["trade", "TRADE BACK"]] as const).map(([k, lbl], i) => (
                 <button key={k} onClick={() => setTab(k)} style={{ padding: "9px 20px", border: "none", borderRight: i < 2 ? `2px solid ${BINK}` : "none", background: tab === k ? GREEN : "transparent", color: tab === k ? SCREAM : FADE, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, cursor: "pointer" }}>{lbl}</button>
               ))}
             </div>
 
             {tab === "trade" ? (
-              <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 14, letterSpacing: 3, color: DIM }}>TRADE — COMING SOON</div>
+              !yourTurn ? (
+                <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 24, fontFamily: OSWALD, fontWeight: 600, fontSize: 13, letterSpacing: 1, color: DIM }}>You&rsquo;re not on the clock — I&rsquo;ll ring if a team calls to move up.</div>
+              ) : tbLoading ? (
+                <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: DIM }}>WORKING THE PHONES…</div>
+              ) : tbOffers.length === 0 ? (
+                <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", textAlign: "center", padding: 24, fontFamily: OSWALD, fontWeight: 600, fontSize: 12, color: DIM }}>No partner has a clean move-up package right now.</div>
+              ) : (() => {
+                const offer = tbOffers[Math.min(tbIdx, tbOffers.length - 1)];
+                const wt = whosThereForOffer(offer);
+                const nick = teamNickname(offer.partner);
+                const gotCount = offer.get.length;
+                return (
+                  <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
+                    {/* LEFT PANE: the offer */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", borderRight: `1.5px solid ${HLINE}` }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 13px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                            <div style={{ width: 28, height: 28, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(offer.partner)}') center / cover`, flexShrink: 0 }} />
+                            <span style={{ fontFamily: ANTON, fontSize: 26, letterSpacing: 1, color: "#fff", lineHeight: 0.95 }}>{offer.fromPick}</span>
+                            <i className="ti ti-arrow-right" style={{ fontSize: 22, color: GOLD }} aria-hidden="true" />
+                            <span style={{ fontFamily: ANTON, fontSize: 26, letterSpacing: 1, color: "#fff", lineHeight: 0.95 }}>{offer.toPick}</span>
+                          </div>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, letterSpacing: 0.8, color: FADE, marginTop: 4 }}>{nick.toUpperCase()} WANT UP</div>
+                        </div>
+                        {tbOffers.length > 1 && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 1, color: SCREAM }}>
+                            <span onClick={() => setTbIdx((i) => (i - 1 + tbOffers.length) % tbOffers.length)} style={{ cursor: "pointer", color: GOLD, fontSize: 16, lineHeight: 1 }}>‹</span>
+                            {(tbIdx % tbOffers.length) + 1}/{tbOffers.length}
+                            <span onClick={() => setTbIdx((i) => (i + 1) % tbOffers.length)} style={{ cursor: "pointer", color: GOLD, fontSize: 16, lineHeight: 1 }}>›</span>
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ padding: "12px 13px" }}>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: GOLD, marginBottom: 8 }}>THE OFFER</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 11 }}>
+                          <div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11, letterSpacing: 1, color: "#fff", marginBottom: 6 }}>YOU SEND</div>
+                            {offer.give.map((g) => (
+                              <div key={g.pick} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                                <span style={{ fontFamily: ANTON, fontSize: 15, color: GREEN }}>{g.pick}</span><span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, color: DIM }}>your pick</span>
+                              </div>
+                            ))}
+                          </div>
+                          <div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11, letterSpacing: 1, color: "#fff", marginBottom: 6 }}>YOU RECEIVE</div>
+                            {offer.get.map((g) => (
+                              <div key={g.pick} style={{ background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                                <span style={{ fontFamily: ANTON, fontSize: 15, color: GREEN }}>{g.pick}</span><span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, color: DIM }}>{nick}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <button onClick={() => acceptTradeBack(offer)} disabled={busy} style={{ width: "100%", marginTop: 12, fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: 11, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>ACCEPT THIS SLIDE-BACK</button>
+                      </div>
+                    </div>
+
+                    {/* RIGHT PANE: here's how I see it */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, height: 58, padding: "0 13px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/avatars/scouting.png" alt="" style={{ width: 26, height: 26, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover" }} />
+                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM }}>HERE&rsquo;S HOW I SEE IT</span>
+                      </div>
+                      <div style={{ padding: "11px 13px", display: "flex", flexDirection: "column", gap: 11 }}>
+                        <div>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 0.4, textTransform: "uppercase", color: SCREAM, borderBottom: `4px solid ${GREEN}`, paddingBottom: 2 }}>We should take this deal</span>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 12, lineHeight: 1.44, color: "#e6dcc4", marginTop: 9 }}>
+                            {`The ${nick} want to jump up to ${offer.fromPick}. Sliding back to ${offer.toPick} turns one pick into ${gotCount === 2 ? "two" : gotCount === 3 ? "three" : gotCount}${offer.net > 0 ? " and nets us draft value" : ""}. `}{offer.rationale || "The tier we actually want is still on the board when we're back up — so we cash in the extra capital."}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: GOLD, marginBottom: 7 }}>HERE&rsquo;S WHO I THINK IS THERE AT {offer.toPick}</div>
+                          {wt.length === 0 ? (
+                            <div style={{ fontFamily: OSWALD, fontSize: 11, color: DIM }}>No clean read on the new slot.</div>
+                          ) : (
+                            <div style={{ display: "flex", gap: 6 }}>
+                              {wt.map((o) => (
+                                <div key={o.playerId} style={{ flex: 1, minWidth: 0, background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "7px 8px", display: "flex", flexDirection: "column", minHeight: 86 }}>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11.5, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: GSUB }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                                  <div style={{ marginTop: "auto" }}>
+                                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 4 }}>
+                                      <span style={{ fontFamily: ANTON, fontSize: 17, color: GREEN, lineHeight: 0.85 }}>{Math.round(o.pct * 100)}%</span>
+                                      <span style={{ fontFamily: ANTON, fontSize: 13, color: "#fff", background: o.steal ? GREEN : BINK, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "1px 6px", lineHeight: 1.1 }}>{o.rank > 0 ? `#${o.rank}` : "—"}</span>
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: 4, marginTop: 3, fontFamily: OSWALD, fontWeight: 600, fontSize: 7.5, color: META }}>
+                                      <span>chance</span>
+                                      <span style={{ whiteSpace: "nowrap" }}>on our board</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()
             ) : (
               <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
                 {tab === "clock" ? (

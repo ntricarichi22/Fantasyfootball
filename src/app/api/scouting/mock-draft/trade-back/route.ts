@@ -7,29 +7,30 @@ import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/dra
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// SIMULATION-ONLY trade-back. Lives entirely inside the mock draft — no real
-// trade is created, nothing persists. Given the user's pick, it finds a willing
-// move-up partner a few slots later, balances the package with the pick-value
-// ladder so the user nets value for sliding back, then re-runs the engine with
-// the swapped pick ownership so the whole board re-mocks from the trade.
+// SIMULATION-ONLY trade-back offers. Lives entirely inside the mock draft — no
+// real trade is created, nothing persists server-side. Given the pick you're
+// about to make (and the picks already made, as forcedPicks), it finds up to
+// three willing move-up partners a few slots later, balances each package on
+// the pick-value ladder so you net value for sliding back, then re-runs the
+// engine with the swapped pick ownership so each offer carries a fully
+// re-mocked board (with per-pick survivors) — the UI reads survival odds off
+// that board to show who'd still be there at your new slot.
 
 const SCENARIOS: DraftScenario[] = ["standard", "qb-run", "rb-run", "wr-run", "chalk"];
+const asScenario = (v: unknown): DraftScenario =>
+  typeof v === "string" && SCENARIOS.includes(v as DraftScenario) ? (v as DraftScenario) : "standard";
+const pickKey = (round: number, slot: number | null) => `${round}.${String(slot ?? 0).padStart(2, "0")}`;
 
-function pickKey(round: number, slot: number | null): string {
-  return `${round}.${String(slot ?? 0).padStart(2, "0")}`;
-}
-
-export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const teamId = searchParams.get("teamId") ?? "";
-  const pickStr = searchParams.get("pick") ?? "";
-  const scenarioParam = searchParams.get("scenario") ?? "standard";
-  const scenario: DraftScenario = SCENARIOS.includes(scenarioParam as DraftScenario)
-    ? (scenarioParam as DraftScenario)
-    : "standard";
-
+export async function POST(req: Request) {
+  const body = (await req.json().catch(() => ({}))) as {
+    teamId?: string;
+    scenario?: string;
+    forcedPicks?: Array<{ overall: number; playerId: string }>;
+  };
   const [data, ladder] = await Promise.all([getLeagueData(), getPickValues()]);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
+  const scenario = asScenario(body.scenario);
+  const teamId = body.teamId ?? "";
 
   const you =
     data.teams.find((t) => t.rosterId === teamId) ??
@@ -39,113 +40,116 @@ export async function GET(req: Request) {
   const youId = you.rosterId;
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
 
+  const forced = new Map<number, string>();
+  for (const f of body.forcedPicks ?? []) {
+    if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);
+  }
+  const forcedOveralls = new Set(forced.keys());
+
   // Current-year pick board, in order.
   const current: OwnedPick[] = [];
   for (const list of data.pickOwnership.values()) {
     for (const p of list) if (p.kind === "current" && p.overall != null) current.push(p);
   }
   current.sort((a, b) => a.overall! - b.overall!);
+  const valOf = (p: OwnedPick) => ladder.get(pickKey(p.round, p.slot)) ?? 0;
 
-  const valOf = (p: OwnedPick) =>
-    ladder.get(pickKey(p.round, p.slot)) ?? ladder.get(`${p.round}.${p.slot}`) ?? 0;
-
-  const myPick =
-    current.find((p) => p.currentRosterId === youId && pickKey(p.round, p.slot) === pickStr) ??
-    current.find((p) => p.currentRosterId === youId);
-  if (!myPick) return NextResponse.json({ offer: null, reason: "You hold no pick to trade." });
+  // The pick you're on the clock for = your first current pick that isn't already made.
+  const myPick = current.find((p) => p.currentRosterId === youId && !forcedOveralls.has(p.overall!));
+  if (!myPick) return NextResponse.json({ offers: [] });
   const myVal = valOf(myPick);
 
-  // Move-up partners: picks after yours owned by another team, prefer a +1..+6 window.
-  const later = current.filter((p) => p.overall! > myPick.overall! && p.currentRosterId !== youId);
-  const windowed = later.filter((p) => p.overall! - myPick.overall! <= 6);
-  const candidates = (windowed.length ? windowed : later).sort((a, b) => a.overall! - b.overall!);
-
-  let partnerPick: OwnedPick | null = null;
-  let extraPick: OwnedPick | null = null;
-  for (const cand of candidates) {
-    const candVal = valOf(cand);
-    if (candVal >= myVal) {
-      partnerPick = cand;
-      extraPick = null;
-      break;
-    }
-    const partnerLater = current
-      .filter((p) => p.currentRosterId === cand.currentRosterId && p.overall! > cand.overall!)
-      .map((p) => ({ p, v: valOf(p) }))
-      .sort((a, b) => a.v - b.v);
-    const cover = partnerLater.find((e) => candVal + e.v >= myVal) ?? partnerLater[partnerLater.length - 1];
-    if (cover) {
-      partnerPick = cand;
-      extraPick = cover.p;
-      break;
-    }
-  }
-
-  if (!partnerPick) {
-    return NextResponse.json({ offer: null, reason: "No partner with a clean move-up package right now." });
-  }
-
-  const partnerId = partnerPick.currentRosterId;
-  const getValue = valOf(partnerPick) + (extraPick ? valOf(extraPick) : 0);
-  const offer = {
-    partner: nameByRoster.get(partnerId) ?? partnerId,
-    give: { pick: pickKey(myPick.round, myPick.slot), value: Math.round(myVal) },
-    get: [
-      { pick: pickKey(partnerPick.round, partnerPick.slot), value: Math.round(valOf(partnerPick)) },
-      ...(extraPick ? [{ pick: pickKey(extraPick.round, extraPick.slot), value: Math.round(valOf(extraPick)) }] : []),
-    ],
-    net: Math.round(getValue - myVal),
-  };
-
-  // Swap ownership and re-mock the whole board.
-  const newOwner = new Map<number, string>();
-  newOwner.set(myPick.overall!, partnerId);
-  newOwner.set(partnerPick.overall!, youId);
-  if (extraPick) newOwner.set(extraPick.overall!, youId);
-  const order = current.map((p) =>
-    newOwner.has(p.overall!) ? { ...p, currentRosterId: newOwner.get(p.overall!)! } : p
+  // Move-up partners: unmade picks after yours owned by another team, +1..+8 window.
+  const later = current.filter(
+    (p) => p.overall! > myPick.overall! && p.currentRosterId !== youId && !forcedOveralls.has(p.overall!),
   );
+  const windowed = later.filter((p) => p.overall! - myPick.overall! <= 8);
+  const candidates = (windowed.length ? windowed : later).sort((a, b) => a.overall! - b.overall!);
 
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
-  const { projection, reads } = runDraftEngine(data, grid, profiles, boards, order, scenario);
+  const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
 
-  const board = projection.map((s) => ({
-    pick: pickKey(s.round, s.slot),
-    overall: s.overall,
-    team: nameByRoster.get(s.rosterId) ?? s.rosterId,
-    player: s.name,
-    pos: s.position,
-    reason: s.reason,
-    mine: s.rosterId === youId,
-  }));
-  const myPicksAfter = board.filter((b) => b.mine).map((b) => b.pick);
+  const offers: unknown[] = [];
+  const seenPartners = new Set<string>();
+  for (const cand of candidates) {
+    if (offers.length >= 3) break;
+    if (seenPartners.has(cand.currentRosterId)) continue;
 
-  const myRead = reads.find((r) => r.rosterId === youId);
-  const next = myRead?.picks?.[0] ?? null;
-  const directorRead = next
-    ? {
-        pick: `${next.round}.${String(next.slot ?? 0).padStart(2, "0")}`,
-        rec: next.recommendation,
-        rationale: next.rationale,
-        projected: next.projectedPick,
-        starGone: next.starGoneBeforeSlot,
-        field: next.topSurvivors.map((s) => ({
-          id: s.playerId,
-          name: s.name,
-          pos: s.position,
-          value: s.asset,
-          wouldStart: s.upgrade > 0,
-          starred: s.starred,
+    // Balance the package: if the partner's pick alone doesn't cover your value,
+    // find the cheapest of their later picks that closes the gap.
+    const candVal = valOf(cand);
+    let extraPick: OwnedPick | null = null;
+    if (candVal < myVal) {
+      const partnerLater = current
+        .filter((p) => p.currentRosterId === cand.currentRosterId && p.overall! > cand.overall! && !forcedOveralls.has(p.overall!))
+        .map((p) => ({ p, v: valOf(p) }))
+        .sort((a, b) => a.v - b.v);
+      const cover = partnerLater.find((e) => candVal + e.v >= myVal) ?? partnerLater[partnerLater.length - 1];
+      if (!cover) continue;
+      extraPick = cover.p;
+    }
+    seenPartners.add(cand.currentRosterId);
+    const partnerId = cand.currentRosterId;
+
+    // Swap ownership and re-mock the whole board (keeping already-made picks).
+    const overrides = [
+      { overall: myPick.overall!, rosterId: partnerId },
+      { overall: cand.overall!, rosterId: youId },
+      ...(extraPick ? [{ overall: extraPick.overall!, rosterId: youId }] : []),
+    ];
+    const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
+    const order = current.map((p) =>
+      ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p,
+    );
+    const { projection, reads } = runDraftEngine(data, grid, profiles, boards, order, scenario, forced);
+
+    const readByOverall = new Map<number, (typeof reads)[number]["picks"][number]>();
+    for (const r of reads) for (const p of r.picks) readByOverall.set(p.overall, p);
+    const board = projection.map((s) => {
+      const pr = readByOverall.get(s.overall);
+      return {
+        pick: pickKey(s.round, s.slot),
+        round: s.round,
+        overall: s.overall,
+        rosterId: s.rosterId,
+        team: nameByRoster.get(s.rosterId) ?? s.rosterId,
+        player: s.name,
+        playerId: s.playerId,
+        pos: s.position,
+        reason: s.reason,
+        mine: s.rosterId === youId,
+        needs: [] as string[],
+        why: pr?.rationale ?? "",
+        tradeCandidate: false,
+        survivors: (pr?.topSurvivors ?? []).map((sv) => ({
+          playerId: sv.playerId,
+          name: sv.name,
+          pos: sv.position,
+          nflTeam: nflTeamOf(sv.playerId),
+          want: sv.want,
         })),
-      }
-    : null;
+      };
+    });
+    const myRead = reads.find((r) => r.rosterId === youId);
 
-  return NextResponse.json({
-    offer,
-    board,
-    directorRead,
-    you: { rosterId: youId, name: you.teamName, picks: myPicksAfter },
-  });
+    offers.push({
+      partner: nameByRoster.get(partnerId) ?? partnerId,
+      partnerId,
+      fromPick: pickKey(myPick.round, myPick.slot),
+      toPick: pickKey(cand.round, cand.slot),
+      give: [{ pick: pickKey(myPick.round, myPick.slot), value: Math.round(myVal) }],
+      get: [
+        { pick: pickKey(cand.round, cand.slot), value: Math.round(candVal) },
+        ...(extraPick ? [{ pick: pickKey(extraPick.round, extraPick.slot), value: Math.round(valOf(extraPick)) }] : []),
+      ],
+      net: Math.round(candVal + (extraPick ? valOf(extraPick) : 0) - myVal),
+      rationale: myRead?.picks?.[0]?.rationale ?? "",
+      overrides,
+      board,
+    });
+  }
+
+  return NextResponse.json({ offers });
 }

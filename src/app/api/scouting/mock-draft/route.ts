@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getLeagueData, type LeagueData } from "@/shared/league-data";
+import { getLeagueData, type LeagueData, type OwnedPick } from "@/shared/league-data";
 import { buildTeamProfiles, type TeamProfile } from "@/shared/team-profiles";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
@@ -27,11 +27,25 @@ function needLabels(profile: TeamProfile | undefined): string[] {
 // each pick's Director read — needs, why, trade candidate), the prospect pool
 // graded from your lineup, and the read for your next pick. forcedPicks locks
 // the picks you've already made in the sim so the rest projects around them.
-function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string, forcedPicks?: Map<number, string>) {
+// Build a pick-order override from accepted sim trades (swapped ownership by
+// overall). Returns undefined when there are no trades — the engine then uses
+// its default order, so untraded drafts behave exactly as before.
+function buildOrder(data: LeagueData, tradeOverrides?: Array<{ overall: number; rosterId: string }>): OwnedPick[] | undefined {
+  if (!tradeOverrides?.length) return undefined;
+  const current: OwnedPick[] = [];
+  for (const list of data.pickOwnership.values()) {
+    for (const p of list) if (p.kind === "current" && p.overall != null) current.push(p);
+  }
+  current.sort((a, b) => a.overall! - b.overall!);
+  const owner = new Map(tradeOverrides.map((o) => [o.overall, o.rosterId]));
+  return current.map((p) => (owner.has(p.overall!) ? { ...p, currentRosterId: owner.get(p.overall!)! } : p));
+}
+
+function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string, forcedPicks?: Map<number, string>, order?: OwnedPick[]) {
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   return getAllBoards(data, grid).then((boards) => {
-    const { projection, reads, poolSize } = runDraftEngine(data, grid, profiles, boards, undefined, scenario, forcedPicks);
+    const { projection, reads, poolSize } = runDraftEngine(data, grid, profiles, boards, order, scenario, forcedPicks);
 
     const you =
       data.teams.find((t) => t.rosterId === teamId) ??
@@ -114,6 +128,7 @@ export async function POST(req: Request) {
     teamId?: string;
     scenario?: string;
     forcedPicks?: Array<{ overall: number; playerId: string }>;
+    tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json(data, { status: 500 });
@@ -121,6 +136,7 @@ export async function POST(req: Request) {
   for (const f of body.forcedPicks ?? []) {
     if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);
   }
-  const payload = await buildPayload(data, asScenario(body.scenario), body.teamId ?? "", forced);
+  const order = buildOrder(data, body.tradeOverrides);
+  const payload = await buildPayload(data, asScenario(body.scenario), body.teamId ?? "", forced, order);
   return NextResponse.json(payload);
 }
