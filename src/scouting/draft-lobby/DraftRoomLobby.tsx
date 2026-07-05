@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 
 type Phase = "pre-day-one" | "between" | "complete";
@@ -64,7 +64,14 @@ export function DraftRoomLobby() {
   // The bill headline stacks one word per line; size to the longest word.
   const words = (hero?.title ?? "").toUpperCase().split(" ");
   const maxLen = Math.max(...words.map((w) => w.length), 1);
-  const billSize = maxLen <= 4 ? 74 : maxLen <= 6 ? 54 : 38;
+  const billSize = maxLen <= 4 ? 88 : maxLen <= 6 ? 60 : 42;
+
+  // Poster-justify a row: characters spread edge to edge across the bill.
+  const spread = (text: string, style: CSSProperties) => (
+    <div style={{ display: "flex", justifyContent: "space-between", width: "100%", ...style }}>
+      {text.split("").map((c, i) => <span key={i}>{c === " " ? " " : c}</span>)}
+    </div>
+  );
 
   // One tin plate on the felt. Modes: live (cream, red ENTER), hot (the war
   // room gone live — red + flashing), locked (dimmed, gold status tag),
@@ -135,9 +142,8 @@ export function DraftRoomLobby() {
           <div style={{ flex: 1, display: "flex", flexDirection: "column", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "8px 14px", background: HGREEN, borderBottom: `3px solid ${BINK}`, flexShrink: 0 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
-                <div style={{ width: 34, height: 34, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 2px rgba(0,0,0,0.4)", flexShrink: 0 }}>
-                  <span style={{ fontFamily: ANTON, fontSize: 12, letterSpacing: 0.5, color: GOLD }}>CFC</span>
-                </div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src="/cfc-logo.png" alt="CFC" style={{ height: 38, width: "auto", flexShrink: 0, filter: "drop-shadow(0 1px 2px rgba(0,0,0,0.45))" }} />
                 <span style={{ fontFamily: ANTON, fontSize: 22, letterSpacing: 3, color: SCREAM, whiteSpace: "nowrap" }}>DRAFT LOBBY</span>
               </div>
               <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 2.5, color: FADE, whiteSpace: "nowrap" }}>
@@ -153,15 +159,15 @@ export function DraftRoomLobby() {
                   {/* The bill — draft-week poster, full height of the plate stack:
                       eyebrow pinned top, headline centered, round chip pinned bottom. */}
                   <div style={{ flexShrink: 0, width: 272, display: "flex", flexDirection: "column" }}>
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "space-between", background: RECESS2, backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 5px)", border: `3px solid ${BINK}`, borderRadius: 3, boxShadow: "0 3px 6px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(233,196,106,0.35)", padding: "22px 12px", textAlign: "center" }}>
-                      <div style={{ fontFamily: ANTON, fontSize: 16, letterSpacing: 5, color: GOLD, borderBottom: "2px solid rgba(233,196,106,0.4)", paddingBottom: 8 }}>{hero.eyebrow.toUpperCase()}</div>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-between", background: RECESS2, backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 5px)", border: `3px solid ${BINK}`, borderRadius: 3, boxShadow: "0 3px 6px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(233,196,106,0.35)", padding: "22px 16px", textAlign: "center" }}>
+                      {spread(hero.eyebrow.toUpperCase(), { fontFamily: ANTON, fontSize: 24, color: GOLD, borderBottom: "2.5px solid rgba(233,196,106,0.45)", paddingBottom: 12 })}
                       <div style={{ padding: "18px 0" }}>
                         {words.map((w) => (
-                          <div key={w} style={{ fontFamily: ANTON, fontSize: billSize, lineHeight: 0.96, color: SCREAM, textShadow: "3px 3px 0 rgba(0,0,0,0.55)" }}>{w}</div>
+                          <div key={w} style={{ fontFamily: ANTON, fontSize: billSize, lineHeight: 0.96, color: SCREAM, textShadow: "3px 3px 0 rgba(0,0,0,0.55)", textAlign: "center" }}>{w}</div>
                         ))}
                       </div>
                       <div>
-                        <div style={{ display: "inline-block", fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: BINK, background: GOLD, border: `2px solid ${BINK}`, padding: "4px 13px" }}>{hero.sub.toUpperCase()}</div>
+                        <div style={{ boxSizing: "border-box", width: "100%", textAlign: "center", fontFamily: ANTON, fontSize: 15, letterSpacing: 2, color: BINK, background: GOLD, border: `2px solid ${BINK}`, padding: "6px 0" }}>{hero.sub.toUpperCase()}</div>
                         {live && (
                           <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11, letterSpacing: 2, color: GOLD, marginTop: 9 }}>LIVE IN {live}</div>
                         )}
