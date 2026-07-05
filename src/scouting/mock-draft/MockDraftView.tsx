@@ -40,14 +40,15 @@ const RECESS2 = "#1e1a15", HLINE = "#322c24", DIM = "#8a7d63", FADE = "#b9ab8d";
 const ANTON = "'Anton', sans-serif", OSWALD = "'Oswald', sans-serif";
 const SIM_SECONDS = 10;
 
+// Display names match the lobby's setup modal; engine keys are unchanged.
 const SCENARIOS: { key: Scenario; label: string }[] = [
-  { key: "standard", label: "Standard" }, { key: "qb-run", label: "QB Run" }, { key: "rb-run", label: "RB Run" },
-  { key: "wr-run", label: "WR Run" }, { key: "chalk", label: "Chalk" },
+  { key: "standard", label: "How I See It" }, { key: "qb-run", label: "QB Heavy" }, { key: "rb-run", label: "RB Heavy" },
+  { key: "wr-run", label: "WR Heavy" }, { key: "chalk", label: "Chalk" },
 ];
 const RUNS: { key: Scenario; label: string }[] = [
-  { key: "qb-run", label: "QB Run" }, { key: "rb-run", label: "RB Run" }, { key: "wr-run", label: "WR Run" },
+  { key: "qb-run", label: "QB Heavy" }, { key: "rb-run", label: "RB Heavy" }, { key: "wr-run", label: "WR Heavy" },
 ];
-const LABEL: Record<Scenario, string> = { standard: "Standard", "qb-run": "QB Run", "rb-run": "RB Run", "wr-run": "WR Run", chalk: "Chalk" };
+const LABEL: Record<Scenario, string> = { standard: "How I See It", "qb-run": "QB Heavy", "rb-run": "RB Heavy", "wr-run": "WR Heavy", chalk: "Chalk" };
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
@@ -73,9 +74,15 @@ export function MockDraftView() {
   const [scnOpen, setScnOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
 
+  // Lobby-modal settings (query params): clock speed per AI pick, and which
+  // seats you drive. control === null → no param → classic "your team only".
+  const [simSeconds, setSimSeconds] = useState(SIM_SECONDS);
+  const [control, setControl] = useState<Set<string> | null>(null);
+
   const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
   const onClock = revealed < board.length ? board[revealed] : null;
-  const yourTurn = phase === "running" && !!onClock?.mine;
+  const isMine = (b: BoardPick) => (control ? control.has(b.rosterId) : b.mine);
+  const yourTurn = phase === "running" && !!onClock && isMine(onClock);
   const isComplete = phase !== "setup" && board.length > 0 && revealed >= board.length;
 
   // ── data ───────────────────────────────────────────────────────────────────
@@ -83,7 +90,14 @@ export function MockDraftView() {
     setBoard(j.board); setPool(j.pool); setRead(j.directorRead); setScenario(j.scenario);
   }
   useEffect(() => {
-    fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=standard`)
+    const sp = new URLSearchParams(window.location.search);
+    const scnParam = sp.get("scenario");
+    const scn: Scenario = SCENARIOS.some((s) => s.key === scnParam) ? (scnParam as Scenario) : "standard";
+    const spd = Number(sp.get("speed"));
+    if (Number.isFinite(spd) && spd >= 1 && spd <= 60) setSimSeconds(spd);
+    const ctl = sp.get("control");
+    if (ctl !== null) setControl(new Set(ctl.split(",").filter(Boolean)));
+    fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=${scn}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
       .then((j: Payload) => applyPayload(j))
       .catch(() => setError("Couldn't load the draft."))
@@ -106,9 +120,10 @@ export function MockDraftView() {
   useEffect(() => {
     if (phase !== "running" || busy) return;
     if (revealed >= board.length) return;
-    if (board[revealed]?.mine) return;
-    let remaining = SIM_SECONDS;
-    Promise.resolve().then(() => setSeconds(SIM_SECONDS));
+    const cur = board[revealed];
+    if (cur && (control ? control.has(cur.rosterId) : cur.mine)) return;
+    let remaining = simSeconds;
+    Promise.resolve().then(() => setSeconds(simSeconds));
     const id = setInterval(() => {
       remaining -= 1;
       if (remaining <= 0) {
@@ -119,10 +134,10 @@ export function MockDraftView() {
       } else { setSeconds(remaining); }
     }, 1000);
     return () => clearInterval(id);
-  }, [phase, revealed, board, busy]);
+  }, [phase, revealed, board, busy, control, simSeconds]);
 
   // ── actions ────────────────────────────────────────────────────────────────
-  function start() { setRevealed(0); setViewRound(board[0]?.round ?? 2); setSeconds(SIM_SECONDS); setPhase("running"); }
+  function start() { setRevealed(0); setViewRound(board[0]?.round ?? 2); setSeconds(simSeconds); setPhase("running"); }
   function startBtn() { if (phase === "setup" || isComplete) return start(); setPhase(phase === "running" ? "paused" : "running"); }
   function resetSim() { setPhase("setup"); setRevealed(0); setViewRound(board[0]?.round ?? 2); }
   function makePick(playerId: string) {
@@ -214,12 +229,12 @@ export function MockDraftView() {
             <>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, letterSpacing: 0.4, color: SCREAM, whiteSpace: "nowrap" }}>{teamNickname(b.team)}</div>
-                <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 2, color: CRED, animation: "cfcBlink 1s steps(2) infinite" }}>{b.mine ? "YOUR PICK — ON THE CLOCK" : "ON THE CLOCK"}</div>
+                <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 2, color: CRED, animation: "cfcBlink 1s steps(2) infinite" }}>{isMine(b) ? "YOUR PICK — ON THE CLOCK" : "ON THE CLOCK"}</div>
               </div>
               <span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, color: CRED }}>ON&nbsp;CLOCK</span>
-              {!b.mine && (
+              {!isMine(b) && (
                 <div style={{ position: "absolute", left: 3, right: 3, bottom: 3, height: 4, borderRadius: 2, overflow: "hidden", background: "rgba(0,0,0,0.45)" }}>
-                  <div style={{ height: "100%", background: CRED, width: `${Math.max(0, (seconds / SIM_SECONDS) * 100)}%`, transition: "width 1s linear" }} />
+                  <div style={{ height: "100%", background: CRED, width: `${Math.max(0, (seconds / simSeconds) * 100)}%`, transition: "width 1s linear" }} />
                 </div>
               )}
             </>
@@ -239,7 +254,7 @@ export function MockDraftView() {
               <span style={{ fontFamily: OSWALD, fontWeight: 500, fontSize: 10, letterSpacing: 1.5, color: META, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.team.toUpperCase()}</span>
             </div>
             {b.pos && <span style={{ flexShrink: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 11, letterSpacing: 1, color: PLACARD, background: BINK, padding: "3px 8px", borderRadius: 2 }}>{b.pos}</span>}
-            {b.mine && <div style={{ position: "absolute", top: -2, right: -2, background: ARED, color: "#fff", fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1, padding: "2px 6px", border: `2px solid ${BINK}`, borderRadius: "0 2px 0 4px" }}>YOU</div>}
+            {isMine(b) && <div style={{ position: "absolute", top: -2, right: -2, background: ARED, color: "#fff", fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1, padding: "2px 6px", border: `2px solid ${BINK}`, borderRadius: "0 2px 0 4px" }}>YOU</div>}
           </div>
         )}
       </div>

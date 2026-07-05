@@ -17,6 +17,7 @@ export async function GET() {
     season: new Date().getFullYear(),
     teamCount: 12,
     upcomingDraftAt: null as string | null,
+    teams: [] as Array<{ rosterId: string; name: string }>,
   };
 
   const admin = getSupabaseAdminClient();
@@ -41,6 +42,24 @@ export async function GET() {
   const r1 = seasonRows.filter((r) => roundOf(r.pick_number!) === 1).length;
   const r23 = seasonRows.filter((r) => roundOf(r.pick_number!) >= 2).length;
 
+  // The league's seats — feeds the mock-settings modal. team_email_map is the
+  // cheap one-row-per-team source (draft_log only covers teams that have
+  // actually drafted, which traded picks can shrink below 12).
+  const teams: Array<{ rosterId: string; name: string }> = [];
+  try {
+    const { data: seatRows } = await admin.client.from("team_email_map").select("roster_id, team_name");
+    const seen = new Set<string>();
+    for (const r of (seatRows ?? []) as Array<{ roster_id: string | number; team_name: string | null }>) {
+      const rid = String(r.roster_id);
+      if (!r.team_name || seen.has(rid)) continue;
+      seen.add(rid);
+      teams.push({ rosterId: rid, name: r.team_name });
+    }
+    teams.sort((a, b) => Number(a.rosterId) - Number(b.rosterId));
+  } catch {
+    /* seat list optional — the modal degrades to "your team only" */
+  }
+
   const dayOneComplete = r1 >= teamCount && teamCount > 0;
   const dayTwoComplete = r23 > 0;
   const phase: Phase = !dayOneComplete ? "pre-day-one" : !dayTwoComplete ? "between" : "complete";
@@ -53,5 +72,5 @@ export async function GET() {
     /* draft_state optional */
   }
 
-  return NextResponse.json({ phase, dayOneComplete, dayTwoComplete, season, teamCount, upcomingDraftAt });
+  return NextResponse.json({ phase, dayOneComplete, dayTwoComplete, season, teamCount, upcomingDraftAt, teams });
 }
