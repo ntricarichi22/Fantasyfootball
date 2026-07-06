@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
-import { Icon } from "@/shared/ui/Icon";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
+import { teamNickname } from "@/shared/league-data/nicknames";
 import {
   ActionBar,
   MobileActionBar,
@@ -121,9 +121,12 @@ function assetSummary(assets: OfferAsset[]): string {
   return extra > 0 ? `${shown} +${extra}` : shown;
 }
 
-type RosterInfo = { name: string; logo: string | null };
+const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 
-async function fetchRosterInfo(): Promise<Record<string, RosterInfo>> {
+// House logo art — same resolution the Draft Lobby and Mock Draft use.
+const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
+
+async function fetchRosterNames(): Promise<Record<string, string>> {
   if (!LEAGUE_ID_ENV) return {};
   try {
     const [r, u] = await Promise.all([
@@ -133,22 +136,10 @@ async function fetchRosterInfo(): Promise<Record<string, RosterInfo>> {
     if (!r.ok || !u.ok) return {};
     const rosters = await r.json();
     const users = await u.json();
-    const uMap: Record<string, RosterInfo> = {};
-    for (const x of users) {
-      // Team logo: the team-specific avatar URL if the owner set one, else
-      // their Sleeper account avatar.
-      const logo =
-        x.metadata?.avatar ||
-        (x.avatar ? `https://sleepercdn.com/avatars/thumbs/${x.avatar}` : null);
-      uMap[x.user_id] = {
-        name: x.metadata?.team_name || x.display_name || x.user_id,
-        logo,
-      };
-    }
-    const m: Record<string, RosterInfo> = {};
-    for (const x of rosters) {
-      m[String(x.roster_id)] = uMap[x.owner_id] || { name: `Team ${x.roster_id}`, logo: null };
-    }
+    const uMap: Record<string, string> = {};
+    for (const x of users) uMap[x.user_id] = x.metadata?.team_name || x.display_name || x.user_id;
+    const m: Record<string, string> = {};
+    for (const x of rosters) m[String(x.roster_id)] = uMap[x.owner_id] || `Team ${x.roster_id}`;
     return m;
   } catch {
     return {};
@@ -170,7 +161,7 @@ export default function InboxPage() {
   const [boardFilter, setBoardFilter] = useState<BoardFilter>("all");
   const [memos, setMemos] = useState<Memo[]>([]);
   const [threads, setThreads] = useState<TradeThread[]>([]);
-  const [rosterInfo, setRosterInfo] = useState<Record<string, RosterInfo>>({});
+  const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
   const [insider, setInsider] = useState<InsiderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -182,7 +173,7 @@ export default function InboxPage() {
   }, []);
 
   useEffect(() => {
-    fetchRosterInfo().then(setRosterInfo);
+    fetchRosterNames().then(setRosterNames);
   }, []);
 
   // Old mail-model deep links map onto the new sections: sent → active
@@ -295,8 +286,7 @@ export default function InboxPage() {
       const offers = t.offers ?? [];
       if (!latest || offers.length === 0) continue;
       const counterpartId = t.team_a_id === rosterId ? t.team_b_id : t.team_a_id;
-      const info = rosterInfo[counterpartId];
-      const counterpart = info?.name || `Team ${counterpartId}`;
+      const counterpart = rosterNames[counterpartId] || `Team ${counterpartId}`;
       const isFromUser = latest.from_team_id === rosterId;
       const isReceiver = latest.to_team_id === rosterId;
 
@@ -337,7 +327,7 @@ export default function InboxPage() {
       out.push({
         threadId: t.id,
         counterpart,
-        logoUrl: info?.logo ?? null,
+        logoUrl: logoFor(counterpart),
         versions,
         status,
         unseen,
@@ -346,7 +336,7 @@ export default function InboxPage() {
     }
     out.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return out;
-  }, [threads, rosterInfo, rosterId]);
+  }, [threads, rosterNames, rosterId]);
 
   const isActiveTile = (t: NegotiationTileData) =>
     t.status === "our_court" || t.status === "on_them";
@@ -571,32 +561,6 @@ export default function InboxPage() {
                         {f.label} {boardCounts[f.value]}
                       </button>
                     ))}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        window.location.href = "/pro-personnel/trade-builder";
-                      }}
-                      style={{
-                        background: "#3366CC",
-                        color: "#FEFCF9",
-                        border: "1.5px solid #1A1A1A",
-                        boxShadow: "2px 2px 0 #1A1A1A",
-                        padding: "5px 10px",
-                        fontFamily: FM,
-                        fontSize: 9,
-                        fontWeight: 700,
-                        letterSpacing: "0.08em",
-                        textTransform: "uppercase",
-                        cursor: "pointer",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 5,
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      <Icon name="plus" size={11} />
-                      New offer
-                    </button>
                   </div>
                 </div>
 

@@ -138,6 +138,7 @@ export function NegotiationTile({
 }) {
   const currentIdx = tile.versions.length - 1;
   const [selectedIdx, setSelectedIdx] = useState(currentIdx);
+  const [logoFailed, setLogoFailed] = useState(false);
   // Refetches can append a version — never leave the selection out of range,
   // and snap to the new current when one arrives.
   const idx = Math.min(selectedIdx, currentIdx);
@@ -151,19 +152,28 @@ export function NegotiationTile({
 
   if (!version) return null;
 
-  const microLabel: React.CSSProperties = {
+  const ledgerLabel: React.CSSProperties = {
+    width: 34,
+    flexShrink: 0,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
     fontFamily: FM,
     fontSize: 8,
-    fontWeight: 700,
-    letterSpacing: "0.14em",
-    color: "#8C7E6A",
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    borderRight: "1.5px solid #1A1A1A",
+    background: "#F5F0E6",
+    color: "#1A1A1A",
   };
-  const dealLine: React.CSSProperties = {
+  const ledgerValue: React.CSSProperties = {
+    padding: "7px 9px",
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     lineHeight: 1.3,
     fontFamily: FB,
     color: viewingCurrent ? "#1A1A1A" : "#5F5A50",
+    minWidth: 0,
   };
 
   return (
@@ -188,30 +198,39 @@ export function NegotiationTile({
       `}</style>
 
       <div style={{ opacity: isClosed ? 0.62 : 1, flex: 1 }}>
+        {/* Hero row — team logo and name side by side on one cream band */}
         <div style={{ padding: "9px 9px 0" }}>
           <div
             style={{
               background: "#F5F0E6",
               border: "2px solid #1A1A1A",
               borderRadius: 8,
-              height: 58,
+              padding: "8px 10px",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
-              overflow: "hidden",
+              gap: 9,
             }}
           >
-            {tile.logoUrl ? (
+            {tile.logoUrl && !logoFailed ? (
               <img
                 src={tile.logoUrl}
                 alt=""
-                style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: "2px solid #1A1A1A" }}
+                onError={() => setLogoFailed(true)}
+                style={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: "50%",
+                  objectFit: "cover",
+                  border: "2px solid #1A1A1A",
+                  flexShrink: 0,
+                  background: "#FEFCF9",
+                }}
               />
             ) : (
               <span
                 style={{
-                  width: 44,
-                  height: 44,
+                  width: 38,
+                  height: 38,
                   borderRadius: "50%",
                   background: avatarColors(tile.counterpart, "trade").bg,
                   color: avatarColors(tile.counterpart, "trade").fg,
@@ -220,88 +239,103 @@ export function NegotiationTile({
                   alignItems: "center",
                   justifyContent: "center",
                   fontFamily: "Impact, system-ui, sans-serif",
-                  fontSize: 17,
+                  fontSize: 15,
+                  flexShrink: 0,
                 }}
               >
                 {monogram(tile.counterpart)}
               </span>
             )}
-          </div>
-        </div>
-
-        <div style={{ padding: "9px 11px 0" }}>
-          <p
-            style={{
-              fontFamily: "Impact, system-ui, sans-serif",
-              fontSize: 16,
-              margin: 0,
-              lineHeight: 1.05,
-              letterSpacing: "0.01em",
-              color: "#1A1A1A",
-            }}
-          >
-            {tile.counterpart.toUpperCase()}
-          </p>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 6,
-              marginTop: 7,
-            }}
-          >
-            <span style={{ display: "inline-flex", gap: 3, flexWrap: "wrap" }}>
-              {tile.versions.map((v, i) => {
-                const active = i === idx;
-                return (
-                  <button
-                    key={v.label}
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedIdx(i);
-                    }}
-                    style={{
-                      fontFamily: FM,
-                      fontSize: 8,
-                      fontWeight: 700,
-                      background: active ? "#1A1A1A" : "transparent",
-                      border: `1.5px solid ${active ? "#1A1A1A" : "#C8C3B8"}`,
-                      color: active ? "#FEFCF9" : "#8C7E6A",
-                      borderRadius: 5,
-                      padding: "2px 5px",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {v.label}
-                  </button>
-                );
-              })}
-            </span>
-            <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#8C7E6A", flexShrink: 0 }}>
-              {ago.toUpperCase()}
+            <span
+              style={{
+                fontFamily: "Impact, system-ui, sans-serif",
+                fontSize: 15,
+                lineHeight: 1.05,
+                letterSpacing: "0.01em",
+                color: "#1A1A1A",
+                minWidth: 0,
+              }}
+            >
+              {tile.counterpart.toUpperCase()}
             </span>
           </div>
         </div>
 
         <div
           style={{
-            margin: "8px 11px 10px",
-            borderTop: "1.5px solid #C8C3B8",
-            padding: "7px 0 0",
+            padding: "8px 11px 0",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 6,
+          }}
+        >
+          <span style={{ display: "inline-flex", gap: 3, flexWrap: "wrap" }}>
+            {tile.versions.map((v, i) => {
+              const active = i === idx;
+              return (
+                <button
+                  key={v.label}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedIdx(i);
+                  }}
+                  style={{
+                    fontFamily: FM,
+                    fontSize: 8,
+                    fontWeight: 700,
+                    background: active ? "#1A1A1A" : "transparent",
+                    border: `1.5px solid ${active ? "#1A1A1A" : "#C8C3B8"}`,
+                    color: active ? "#FEFCF9" : "#8C7E6A",
+                    borderRadius: 5,
+                    padding: "2px 5px",
+                    cursor: "pointer",
+                  }}
+                >
+                  {v.label}
+                </button>
+              );
+            })}
+          </span>
+          <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#8C7E6A", flexShrink: 0 }}>
+            {ago.toUpperCase()}
+          </span>
+        </div>
+
+        <div
+          style={{
+            padding: "5px 11px 2px",
+            fontFamily: FM,
+            fontSize: 6.5,
+            fontWeight: 700,
+            letterSpacing: "0.12em",
+            color: "#8C7E6A",
+          }}
+        >
+          {version.label} · {version.caption} · {viewingCurrent ? "CURRENT" : "SUPERSEDED"}
+        </div>
+
+        {/* The ledger — the deal is the loudest thing on the card */}
+        <div
+          style={{
+            margin: "3px 11px 10px",
+            border: "1.5px solid #1A1A1A",
+            borderRadius: 8,
+            overflow: "hidden",
             background: viewingCurrent
               ? "transparent"
               : "repeating-linear-gradient(-45deg, transparent, transparent 7px, rgba(200,195,184,0.18) 7px, rgba(200,195,184,0.18) 8px)",
           }}
         >
-          <div style={{ ...microLabel, fontSize: 7, marginBottom: 4 }}>
-            {version.label} · {version.caption} · {viewingCurrent ? "CURRENT" : "SUPERSEDED"}
+          <div style={{ display: "flex", alignItems: "stretch" }}>
+            <span style={ledgerLabel}>GET</span>
+            <span style={ledgerValue}>{version.youGet}</span>
           </div>
-          <div style={microLabel}>GET</div>
-          <div style={dealLine}>{version.youGet}</div>
-          <div style={{ ...microLabel, marginTop: 5 }}>GIVE</div>
-          <div style={dealLine}>{version.youGive}</div>
+          <div style={{ display: "flex", alignItems: "stretch", borderTop: "1.5px solid #1A1A1A" }}>
+            <span style={ledgerLabel}>GIVE</span>
+            <span style={ledgerValue}>{version.youGive}</span>
+          </div>
         </div>
       </div>
 
