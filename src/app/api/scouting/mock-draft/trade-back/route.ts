@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     teamId?: string;
     scenario?: string;
     forcedPicks?: Array<{ overall: number; playerId: string }>;
+    tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
   const [data, ladder] = await Promise.all([getLeagueData(), getPickValues()]);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
@@ -45,11 +46,18 @@ export async function POST(req: Request) {
     if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);
   }
   const forcedOveralls = new Set(forced.keys());
+  // Prior accepted trades — apply them so ownership reflects the live sim.
+  const priorOwner = new Map<number, string>();
+  for (const o of body.tradeOverrides ?? []) if (typeof o?.overall === "number") priorOwner.set(o.overall, o.rosterId);
 
-  // Current-year pick board, in order.
+  // Current-year pick board, in order (with prior sim trades applied).
   const current: OwnedPick[] = [];
   for (const list of data.pickOwnership.values()) {
-    for (const p of list) if (p.kind === "current" && p.overall != null) current.push(p);
+    for (const p of list) {
+      if (p.kind === "current" && p.overall != null) {
+        current.push(priorOwner.has(p.overall) ? { ...p, currentRosterId: priorOwner.get(p.overall)! } : p);
+      }
+    }
   }
   current.sort((a, b) => a.overall! - b.overall!);
   const valOf = (p: OwnedPick) => ladder.get(pickKey(p.round, p.slot)) ?? 0;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname } from "@/shared/league-data/nicknames";
@@ -136,13 +136,21 @@ export function MockDraftView() {
   }
 
   // ── the clock ──────────────────────────────────────────────────────────────
+  // The countdown persists across pause/resume — it only resets to full when the
+  // pick actually changes. So freezing for a modal (or the Pause button) picks
+  // right back up where it left off instead of restarting the clock.
+  const lastRevealedRef = useRef(-1);
+  const secondsRef = useRef(SIM_SECONDS);
+  useEffect(() => { secondsRef.current = seconds; }, [seconds]);
   useEffect(() => {
     if (phase !== "running" || busy) return;
     if (revealed >= board.length) return;
     const cur = board[revealed];
     if (cur && (control ? control.has(cur.rosterId) : cur.mine)) return;
-    let remaining = simSeconds;
-    Promise.resolve().then(() => setSeconds(simSeconds));
+    const newPick = lastRevealedRef.current !== revealed;
+    lastRevealedRef.current = revealed;
+    let remaining = newPick ? simSeconds : Math.max(1, secondsRef.current);
+    if (newPick) Promise.resolve().then(() => setSeconds(simSeconds));
     const id = setInterval(() => {
       remaining -= 1;
       if (remaining <= 0) {
@@ -192,7 +200,7 @@ export function MockDraftView() {
   function openTradeUp() {
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     setPhase("paused"); setTuOpen(true); setTuOffers([]); setTuIdx(0); setTuLoading(true);
-    fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides }) })
+    fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
       .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => { setTuOffers(j.offers ?? []); setTuIdx(0); })
       .catch(() => setTuOffers([])).finally(() => setTuLoading(false));
   }
@@ -753,6 +761,7 @@ export function MockDraftView() {
               const offer = tuOffers[Math.min(tuIdx, tuOffers.length - 1)];
               const wt = whosThereForOffer(offer);
               const nick = teamNickname(offer.partner);
+              const heavyOverpay = offer.net < -20;
               return (
                 <>
                   <div style={{ background: GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
@@ -805,7 +814,7 @@ export function MockDraftView() {
                   <div style={{ padding: "12px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", gap: 11, alignItems: "flex-start" }}>
                     <span style={{ width: 32, height: 32, borderRadius: "50%", border: `2px solid ${BINK}`, flexShrink: 0, marginTop: 1, background: `#fff url('/avatars/scouting.png') center / cover` }} />
                     <div style={{ minWidth: 0 }}>
-                      <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 0.4, textTransform: "uppercase", color: BINK, borderBottom: `4px solid ${GREEN}`, paddingBottom: 2 }}>We should make this move</span>
+                      <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 0.4, textTransform: "uppercase", color: BINK, borderBottom: `4px solid ${heavyOverpay ? "#F5C230" : GREEN}`, paddingBottom: 2 }}>{heavyOverpay ? "It'll cost a premium to jump" : "We should make this move"}</span>
                       <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 12.5, lineHeight: 1.46, color: BINK, marginTop: 9 }}>
                         {`The ${nick} will slide back from ${offer.toPick}. Jumping up${offer.give.length > 1 ? " — our pick plus a sweetener —" : ""} puts us in front of the run: ${wt[0] ? `${wt[0].name} and the top of the board come into reach.` : "we get ahead of the teams eyeing our guy."} `}{offer.rationale || ""}
                       </div>

@@ -8,12 +8,14 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 // SIMULATION-ONLY trade-up offers — the mirror of the trade-back route. Given
-// the pick you're about to make (and the picks already made, as forcedPicks),
-// it finds up to three teams picking AHEAD of you who'd slide back, then builds
-// the package you'd send to jump to their slot (your pick + the cheapest of
-// your later picks needed to cover the value gap). Each offer re-runs the
-// engine with the swapped ownership so the UI can read who you'd have access to
-// at the new, higher slot.
+// the pick you're about to make (forcedPicks = the picks already made, and
+// tradeOverrides = the ownership swaps from trades you've already accepted this
+// sim), it always surfaces a way to jump to the team currently ON THE CLOCK,
+// plus the next-closest jumps. It builds the package you'd send (your pick +
+// the cheapest of your later picks needed to cover the value gap) and re-runs
+// the engine with the swapped ownership so the UI can read who you'd have
+// access to at the new slot. It never returns zero offers when a pick sits
+// ahead of yours — you can always ring the team on the clock.
 
 const SCENARIOS: DraftScenario[] = ["standard", "qb-run", "rb-run", "wr-run", "chalk"];
 const asScenario = (v: unknown): DraftScenario =>
@@ -24,7 +26,9 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     teamId?: string;
     scenario?: string;
+    targetOverall?: number;
     forcedPicks?: Array<{ overall: number; playerId: string }>;
+    tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
   const [data, ladder] = await Promise.all([getLeagueData(), getPickValues()]);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
@@ -44,10 +48,17 @@ export async function POST(req: Request) {
     if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);
   }
   const forcedOveralls = new Set(forced.keys());
+  // Prior accepted trades — apply them so ownership reflects the live sim.
+  const priorOwner = new Map<number, string>();
+  for (const o of body.tradeOverrides ?? []) if (typeof o?.overall === "number") priorOwner.set(o.overall, o.rosterId);
 
   const current: OwnedPick[] = [];
   for (const list of data.pickOwnership.values()) {
-    for (const p of list) if (p.kind === "current" && p.overall != null) current.push(p);
+    for (const p of list) {
+      if (p.kind === "current" && p.overall != null) {
+        current.push(priorOwner.has(p.overall) ? { ...p, currentRosterId: priorOwner.get(p.overall)! } : p);
+      }
+    }
   }
   current.sort((a, b) => a.overall! - b.overall!);
   const valOf = (p: OwnedPick) => ladder.get(pickKey(p.round, p.slot)) ?? 0;
@@ -56,12 +67,17 @@ export async function POST(req: Request) {
   if (!myPick) return NextResponse.json({ offers: [] });
   const myVal = valOf(myPick);
 
-  // Targets: unmade picks AHEAD of ours owned by another team, within an 8-slot jump.
-  const ahead = current.filter(
-    (p) => p.overall! < myPick.overall! && p.overall! >= myPick.overall! - 8 && p.currentRosterId !== youId && !forcedOveralls.has(p.overall!),
-  );
-  // Prefer the biggest realistic jumps first (closest to the front of the window).
-  const candidates = ahead.sort((a, b) => a.overall! - b.overall!);
+  // Targets: any unmade pick ahead of ours owned by another team. The team on
+  // the clock (targetOverall) is always the first option, then the closest
+  // jumps. No distance cap — you can always ring the team on the clock.
+  const targetOverall = typeof body.targetOverall === "number" ? body.targetOverall : null;
+  const candidates = current
+    .filter((p) => p.overall! < myPick.overall! && p.currentRosterId !== youId && !forcedOveralls.has(p.overall!))
+    .sort((a, b) => {
+      if (a.overall === targetOverall) return -1;
+      if (b.overall === targetOverall) return 1;
+      return (myPick.overall! - a.overall!) - (myPick.overall! - b.overall!);
+    });
 
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
@@ -74,18 +90,22 @@ export async function POST(req: Request) {
     if (offers.length >= 3) break;
     if (seenPartners.has(cand.currentRosterId)) continue;
 
-    // You must cover the gap up to their (more valuable) pick: add the cheapest
-    // of your later picks needed so your outgoing value >= their pick's value.
+    // Package: your pick + the cheapest of your later picks needed to cover the
+    // value gap. If a long jump can't be fully covered, send your best available
+    // — the offer still stands and the director's take flags the cost.
     const candVal = valOf(cand);
-    let extraPick: OwnedPick | null = null;
+    const extras: OwnedPick[] = [];
     if (myVal < candVal) {
       const myLater = current
         .filter((p) => p.currentRosterId === youId && p.overall! > myPick.overall! && !forcedOveralls.has(p.overall!))
         .map((p) => ({ p, v: valOf(p) }))
         .sort((a, b) => a.v - b.v);
-      const cover = myLater.find((e) => myVal + e.v >= candVal);
-      if (!cover) continue; // can't build a fair package to jump this far
-      extraPick = cover.p;
+      let total = myVal;
+      for (const e of myLater) {
+        if (total >= candVal || extras.length >= 3) break;
+        extras.push(e.p);
+        total += e.v;
+      }
     }
     seenPartners.add(cand.currentRosterId);
     const partnerId = cand.currentRosterId;
@@ -93,7 +113,7 @@ export async function POST(req: Request) {
     const overrides = [
       { overall: cand.overall!, rosterId: youId },
       { overall: myPick.overall!, rosterId: partnerId },
-      ...(extraPick ? [{ overall: extraPick.overall!, rosterId: partnerId }] : []),
+      ...extras.map((e) => ({ overall: e.overall!, rosterId: partnerId })),
     ];
     const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
     const order = current.map((p) =>
@@ -137,10 +157,10 @@ export async function POST(req: Request) {
       toPick: pickKey(cand.round, cand.slot),
       give: [
         { pick: pickKey(myPick.round, myPick.slot), value: Math.round(myVal) },
-        ...(extraPick ? [{ pick: pickKey(extraPick.round, extraPick.slot), value: Math.round(valOf(extraPick)) }] : []),
+        ...extras.map((e) => ({ pick: pickKey(e.round, e.slot), value: Math.round(valOf(e)) })),
       ],
       get: [{ pick: pickKey(cand.round, cand.slot), value: Math.round(candVal) }],
-      net: Math.round(candVal - (myVal + (extraPick ? valOf(extraPick) : 0))),
+      net: Math.round(candVal - (myVal + extras.reduce((s, e) => s + valOf(e), 0))),
       rationale: myRead?.picks?.[0]?.rationale ?? "",
       overrides,
       board,
