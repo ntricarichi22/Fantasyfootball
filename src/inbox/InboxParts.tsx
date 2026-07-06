@@ -118,15 +118,17 @@ function AvatarPlate({
 /*  the status dot is the only standing color and pulses while unseen.  */
 /* ------------------------------------------------------------------ */
 
+// Footer rides an ink band (accent variant D): cream labels, gold action on
+// states that want attention, dimmed cream on the passive ones.
 const TILE_FOOTER: Record<
   TileStatus,
   { label: string; action: string; dot: string; dotBorder: string; muted: boolean }
 > = {
-  our_court: { label: "IN OUR COURT", action: "RESPOND", dot: "#F5C230", dotBorder: "#1A1A1A", muted: false },
-  on_them: { label: "ON THEM", action: "FOLLOW UP", dot: "#FEFCF9", dotBorder: "#8C7E6A", muted: true },
-  accepted: { label: "ACCEPTED", action: "SEE THE DEAL", dot: "#019942", dotBorder: "#1A1A1A", muted: false },
-  declined: { label: "DECLINED", action: "REVIEW", dot: "#E8503A", dotBorder: "#1A1A1A", muted: false },
-  withdrawn: { label: "WITHDRAWN", action: "REVIEW", dot: "#C8C3B8", dotBorder: "#1A1A1A", muted: true },
+  our_court: { label: "IN OUR COURT", action: "RESPOND", dot: "#F5C230", dotBorder: "#FEFCF9", muted: false },
+  on_them: { label: "ON THEM", action: "FOLLOW UP", dot: "#FEFCF9", dotBorder: "rgba(254,252,249,0.6)", muted: true },
+  accepted: { label: "ACCEPTED", action: "SEE THE DEAL", dot: "#019942", dotBorder: "#FEFCF9", muted: false },
+  declined: { label: "DECLINED", action: "REVIEW", dot: "#E8503A", dotBorder: "#FEFCF9", muted: false },
+  withdrawn: { label: "WITHDRAWN", action: "REVIEW", dot: "#C8C3B8", dotBorder: "#FEFCF9", muted: true },
 };
 
 export function NegotiationTile({
@@ -198,66 +200,68 @@ export function NegotiationTile({
       `}</style>
 
       <div style={{ opacity: isClosed ? 0.62 : 1, flex: 1 }}>
-        {/* Hero row — team logo and name side by side on one cream band */}
+        {/* Hero row — logo and name on an ink band over the gold hairline,
+            the site's topbar signature in miniature */}
         <div style={{ padding: "9px 9px 0" }}>
-          <div
-            style={{
-              background: "#F5F0E6",
-              border: "2px solid #1A1A1A",
-              borderRadius: 8,
-              padding: "8px 10px",
-              display: "flex",
-              alignItems: "center",
-              gap: 9,
-            }}
-          >
-            {tile.logoUrl && !logoFailed ? (
-              <img
-                src={tile.logoUrl}
-                alt=""
-                onError={() => setLogoFailed(true)}
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: "50%",
-                  objectFit: "cover",
-                  border: "2px solid #1A1A1A",
-                  flexShrink: 0,
-                  background: "#FEFCF9",
-                }}
-              />
-            ) : (
-              <span
-                style={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: "50%",
-                  background: avatarColors(tile.counterpart, "trade").bg,
-                  color: avatarColors(tile.counterpart, "trade").fg,
-                  border: "2px solid #1A1A1A",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontFamily: "Impact, system-ui, sans-serif",
-                  fontSize: 15,
-                  flexShrink: 0,
-                }}
-              >
-                {monogram(tile.counterpart)}
-              </span>
-            )}
-            <span
+          <div style={{ border: "2px solid #1A1A1A", borderRadius: 8, overflow: "hidden" }}>
+            <div
               style={{
-                fontFamily: "Impact, system-ui, sans-serif",
-                fontSize: 15,
-                lineHeight: 1.05,
-                letterSpacing: "0.01em",
-                color: "#1A1A1A",
-                minWidth: 0,
+                background: "#1A1A1A",
+                padding: "8px 10px",
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
               }}
             >
-              {tile.counterpart.toUpperCase()}
-            </span>
+              {tile.logoUrl && !logoFailed ? (
+                <img
+                  src={tile.logoUrl}
+                  alt=""
+                  onError={() => setLogoFailed(true)}
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    objectFit: "cover",
+                    border: "2px solid #FEFCF9",
+                    flexShrink: 0,
+                    background: "#FEFCF9",
+                  }}
+                />
+              ) : (
+                <span
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: "50%",
+                    background: avatarColors(tile.counterpart, "trade").bg,
+                    color: avatarColors(tile.counterpart, "trade").fg,
+                    border: "2px solid #FEFCF9",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: "Impact, system-ui, sans-serif",
+                    fontSize: 15,
+                    flexShrink: 0,
+                  }}
+                >
+                  {monogram(tile.counterpart)}
+                </span>
+              )}
+              <span
+                style={{
+                  fontFamily: "Impact, system-ui, sans-serif",
+                  fontSize: 15,
+                  lineHeight: 1.05,
+                  letterSpacing: "0.01em",
+                  color: "#FEFCF9",
+                  minWidth: 0,
+                }}
+              >
+                {tile.counterpart.toUpperCase()}
+              </span>
+            </div>
+            <div style={{ height: 3, background: "#F5C230" }} />
           </div>
         </div>
 
@@ -341,7 +345,7 @@ export function NegotiationTile({
 
       <div
         style={{
-          background: "#F5F0E6",
+          background: "#1A1A1A",
           borderTop: "2px solid #1A1A1A",
           padding: "8px 11px",
           display: "flex",
@@ -359,7 +363,7 @@ export function NegotiationTile({
             fontSize: 9.5,
             fontWeight: 800,
             letterSpacing: "0.08em",
-            color: footer.muted ? "#8C7E6A" : "#1A1A1A",
+            color: footer.muted ? "rgba(254,252,249,0.55)" : "#FEFCF9",
           }}
         >
           <span
@@ -381,7 +385,7 @@ export function NegotiationTile({
             fontSize: 8.5,
             fontWeight: 700,
             letterSpacing: "0.1em",
-            color: footer.muted ? "#8C7E6A" : "#1A1A1A",
+            color: footer.muted ? "rgba(254,252,249,0.55)" : "#F5C230",
             whiteSpace: "nowrap",
           }}
         >
