@@ -62,6 +62,7 @@ const LOBBY_ROUTE = "/scouting/draft-room";
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
+const listPhrase = (a: string[]) => (a.length <= 1 ? a[0] ?? "" : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`);
 
 export function MockDraftView() {
   const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
@@ -326,15 +327,32 @@ export function MockDraftView() {
     );
   }
 
-  // ── director prose (right pane of the war room) ────────────────────────────────
+  // ── fit tier + director prose (right pane of the war room) ─────────────────────
+  // Every player gets a fit read: STARTER (would upgrade our lineup), IN ROTATION
+  // (real depth / rotational value), or BACKUP (a flier). Value is our CFC asset.
+  const maxVal = useMemo(() => pool.reduce((m, p) => Math.max(m, p.value), 1), [pool]);
+  const fitTier = (p: PoolPlayer) => (p.wouldStart ? "STARTER" : p.value >= 0.4 * maxVal ? "IN ROTATION" : "BACKUP");
+  // The on-clock team's survivors, softmaxed into "who they take" order (for prose).
+  const onClockTop = useMemo(() => {
+    const sv = onClock?.survivors ?? [];
+    const probs = softmax(sv.map((s) => s.want));
+    return sv.map((s, i) => ({ ...s, p: probs[i] ?? 0 })).sort((a, b) => b.p - a.p);
+  }, [onClock]);
+
   const nickOnClock = onClock ? teamNickname(onClock.team) : "";
   const directorHeadline = isComplete ? "DRAFT COMPLETE" : yourTurn ? `OUR PICK · ${onClock?.pick ?? ""}` : onClock ? `${nickOnClock.toUpperCase()} · ${onClock.pick}` : "READING THE ROOM";
+  const projRank = read?.projected ? pool.findIndex((p) => p.name === read.projected!.name) + 1 : 0;
+  const ourAlt = (read?.field ?? []).find((f) => f.name !== read?.projected?.name);
   const directorProse = isComplete
-    ? "That's the board. Run it back with a different scenario when you're ready."
+    ? "That's the board — run it back with a different scenario whenever you want."
     : yourTurn
-      ? (read?.rationale ? `${read.rationale}${read.projected ? ` I'd turn in ${read.projected.name}.` : ""}` : "We're on the clock — take the best guy on our board.")
+      ? (read?.projected
+          ? `${read.projected.name} (${read.projected.pos}${read.projected.nflTeam ? ` · ${read.projected.nflTeam}` : ""}) is the one I'd turn in${projRank > 0 ? ` — he's #${projRank} on our board and ${projRank <= 12 ? "a plug-and-play starter" : "the cleanest fit left"}` : ""}. ${read.rationale || ""}${ourAlt ? ` If you'd rather zag, ${ourAlt.name} is a real fit too — but the tier thins out fast after these two, so I'd lock it up here.` : ""}`
+          : "We're on the clock — I'd take the best guy on our board.")
       : onClock
-        ? (onClock.why || onClock.reason || `${nickOnClock} are on the clock.`)
+        ? (onClockTop[0]
+            ? `The ${nickOnClock} ${onClock.needs.length ? `need ${listPhrase(onClock.needs)}` : "are set at their starters"}, and ${onClockTop[0].name} (${onClockTop[0].pos}) is the best value left on their board — I'd bet they turn him in.${onClockTop[1] ? ` If they zag, ${onClockTop[1].name} is the pivot, and either way a starter should still slide toward us.` : ""}`
+            : `The ${nickOnClock} are on the clock. ${onClock.why || onClock.reason || ""}`)
         : "Setting the board…";
 
   // Trade modal offer (guarded index) + its computed context.
@@ -447,27 +465,27 @@ export function MockDraftView() {
                   </div>
                 </div>
               </div>
-              {/* column headers */}
-              <div style={{ display: "flex", alignItems: "center", padding: "6px 4px 4px 11px", flexShrink: 0 }}>
-                <span style={{ flex: 1, fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: DIM }}>PLAYER</span>
-                <span style={{ width: 68, flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 0.8, color: DIM }}>OUR BOARD</span>
-                <span style={{ width: 68, flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 0.8, color: DIM }}>FIT</span>
-                <span style={{ width: 68, flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 0.8, color: DIM }}>FALLS TO US</span>
-              </div>
               <div className="mdScroll" style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
+                {/* sticky column header — same box model as the plates so the columns line up */}
+                <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", padding: "5px 4px 6px 11px", flexShrink: 0 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: DIM }}>PLAYER</span>
+                  {["OUR BOARD", "FIT", "FALLS TO US"].map((h) => (
+                    <span key={h} style={{ width: 68, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 0.6, color: DIM }}>{h}</span>
+                  ))}
+                </div>
                 {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
                 {visiblePool.slice(0, 80).map((p) => {
                   const rank = rankById.get(p.id) ?? 0;
                   const surv = poolSurvivalById.get(p.id);
                   return (
-                    <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 34, padding: "0 4px 0 11px", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
+                    <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", boxSizing: "border-box", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 34, padding: "0 4px 0 11px", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
                       <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, whiteSpace: "nowrap", overflow: "hidden" }}>
                         <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                         <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 0.4, color: GSUB, flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
                       </span>
-                      <span style={{ width: 68, flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
-                      <span style={{ width: 68, flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, color: GREEN }}>{p.wouldStart ? "STARTER" : ""}</span>
-                      <span style={{ width: 68, flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
+                      <span style={{ width: 68, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
+                      <span style={{ width: 68, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
+                      <span style={{ width: 68, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
                     </div>
                   );
                 })}
