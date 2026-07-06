@@ -53,7 +53,11 @@ const SCENARIOS: { key: Scenario; label: string }[] = [
 const RUNS: { key: Scenario; label: string }[] = [
   { key: "qb-run", label: "QB Heavy" }, { key: "rb-run", label: "RB Heavy" }, { key: "wr-run", label: "WR Heavy" },
 ];
-const LABEL: Record<Scenario, string> = { standard: "How I See It", "qb-run": "QB Heavy", "rb-run": "RB Heavy", "wr-run": "WR Heavy", chalk: "Chalk" };
+// Clock speeds — must mirror the lobby's setup modal (DraftRoomLobby SPEEDS).
+const SPEEDS: { label: string; seconds: number }[] = [
+  { label: "Relaxed", seconds: 20 }, { label: "Steady", seconds: 10 }, { label: "Quick", seconds: 5 },
+];
+const LOBBY_ROUTE = "/scouting/draft-room";
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
@@ -76,7 +80,6 @@ export function MockDraftView() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [scnOpen, setScnOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
 
   // Lobby-modal settings (query params): clock speed per AI pick, and which
@@ -90,6 +93,13 @@ export function MockDraftView() {
   const [tbOffers, setTbOffers] = useState<TBOffer[]>([]);
   const [tbIdx, setTbIdx] = useState(0);
   const [tbLoading, setTbLoading] = useState(false);
+
+  // Trade Up (outbound) modal, plus the post-draft "run a different scenario" menu.
+  const [tuOpen, setTuOpen] = useState(false);
+  const [tuOffers, setTuOffers] = useState<TBOffer[]>([]);
+  const [tuIdx, setTuIdx] = useState(0);
+  const [tuLoading, setTuLoading] = useState(false);
+  const [scnMenuOpen, setScnMenuOpen] = useState(false);
 
   const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
   const onClock = revealed < board.length ? board[revealed] : null;
@@ -111,16 +121,13 @@ export function MockDraftView() {
     if (ctl !== null) setControl(new Set(ctl.split(",").filter(Boolean)));
     fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=${scn}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
-      .then((j: Payload) => applyPayload(j))
+      // You reach this page by hitting "start the mock" in the lobby, so the
+      // sim is already running — first team on the clock, no Start button.
+      .then((j: Payload) => { applyPayload(j); setViewRound(j.board?.[0]?.round ?? 2); setRevealed(0); setPhase("running"); })
       .catch(() => setError("Couldn't load the draft."))
       .finally(() => setLoading(false));
   }, [teamId]);
 
-  function fetchScenario(s: Scenario) {
-    setBusy(true);
-    fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=${s}`)
-      .then((r) => r.json()).then((j: Payload) => applyPayload(j)).catch(() => setError("Re-mock failed.")).finally(() => setBusy(false));
-  }
   function reproject(scn: Scenario) {
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     setBusy(true);
@@ -175,10 +182,33 @@ export function MockDraftView() {
       .catch(() => setError("Trade failed.")).finally(() => setBusy(false));
   }
 
+  // ── control panel ────────────────────────────────────────────────────────────
+  function pauseResume() { setPhase((p) => (p === "running" ? "paused" : "running")); }
+  function runScenario(s: Scenario) {
+    setScnMenuOpen(false);
+    const qp = new URLSearchParams({ scenario: s, speed: String(simSeconds), control: control ? [...control].join(",") : "" });
+    window.location.href = `/scouting/mock-draft?${qp.toString()}`;
+  }
+  function openTradeUp() {
+    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    setPhase("paused"); setTuOpen(true); setTuOffers([]); setTuIdx(0); setTuLoading(true);
+    fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides }) })
+      .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => { setTuOffers(j.offers ?? []); setTuIdx(0); })
+      .catch(() => setTuOffers([])).finally(() => setTuLoading(false));
+  }
+  function closeTradeUp() { setTuOpen(false); setTuOffers([]); if (!isComplete) setPhase("running"); }
+  function acceptTradeUp(offer: TBOffer) {
+    const owner = new Map(tradeOverrides.map((o) => [o.overall, o.rosterId]));
+    for (const o of offer.overrides) owner.set(o.overall, o.rosterId);
+    const nextOverrides = [...owner.entries()].map(([overall, rosterId]) => ({ overall, rosterId }));
+    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    setTradeOverrides(nextOverrides); setTuOpen(false); setTuOffers([]); setBusy(true);
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides: nextOverrides }) })
+      .then((r) => r.json()).then((j: Payload) => { applyPayload(j); setPhase("running"); })
+      .catch(() => setError("Trade failed.")).finally(() => setBusy(false));
+  }
+
   // ── actions ────────────────────────────────────────────────────────────────
-  function start() { setRevealed(0); setViewRound(board[0]?.round ?? 2); setSeconds(simSeconds); setPhase("running"); }
-  function startBtn() { if (phase === "setup" || isComplete) return start(); setPhase(phase === "running" ? "paused" : "running"); }
-  function resetSim() { setPhase("setup"); setRevealed(0); setViewRound(board[0]?.round ?? 2); }
   function makePick(playerId: string) {
     const cur = board[revealed];
     if (!cur) return;
@@ -199,8 +229,7 @@ export function MockDraftView() {
 
   // ── derived ────────────────────────────────────────────────────────────────
   const viewPicks = board.map((b, i) => ({ b, i })).filter((x) => x.b.round === viewRound);
-  const playLabel = isComplete ? "Restart" : phase === "running" ? "Pause" : phase === "paused" ? "Resume" : "Start";
-  const railBtn: CSSProperties = { fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 1, textTransform: "uppercase", background: FRAME, color: BINK, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "7px 13px", cursor: "pointer" };
+  const consoleBtn: CSSProperties = { fontFamily: OSWALD, fontWeight: 700, fontSize: 11, letterSpacing: 1, textTransform: "uppercase", background: GOLD, color: BINK, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: "8px 12px", cursor: "pointer" };
   // Draft-green meter bar carved into a cream plate. frac = pct ÷ leader's pct (0..1).
   const meter = (frac: number) => (
     <div style={{ height: 10, flexShrink: 0, borderRadius: 5, background: "#d8cdb1", boxShadow: "inset 0 1px 2px rgba(0,0,0,0.28)", overflow: "hidden", marginTop: 4 }}>
@@ -256,6 +285,19 @@ export function MockDraftView() {
       .slice(0, 2)
       .map((f) => ({ key: f.id, name: f.name, posTeam: `${f.pos}${f.nflTeam ? ` · ${f.nflTeam}` : ""}`, pct: survivalByPlayer.get(f.id) ?? 0 }));
   }, [read, survivalByPlayer]);
+
+  // "Get on the phones" nudge: a top-6 (our board) prospect is projected to be
+  // taken before our pick — a stud worth jumping for. Lights up the TRADE UP button.
+  const tradeUpNudge = useMemo(() => {
+    if (isComplete || yourTurn || ourIdx < 0) return false;
+    const rankById = new Map(pool.map((p, i) => [p.id, i + 1]));
+    for (let i = revealed; i < ourIdx; i++) {
+      const pid = board[i]?.playerId;
+      const r = pid ? rankById.get(pid) : undefined;
+      if (r && r <= 6) return true;
+    }
+    return false;
+  }, [isComplete, yourTurn, ourIdx, revealed, board, pool]);
 
   function slot(b: BoardPick, i: number) {
     const filled = i < revealed;
@@ -371,7 +413,7 @@ export function MockDraftView() {
   return (
     <div style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 3px ${ARED},inset 0 0 20px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 3px rgba(201,68,46,.45),inset 0 0 8px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 3px ${ARED},inset 0 0 20px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 3px rgba(201,68,46,.45),inset 0 0 8px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}@keyframes tuPulse{0%,100%{box-shadow:3px 3px 0 ${BINK},0 0 0 0 rgba(233,196,106,0)}50%{box-shadow:3px 3px 0 ${BINK},0 0 15px 4px rgba(233,196,106,.85)}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
 
       <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
 
@@ -380,6 +422,58 @@ export function MockDraftView() {
           {([["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]] as const).map(([v, h]) => (
             <div key={v + h} style={{ position: "absolute", [v]: 7, [h]: 7, width: 9, height: 9, borderRadius: "50%", background: BINK, boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.25)", zIndex: 5 }} />
           ))}
+
+          {/* ── CONTROL PANEL: the live-sim console (own emphasis, above the board) ── */}
+          <div style={{ position: "relative", background: FRAME, border: `2.5px solid ${BINK}`, borderRadius: 7, boxShadow: `4px 4px 0 ${BINK}`, padding: "9px 13px", marginBottom: 13, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flexShrink: 0 }}>
+            {isComplete ? (
+              <>
+                <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1.5, color: BINK }}>DRAFT COMPLETE</span>
+                <span style={{ flex: 1 }} />
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setScnMenuOpen((o) => !o)} style={consoleBtn}>Run a Different Scenario ▾</button>
+                  {scnMenuOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 40, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 160 }}>
+                      {SCENARIOS.map((s) => (
+                        <button key={s.key} onClick={() => runScenario(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => { window.location.href = LOBBY_ROUTE; }} style={consoleBtn}>Re-enter the Draft Lobby</button>
+              </>
+            ) : (
+              <>
+                <button onClick={pauseResume} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, color: SCREAM, background: phase === "running" ? "#a8632a" : GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: "8px 18px", cursor: "pointer" }}>{phase === "running" ? "PAUSE" : "RESUME"}</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginLeft: 4 }}>
+                  <span style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 1, color: META }}>SPEED</span>
+                  <div style={{ display: "flex", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", boxShadow: `2px 2px 0 ${BINK}` }}>
+                    {SPEEDS.map((sp, i) => (
+                      <button key={sp.label} onClick={() => setSimSeconds(sp.seconds)} style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.5, padding: "6px 12px", border: "none", borderRight: i < SPEEDS.length - 1 ? `2px solid ${BINK}` : "none", background: simSeconds === sp.seconds ? GOLD : FRAME, color: BINK, cursor: "pointer" }}>{sp.label}</button>
+                    ))}
+                  </div>
+                </div>
+                {busy && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: ARED }}>RE-MOCKING…</span>}
+                <span style={{ flex: 1 }} />
+                <div style={{ position: "relative" }}>
+                  <button onClick={() => setRunOpen((o) => !o)} disabled={yourTurn} style={{ ...consoleBtn, opacity: yourTurn ? 0.5 : 1, cursor: yourTurn ? "default" : "pointer" }}>Trigger Run ▾</button>
+                  {runOpen && !yourTurn && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 40, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 110 }}>
+                      {RUNS.map((s) => (
+                        <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: "flex", alignItems: "center" }}>
+                  {tradeUpNudge && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src="/avatars/scouting.png" alt="" style={{ width: 34, height: 34, borderRadius: "50%", border: `2.5px solid ${BINK}`, objectFit: "cover", marginRight: -14, position: "relative", zIndex: 2 }} />
+                  )}
+                  <button onClick={openTradeUp} disabled={yourTurn} style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 1, color: BINK, background: GOLD, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: tradeUpNudge ? "9px 16px 9px 22px" : "9px 16px", cursor: yourTurn ? "default" : "pointer", opacity: yourTurn ? 0.5 : 1, animation: tradeUpNudge ? "tuPulse 1.6s ease-in-out infinite" : "none" }}>TRADE UP</button>
+                </div>
+              </>
+            )}
+          </div>
 
           <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)", flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap", padding: "7px 12px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
@@ -393,32 +487,14 @@ export function MockDraftView() {
                   ))}
                 </div>
               </div>
-              {/* RIGHT: scenario · trigger · reset · start */}
-              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                {busy && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: CRED }}>RE-MOCKING…</span>}
-                <div style={{ position: "relative" }}>
-                  <button onClick={() => setScnOpen((o) => !o)} disabled={phase !== "setup"} style={{ ...railBtn, opacity: phase === "setup" ? 1 : 0.5, cursor: phase === "setup" ? "pointer" : "default" }}>{LABEL[scenario]} ▾</button>
-                  {scnOpen && phase === "setup" && (
-                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 130 }}>
-                      {SCENARIOS.map((s) => (
-                        <button key={s.key} onClick={() => { setScenario(s.key); setScnOpen(false); fetchScenario(s.key); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: s.key === scenario ? GOLD : "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div style={{ position: "relative" }}>
-                  <button onClick={() => setRunOpen((o) => !o)} disabled={phase === "setup" || isComplete} style={{ ...railBtn, opacity: phase === "setup" || isComplete ? 0.5 : 1, cursor: phase === "setup" || isComplete ? "default" : "pointer" }}>Trigger Run ▾</button>
-                  {runOpen && phase !== "setup" && !isComplete && (
-                    <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 30, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 110 }}>
-                      {RUNS.map((s) => (
-                        <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <button onClick={resetSim} style={railBtn}>Reset</button>
-                <button onClick={startBtn} disabled={loading} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, textTransform: "uppercase", background: ARED, color: SCREAM, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `3px 3px 0 ${BINK}`, padding: "6px 18px", cursor: "pointer" }}>{playLabel}</button>
-              </div>
+              {/* RIGHT: on-the-clock status */}
+              {onClock && !isComplete ? (
+                <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11, letterSpacing: 1.5, color: CRED, display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: CRED, animation: "cfcBlink 1s steps(2) infinite" }} /> ON THE CLOCK — {teamNickname(onClock.team).toUpperCase()}
+                </span>
+              ) : isComplete ? (
+                <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 2, color: GOLD }}>FINAL</span>
+              ) : <span />}
             </div>
 
             <div style={{ padding: 12 }}>
@@ -658,6 +734,116 @@ export function MockDraftView() {
           </div>
         </div>
       </div>
+
+      {/* ── TRADE UP modal (outbound — the director working the phones) ── */}
+      {tuOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(18,15,12,.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={closeTradeUp}>
+          <div className="mdScroll" onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", background: "#f2e8d0", border: `3px solid ${BINK}`, borderRadius: 8, boxShadow: `7px 7px 0 ${BINK}`, fontFamily: OSWALD }}>
+            {tuLoading ? (
+              <div style={{ padding: 44, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: META }}>WORKING THE PHONES…</div>
+            ) : tuOffers.length === 0 ? (
+              <>
+                <div style={{ background: GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM }}>TRADE UP</span>
+                  <span onClick={closeTradeUp} style={{ cursor: "pointer", color: SCREAM, fontFamily: ANTON, fontSize: 18, lineHeight: 1 }}>×</span>
+                </div>
+                <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>No team ahead will slide back for a fair package right now. Sit tight — I&rsquo;ll keep working it.</div>
+              </>
+            ) : (() => {
+              const offer = tuOffers[Math.min(tuIdx, tuOffers.length - 1)];
+              const wt = whosThereForOffer(offer);
+              const nick = teamNickname(offer.partner);
+              return (
+                <>
+                  <div style={{ background: GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/avatars/scouting.png" alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
+                      <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM }}>TRADE UP</span>
+                    </span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <span style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(offer.partner)}') center / cover` }} />
+                      <span onClick={closeTradeUp} style={{ cursor: "pointer", color: SCREAM, fontFamily: ANTON, fontSize: 18, lineHeight: 1 }}>×</span>
+                    </span>
+                  </div>
+
+                  <div style={{ background: PLACARD, padding: "7px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 8, fontFamily: ANTON, fontSize: 12, letterSpacing: 0.8, color: BINK }}>
+                      <span style={{ width: 19, height: 19, borderRadius: "50%", background: BINK, color: PLACARD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>↑</span>TRADE-UP OPPORTUNITY
+                    </span>
+                    <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      <span style={{ fontFamily: ANTON, fontSize: 14, color: BINK }}>{offer.fromPick} → {offer.toPick}</span>
+                      {tuOffers.length > 1 && (
+                        <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, color: BINK }}>
+                          <span onClick={() => setTuIdx((i) => (i - 1 + tuOffers.length) % tuOffers.length)} style={{ cursor: "pointer", fontSize: 15 }}>‹</span>
+                          {(tuIdx % tuOffers.length) + 1}/{tuOffers.length}
+                          <span onClick={() => setTuIdx((i) => (i + 1) % tuOffers.length)} style={{ cursor: "pointer", fontSize: 15 }}>›</span>
+                        </span>
+                      )}
+                    </span>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: `2.5px solid ${BINK}` }}>
+                    <div style={{ padding: "11px 14px", borderRight: `2px solid ${BINK}` }}>
+                      <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META, marginBottom: 7 }}>YOU SEND</div>
+                      {offer.give.map((g) => (
+                        <div key={g.pick} style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                          <span style={{ fontFamily: ANTON, fontSize: 15, color: GREEN }}>{g.pick}</span><span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, color: "#8a7d63" }}>your pick</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ padding: "11px 14px" }}>
+                      <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META, marginBottom: 7 }}>YOU RECEIVE</div>
+                      {offer.get.map((g) => (
+                        <div key={g.pick} style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 0, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+                          <span style={{ fontFamily: ANTON, fontSize: 15, color: GREEN }}>{g.pick}</span><span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, color: "#8a7d63" }}>{nick}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ padding: "12px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", gap: 11, alignItems: "flex-start" }}>
+                    <span style={{ width: 32, height: 32, borderRadius: "50%", border: `2px solid ${BINK}`, flexShrink: 0, marginTop: 1, background: `#fff url('/avatars/scouting.png') center / cover` }} />
+                    <div style={{ minWidth: 0 }}>
+                      <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 0.4, textTransform: "uppercase", color: BINK, borderBottom: `4px solid ${GREEN}`, paddingBottom: 2 }}>We should make this move</span>
+                      <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 12.5, lineHeight: 1.46, color: BINK, marginTop: 9 }}>
+                        {`The ${nick} will slide back from ${offer.toPick}. Jumping up${offer.give.length > 1 ? " — our pick plus a sweetener —" : ""} puts us in front of the run: ${wt[0] ? `${wt[0].name} and the top of the board come into reach.` : "we get ahead of the teams eyeing our guy."} `}{offer.rationale || ""}
+                      </div>
+                      {wt.length > 0 && (
+                        <>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: GSUB, margin: "11px 0 7px" }}>WHO WE&rsquo;D HAVE ACCESS TO AT {offer.toPick}</div>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            {wt.map((o) => (
+                              <div key={o.playerId} style={{ flex: 1, minWidth: 0, background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "7px 8px", display: "flex", flexDirection: "column", minHeight: 86 }}>
+                                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11.5, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: GSUB }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                                <div style={{ marginTop: "auto" }}>
+                                  <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 4 }}>
+                                    <span style={{ fontFamily: ANTON, fontSize: 17, color: GREEN, lineHeight: 0.85 }}>{Math.round(o.pct * 100)}%</span>
+                                    <span style={{ fontFamily: ANTON, fontSize: 13, color: "#fff", background: o.steal ? GREEN : BINK, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "1px 6px", lineHeight: 1.1 }}>{o.rank > 0 ? `#${o.rank}` : "—"}</span>
+                                  </div>
+                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 4, marginTop: 3, fontFamily: OSWALD, fontWeight: 600, fontSize: 7.5, color: META }}>
+                                    <span>chance</span><span style={{ whiteSpace: "nowrap" }}>on our board</span>
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "12px 14px" }}>
+                    <button onClick={closeTradeUp} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: BINK, background: "#f2e8d0", border: `2px solid ${BINK}`, borderRadius: 4, padding: 11, cursor: "pointer" }}>NOT NOW</button>
+                    <button onClick={() => acceptTradeUp(offer)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: 11, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>MAKE THE CALL</button>
+                  </div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
