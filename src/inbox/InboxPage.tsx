@@ -550,48 +550,47 @@ export default function InboxPage() {
 
               {/* ------------------- Negotiations -------------------- */}
               <div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: 10,
-                    marginBottom: 10,
-                    flexWrap: "wrap",
-                  }}
-                >
+                <div style={{ marginBottom: 9 }}>
                   <span style={{ fontFamily: FH, fontWeight: 800, fontSize: isMobile ? 18 : 20 }}>
                     Negotiations
                   </span>
-                  <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
-                    <input
-                      type="text"
-                      placeholder="Search team or player…"
-                      value={boardSearch}
-                      onChange={(e) => setBoardSearch(e.target.value)}
-                      style={{
-                        background: "#FEFCF9",
-                        border: "1.5px solid #1A1A1A",
-                        borderRadius: 6,
-                        padding: "5px 10px",
-                        fontFamily: FB,
-                        fontSize: 11,
-                        color: "#1A1A1A",
-                        outline: "none",
-                        width: isMobile ? "100%" : 180,
-                      }}
-                    />
-                    {BOARD_FILTERS.map((f) => (
-                      <button
-                        key={f.value}
-                        type="button"
-                        onClick={() => setBoardFilter(f.value)}
-                        style={pillStyle(boardFilter === f.value, f.value === "closed")}
-                      >
-                        {f.label} {boardCounts[f.value]}
-                      </button>
-                    ))}
-                  </div>
+                </div>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 5,
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    marginBottom: 14,
+                  }}
+                >
+                  <input
+                    type="text"
+                    placeholder="Search team or player…"
+                    value={boardSearch}
+                    onChange={(e) => setBoardSearch(e.target.value)}
+                    style={{
+                      background: "#FEFCF9",
+                      border: "1.5px solid #1A1A1A",
+                      borderRadius: 6,
+                      padding: "5px 10px",
+                      fontFamily: FB,
+                      fontSize: 11,
+                      color: "#1A1A1A",
+                      outline: "none",
+                      width: isMobile ? "100%" : 200,
+                    }}
+                  />
+                  {BOARD_FILTERS.map((f) => (
+                    <button
+                      key={f.value}
+                      type="button"
+                      onClick={() => setBoardFilter(f.value)}
+                      style={pillStyle(boardFilter === f.value, f.value === "closed")}
+                    >
+                      {f.label} {boardCounts[f.value]}
+                    </button>
+                  ))}
                 </div>
 
                 {visibleTiles.length === 0 ? (
