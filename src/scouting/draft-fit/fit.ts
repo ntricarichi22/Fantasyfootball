@@ -31,9 +31,11 @@ function floorForPosition(pos: Position, lineup: LineupSlot[]): number {
   return floor;
 }
 
-// Every unrostered, valued player in the dictionary. Value is required, so this
+// Every unrostered, valued ROOKIE in the dictionary. Value is required, so this
 // is "valued available talent" — derived straight from the bundle, no extra
-// fetch. Sorted best-asset first.
+// fetch. Sorted best-asset first. This is a rookie draft (Day Two), so veterans
+// (exp > 0) are excluded — otherwise unrostered vets like Sam Howell would
+// surface in the draftable pool.
 function buildProspectPool(data: LeagueData): ProspectInfo[] {
   const rostered = new Set<string>();
   for (const t of data.teams) for (const id of t.playerIds) rostered.add(id);
@@ -41,6 +43,7 @@ function buildProspectPool(data: LeagueData): ProspectInfo[] {
   const pool: ProspectInfo[] = [];
   for (const p of data.players.values()) {
     if (rostered.has(p.id)) continue;
+    if (typeof p.exp === "number" && p.exp > 0) continue; // rookies only
     const value = data.values.value.get(p.id);
     if (typeof value !== "number") continue;
     pool.push({

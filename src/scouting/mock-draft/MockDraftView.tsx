@@ -195,8 +195,10 @@ export function MockDraftView() {
   function fireInbound() {
     const first: TradeMode = Math.random() < 0.5 ? "back" : "up";
     const second: TradeMode = first === "back" ? "up" : "back";
+    // One call = one offer (the best). Rejecting it doesn't reveal a worse
+    // version of the same deal from another team.
     const open = (mode: TradeMode, offers: TBOffer[]) => {
-      setTradeMode(mode); setTradeInbound(true); setTradeOffers(offers); setTradeIdx(0); setTradeLoading(false); setTradeOpen(true); setPhase("paused");
+      setTradeMode(mode); setTradeInbound(true); setTradeOffers([offers[0]]); setTradeIdx(0); setTradeLoading(false); setTradeOpen(true); setPhase("paused");
     };
     fetchInboundOffers(first).then((offers) => {
       if (offers.length) { open(first, offers); return; }
@@ -399,7 +401,7 @@ export function MockDraftView() {
   return (
     <div style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 2px ${ARED},inset 0 0 16px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 2px rgba(201,68,46,.45),inset 0 0 6px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}@keyframes tuPulse{0%,100%{box-shadow:3px 3px 0 ${BINK},0 0 0 0 rgba(233,196,106,0)}50%{box-shadow:3px 3px 0 ${BINK},0 0 15px 4px rgba(233,196,106,.85)}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 2px ${ARED},inset 0 0 16px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 2px rgba(201,68,46,.45),inset 0 0 6px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}@keyframes tuPulse{0%,100%{box-shadow:3px 3px 0 ${BINK},0 0 0 0 rgba(233,196,106,0)}50%{box-shadow:3px 3px 0 ${BINK},0 0 15px 4px rgba(233,196,106,.85)}}@keyframes mdRing{0%,60%,100%{transform:rotate(0)}10%,30%{transform:rotate(-14deg)}20%,40%{transform:rotate(12deg)}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
 
       <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
 
@@ -505,10 +507,10 @@ export function MockDraftView() {
               </div>
               <div className="mdScroll" style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
                 {/* sticky column header — same box model as the plates so the columns line up */}
-                <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", padding: "5px 4px 6px 11px", flexShrink: 0 }}>
-                  <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: DIM }}>PLAYER</span>
-                  {["OUR BOARD", "FIT", "FALLS TO US"].map((h) => (
-                    <span key={h} style={{ width: 68, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 0.6, color: DIM }}>{h}</span>
+                <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", height: 30, padding: "0 4px 0 11px", flexShrink: 0 }}>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.8, color: FADE }}>PLAYER</span>
+                  {(yourTurn ? ["OUR RANK", "PROJ. ROLE", "FALLS TO US", "SELECT"] : ["OUR RANK", "PROJ. ROLE", "FALLS TO US"]).map((h) => (
+                    <span key={h} style={{ width: 66, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.4, color: FADE }}>{h}</span>
                   ))}
                 </div>
                 {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
@@ -516,14 +518,19 @@ export function MockDraftView() {
                   const rank = rankById.get(p.id) ?? 0;
                   const surv = poolSurvivalById.get(p.id);
                   return (
-                    <div key={p.id} onClick={() => yourTurn && makePick(p.id)} style={{ display: "flex", alignItems: "center", boxSizing: "border-box", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 34, padding: "0 4px 0 11px", flexShrink: 0, cursor: yourTurn ? "pointer" : "default" }}>
+                    <div key={p.id} style={{ display: "flex", alignItems: "center", boxSizing: "border-box", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 34, padding: "0 4px 0 11px", flexShrink: 0 }}>
                       <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, whiteSpace: "nowrap", overflow: "hidden" }}>
                         <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                         <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 0.4, color: GSUB, flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
                       </span>
-                      <span style={{ width: 68, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
-                      <span style={{ width: 68, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
-                      <span style={{ width: 68, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, padding: "2px 0", fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
+                      <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
+                      <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
+                      <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
+                      {yourTurn && (
+                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, display: "flex", justifyContent: "center", borderLeft: `1.5px solid #cbbd9c` }}>
+                          <button onClick={() => makePick(p.id)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 0.5, color: SCREAM, background: GREEN, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "3px 10px", cursor: busy ? "default" : "pointer" }}>SELECT</button>
+                        </span>
+                      )}
                     </div>
                   );
                 })}
@@ -561,18 +568,37 @@ export function MockDraftView() {
               const offer = tradeOffer;
               const wt = whosThereForOffer(offer);
               const nick = teamNickname(offer.partner);
-              const heavyOverpay = tradeMode === "up" && offer.net < -20;
-              const verdict = tradeMode === "up" ? (heavyOverpay ? "It'll cost a premium to jump" : "We should make this move") : "We should take this deal";
-              const vColor = heavyOverpay ? "#F5C230" : GREEN;
+              // The one guy we'd land by moving up, vs. what we'd otherwise get by
+              // sitting on our current picks (the projected picks at our live slots).
+              const moveUp = wt[0];
+              const standPat = board
+                .map((b, i) => ({ b, i }))
+                .filter((x) => x.i >= revealed && (control ? control.has(x.b.rosterId) : x.b.mine))
+                .slice(0, 2)
+                .map((x) => ({ name: x.b.player ?? "—", pos: x.b.pos ?? "", pick: x.b.pick, rank: x.b.playerId ? (rankById.get(x.b.playerId) ?? 0) : 0 }));
+              const standPatBestRank = Math.min(999, ...standPat.map((s) => (s.rank > 0 ? s.rank : 999)));
+              const worthIt = !!moveUp && moveUp.rank > 0 && moveUp.rank < standPatBestRank - 1;
+              const verdict = tradeMode === "up"
+                ? (worthIt ? "We should make this move" : "Not worth the extra pick")
+                : "We should take this deal";
+              const vColor = tradeMode === "up" && !worthIt ? "#F5C230" : GREEN;
               const prose = tradeMode === "up"
-                ? `The ${nick} will slide back from ${offer.toPick}. Jumping up${offer.give.length > 1 ? " — our pick plus a sweetener —" : ""} puts us in front of the run: ${wt[0] ? `${wt[0].name} and the top of the board come into reach.` : "we get ahead of the teams eyeing our guy."} ${offer.rationale || ""}`
-                : `The ${nick} want to jump up to ${offer.fromPick}. Sliding back to ${offer.toPick} turns one pick into ${offer.get.length === 2 ? "two" : offer.get.length === 3 ? "three" : offer.get.length}${offer.net > 0 ? " and nets us draft value" : ""}. ${offer.rationale || "The tier we actually want is still on the board when we're back up."}`;
+                ? (moveUp
+                    ? `${moveUp.name} won't get back to us — he'll be gone before ${standPat[0]?.pick ?? offer.fromPick}. Jumping the ${nick} locks him up, and he's ${worthIt ? "a clear cut above" : "not far enough ahead of"} ${standPat[0]?.name ?? "what we'd otherwise land"} — the guy we'd likely get if we sit. ${worthIt ? "The gap is worth the extra pick." : "The drop-off's too small to give up a second bite — I'd hold."}`
+                    : `Jumping the ${nick} puts us in front of the run.`)
+                : `The ${nick} want to jump up to ${offer.fromPick}. Sliding back to ${offer.toPick} turns one pick into ${offer.get.length === 2 ? "two" : offer.get.length === 3 ? "three" : offer.get.length}${offer.net > 0 ? " and nets us draft value" : ""}. The tier we actually want is still on the board when we're back up, so we cash in the extra capital.`;
               return (
                 <>
-                  <div style={{ background: tradeInbound ? ARED : GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                  <div style={{ background: tradeInbound ? ARED : GREEN, padding: tradeInbound ? "15px 16px" : "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: tradeInbound ? 14 : 9, minWidth: 0 }}>
                       {tradeInbound ? (
-                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 0.4, color: "#fff", lineHeight: 1.05 }}>☎ INCOMING OFFER<br />FROM {nick.toUpperCase()}</span>
+                        <>
+                          <span style={{ fontSize: 32, lineHeight: 1, color: "#fff", flexShrink: 0, display: "inline-block", transformOrigin: "50% 60%", animation: "mdRing 0.9s ease-in-out infinite" }}>☎</span>
+                          <span style={{ minWidth: 0 }}>
+                            <span style={{ display: "block", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 2.5, color: "#fff", opacity: 0.9 }}>INCOMING OFFER FROM</span>
+                            <span style={{ display: "block", fontFamily: ANTON, fontSize: 24, letterSpacing: 0.5, color: "#fff", lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nick.toUpperCase()}</span>
+                          </span>
+                        </>
                       ) : (
                         <>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -581,8 +607,8 @@ export function MockDraftView() {
                         </>
                       )}
                     </span>
-                    <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                      <span style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(offer.partner)}') center / cover` }} />
+                    <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ width: tradeInbound ? 42 : 30, height: tradeInbound ? 42 : 30, borderRadius: "50%", border: `2.5px solid ${BINK}`, background: `#fff url('${logoFor(offer.partner)}') center / cover`, flexShrink: 0 }} />
                       <span onClick={closeTrade} style={{ cursor: "pointer", color: SCREAM, fontFamily: ANTON, fontSize: 18, lineHeight: 1 }}>×</span>
                     </span>
                   </div>
@@ -627,27 +653,66 @@ export function MockDraftView() {
                     <div style={{ minWidth: 0 }}>
                       <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 0.4, textTransform: "uppercase", color: BINK, borderBottom: `4px solid ${vColor}`, paddingBottom: 2 }}>{verdict}</span>
                       <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 12.5, lineHeight: 1.46, color: BINK, marginTop: 9 }}>{prose}</div>
-                      {wt.length > 0 && (
-                        <>
-                          <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: GSUB, margin: "11px 0 7px" }}>{tradeMode === "up" ? "WHO WE'D HAVE ACCESS TO AT" : "WHO'S THERE AT"} {offer.toPick}</div>
-                          <div style={{ display: "flex", gap: 6 }}>
-                            {wt.map((o) => (
-                              <div key={o.playerId} style={{ flex: 1, minWidth: 0, background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "7px 8px", display: "flex", flexDirection: "column", minHeight: 86 }}>
-                                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11.5, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
-                                <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: GSUB }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
-                                <div style={{ marginTop: "auto" }}>
-                                  <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 4 }}>
-                                    <span style={{ fontFamily: ANTON, fontSize: 17, color: GREEN, lineHeight: 0.85 }}>{Math.round(o.pct * 100)}%</span>
-                                    <span style={{ fontFamily: ANTON, fontSize: 13, color: "#fff", background: o.steal ? GREEN : BINK, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "1px 6px", lineHeight: 1.1 }}>{o.rank > 0 ? `#${o.rank}` : "—"}</span>
+                      {tradeMode === "up" ? (
+                        (moveUp || standPat.length > 0) && (
+                          <>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: GSUB, margin: "12px 0 7px" }}>THE TRADE-OFF</div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: GREEN, marginBottom: 5 }}>MOVE UP → WE GET</div>
+                                {moveUp ? (
+                                  <div style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderLeft: `4px solid ${GREEN}`, borderRadius: 3, padding: "8px 9px" }}>
+                                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 4 }}>
+                                      <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{moveUp.name}</span>
+                                      <span style={{ fontFamily: ANTON, fontSize: 12, color: "#fff", background: BINK, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0px 5px", lineHeight: 1.15, flexShrink: 0 }}>{moveUp.rank > 0 ? `#${moveUp.rank}` : "—"}</span>
+                                    </div>
+                                    <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8.5, color: GSUB, marginTop: 2 }}>{moveUp.pos}{moveUp.nflTeam ? ` · ${moveUp.nflTeam}` : ""}</div>
                                   </div>
-                                  <div style={{ display: "flex", justifyContent: "space-between", gap: 4, marginTop: 3, fontFamily: OSWALD, fontWeight: 600, fontSize: 7.5, color: META }}>
-                                    <span>chance</span><span style={{ whiteSpace: "nowrap" }}>on our board</span>
+                                ) : (
+                                  <div style={{ fontFamily: OSWALD, fontSize: 10, color: META, padding: "8px 2px" }}>the guy we&apos;re jumping for</div>
+                                )}
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", fontFamily: ANTON, fontSize: 12, color: DIM, flexShrink: 0 }}>vs</div>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1, color: META, marginBottom: 5 }}>IF WE SIT → WE GET</div>
+                                {standPat.length > 0 ? standPat.map((s) => (
+                                  <div key={s.pick} style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 9px", marginBottom: 5 }}>
+                                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 4 }}>
+                                      <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11, color: BINK, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</span>
+                                      <span style={{ fontFamily: ANTON, fontSize: 11, color: BINK, background: "transparent", border: `1.5px solid ${DIM}`, borderRadius: 3, padding: "0px 5px", lineHeight: 1.15, flexShrink: 0 }}>{s.rank > 0 ? `#${s.rank}` : "—"}</span>
+                                    </div>
+                                    <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8, color: META, marginTop: 2 }}>{s.pos ? `${s.pos} · ` : ""}at {s.pick}</div>
+                                  </div>
+                                )) : (
+                                  <div style={{ fontFamily: OSWALD, fontSize: 10, color: META, padding: "8px 2px" }}>our current picks</div>
+                                )}
+                              </div>
+                            </div>
+                          </>
+                        )
+                      ) : (
+                        wt.length > 0 && (
+                          <>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: GSUB, margin: "11px 0 7px" }}>WHO&apos;S THERE AT {offer.toPick}</div>
+                            <div style={{ display: "flex", gap: 6 }}>
+                              {wt.map((o) => (
+                                <div key={o.playerId} style={{ flex: 1, minWidth: 0, background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "7px 8px", display: "flex", flexDirection: "column", minHeight: 86 }}>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11.5, color: GREEN, lineHeight: 1.05, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</div>
+                                  <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: GSUB }}>{o.pos}{o.nflTeam ? ` · ${o.nflTeam}` : ""}</div>
+                                  <div style={{ marginTop: "auto" }}>
+                                    <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 4 }}>
+                                      <span style={{ fontFamily: ANTON, fontSize: 17, color: GREEN, lineHeight: 0.85 }}>{Math.round(o.pct * 100)}%</span>
+                                      <span style={{ fontFamily: ANTON, fontSize: 13, color: "#fff", background: o.steal ? GREEN : BINK, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "1px 6px", lineHeight: 1.1 }}>{o.rank > 0 ? `#${o.rank}` : "—"}</span>
+                                    </div>
+                                    <div style={{ display: "flex", justifyContent: "space-between", gap: 4, marginTop: 3, fontFamily: OSWALD, fontWeight: 600, fontSize: 7.5, color: META }}>
+                                      <span>chance</span><span style={{ whiteSpace: "nowrap" }}>on our board</span>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            ))}
-                          </div>
-                        </>
+                              ))}
+                            </div>
+                          </>
+                        )
                       )}
                     </div>
                   </div>
