@@ -106,6 +106,8 @@ const BOARD_FILTERS: { value: BoardFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "active", label: "Active" },
   { value: "closed", label: "Closed" },
+  { value: "proposed", label: "Proposed" },
+  { value: "received", label: "Received" },
 ];
 
 function extractName(label: string | undefined): string {
@@ -160,6 +162,7 @@ export default function InboxPage() {
 
   const [mailTab, setMailTab] = useState<MailTab>("inbox");
   const [boardFilter, setBoardFilter] = useState<BoardFilter>("all");
+  const [boardSearch, setBoardSearch] = useState("");
   const [memos, setMemos] = useState<Memo[]>([]);
   const [threads, setThreads] = useState<TradeThread[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
@@ -332,6 +335,10 @@ export default function InboxPage() {
         versions,
         status,
         unseen,
+        proposedByUs: offers[0].from_team_id === rosterId,
+        searchText: [counterpart, ...versions.flatMap((v) => [v.youGet, v.youGive])]
+          .join(" ")
+          .toLowerCase(),
         timestamp: pending ? latest.created_at : latest.updated_at,
       });
     }
@@ -342,20 +349,31 @@ export default function InboxPage() {
   const isActiveTile = (t: NegotiationTileData) =>
     t.status === "our_court" || t.status === "on_them";
 
+  const matchesFilter = (t: NegotiationTileData, f: BoardFilter) => {
+    if (f === "active") return isActiveTile(t);
+    if (f === "closed") return !isActiveTile(t);
+    if (f === "proposed") return t.proposedByUs;
+    if (f === "received") return !t.proposedByUs;
+    return true;
+  };
+
   const boardCounts = useMemo<Record<BoardFilter, number>>(
     () => ({
       all: tiles.length,
-      active: tiles.filter(isActiveTile).length,
-      closed: tiles.filter((t) => !isActiveTile(t)).length,
+      active: tiles.filter((t) => matchesFilter(t, "active")).length,
+      closed: tiles.filter((t) => matchesFilter(t, "closed")).length,
+      proposed: tiles.filter((t) => matchesFilter(t, "proposed")).length,
+      received: tiles.filter((t) => matchesFilter(t, "received")).length,
     }),
     [tiles],
   );
 
   const visibleTiles = useMemo(() => {
-    if (boardFilter === "active") return tiles.filter(isActiveTile);
-    if (boardFilter === "closed") return tiles.filter((t) => !isActiveTile(t));
-    return tiles;
-  }, [tiles, boardFilter]);
+    const q = boardSearch.trim().toLowerCase();
+    return tiles.filter(
+      (t) => matchesFilter(t, boardFilter) && (!q || t.searchText.includes(q)),
+    );
+  }, [tiles, boardFilter, boardSearch]);
 
   /* ------------------------- Render ------------------------------- */
 
@@ -546,6 +564,23 @@ export default function InboxPage() {
                     Negotiations
                   </span>
                   <div style={{ display: "flex", gap: 5, flexWrap: "wrap", alignItems: "center" }}>
+                    <input
+                      type="text"
+                      placeholder="Search team or player…"
+                      value={boardSearch}
+                      onChange={(e) => setBoardSearch(e.target.value)}
+                      style={{
+                        background: "#FEFCF9",
+                        border: "1.5px solid #1A1A1A",
+                        borderRadius: 6,
+                        padding: "5px 10px",
+                        fontFamily: FB,
+                        fontSize: 11,
+                        color: "#1A1A1A",
+                        outline: "none",
+                        width: isMobile ? "100%" : 180,
+                      }}
+                    />
                     {BOARD_FILTERS.map((f) => (
                       <button
                         key={f.value}

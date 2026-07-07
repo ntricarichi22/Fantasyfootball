@@ -13,7 +13,7 @@ const FB = "var(--font-body, 'DM Sans', sans-serif)";
 
 export type MailTab = "inbox" | "archive" | "trash";
 
-export type BoardFilter = "all" | "active" | "closed";
+export type BoardFilter = "all" | "active" | "closed" | "proposed" | "received";
 
 // A staff-mail row (director memos only — trades live on the board).
 export type InboxItem = {
@@ -46,6 +46,10 @@ export type NegotiationTileData = {
   // Pulses the status dot until the thread is opened: an unread inbound
   // offer, or a verdict/withdrawal you haven't acknowledged.
   unseen: boolean;
+  // Who opened the negotiation (V1.0's author) — feeds PROPOSED / RECEIVED.
+  proposedByUs: boolean;
+  // Lowercased counterpart + every asset in every version — feeds search.
+  searchText: string;
   timestamp: string;
 };
 
@@ -841,6 +845,8 @@ export function EmptyStrip({ kind }: { kind: EmptyStateKind }) {
     all: { head: "No negotiations yet.", sub: "Make the first move — send an offer." },
     active: { head: "Nothing in motion.", sub: "No live negotiations right now." },
     closed: { head: "No closed deals yet.", sub: "Verdicts land here once they're in." },
+    proposed: { head: "Nothing proposed.", sub: "Deals we open land here." },
+    received: { head: "Nothing received.", sub: "Deals they bring us land here." },
   };
   const c = COPY[kind];
   return (
@@ -859,6 +865,8 @@ export function EmptyState({ kind, compact }: { kind: EmptyStateKind; compact?: 
     all: { head: "No negotiations yet.", sub: "Make the first move — send an offer." },
     active: { head: "Nothing in motion.", sub: "No live negotiations right now." },
     closed: { head: "No closed deals yet.", sub: "Verdicts land here once they're in." },
+    proposed: { head: "Nothing proposed.", sub: "Deals we open land here." },
+    received: { head: "Nothing received.", sub: "Deals they bring us land here." },
   };
   const c = COPY[kind];
   return (
