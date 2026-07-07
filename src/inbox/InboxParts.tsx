@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { Icon } from "@/shared/ui/Icon";
 
 const FH = "Syne, sans-serif";
@@ -155,13 +155,13 @@ export function NegotiationTile({
   if (!version) return null;
 
   const ledgerLabel: React.CSSProperties = {
-    width: 34,
+    width: 40,
     flexShrink: 0,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontFamily: FM,
-    fontSize: 8,
+    fontSize: 9,
     fontWeight: 800,
     letterSpacing: "0.08em",
     borderRight: "1.5px solid #1A1A1A",
@@ -169,8 +169,8 @@ export function NegotiationTile({
     color: "#1A1A1A",
   };
   const ledgerValue: React.CSSProperties = {
-    padding: "7px 9px",
-    fontSize: 12,
+    padding: "7px 10px",
+    fontSize: 12.5,
     fontWeight: 800,
     lineHeight: 1.3,
     fontFamily: FB,
@@ -183,7 +183,7 @@ export function NegotiationTile({
       onClick={onOpen}
       style={{
         background: "#FEFCF9",
-        border: isOurCourt ? "3px solid #1A1A1A" : "2px solid #1A1A1A",
+        border: "3px solid #1A1A1A",
         borderRadius: 12,
         boxShadow: isOurCourt ? "4px 4px 0 #1A1A1A" : "none",
         overflow: "hidden",
@@ -199,75 +199,73 @@ export function NegotiationTile({
         }
       `}</style>
 
-      <div style={{ opacity: isClosed ? 0.62 : 1, flex: 1 }}>
-        {/* Hero row — logo and name on an ink band over the gold hairline,
-            the site's topbar signature in miniature */}
-        <div style={{ padding: "9px 9px 0" }}>
-          <div style={{ border: "2px solid #1A1A1A", borderRadius: 8, overflow: "hidden" }}>
-            <div
+      <div style={{ opacity: isClosed ? 0.62 : 1, flex: 1, display: "flex", flexDirection: "column" }}>
+        {/* Hero band — full bleed, rule below, gold hairline riding it */}
+        <div
+          style={{
+            background: "#F5F0E6",
+            padding: "8px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: 9,
+            borderBottom: "1.5px solid #1A1A1A",
+          }}
+        >
+          {tile.logoUrl && !logoFailed ? (
+            <img
+              src={tile.logoUrl}
+              alt=""
+              onError={() => setLogoFailed(true)}
               style={{
-                background: "#1A1A1A",
-                padding: "8px 10px",
-                display: "flex",
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                objectFit: "cover",
+                border: "1.5px solid #1A1A1A",
+                flexShrink: 0,
+                background: "#FEFCF9",
+              }}
+            />
+          ) : (
+            <span
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: "50%",
+                background: avatarColors(tile.counterpart, "trade").bg,
+                color: avatarColors(tile.counterpart, "trade").fg,
+                border: "1.5px solid #1A1A1A",
+                display: "inline-flex",
                 alignItems: "center",
-                gap: 9,
+                justifyContent: "center",
+                fontFamily: "Syne, sans-serif",
+                fontWeight: 800,
+                fontSize: 12,
+                flexShrink: 0,
               }}
             >
-              {tile.logoUrl && !logoFailed ? (
-                <img
-                  src={tile.logoUrl}
-                  alt=""
-                  onError={() => setLogoFailed(true)}
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: "50%",
-                    objectFit: "cover",
-                    border: "2px solid #FEFCF9",
-                    flexShrink: 0,
-                    background: "#FEFCF9",
-                  }}
-                />
-              ) : (
-                <span
-                  style={{
-                    width: 38,
-                    height: 38,
-                    borderRadius: "50%",
-                    background: avatarColors(tile.counterpart, "trade").bg,
-                    color: avatarColors(tile.counterpart, "trade").fg,
-                    border: "2px solid #FEFCF9",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontFamily: "Impact, system-ui, sans-serif",
-                    fontSize: 15,
-                    flexShrink: 0,
-                  }}
-                >
-                  {monogram(tile.counterpart)}
-                </span>
-              )}
-              <span
-                style={{
-                  fontFamily: "Impact, system-ui, sans-serif",
-                  fontSize: 15,
-                  lineHeight: 1.05,
-                  letterSpacing: "0.01em",
-                  color: "#FEFCF9",
-                  minWidth: 0,
-                }}
-              >
-                {tile.counterpart.toUpperCase()}
-              </span>
-            </div>
-            <div style={{ height: 3, background: "#F5C230" }} />
-          </div>
+              {monogram(tile.counterpart)}
+            </span>
+          )}
+          <span
+            style={{
+              fontFamily: "Syne, sans-serif",
+              fontWeight: 800,
+              fontSize: 13,
+              lineHeight: 1.1,
+              textTransform: "uppercase",
+              color: "#1A1A1A",
+              minWidth: 0,
+            }}
+          >
+            {tile.counterpart}
+          </span>
         </div>
+        <div style={{ height: 3, background: "#F5C230", borderBottom: "1.5px solid #1A1A1A", flexShrink: 0 }} />
 
         <div
           style={{
-            padding: "8px 11px 0",
+            padding: "8px 10px 5px",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
@@ -287,13 +285,13 @@ export function NegotiationTile({
                   }}
                   style={{
                     fontFamily: FM,
-                    fontSize: 8,
+                    fontSize: 9,
                     fontWeight: 700,
                     background: active ? "#1A1A1A" : "transparent",
                     border: `1.5px solid ${active ? "#1A1A1A" : "#C8C3B8"}`,
                     color: active ? "#FEFCF9" : "#8C7E6A",
                     borderRadius: 5,
-                    padding: "2px 5px",
+                    padding: "2px 6px",
                     cursor: "pointer",
                   }}
                 >
@@ -302,16 +300,16 @@ export function NegotiationTile({
               );
             })}
           </span>
-          <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#8C7E6A", flexShrink: 0 }}>
+          <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, color: "#8C7E6A", flexShrink: 0 }}>
             {ago.toUpperCase()}
           </span>
         </div>
 
         <div
           style={{
-            padding: "5px 11px 2px",
+            padding: "0 10px 7px",
             fontFamily: FM,
-            fontSize: 6.5,
+            fontSize: 8,
             fontWeight: 700,
             letterSpacing: "0.12em",
             color: "#8C7E6A",
@@ -320,19 +318,16 @@ export function NegotiationTile({
           {version.label} · {version.caption} · {viewingCurrent ? "CURRENT" : "SUPERSEDED"}
         </div>
 
-        {/* The ledger — the deal is the loudest thing on the card */}
+        {/* The ledger — full-bleed rows, the deal is the loudest thing here */}
         <div
           style={{
-            margin: "3px 11px 10px",
-            border: "1.5px solid #1A1A1A",
-            borderRadius: 8,
-            overflow: "hidden",
+            marginTop: "auto",
             background: viewingCurrent
               ? "transparent"
               : "repeating-linear-gradient(-45deg, transparent, transparent 7px, rgba(200,195,184,0.18) 7px, rgba(200,195,184,0.18) 8px)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "stretch" }}>
+          <div style={{ display: "flex", alignItems: "stretch", borderTop: "1.5px solid #1A1A1A" }}>
             <span style={ledgerLabel}>GET</span>
             <span style={ledgerValue}>{version.youGet}</span>
           </div>
@@ -346,7 +341,7 @@ export function NegotiationTile({
       <div
         style={{
           background: "#1A1A1A",
-          borderTop: "2px solid #1A1A1A",
+          borderTop: "1.5px solid #1A1A1A",
           padding: "8px 11px",
           display: "flex",
           alignItems: "flex-end",
@@ -836,6 +831,26 @@ export function InboxRow({
 
 export type EmptyStateKind = MailTab | BoardFilter;
 
+// Slim inline strip for the staff panel — an empty mailbox doesn't deserve a
+// tall framed void.
+export function EmptyStrip({ kind }: { kind: EmptyStateKind }) {
+  const COPY: Record<EmptyStateKind, { head: string; sub: string }> = {
+    inbox: { head: "No dispatches.", sub: "Nothing from your directors yet." },
+    archive: { head: "Archive is empty.", sub: "Filed dispatches land here." },
+    trash: { head: "Trash is empty.", sub: "Nothing to clean up." },
+    all: { head: "No negotiations yet.", sub: "Make the first move — send an offer." },
+    active: { head: "Nothing in motion.", sub: "No live negotiations right now." },
+    closed: { head: "No closed deals yet.", sub: "Verdicts land here once they're in." },
+  };
+  const c = COPY[kind];
+  return (
+    <div style={{ padding: "9px 14px", display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+      <span style={{ fontSize: 13, fontWeight: 700, fontFamily: FB }}>{c.head}</span>
+      <span style={{ fontSize: 12, color: "#8C7E6A", fontFamily: FB }}>{c.sub}</span>
+    </div>
+  );
+}
+
 export function EmptyState({ kind, compact }: { kind: EmptyStateKind; compact?: boolean }) {
   const COPY: Record<EmptyStateKind, { head: string; sub: string }> = {
     inbox: { head: "No dispatches.", sub: "Nothing from your directors yet." },
@@ -887,34 +902,71 @@ export type InsiderItem = {
   timestamp: string;
 };
 
-export function InsiderPanel({ items }: { items: InsiderItem[] }) {
+/* ------------------------------------------------------------------ */
+/*  LeagueTicker — Around the League as the broadcast bottom line.      */
+/*  Fixed to the viewport floor on desktop; pauses on hover.             */
+/* ------------------------------------------------------------------ */
+
+export function LeagueTicker({ items }: { items: InsiderItem[] }) {
+  const [paused, setPaused] = useState(false);
+  if (items.length === 0) return null;
+
+  // Content is doubled so the loop wraps seamlessly at -50%.
+  const run = (key: string) => (
+    <span
+      key={key}
+      style={{ display: "inline-flex", alignItems: "center", gap: 26, padding: "0 13px", whiteSpace: "nowrap" }}
+    >
+      {items.map((it, i) => (
+        <Fragment key={`${key}-${i}`}>
+          <span style={{ fontSize: 12, color: "#FEFCF9", fontFamily: FB }}>
+            {it.headline.replace(/\*\*/g, "")}{" "}
+            <span style={{ color: "#8C7E6A", fontFamily: FM, fontSize: 9, fontWeight: 700 }}>
+              {timeAgo(it.timestamp).toUpperCase()}
+            </span>
+          </span>
+          <span style={{ color: "#F5C230", fontSize: 8 }} aria-hidden>
+            ●
+          </span>
+        </Fragment>
+      ))}
+    </span>
+  );
+
   return (
     <div
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
       style={{
-        flex: "0 0 18%",
+        position: "fixed",
+        bottom: 0,
+        left: 0,
+        right: 0,
+        zIndex: 40,
         background: "#1A1A1A",
-        color: "#FEFCF9",
         display: "flex",
-        flexDirection: "column",
-        alignSelf: "stretch",
+        alignItems: "stretch",
+        overflow: "hidden",
       }}
     >
       <style>{`
-        @keyframes cfc-insider-pulse {
+        @keyframes cfc-ticker-scroll {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-50%); }
+        }
+        @keyframes cfc-ticker-pulse {
           0%, 100% { opacity: 1; }
-          50% { opacity: 0.35; }
+          50% { opacity: 0.3; }
         }
       `}</style>
-
-      <div
+      <span
         style={{
-          padding: "11px 12px",
-          borderBottom: "1.5px solid rgba(254,252,249,0.12)",
-          display: "flex",
+          flexShrink: 0,
+          display: "inline-flex",
           alignItems: "center",
           gap: 7,
-          position: "sticky",
-          top: 0,
+          padding: "9px 14px",
+          borderRight: "2px solid #F5C230",
           background: "#1A1A1A",
           zIndex: 1,
         }}
@@ -925,75 +977,33 @@ export function InsiderPanel({ items }: { items: InsiderItem[] }) {
             height: 7,
             background: "#F5C230",
             borderRadius: "50%",
-            display: "inline-block",
-            animation: "cfc-insider-pulse 1.6s ease-in-out infinite",
-            flexShrink: 0,
+            animation: "cfc-ticker-pulse 1.6s ease-in-out infinite",
           }}
         />
         <span
           style={{
             fontFamily: "Syne, sans-serif",
             fontWeight: 800,
-            letterSpacing: "0.04em",
-            color: "#F5C230",
             fontSize: 10,
-            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            color: "#F5C230",
+            whiteSpace: "nowrap",
           }}
         >
-          Around the league
+          AROUND THE LEAGUE
         </span>
-      </div>
-
-      <div style={{ flex: 1, padding: "2px 12px", overflowY: "auto" }}>
-        {items.length === 0 ? (
-          <div
-            style={{
-              padding: "24px 0",
-              fontSize: 11,
-              color: "#8C7E6A",
-              textAlign: "center",
-              fontFamily: FB,
-              fontStyle: "italic",
-            }}
-          >
-            The league is quiet.
-          </div>
-        ) : (
-          items.map((item, i) => (
-            <div
-              key={`${item.timestamp}-${i}`}
-              style={{
-                padding: "9px 0",
-                borderBottom:
-                  i < items.length - 1 ? "1px solid rgba(254,252,249,0.10)" : "none",
-              }}
-            >
-              <div
-                style={{
-                  fontFamily: FM,
-                  fontSize: 8,
-                  fontWeight: 700,
-                  letterSpacing: "0.12em",
-                  color: "#8C7E6A",
-                  textTransform: "uppercase",
-                  marginBottom: 3,
-                }}
-              >
-                {timeAgo(item.timestamp).toUpperCase()} AGO
-              </div>
-              <div
-                style={{
-                  fontSize: 10.5,
-                  lineHeight: 1.4,
-                  color: "#FEFCF9",
-                  fontFamily: FB,
-                }}
-              >
-                {item.headline.replace(/\*\*/g, "")}
-              </div>
-            </div>
-          ))
-        )}
+      </span>
+      <div style={{ flex: 1, overflow: "hidden", display: "flex", alignItems: "center" }}>
+        <div
+          style={{
+            display: "inline-flex",
+            animation: "cfc-ticker-scroll 45s linear infinite",
+            animationPlayState: paused ? "paused" : "running",
+          }}
+        >
+          {run("a")}
+          {run("b")}
+        </div>
       </div>
     </div>
   );

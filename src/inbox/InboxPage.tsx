@@ -10,7 +10,8 @@ import {
   MobileActionBar,
   InboxRow,
   EmptyState,
-  InsiderPanel,
+  EmptyStrip,
+  LeagueTicker,
   MobileInsiderBar,
   NegotiationTile,
   type MailTab,
@@ -403,7 +404,8 @@ export default function InboxPage() {
     background: active ? "#1A1A1A" : "#FEFCF9",
     color: active ? "#FEFCF9" : muted ? "#8C7E6A" : "#1A1A1A",
     border: "1.5px solid #1A1A1A",
-    padding: "5px 9px",
+    borderRadius: 6,
+    padding: "5px 10px",
     fontFamily: FM,
     fontSize: 9,
     fontWeight: 700,
@@ -440,18 +442,11 @@ export default function InboxPage() {
       <UnifiedTopbar />
       <div style={{ height: 3, background: "#E8503A" }} />
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          minHeight: "calc(100vh - 200px)",
-        }}
-      >
+      <div style={{ minHeight: "calc(100vh - 200px)" }}>
         <div
           style={{
-            flex: 1,
             minWidth: 0,
-            padding: isMobile ? "14px 14px 72px" : "18px 22px 32px",
+            padding: isMobile ? "14px 14px 72px" : "18px 22px 72px",
           }}
         >
           {loading ? (
@@ -515,9 +510,9 @@ export default function InboxPage() {
                   />
                 )}
 
-                <div style={{ background: "#FEFCF9", border: "3px solid #1A1A1A" }}>
+                <div style={{ background: "#FEFCF9", border: "3px solid #1A1A1A", borderRadius: 10, overflow: "hidden" }}>
                   {memoItems.length === 0 ? (
-                    <EmptyState kind={mailTab} compact />
+                    <EmptyStrip kind={mailTab} />
                   ) : (
                     memoItems.map((it) => (
                       <InboxRow
@@ -565,7 +560,7 @@ export default function InboxPage() {
                 </div>
 
                 {visibleTiles.length === 0 ? (
-                  <div style={{ background: "#FEFCF9", border: "3px solid #1A1A1A" }}>
+                  <div style={{ background: "#FEFCF9", border: "3px solid #1A1A1A", borderRadius: 10 }}>
                     <EmptyState kind={boardFilter} />
                   </div>
                 ) : (
@@ -594,8 +589,9 @@ export default function InboxPage() {
           )}
         </div>
 
-        {!isMobile && <InsiderPanel items={insider} />}
       </div>
+
+      {!isMobile && <LeagueTicker items={insider} />}
 
       {isMobile && selected.size > 0 && (
         <MobileActionBar
