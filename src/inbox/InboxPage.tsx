@@ -482,7 +482,7 @@ export default function InboxPage() {
           ) : (
             <>
               {/* ------------------ From your staff ------------------ */}
-              <div style={{ marginBottom: 26 }}>
+              <div style={{ marginBottom: isMobile ? 36 : 52 }}>
                 <div
                   style={{
                     display: "flex",
