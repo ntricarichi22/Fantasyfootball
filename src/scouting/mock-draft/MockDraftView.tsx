@@ -96,6 +96,9 @@ export function MockDraftView() {
   const [tradeOffers, setTradeOffers] = useState<TBOffer[]>([]);
   const [tradeIdx, setTradeIdx] = useState(0);
   const [tradeLoading, setTradeLoading] = useState(false);
+  // True when the CURRENT trade modal is an incoming call (computer-initiated) —
+  // drives the red alarm skin + Reject/Accept labels.
+  const [tradeInbound, setTradeInbound] = useState(false);
 
   const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
   const onClock = revealed < board.length ? board[revealed] : null;
@@ -173,12 +176,33 @@ export function MockDraftView() {
   function openTrade(mode: TradeMode) {
     const route = mode === "up" ? "trade-up" : "trade-back";
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
-    setTradeMode(mode); setPhase("paused"); setTradeOpen(true); setTradeOffers([]); setTradeIdx(0); setTradeLoading(true);
+    setTradeMode(mode); setTradeInbound(false); setPhase("paused"); setTradeOpen(true); setTradeOffers([]); setTradeIdx(0); setTradeLoading(true);
     fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
       .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => { setTradeOffers(j.offers ?? []); setTradeIdx(0); })
       .catch(() => setTradeOffers([])).finally(() => setTradeLoading(false));
   }
-  function closeTrade() { setTradeOpen(false); setTradeOffers([]); if (!isComplete) setPhase("running"); }
+  function closeTrade() { setTradeOpen(false); setTradeInbound(false); setTradeOffers([]); if (!isComplete) setPhase("running"); }
+
+  // An INCOMING call — a team rings a pick or two before you're up, wanting to
+  // jump your slot (trade-back for you) or bank picks (trade-up for you). Reuses
+  // the same acceptance-checked routes; only fires if the board justifies it.
+  function fetchInboundOffers(mode: TradeMode): Promise<TBOffer[]> {
+    const route = mode === "up" ? "trade-up" : "trade-back";
+    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    return fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
+      .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => j.offers ?? []).catch(() => []);
+  }
+  function fireInbound() {
+    const first: TradeMode = Math.random() < 0.5 ? "back" : "up";
+    const second: TradeMode = first === "back" ? "up" : "back";
+    const open = (mode: TradeMode, offers: TBOffer[]) => {
+      setTradeMode(mode); setTradeInbound(true); setTradeOffers(offers); setTradeIdx(0); setTradeLoading(false); setTradeOpen(true); setPhase("paused");
+    };
+    fetchInboundOffers(first).then((offers) => {
+      if (offers.length) { open(first, offers); return; }
+      fetchInboundOffers(second).then((o2) => { if (o2.length) open(second, o2); });
+    });
+  }
   function acceptTrade(offer: TBOffer) {
     const owner = new Map(tradeOverrides.map((o) => [o.overall, o.rosterId]));
     for (const o of offer.overrides) owner.set(o.overall, o.rosterId);
@@ -268,6 +292,20 @@ export function MockDraftView() {
     }
     return false;
   }, [isComplete, yourTurn, ourIdx, revealed, board, rankById]);
+
+  // Incoming-call trigger: a pick or two before we're up, a team may ring —
+  // fires at most once per approach, and only ~55% of the time so it stays a
+  // beat, not a nag. fireInbound only opens the modal if the board justifies it.
+  const inboundFiredRef = useRef(-1);
+  useEffect(() => {
+    if (phase !== "running" || busy || tradeOpen || yourTurn || isComplete || ourIdx < 0) return;
+    const away = ourIdx - revealed;
+    if (away < 1 || away > 2) return;
+    if (inboundFiredRef.current === ourIdx) return;
+    inboundFiredRef.current = ourIdx;
+    if (Math.random() < 0.55) fireInbound();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, busy, tradeOpen, yourTurn, isComplete, ourIdx, revealed]);
 
   // Who the director thinks survives to the NEW slot on a trade offer — with
   // big-board rank + a steal flag (ranked ahead of the slot).
@@ -531,11 +569,17 @@ export function MockDraftView() {
                 : `The ${nick} want to jump up to ${offer.fromPick}. Sliding back to ${offer.toPick} turns one pick into ${offer.get.length === 2 ? "two" : offer.get.length === 3 ? "three" : offer.get.length}${offer.net > 0 ? " and nets us draft value" : ""}. ${offer.rationale || "The tier we actually want is still on the board when we're back up."}`;
               return (
                 <>
-                  <div style={{ background: GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                  <div style={{ background: tradeInbound ? ARED : GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                     <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src="/avatars/scouting.png" alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
-                      <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM }}>{tradeMode === "up" ? "TRADE UP" : "TRADE BACK"}</span>
+                      {tradeInbound ? (
+                        <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 0.4, color: "#fff", lineHeight: 1.05 }}>☎ INCOMING OFFER<br />FROM {nick.toUpperCase()}</span>
+                      ) : (
+                        <>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src="/avatars/scouting.png" alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
+                          <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM }}>{tradeMode === "up" ? "TRADE UP" : "TRADE BACK"}</span>
+                        </>
+                      )}
                     </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
                       <span style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(offer.partner)}') center / cover` }} />
@@ -609,8 +653,8 @@ export function MockDraftView() {
                   </div>
 
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "12px 14px" }}>
-                    <button onClick={closeTrade} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: BINK, background: "#f2e8d0", border: `2px solid ${BINK}`, borderRadius: 4, padding: 11, cursor: "pointer" }}>NOT NOW</button>
-                    <button onClick={() => acceptTrade(offer)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: 11, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{tradeMode === "up" ? "MAKE THE CALL" : "ACCEPT THE SLIDE"}</button>
+                    <button onClick={closeTrade} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: tradeInbound ? ARED : BINK, background: "#f2e8d0", border: `2px solid ${BINK}`, borderRadius: 4, padding: 11, cursor: "pointer" }}>{tradeInbound ? "REJECT" : "NOT NOW"}</button>
+                    <button onClick={() => acceptTrade(offer)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: 11, cursor: busy ? "default" : "pointer", opacity: busy ? 0.6 : 1 }}>{tradeInbound ? "ACCEPT" : tradeMode === "up" ? "MAKE THE CALL" : "ACCEPT THE SLIDE"}</button>
                   </div>
                 </>
               );
