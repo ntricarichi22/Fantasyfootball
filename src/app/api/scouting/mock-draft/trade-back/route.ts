@@ -1,20 +1,21 @@
 import { NextResponse } from "next/server";
-import { getLeagueData, getPickValues, type OwnedPick } from "@/shared/league-data";
+import { getLeagueData, type OwnedPick } from "@/shared/league-data";
 import { buildTeamProfiles } from "@/shared/team-profiles";
+import { buildTeamDossiers } from "@/shared/team-dossier";
+import { buildValuationContext, valueAsset } from "@/shared/asset-values";
+import { bandFor, normalizePersona } from "@/pro-personnel/engine/core/personas";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// SIMULATION-ONLY trade-back offers. Lives entirely inside the mock draft — no
-// real trade is created, nothing persists server-side. Given the pick you're
-// about to make (and the picks already made, as forcedPicks), it finds up to
-// three willing move-up partners a few slots later, balances each package on
-// the pick-value ladder so you net value for sliding back, then re-runs the
-// engine with the swapped pick ownership so each offer carries a fully
-// re-mocked board (with per-pick survivors) — the UI reads survival odds off
-// that board to show who'd still be there at your new slot.
+// SIMULATION-ONLY trade-back offers. A team behind you jumps up to your pick;
+// you slide to theirs and collect the balancing capital. Picks are valued and
+// every package is acceptance-checked through the CANONICAL trade engine
+// (valueAsset + persona accept bands), so both sides come out fair — the
+// partner only pays what their persona would pay, and we only slide back when
+// we're actually compensated for it.
 
 const SCENARIOS: DraftScenario[] = ["standard", "qb-run", "rb-run", "wr-run", "chalk"];
 const asScenario = (v: unknown): DraftScenario =>
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
     forcedPicks?: Array<{ overall: number; playerId: string }>;
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
-  const [data, ladder] = await Promise.all([getLeagueData(), getPickValues()]);
+  const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const scenario = asScenario(body.scenario);
   const teamId = body.teamId ?? "";
@@ -41,16 +42,19 @@ export async function POST(req: Request) {
   const youId = you.rosterId;
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
 
+  const profiles = buildTeamProfiles(data);
+  const dossiers = buildTeamDossiers(profiles, data);
+  const personaByRoster = new Map(dossiers.map((d) => [d.rosterId, d.persona]));
+  const val = (p: OwnedPick, perspective?: string) => valueAsset({ type: "pick", key: p.key }, ctx, perspective ? { perspective } : undefined);
+
   const forced = new Map<number, string>();
   for (const f of body.forcedPicks ?? []) {
     if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);
   }
   const forcedOveralls = new Set(forced.keys());
-  // Prior accepted trades — apply them so ownership reflects the live sim.
   const priorOwner = new Map<number, string>();
   for (const o of body.tradeOverrides ?? []) if (typeof o?.overall === "number") priorOwner.set(o.overall, o.rosterId);
 
-  // Current-year pick board, in order (with prior sim trades applied).
   const current: OwnedPick[] = [];
   for (const list of data.pickOwnership.values()) {
     for (const p of list) {
@@ -60,21 +64,17 @@ export async function POST(req: Request) {
     }
   }
   current.sort((a, b) => a.overall! - b.overall!);
-  const valOf = (p: OwnedPick) => ladder.get(pickKey(p.round, p.slot)) ?? 0;
 
-  // The pick you're on the clock for = your first current pick that isn't already made.
   const myPick = current.find((p) => p.currentRosterId === youId && !forcedOveralls.has(p.overall!));
   if (!myPick) return NextResponse.json({ offers: [] });
-  const myVal = valOf(myPick);
+  const myOurVal = val(myPick, youId);
 
-  // Move-up partners: unmade picks after yours owned by another team, +1..+8 window.
-  const later = current.filter(
-    (p) => p.overall! > myPick.overall! && p.currentRosterId !== youId && !forcedOveralls.has(p.overall!),
-  );
-  const windowed = later.filter((p) => p.overall! - myPick.overall! <= 8);
-  const candidates = (windowed.length ? windowed : later).sort((a, b) => a.overall! - b.overall!);
+  // Move-up partners: unmade picks after ours owned by another team (+1..+10),
+  // closest first (smallest slide for us).
+  const candidates = current
+    .filter((p) => p.overall! > myPick.overall! && p.overall! - myPick.overall! <= 10 && p.currentRosterId !== youId && !forcedOveralls.has(p.overall!))
+    .sort((a, b) => a.overall! - b.overall!);
 
-  const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
   const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
@@ -84,33 +84,42 @@ export async function POST(req: Request) {
   for (const cand of candidates) {
     if (offers.length >= 3) break;
     if (seenPartners.has(cand.currentRosterId)) continue;
-
-    // Balance the package: if the partner's pick alone doesn't cover your value,
-    // find the cheapest of their later picks that closes the gap.
-    const candVal = valOf(cand);
-    let extraPick: OwnedPick | null = null;
-    if (candVal < myVal) {
-      const partnerLater = current
-        .filter((p) => p.currentRosterId === cand.currentRosterId && p.overall! > cand.overall! && !forcedOveralls.has(p.overall!))
-        .map((p) => ({ p, v: valOf(p) }))
-        .sort((a, b) => a.v - b.v);
-      const cover = partnerLater.find((e) => candVal + e.v >= myVal) ?? partnerLater[partnerLater.length - 1];
-      if (!cover) continue;
-      extraPick = cover.p;
-    }
-    seenPartners.add(cand.currentRosterId);
     const partnerId = cand.currentRosterId;
 
-    // Swap ownership and re-mock the whole board (keeping already-made picks).
+    // The partner (who jumps to our pick) receives myPick and sends cand + the
+    // cheapest of their later picks needed to make US whole. Persona sets their
+    // ceiling, but a draft move-up commands a premium — even a tight team will
+    // pay up to ~1.18x to jump for a guy — so we floor their willingness there.
+    const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
+    const floor = Math.min(band.min, 0.85);
+    const theirReceive = val(myPick, partnerId);
+    let theirGive = val(cand, partnerId);
+    const ourGive = myOurVal;
+    let ourReceive = val(cand, youId);
+    const getPicks: OwnedPick[] = [cand];
+    const partnerLater = current
+      .filter((p) => p.currentRosterId === partnerId && p.overall! > cand.overall! && !forcedOveralls.has(p.overall!))
+      .map((p) => ({ p, ourV: val(p, youId), theirV: val(p, partnerId) }))
+      .sort((a, b) => a.theirV - b.theirV);
+    for (const e of partnerLater) {
+      if (ourReceive > ourGive || getPicks.length >= 4) break; // we're ahead — stop
+      if (theirReceive < floor * (theirGive + e.theirV)) break; // partner won't add more
+      getPicks.push(e.p);
+      theirGive += e.theirV;
+      ourReceive += e.ourV;
+    }
+    // The partner has to accept the final package, and sliding back has to net us
+    // MORE capital than we gave up — otherwise there's no reason to move down.
+    if (theirReceive < floor * theirGive) continue;
+    if (ourReceive <= ourGive) continue;
+
+    seenPartners.add(partnerId);
     const overrides = [
       { overall: myPick.overall!, rosterId: partnerId },
-      { overall: cand.overall!, rosterId: youId },
-      ...(extraPick ? [{ overall: extraPick.overall!, rosterId: youId }] : []),
+      ...getPicks.map((g) => ({ overall: g.overall!, rosterId: youId })),
     ];
     const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
-    const order = current.map((p) =>
-      ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p,
-    );
+    const order = current.map((p) => (ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p));
     const { projection, reads } = runDraftEngine(data, grid, profiles, boards, order, scenario, forced);
 
     const readByOverall = new Map<number, (typeof reads)[number]["picks"][number]>();
@@ -131,28 +140,21 @@ export async function POST(req: Request) {
         needs: [] as string[],
         why: pr?.rationale ?? "",
         tradeCandidate: false,
-        survivors: (pr?.topSurvivors ?? []).map((sv) => ({
-          playerId: sv.playerId,
-          name: sv.name,
-          pos: sv.position,
-          nflTeam: nflTeamOf(sv.playerId),
-          want: sv.want,
-        })),
+        survivors: (pr?.topSurvivors ?? []).map((sv) => ({ playerId: sv.playerId, name: sv.name, pos: sv.position, nflTeam: nflTeamOf(sv.playerId), want: sv.want })),
       };
     });
     const myRead = reads.find((r) => r.rosterId === youId);
+    // getPicks[0] is the slot we slide to.
+    const slideTo = getPicks[0];
 
     offers.push({
       partner: nameByRoster.get(partnerId) ?? partnerId,
       partnerId,
       fromPick: pickKey(myPick.round, myPick.slot),
-      toPick: pickKey(cand.round, cand.slot),
-      give: [{ pick: pickKey(myPick.round, myPick.slot), value: Math.round(myVal) }],
-      get: [
-        { pick: pickKey(cand.round, cand.slot), value: Math.round(candVal) },
-        ...(extraPick ? [{ pick: pickKey(extraPick.round, extraPick.slot), value: Math.round(valOf(extraPick)) }] : []),
-      ],
-      net: Math.round(candVal + (extraPick ? valOf(extraPick) : 0) - myVal),
+      toPick: pickKey(slideTo.round, slideTo.slot),
+      give: [{ pick: pickKey(myPick.round, myPick.slot), value: Math.round(myOurVal) }],
+      get: getPicks.map((g) => ({ pick: pickKey(g.round, g.slot), value: Math.round(val(g, youId)) })),
+      net: Math.round(ourReceive - ourGive),
       rationale: myRead?.picks?.[0]?.rationale ?? "",
       overrides,
       board,

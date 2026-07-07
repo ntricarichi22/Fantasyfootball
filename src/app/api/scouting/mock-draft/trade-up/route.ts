@@ -1,21 +1,20 @@
 import { NextResponse } from "next/server";
-import { getLeagueData, getPickValues, type OwnedPick } from "@/shared/league-data";
+import { getLeagueData, type OwnedPick } from "@/shared/league-data";
 import { buildTeamProfiles } from "@/shared/team-profiles";
+import { buildTeamDossiers } from "@/shared/team-dossier";
+import { buildValuationContext, valueAsset } from "@/shared/asset-values";
+import { bandFor, normalizePersona } from "@/pro-personnel/engine/core/personas";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// SIMULATION-ONLY trade-up offers — the mirror of the trade-back route. Given
-// the pick you're about to make (forcedPicks = the picks already made, and
-// tradeOverrides = the ownership swaps from trades you've already accepted this
-// sim), it always surfaces a way to jump to the team currently ON THE CLOCK,
-// plus the next-closest jumps. It builds the package you'd send (your pick +
-// the cheapest of your later picks needed to cover the value gap) and re-runs
-// the engine with the swapped ownership so the UI can read who you'd have
-// access to at the new slot. It never returns zero offers when a pick sits
-// ahead of yours — you can always ring the team on the clock.
+// SIMULATION-ONLY trade-up offers. Picks are valued and every package is
+// acceptance-checked through the CANONICAL trade engine — the same asset
+// valuation (valueAsset) and per-team persona accept bands the real Trade
+// Studio uses — so an offer only surfaces if the PARTNER would actually take it
+// from their own seat. No more "give 2.10 for 2.06 straight up" nonsense.
 
 const SCENARIOS: DraftScenario[] = ["standard", "qb-run", "rb-run", "wr-run", "chalk"];
 const asScenario = (v: unknown): DraftScenario =>
@@ -30,7 +29,7 @@ export async function POST(req: Request) {
     forcedPicks?: Array<{ overall: number; playerId: string }>;
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
-  const [data, ladder] = await Promise.all([getLeagueData(), getPickValues()]);
+  const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const scenario = asScenario(body.scenario);
   const teamId = body.teamId ?? "";
@@ -43,12 +42,17 @@ export async function POST(req: Request) {
   const youId = you.rosterId;
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
 
+  const profiles = buildTeamProfiles(data);
+  const dossiers = buildTeamDossiers(profiles, data);
+  const personaByRoster = new Map(dossiers.map((d) => [d.rosterId, d.persona]));
+  // Canonical pick value, optionally from a team's own perspective.
+  const val = (p: OwnedPick, perspective?: string) => valueAsset({ type: "pick", key: p.key }, ctx, perspective ? { perspective } : undefined);
+
   const forced = new Map<number, string>();
   for (const f of body.forcedPicks ?? []) {
     if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);
   }
   const forcedOveralls = new Set(forced.keys());
-  // Prior accepted trades — apply them so ownership reflects the live sim.
   const priorOwner = new Map<number, string>();
   for (const o of body.tradeOverrides ?? []) if (typeof o?.overall === "number") priorOwner.set(o.overall, o.rosterId);
 
@@ -61,15 +65,13 @@ export async function POST(req: Request) {
     }
   }
   current.sort((a, b) => a.overall! - b.overall!);
-  const valOf = (p: OwnedPick) => ladder.get(pickKey(p.round, p.slot)) ?? 0;
 
   const myPick = current.find((p) => p.currentRosterId === youId && !forcedOveralls.has(p.overall!));
   if (!myPick) return NextResponse.json({ offers: [] });
-  const myVal = valOf(myPick);
+  const myOurVal = val(myPick, youId);
 
-  // Targets: any unmade pick ahead of ours owned by another team. The team on
-  // the clock (targetOverall) is always the first option, then the closest
-  // jumps. No distance cap — you can always ring the team on the clock.
+  // Targets: any unmade pick ahead of ours owned by another team. Team on the
+  // clock (targetOverall) first, then the closest jumps — no distance cap.
   const targetOverall = typeof body.targetOverall === "number" ? body.targetOverall : null;
   const candidates = current
     .filter((p) => p.overall! < myPick.overall! && p.currentRosterId !== youId && !forcedOveralls.has(p.overall!))
@@ -79,7 +81,6 @@ export async function POST(req: Request) {
       return (myPick.overall! - a.overall!) - (myPick.overall! - b.overall!);
     });
 
-  const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
   const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
@@ -89,26 +90,29 @@ export async function POST(req: Request) {
   for (const cand of candidates) {
     if (offers.length >= 3) break;
     if (seenPartners.has(cand.currentRosterId)) continue;
-
-    // Package: your pick + the cheapest of your later picks needed to cover the
-    // value gap. If a long jump can't be fully covered, send your best available
-    // — the offer still stands and the director's take flags the cost.
-    const candVal = valOf(cand);
-    const extras: OwnedPick[] = [];
-    if (myVal < candVal) {
-      const myLater = current
-        .filter((p) => p.currentRosterId === youId && p.overall! > myPick.overall! && !forcedOveralls.has(p.overall!))
-        .map((p) => ({ p, v: valOf(p) }))
-        .sort((a, b) => a.v - b.v);
-      let total = myVal;
-      for (const e of myLater) {
-        if (total >= candVal || extras.length >= 3) break;
-        extras.push(e.p);
-        total += e.v;
-      }
-    }
-    seenPartners.add(cand.currentRosterId);
     const partnerId = cand.currentRosterId;
+
+    // Build the package: our pick + the cheapest of our later picks needed so the
+    // PARTNER accepts from their own seat (they receive our picks, give up cand;
+    // they take it when their receive/give ratio clears their persona floor).
+    const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
+    const theirGive = val(cand, partnerId);
+    const myLater = current
+      .filter((p) => p.currentRosterId === youId && p.overall! > myPick.overall! && !forcedOveralls.has(p.overall!))
+      .map((p) => ({ p, v: val(p, partnerId) }))
+      .sort((a, b) => a.v - b.v);
+    const extras: OwnedPick[] = [];
+    let theirReceive = val(myPick, partnerId);
+    for (const e of myLater) {
+      if (theirReceive >= band.min * theirGive || extras.length >= 3) break;
+      extras.push(e.p);
+      theirReceive += e.v;
+    }
+    if (theirReceive < band.min * theirGive) continue; // can't make them say yes — skip
+
+    seenPartners.add(partnerId);
+    const ourGive = myOurVal + extras.reduce((s, e) => s + val(e, youId), 0);
+    const ourReceive = val(cand, youId);
 
     const overrides = [
       { overall: cand.overall!, rosterId: youId },
@@ -116,9 +120,7 @@ export async function POST(req: Request) {
       ...extras.map((e) => ({ overall: e.overall!, rosterId: partnerId })),
     ];
     const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
-    const order = current.map((p) =>
-      ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p,
-    );
+    const order = current.map((p) => (ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p));
     const { projection, reads } = runDraftEngine(data, grid, profiles, boards, order, scenario, forced);
 
     const readByOverall = new Map<number, (typeof reads)[number]["picks"][number]>();
@@ -139,13 +141,7 @@ export async function POST(req: Request) {
         needs: [] as string[],
         why: pr?.rationale ?? "",
         tradeCandidate: false,
-        survivors: (pr?.topSurvivors ?? []).map((sv) => ({
-          playerId: sv.playerId,
-          name: sv.name,
-          pos: sv.position,
-          nflTeam: nflTeamOf(sv.playerId),
-          want: sv.want,
-        })),
+        survivors: (pr?.topSurvivors ?? []).map((sv) => ({ playerId: sv.playerId, name: sv.name, pos: sv.position, nflTeam: nflTeamOf(sv.playerId), want: sv.want })),
       };
     });
     const myRead = reads.find((r) => r.rosterId === youId);
@@ -156,11 +152,11 @@ export async function POST(req: Request) {
       fromPick: pickKey(myPick.round, myPick.slot),
       toPick: pickKey(cand.round, cand.slot),
       give: [
-        { pick: pickKey(myPick.round, myPick.slot), value: Math.round(myVal) },
-        ...extras.map((e) => ({ pick: pickKey(e.round, e.slot), value: Math.round(valOf(e)) })),
+        { pick: pickKey(myPick.round, myPick.slot), value: Math.round(myOurVal) },
+        ...extras.map((e) => ({ pick: pickKey(e.round, e.slot), value: Math.round(val(e, youId)) })),
       ],
-      get: [{ pick: pickKey(cand.round, cand.slot), value: Math.round(candVal) }],
-      net: Math.round(candVal - (myVal + extras.reduce((s, e) => s + valOf(e), 0))),
+      get: [{ pick: pickKey(cand.round, cand.slot), value: Math.round(ourReceive) }],
+      net: Math.round(ourReceive - ourGive),
       rationale: myRead?.picks?.[0]?.rationale ?? "",
       overrides,
       board,
