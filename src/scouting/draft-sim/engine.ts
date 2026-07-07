@@ -231,12 +231,22 @@ export function runDraftEngine(
     const qbBand =
       cell.position === "QB" ? stashSlotFloor(data.values.rookieQbBoost.get(playerId) ?? 1) : Infinity;
     const beforeBand = qbBand !== Infinity && pickOverall < qbBand;
+    // Need + successor should reward filling a need with a player who'll
+    // actually contribute — a STARTER (would-start upgrade > 0), an IN-ROTATION
+    // asset (>= 40% of the pool's top value, matching the UI's fit tier), or any
+    // rookie (a development/stash play). A veteran backup-tier scrub doesn't
+    // really "fill a need," so his need + successor lift is halved — this stops a
+    // QB-thin team from reaching for a washed vet (e.g. Sam Howell) over the best
+    // real contributor left on the board. League-wide, not position-specific.
+    const inRotation = cell.asset >= 0.4 * globalMaxAsset;
+    const isRookie = (data.players.get(playerId)?.exp ?? 99) === 0;
+    const needMult = liveUpgrade > 0 || inRotation || isRookie ? 1 : 0.5;
     let signalWant =
       SIGNAL_W.asset * assetNorm +
       SIGNAL_W.upgrade * upgradeNorm +
       (beforeBand
         ? 0
-        : SIGNAL_W.need * cell.needScore + SIGNAL_W.successor * (succ[cell.bucket] ?? 0));
+        : needMult * (SIGNAL_W.need * cell.needScore + SIGNAL_W.successor * (succ[cell.bucket] ?? 0)));
     // Behavior 1 — desperation amplifier: only for a QB who would START and only
     // once he's in his band.
     if (!beforeBand && cell.position === "QB" && liveUpgrade > 0) {
