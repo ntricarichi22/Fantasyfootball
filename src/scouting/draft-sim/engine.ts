@@ -48,9 +48,17 @@ function stashSlotFloor(boost: number): number {
 const STASH_MARGINAL_UPGRADE = 20; // value points; under this the leader isn't a real starter bump
 const STASH_ASSET_TOLERANCE = 0.8; // only stash over a leader whose asset the QB roughly matches
 
-// Scenario want premium for a positional run — added to every team's want for
-// the run position so it flies off the board. Strong enough to visibly cascade.
-const RUN_PREMIUM = 0.25;
+// Scenario want premium for a positional run. A run reflects scarcity fear over
+// a specific TIER of players, not the position as a whole — so the premium only
+// lifts run-position prospects within RUN_TIER_WIDTH value points of the best one
+// on the board, and fades linearly to zero at that edge. That keeps a run tight
+// (the 2-3 legit QBs in a similar range fly off over a few picks) and grounded in
+// the rankings (a washed scrub QB never jumps a legitimate skill player, and once
+// the tier is gone the run stops instead of digging into replacement-level guys).
+// The premium is deliberately modest so a run reorders similar-value players, not
+// a QB over a much better prospect.
+const RUN_PREMIUM = 0.1;
+const RUN_TIER_WIDTH = 28;
 const RUN_POSITIONS: Record<string, Position[]> = {
   "qb-run": ["QB"],
   "rb-run": ["RB"],
@@ -166,10 +174,15 @@ export function runDraftEngine(
   const poolSize = baseCells.length;
 
   let globalMaxAsset = 1;
+  // The top of the run tier — the best run-position prospect's value. The run
+  // premium is measured DOWN from here, so it targets the elite cluster at the
+  // position and fades out below it (never elevating replacement-level guys).
+  let runTierTop = 0;
   const nameOf = new Map<string, { name: string; position: Position }>();
   for (const c of baseCells) {
     nameOf.set(c.playerId, { name: c.name, position: c.position });
     if (c.asset > globalMaxAsset) globalMaxAsset = c.asset;
+    if (runPositions && runPositions.includes(c.position) && c.asset > runTierTop) runTierTop = c.asset;
   }
 
   const cellByTeam = new Map<string, Map<string, DraftFitCell>>();
@@ -285,9 +298,14 @@ export function runDraftEngine(
       const w = qbWeakness(rid);
       if (w >= QB_AMP_GATE) signalWant += QB_AMP_MAX * ((w - QB_AMP_GATE) / (1 - QB_AMP_GATE));
     }
-    // Scenario: positional RUN — a scarcity premium so this position is chased
-    // up the board across every team.
-    if (runPositions && runPositions.includes(cell.position)) signalWant += RUN_PREMIUM;
+    // Scenario: positional RUN — a scarcity premium that only lifts prospects
+    // inside the top tier at the run position, fading to zero RUN_TIER_WIDTH value
+    // points below the best one. The elite QBs chase each other off the board; a
+    // scrub QB well below the tier gets nothing and stays behind the skill players.
+    if (runPositions && runPositions.includes(cell.position)) {
+      const closeness = Math.max(0, 1 - (runTierTop - cell.asset) / RUN_TIER_WIDTH);
+      signalWant += RUN_PREMIUM * closeness;
+    }
     const curation = boards.get(rid)?.curation ?? 0;
     const rank = boardRankByTeam.get(rid)?.get(playerId);
     const boardWant = rank == null ? 0 : 1 - rank / poolSize;
