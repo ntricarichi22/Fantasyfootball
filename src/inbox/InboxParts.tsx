@@ -158,8 +158,10 @@ export function NegotiationTile({
 
   if (!version) return null;
 
+  const frameColor = avatarColors(tile.counterpart, "trade").bg;
+
   const ledgerLabel: React.CSSProperties = {
-    width: 40,
+    width: 42,
     flexShrink: 0,
     display: "flex",
     alignItems: "center",
@@ -173,24 +175,36 @@ export function NegotiationTile({
     color: "#1A1A1A",
   };
   const ledgerValue: React.CSSProperties = {
-    padding: "7px 10px",
-    fontSize: 12.5,
+    padding: "8px 10px",
+    fontSize: 13,
     fontWeight: 800,
     lineHeight: 1.3,
     fontFamily: FB,
     color: viewingCurrent ? "#1A1A1A" : "#5F5A50",
     minWidth: 0,
+    display: "flex",
+    alignItems: "center",
+  };
+  // Values clamp at two lines so long packages can't break row alignment.
+  const clampTwo: React.CSSProperties = {
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
   };
 
   return (
     <div
       onClick={onOpen}
       style={{
-        background: "#FEFCF9",
+        // The Frame — a team-color mat ringing the card inside the ink border,
+        // 1975-Topps style. Identity lives at the edge; the interior stays calm.
+        background: frameColor,
         border: "3px solid #1A1A1A",
         borderRadius: 12,
+        padding: 5,
+        aspectRatio: "5 / 7",
         boxShadow: isOurCourt ? "4px 4px 0 #1A1A1A" : "none",
-        overflow: "hidden",
         cursor: "pointer",
         display: "flex",
         flexDirection: "column",
@@ -203,16 +217,29 @@ export function NegotiationTile({
         }
       `}</style>
 
-      <div style={{ opacity: isClosed ? 0.62 : 1, flex: 1, display: "flex", flexDirection: "column" }}>
+      <div
+        style={{
+          background: "#FEFCF9",
+          border: "1.5px solid #1A1A1A",
+          borderRadius: 7,
+          overflow: "hidden",
+          flex: 1,
+          minHeight: 0,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+      <div style={{ opacity: isClosed ? 0.62 : 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
         {/* Hero band — full bleed, rule below, gold hairline riding it */}
         <div
           style={{
             background: "#F5F0E6",
-            padding: "8px 10px",
+            padding: "9px 10px",
             display: "flex",
             alignItems: "center",
             gap: 9,
             borderBottom: "1.5px solid #1A1A1A",
+            minHeight: 44,
           }}
         >
           {tile.logoUrl && !logoFailed ? (
@@ -221,8 +248,8 @@ export function NegotiationTile({
               alt=""
               onError={() => setLogoFailed(true)}
               style={{
-                width: 34,
-                height: 34,
+                width: 36,
+                height: 36,
                 borderRadius: "50%",
                 objectFit: "cover",
                 border: "1.5px solid #1A1A1A",
@@ -233,10 +260,10 @@ export function NegotiationTile({
           ) : (
             <span
               style={{
-                width: 34,
-                height: 34,
+                width: 36,
+                height: 36,
                 borderRadius: "50%",
-                background: avatarColors(tile.counterpart, "trade").bg,
+                background: frameColor,
                 color: avatarColors(tile.counterpart, "trade").fg,
                 border: "1.5px solid #1A1A1A",
                 display: "inline-flex",
@@ -256,10 +283,11 @@ export function NegotiationTile({
               fontFamily: "Syne, sans-serif",
               fontWeight: 800,
               fontSize: 13,
-              lineHeight: 1.1,
+              lineHeight: 1.15,
               textTransform: "uppercase",
               color: "#1A1A1A",
               minWidth: 0,
+              ...clampTwo,
             }}
           >
             {tile.counterpart}
@@ -331,13 +359,17 @@ export function NegotiationTile({
               : "repeating-linear-gradient(-45deg, transparent, transparent 7px, rgba(200,195,184,0.18) 7px, rgba(200,195,184,0.18) 8px)",
           }}
         >
-          <div style={{ display: "flex", alignItems: "stretch", borderTop: "1.5px solid #1A1A1A" }}>
+          <div style={{ display: "flex", alignItems: "stretch", borderTop: "1.5px solid #1A1A1A", minHeight: 54 }}>
             <span style={ledgerLabel}>GET</span>
-            <span style={ledgerValue}>{version.youGet}</span>
+            <span style={ledgerValue}>
+              <span style={clampTwo}>{version.youGet}</span>
+            </span>
           </div>
-          <div style={{ display: "flex", alignItems: "stretch", borderTop: "1.5px solid #1A1A1A" }}>
+          <div style={{ display: "flex", alignItems: "stretch", borderTop: "1.5px solid #1A1A1A", minHeight: 54 }}>
             <span style={ledgerLabel}>GIVE</span>
-            <span style={ledgerValue}>{version.youGive}</span>
+            <span style={ledgerValue}>
+              <span style={clampTwo}>{version.youGive}</span>
+            </span>
           </div>
         </div>
       </div>
@@ -390,6 +422,7 @@ export function NegotiationTile({
         >
           {footer.action} →
         </span>
+      </div>
       </div>
     </div>
   );
