@@ -211,6 +211,7 @@ export function NegotiationTile({
   return (
     <div
       onClick={onOpen}
+      className="cfc-negotiation-card"
       style={{
         // The Frame — a team-color mat ringing the card inside the ink border,
         // 1975-Topps style. Identity lives at the edge; the interior stays calm.
@@ -218,7 +219,6 @@ export function NegotiationTile({
         border: "3px solid #1A1A1A",
         borderRadius: 12,
         padding: 5,
-        aspectRatio: "5 / 7",
         boxShadow: isOurCourt ? "4px 4px 0 #1A1A1A" : "none",
         cursor: "pointer",
         display: "flex",
@@ -229,6 +229,12 @@ export function NegotiationTile({
         @keyframes cfc-tile-pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
+        }
+        .cfc-negotiation-card { aspect-ratio: 5 / 7; }
+        /* Narrow cards can't honor the trading-card envelope — the fixed
+           zones (hero, rail, ledger, footer) exceed it, so run natural. */
+        @media (max-width: 768px) {
+          .cfc-negotiation-card { aspect-ratio: auto; }
         }
       `}</style>
 
@@ -332,13 +338,13 @@ export function NegotiationTile({
             rail: their logo ← for what they sent us, our logo → for what we
             sent them. Gold ring = the paper on the table. Crests are the
             version picker. */}
-        <div style={{ padding: "12px 16px 4px" }}>
+        <div style={{ padding: "12px 14px 4px" }}>
           <div style={{ position: "relative" }}>
-            <div style={{ position: "absolute", left: 12, right: 12, top: 11, borderTop: "2px dashed #C8C3B8" }} />
+            <div style={{ position: "absolute", left: 10, right: 10, top: 9, borderTop: "2px dashed #C8C3B8" }} />
             <div
               style={{
                 display: "flex",
-                justifyContent: tile.versions.length === 1 ? "center" : "space-between",
+                justifyContent: tile.versions.length === 1 ? "flex-start" : "space-between",
               }}
             >
               {tile.versions.map((v, i) => {
@@ -349,8 +355,8 @@ export function NegotiationTile({
                 const markFailed = v.fromUs ? setMyLogoFailed : setLogoFailed;
                 const a = timeAgo(v.ts);
                 const circleStyle: React.CSSProperties = {
-                  width: 24,
-                  height: 24,
+                  width: 20,
+                  height: 20,
                   borderRadius: "50%",
                   border: isCur ? "2px solid #F5C230" : `2px solid ${isSel ? "#1A1A1A" : "#8C7E6A"}`,
                   boxShadow: isCur ? "0 0 0 1.5px #1A1A1A" : "none",
@@ -382,25 +388,51 @@ export function NegotiationTile({
                       zIndex: 1,
                     }}
                   >
-                    {url && !failed ? (
-                      <img src={url} alt="" onError={() => markFailed(true)} style={circleStyle} />
-                    ) : (
+                    <span style={{ position: "relative", display: "inline-flex" }}>
+                      {url && !failed ? (
+                        <img src={url} alt="" onError={() => markFailed(true)} style={circleStyle} />
+                      ) : (
+                        <span
+                          style={{
+                            ...circleStyle,
+                            background: v.fromUs ? myColor : frameColor,
+                            color: "#FEFCF9",
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontFamily: "Syne, sans-serif",
+                            fontWeight: 800,
+                            fontSize: 7,
+                          }}
+                        >
+                          {monogram(v.fromUs ? tile.myTeam : tile.counterpart)}
+                        </span>
+                      )}
+                      {/* Direction badge riding the crest — the arrow does the talking */}
                       <span
+                        aria-label={v.fromUs ? "Sent by us" : "Sent to us"}
                         style={{
-                          ...circleStyle,
-                          background: v.fromUs ? myColor : frameColor,
+                          position: "absolute",
+                          top: -5,
+                          right: -7,
+                          width: 13,
+                          height: 13,
+                          borderRadius: "50%",
+                          background: "#1A1A1A",
+                          border: "1.5px solid #FEFCF9",
                           color: "#FEFCF9",
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontFamily: "Syne, sans-serif",
-                          fontWeight: 800,
                           fontSize: 8,
+                          fontWeight: 700,
+                          lineHeight: 1,
+                          opacity: isCur || isSel ? 1 : 0.55,
                         }}
                       >
-                        {monogram(v.fromUs ? tile.myTeam : tile.counterpart)}
+                        {v.fromUs ? "→" : "←"}
                       </span>
-                    )}
+                    </span>
                     <span
                       style={{
                         fontFamily: FM,
@@ -410,7 +442,7 @@ export function NegotiationTile({
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {v.fromUs ? "→" : "←"} {a === "now" ? "JUST NOW" : `${a.toUpperCase()} AGO`}
+                      {a === "now" ? "JUST NOW" : `${a.toUpperCase()} AGO`}
                     </span>
                   </button>
                 );
@@ -420,7 +452,16 @@ export function NegotiationTile({
         </div>
 
         {/* The director's read of whichever version is on screen */}
-        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", padding: "6px 10px" }}>
+        <div
+          style={{
+            flex: 1,
+            minHeight: 0,
+            display: "flex",
+            alignItems: "center",
+            padding: "4px 9px",
+            overflow: "hidden",
+          }}
+        >
           {version.verdictLabel && version.prose ? (
             <div style={{ width: "100%" }}>
               <DirectorNote

@@ -79,6 +79,15 @@ export default function DirectorNote({
             lineHeight: compact ? 1.4 : 1.45,
             color: "#1A1A1A",
             opacity: proseLoading ? 0.5 : 1,
+            // Compact homes are height-budgeted — the read never overflows them.
+            ...(compact
+              ? {
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical" as const,
+                  overflow: "hidden",
+                }
+              : {}),
           }}
         >
           {prose}
