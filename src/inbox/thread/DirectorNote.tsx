@@ -16,18 +16,27 @@ type Props = {
   verdict?: string; // e.g. "We should take this deal" — underlined in verdictColor
   verdictColor?: string; // hex — green/yellow/red
   proseLoading?: boolean;
+  /** Tighter sizing for small homes (the negotiation card's middle). */
+  compact?: boolean;
 };
 
-export default function DirectorNote({ prose, verdict, verdictColor, proseLoading = false }: Props) {
+export default function DirectorNote({
+  prose,
+  verdict,
+  verdictColor,
+  proseLoading = false,
+  compact = false,
+}: Props) {
   return (
     <div
       style={{
         display: "flex",
         alignItems: "flex-start",
-        gap: 12,
+        gap: compact ? 9 : 12,
         background: "#FBF8F1",
         border: "1.5px solid #E8E1D4",
-        padding: "12px 14px",
+        borderRadius: compact ? 6 : 0,
+        padding: compact ? "8px 10px" : "12px 14px",
         fontFamily: F,
         color: "#1A1A1A",
       }}
@@ -35,29 +44,43 @@ export default function DirectorNote({ prose, verdict, verdictColor, proseLoadin
       <img
         src="/avatars/pro-personnel.png"
         alt=""
-        style={{ width: 30, height: 30, borderRadius: "50%", objectFit: "cover", flexShrink: 0, marginTop: 1 }}
+        style={{
+          width: compact ? 26 : 30,
+          height: compact ? 26 : 30,
+          borderRadius: "50%",
+          objectFit: "cover",
+          flexShrink: 0,
+          marginTop: 1,
+        }}
       />
       <div style={{ flex: 1, minWidth: 0 }}>
         {verdict && (
           <span
             style={{
               fontWeight: 700,
-              fontSize: 12,
+              fontSize: compact ? 10 : 12,
               letterSpacing: "0.05em",
               textTransform: "uppercase",
               color: "#1A1A1A",
               display: "inline-block",
-              marginBottom: 6,
+              marginBottom: compact ? 4 : 6,
               textDecoration: "underline",
               textDecorationColor: verdictColor || "#8C7E6A",
-              textDecorationThickness: 4,
-              textUnderlineOffset: 6,
+              textDecorationThickness: compact ? 3 : 4,
+              textUnderlineOffset: compact ? 4 : 6,
             }}
           >
             {verdict}
           </span>
         )}
-        <div style={{ fontSize: 13, lineHeight: 1.45, color: "#1A1A1A", opacity: proseLoading ? 0.5 : 1 }}>
+        <div
+          style={{
+            fontSize: compact ? 10.5 : 13,
+            lineHeight: compact ? 1.4 : 1.45,
+            color: "#1A1A1A",
+            opacity: proseLoading ? 0.5 : 1,
+          }}
+        >
           {prose}
         </div>
       </div>

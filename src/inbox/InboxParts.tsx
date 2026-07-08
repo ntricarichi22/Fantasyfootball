@@ -3,6 +3,8 @@
 import { Fragment, useRef, useState } from "react";
 import { Icon } from "@/shared/ui/Icon";
 import { teamColorFor } from "@/shared/league-data/teamColors";
+import { gmNameFor } from "@/home/gmNames";
+import DirectorNote from "@/inbox/thread/DirectorNote";
 
 const FH = "Syne, sans-serif";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -30,21 +32,31 @@ export type InboxItem = {
 export type TileStatus = "our_court" | "on_them" | "accepted" | "declined" | "withdrawn";
 
 // One revision of the deal — every offer in the thread is a version the card
-// can flip to. Last entry is the paper currently (or finally) on the table.
+// can flip to via its crest on the timeline. Last entry is the paper currently
+// (or finally) on the table.
 export type TileVersion = {
-  label: string;   // "V1.0"
-  caption: string; // "THEIR OPENING" / "YOUR COUNTER"
   youGet: string;
   youGive: string;
+  // Who authored this version — picks the crest and the arrow (→ ours, ← theirs).
+  fromUs: boolean;
+  ts: string;
+  // The director's read of THIS version (from engine values; absent when the
+  // offer predates value tracking).
+  verdictLabel?: string;
+  verdictColor?: string;
+  prose?: string;
 };
 
 export type NegotiationTileData = {
   threadId: string;
   counterpart: string;
   logoUrl: string | null;
+  // Our own identity — the timeline shows OUR crest on versions we sent.
+  myTeam: string;
+  myLogoUrl: string | null;
   versions: TileVersion[];
   status: TileStatus;
-  // Pulses the status dot until the thread is opened: an unread inbound
+  // Pulses the current crest until the thread is opened: an unread inbound
   // offer, or a verdict/withdrawal you haven't acknowledged.
   unseen: boolean;
   // Who opened the negotiation (V1.0's author) — feeds PROPOSED / RECEIVED.
@@ -146,6 +158,7 @@ export function NegotiationTile({
   const currentIdx = tile.versions.length - 1;
   const [selectedIdx, setSelectedIdx] = useState(currentIdx);
   const [logoFailed, setLogoFailed] = useState(false);
+  const [myLogoFailed, setMyLogoFailed] = useState(false);
   // Refetches can append a version — never leave the selection out of range,
   // and snap to the new current when one arrives.
   const idx = Math.min(selectedIdx, currentIdx);
@@ -155,11 +168,12 @@ export function NegotiationTile({
   const footer = TILE_FOOTER[tile.status];
   const isOurCourt = tile.status === "our_court";
   const isClosed = tile.status !== "our_court" && tile.status !== "on_them";
-  const ago = timeAgo(tile.timestamp);
 
   if (!version) return null;
 
   const frameColor = teamColorFor(tile.counterpart);
+  const myColor = teamColorFor(tile.myTeam);
+  const gmName = gmNameFor(tile.counterpart);
 
   const ledgerLabel: React.CSSProperties = {
     width: 42,
@@ -279,82 +293,151 @@ export function NegotiationTile({
               {monogram(tile.counterpart)}
             </span>
           )}
-          <span
-            style={{
-              fontFamily: "Syne, sans-serif",
-              fontWeight: 800,
-              fontSize: 13,
-              lineHeight: 1.15,
-              textTransform: "uppercase",
-              color: "#1A1A1A",
-              minWidth: 0,
-              ...clampTwo,
-            }}
-          >
-            {tile.counterpart}
+          <span style={{ minWidth: 0 }}>
+            <span
+              style={{
+                fontFamily: "Syne, sans-serif",
+                fontWeight: 800,
+                fontSize: 13,
+                lineHeight: 1.15,
+                textTransform: "uppercase",
+                color: "#1A1A1A",
+                display: "block",
+                ...clampTwo,
+              }}
+            >
+              {tile.counterpart}
+            </span>
+            {gmName && (
+              <span
+                style={{
+                  display: "block",
+                  fontFamily: FM,
+                  fontSize: 8,
+                  fontWeight: 700,
+                  letterSpacing: "0.1em",
+                  color: "#8C7E6A",
+                  marginTop: 2,
+                  textTransform: "uppercase",
+                }}
+              >
+                GM · {gmName}
+              </span>
+            )}
           </span>
         </div>
         <div style={{ height: 3, background: "#F5C230", borderBottom: "1.5px solid #1A1A1A", flexShrink: 0 }} />
 
-        <div
-          style={{
-            padding: "8px 10px 5px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 6,
-          }}
-        >
-          <span style={{ display: "inline-flex", gap: 3, flexWrap: "wrap" }}>
-            {tile.versions.map((v, i) => {
-              const active = i === idx;
-              return (
-                <button
-                  key={v.label}
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedIdx(i);
-                  }}
-                  style={{
-                    fontFamily: FM,
-                    fontSize: 9,
-                    fontWeight: 700,
-                    background: active ? "#1A1A1A" : "transparent",
-                    border: `1.5px solid ${active ? "#1A1A1A" : "#C8C3B8"}`,
-                    color: active ? "#FEFCF9" : "#8C7E6A",
-                    borderRadius: 5,
-                    padding: "2px 6px",
-                    cursor: "pointer",
-                  }}
-                >
-                  {v.label}
-                </button>
-              );
-            })}
-          </span>
-          <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, color: "#8C7E6A", flexShrink: 0 }}>
-            {ago.toUpperCase()}
-          </span>
+        {/* The timeline — each version is its author's crest on the dashed
+            rail: their logo ← for what they sent us, our logo → for what we
+            sent them. Gold ring = the paper on the table. Crests are the
+            version picker. */}
+        <div style={{ padding: "12px 16px 4px" }}>
+          <div style={{ position: "relative" }}>
+            <div style={{ position: "absolute", left: 12, right: 12, top: 11, borderTop: "2px dashed #C8C3B8" }} />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: tile.versions.length === 1 ? "center" : "space-between",
+              }}
+            >
+              {tile.versions.map((v, i) => {
+                const isCur = i === currentIdx;
+                const isSel = i === idx;
+                const url = v.fromUs ? tile.myLogoUrl : tile.logoUrl;
+                const failed = v.fromUs ? myLogoFailed : logoFailed;
+                const markFailed = v.fromUs ? setMyLogoFailed : setLogoFailed;
+                const a = timeAgo(v.ts);
+                const circleStyle: React.CSSProperties = {
+                  width: 24,
+                  height: 24,
+                  borderRadius: "50%",
+                  border: isCur ? "2px solid #F5C230" : `2px solid ${isSel ? "#1A1A1A" : "#8C7E6A"}`,
+                  boxShadow: isCur ? "0 0 0 1.5px #1A1A1A" : "none",
+                  opacity: isCur || isSel ? 1 : 0.55,
+                  boxSizing: "border-box",
+                  background: "#FEFCF9",
+                  objectFit: "cover",
+                  animation:
+                    isCur && tile.unseen ? "cfc-tile-pulse 1.6s ease-in-out infinite" : undefined,
+                };
+                return (
+                  <button
+                    key={`${v.ts}-${i}`}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedIdx(i);
+                    }}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      cursor: "pointer",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 4,
+                      position: "relative",
+                      zIndex: 1,
+                    }}
+                  >
+                    {url && !failed ? (
+                      <img src={url} alt="" onError={() => markFailed(true)} style={circleStyle} />
+                    ) : (
+                      <span
+                        style={{
+                          ...circleStyle,
+                          background: v.fromUs ? myColor : frameColor,
+                          color: "#FEFCF9",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontFamily: "Syne, sans-serif",
+                          fontWeight: 800,
+                          fontSize: 8,
+                        }}
+                      >
+                        {monogram(v.fromUs ? tile.myTeam : tile.counterpart)}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        fontFamily: FM,
+                        fontSize: 7.5,
+                        fontWeight: 700,
+                        color: isSel || isCur ? "#1A1A1A" : "#8C7E6A",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {v.fromUs ? "→" : "←"} {a === "now" ? "JUST NOW" : `${a.toUpperCase()} AGO`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
-        <div
-          style={{
-            padding: "0 10px 7px",
-            fontFamily: FM,
-            fontSize: 8,
-            fontWeight: 700,
-            letterSpacing: "0.12em",
-            color: "#8C7E6A",
-          }}
-        >
-          {version.label} · {version.caption} · {viewingCurrent ? "CURRENT" : "SUPERSEDED"}
+        {/* The director's read of whichever version is on screen */}
+        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", padding: "6px 10px" }}>
+          {version.verdictLabel && version.prose ? (
+            <div style={{ width: "100%" }}>
+              <DirectorNote
+                compact
+                verdict={version.verdictLabel}
+                verdictColor={version.verdictColor}
+                prose={version.prose}
+              />
+            </div>
+          ) : (
+            <span />
+          )}
         </div>
 
         {/* The ledger — full-bleed rows, the deal is the loudest thing here */}
         <div
           style={{
-            marginTop: "auto",
             background: viewingCurrent
               ? "transparent"
               : "repeating-linear-gradient(-45deg, transparent, transparent 7px, rgba(200,195,184,0.18) 7px, rgba(200,195,184,0.18) 8px)",

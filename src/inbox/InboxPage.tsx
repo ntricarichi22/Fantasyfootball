@@ -5,6 +5,7 @@ import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { teamNickname } from "@/shared/league-data/nicknames";
+import { gradeForRatio, ratioOf, offerRead } from "@/inbox/thread/counterMath";
 import {
   ActionBar,
   MobileActionBar,
@@ -48,6 +49,8 @@ type TradeOffer = {
   to_team_id: string;
   assets_from: OfferAsset[];
   assets_to: OfferAsset[];
+  from_value: number | null;
+  to_value: number | null;
   status: string;
   ai_quip: string | null;
   read_at: string | null;
@@ -303,15 +306,31 @@ export default function InboxPage() {
       else continue;
 
       // Every offer in the thread is a flippable version of the deal, always
-      // rendered from OUR side of the table.
-      const versions = offers.map((o, i) => {
+      // rendered from OUR side of the table — with the director's read of
+      // that version computed from the engine's values, same math as the
+      // thread page.
+      const versions = offers.map((o) => {
         const oIsReceiver = o.to_team_id === rosterId;
-        const author = o.from_team_id === rosterId ? "YOUR" : "THEIR";
+        const giveVal = oIsReceiver ? o.to_value : o.from_value;
+        const getVal = oIsReceiver ? o.from_value : o.to_value;
+        let verdictLabel: string | undefined;
+        let verdictColor: string | undefined;
+        let prose: string | undefined;
+        if (typeof giveVal === "number" && typeof getVal === "number" && getVal > 0) {
+          const ratio = ratioOf(giveVal, getVal);
+          const grade = gradeForRatio(ratio);
+          verdictLabel = grade.label;
+          verdictColor = grade.color;
+          prose = offerRead(ratio);
+        }
         return {
-          label: `V${i + 1}.0`,
-          caption: `${author} ${i === 0 ? "OPENING" : "COUNTER"}`,
           youGet: assetSummary(oIsReceiver ? o.assets_from : o.assets_to),
           youGive: assetSummary(oIsReceiver ? o.assets_to : o.assets_from),
+          fromUs: o.from_team_id === rosterId,
+          ts: o.created_at,
+          verdictLabel,
+          verdictColor,
+          prose,
         };
       });
 
@@ -328,10 +347,13 @@ export default function InboxPage() {
           fresh &&
           (latest.status === "withdrawn" ? isReceiver : isFromUser));
 
+      const myTeam = rosterNames[rosterId] || "Our Team";
       out.push({
         threadId: t.id,
         counterpart,
         logoUrl: logoFor(counterpart),
+        myTeam,
+        myLogoUrl: logoFor(myTeam),
         versions,
         status,
         unseen,
