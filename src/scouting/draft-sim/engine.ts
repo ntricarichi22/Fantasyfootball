@@ -56,6 +56,28 @@ const RUN_POSITIONS: Record<string, Position[]> = {
   "wr-run": ["WR", "TE"],
 };
 
+// Pick variability. Taking the want-leader every time makes every run of a
+// scenario byte-identical. Instead we SAMPLE the pick from a softmax over the
+// realistic top candidates — the SAME distribution (T = 0.12, top-6) the UI
+// surfaces as "who they take" / survival odds — so the favorite still usually
+// goes, close calls flip run to run, and a long-shot is never reached. Chalk,
+// forced picks and QB stashes stay deterministic on purpose.
+const PICK_TEMP = 0.12;
+const PICK_POOL = 6; // mirrors SURVIVORS_SHOWN so sampling matches the shown odds
+function samplePick(ranked: Array<{ id: string; want: number }>): string {
+  const top = ranked.slice(0, PICK_POOL);
+  if (top.length <= 1) return top[0]?.id ?? ranked[0].id;
+  const m = top[0].want;
+  const exps = top.map((r) => Math.exp((r.want - m) / PICK_TEMP));
+  const sum = exps.reduce((a, b) => a + b, 0) || 1;
+  let x = Math.random() * sum;
+  for (let i = 0; i < top.length; i++) {
+    x -= exps[i];
+    if (x <= 0) return top[i].id;
+  }
+  return top[0].id;
+}
+
 function bucketOf(pos: Position): NeedBucket {
   if (pos === "QB") return "QB";
   if (pos === "RB") return "RB";
@@ -372,7 +394,9 @@ export function runDraftEngine(
       }
     }
 
-    const bestId: string | null = ranked.length ? ranked[0].id : null;
+    // The want-leader is the top of the survivor board either way; the ACTUAL
+    // pick is the leader for chalk/stash/forced, else sampled for variability.
+    const bestId: string | null = !ranked.length ? null : stashId || isChalk ? ranked[0].id : samplePick(ranked);
 
     const survivors: SurvivorView[] = ranked.slice(0, SURVIVORS_SHOWN).map((r) => {
       const cell = cellByTeam.get(rid)?.get(r.id);
