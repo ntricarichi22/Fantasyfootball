@@ -70,6 +70,18 @@ const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}
 const listPhrase = (a: string[]) => (a.length <= 1 ? a[0] ?? "" : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`);
 const posTeam = (p: { pos: string | null; nflTeam: string | null }) => `${p.pos ?? ""}${p.nflTeam ? ` · ${p.nflTeam}` : ""}`;
 
+// ── Draft-pick grading (rubric from analyst practice: value-vs-slot surplus,
+// BPA discipline / reach, role, and a light need modifier — dynasty "draft for
+// talent, trade for need," and never over-penalize a low pick). ──────────────
+const clampN = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+const GRADE_TABLE: [number, string][] = [[60, "A+"], [45, "A"], [32, "A-"], [22, "B+"], [12, "B"], [4, "B-"], [-6, "C+"], [-16, "C"], [-28, "C-"], [-42, "D"]];
+const letterFor = (s: number) => { for (const [min, g] of GRADE_TABLE) if (s >= min) return g; return "F"; };
+const GRADE_ORDER = ["F", "D", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"];
+const gradeRank = (g: string) => GRADE_ORDER.indexOf(g);
+const gradeColor = (g: string) => { const c = g[0]; return c === "A" ? "#2f7d4f" : c === "B" ? "#b0842a" : c === "C" ? "#a8632a" : "#C9442E"; };
+type PickGrade = { pick: string; name: string; posTeam: string; grade: string; line: string };
+type DraftGrades = { overall: string; overallLine: string; picks: PickGrade[] };
+
 export function MockDraftView() {
   const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
   const [board, setBoard] = useState<BoardPick[]>([]);
@@ -452,6 +464,78 @@ export function MockDraftView() {
     return null;
   }, [phase, board, isComplete, yourTurn, onClock, onClockTop, read, pool, rankById, poolSurvivalById, ourIdx, nickOnClock, maxVal]);
 
+  // End-of-draft report card for OUR picks. Each pick blends value-vs-slot
+  // surplus (0.40), BPA discipline / reach (0.30), role (0.20) and a light
+  // need modifier (0.10) into a score → letter grade + one-line read. The
+  // overall is capital-weighted (early picks matter more) with an unaddressed-
+  // needs penalty and a class-cohesion bonus. Par = the value expected at each
+  // draft slot (pool is value-sorted, so pool[seq] is that slot's par player).
+  const draftGrades = useMemo<DraftGrades | null>(() => {
+    if (!isComplete || board.length === 0 || pool.length === 0) return null;
+    const isOurs = (b: BoardPick) => (control ? control.has(b.rosterId) : b.mine);
+    const parAt = (seq: number) => pool[Math.min(seq, pool.length - 1)]?.value ?? 1;
+    const ourNeeds = new Set<string>();
+    for (const b of board) if (isOurs(b)) for (const n of b.needs) ourNeeds.add(n);
+
+    const drafted = new Set<string>();
+    const filled = new Set<string>();
+    const rows: { pg: PickGrade; score: number; weight: number }[] = [];
+
+    board.forEach((b, seq) => {
+      if (isOurs(b) && b.playerId) {
+        const taken = pool.find((p) => p.id === b.playerId) ?? null;
+        const v = taken?.value ?? 0;
+        const rnk = rankById.get(b.playerId) ?? pool.length;
+        const par = parAt(seq);
+        const valueScore = clampN((100 * (v - par)) / Math.max(par, 1), -100, 100);
+        // best board rank still available at this slot (top guys are gone).
+        let bestAvail = pool.length;
+        for (let i = 0; i < pool.length; i++) if (!drafted.has(pool[i].id)) { bestAvail = i + 1; break; }
+        const overReach = Math.max(0, rnk - bestAvail);
+        const reachScore = clampN(20 - 12 * overReach, -100, 100);
+        const wouldStart = !!taken?.wouldStart;
+        const role = wouldStart ? "STARTER" : v >= 0.4 * maxVal ? "IN ROTATION" : "BACKUP";
+        const roleScore = wouldStart ? 70 : role === "IN ROTATION" ? 25 : -15;
+        const posBucket = b.pos === "QB" ? "QB" : b.pos === "RB" ? "RB" : "WR/TE";
+        const fills = (b.needs ?? []).includes(posBucket);
+        const contributor = wouldStart || v >= 0.4 * maxVal;
+        const needScore = fills && contributor ? 60 : fills ? 20 : roleScore < 0 ? -20 : 0;
+        if (fills) filled.add(posBucket);
+        const pickScore = 0.4 * valueScore + 0.3 * reachScore + 0.2 * roleScore + 0.1 * needScore;
+        const grade = letterFor(pickScore);
+        const drivers: [string, number][] = [["value", 0.4 * valueScore], ["reach", 0.3 * reachScore], ["role", 0.2 * roleScore], ["need", 0.1 * needScore]];
+        drivers.sort((a, c) => Math.abs(c[1]) - Math.abs(a[1]));
+        const drv = drivers[0][0];
+        let line: string;
+        if (drv === "value") line = valueScore >= 0 ? "Surplus value — more juice than this slot usually returns." : "Below par for the slot on pure value.";
+        else if (drv === "reach") line = reachScore >= 0 ? "Disciplined — the best player on the board, no forcing." : "A reach; better-ranked players were still there.";
+        else if (drv === "role") line = roleScore > 0 ? (wouldStart ? `Plug-and-play starter at ${b.pos}.` : `Rotation-ready ${b.pos} on a cheap pick.`) : "A developmental flier — no immediate role.";
+        else line = needScore > 0 ? `Need fill — answers our ${posBucket} hole with a contributor.` : "Luxury pick; doubles up without cracking the rotation.";
+        rows.push({ pg: { pick: b.pick, name: b.player ?? "—", posTeam: posTeam({ pos: b.pos, nflTeam: taken?.nflTeam ?? null }), grade, line }, score: pickScore, weight: par });
+      }
+      if (b.playerId) drafted.add(b.playerId);
+    });
+    if (!rows.length) return null;
+
+    const wSum = rows.reduce((s, r) => s + r.weight, 0) || 1;
+    let overallScore = rows.reduce((s, r) => s + r.score * r.weight, 0) / wSum;
+    const missing = [...ourNeeds].filter((n) => !filled.has(n));
+    overallScore -= Math.min(15, 5 * missing.length);
+    if (rows.every((r) => gradeRank(r.pg.grade) >= gradeRank("B-"))) overallScore += 4;
+    const overall = letterFor(overallScore);
+    const best = rows.reduce((a, c) => (c.score > a.score ? c : a));
+    const worst = rows.reduce((a, c) => (c.score < a.score ? c : a));
+    const needNote = missing.length ? `, and left ${missing.join("/")} unaddressed` : "";
+    // Only call out a "knock" when a pick actually lags — a class of solid grades
+    // shouldn't be described as having a weak link.
+    const laggard = worst.pg.pick !== best.pg.pick && (gradeRank(worst.pg.grade) < gradeRank("B") || best.score - worst.score >= 18);
+    const overallLine =
+      rows.length > 1
+        ? `Headlined by ${best.pg.name} at ${best.pg.pick}${laggard ? `; the knock is ${worst.pg.name} at ${worst.pg.pick}` : ""}${needNote}.`
+        : `${best.pg.name} at ${best.pg.pick}${needNote}.`;
+    return { overall, overallLine, picks: rows.map((r) => r.pg) };
+  }, [isComplete, board, pool, rankById, maxVal, control]);
+
   // Trade modal offer (guarded index) + its computed context.
   const tradeOffer = tradeOffers.length ? tradeOffers[Math.min(tradeIdx, tradeOffers.length - 1)] : null;
 
@@ -602,7 +686,31 @@ export function MockDraftView() {
                 <span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{directorHeadline}</span>
               </div>
               <div className="mdScroll" style={{ padding: "15px 15px 18px", overflowY: "auto", flex: 1, minHeight: 0 }}>
-                {directorCard ? (
+                {isComplete && draftGrades ? (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ width: 46, height: 46, borderRadius: 6, background: gradeColor(draftGrades.overall), border: `2px solid ${BINK}`, boxShadow: `2px 2px 0 ${BINK}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: ANTON, fontSize: 23, color: SCREAM, flexShrink: 0 }}>{draftGrades.overall}</div>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9.5, letterSpacing: 2, color: FADE }}>DRAFT GRADE</div>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 13.5, lineHeight: 1.4, color: "#ece2ca", marginTop: 2 }}>{draftGrades.overallLine}</div>
+                      </div>
+                    </div>
+                    <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9.5, letterSpacing: 2, color: FADE, margin: "16px 0 2px" }}>OUR CARD</div>
+                    {draftGrades.picks.map((p) => (
+                      <div key={p.pick} style={{ borderTop: `1px solid ${HLINE}`, padding: "9px 0" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                          <span style={{ fontFamily: ANTON, fontSize: 12, letterSpacing: 0.3, color: FADE, minWidth: 30 }}>{p.pick}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 13.5, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 0.3, color: DIM }}>{p.posTeam}</div>
+                          </div>
+                          <div style={{ width: 28, height: 28, borderRadius: 5, background: gradeColor(p.grade), border: `1.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: ANTON, fontSize: 14, color: SCREAM, flexShrink: 0 }}>{p.grade}</div>
+                        </div>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 12, lineHeight: 1.45, color: FADE, marginTop: 4 }}>{p.line}</div>
+                      </div>
+                    ))}
+                  </>
+                ) : directorCard ? (
                   <>
                     <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, lineHeight: 1.22, color: SCREAM, borderBottom: `4px solid ${directorCard.vColor}`, paddingBottom: 5, display: "inline-block" }}>{directorCard.verdict}</div>
                     {directorCard.chips.length > 0 && (
