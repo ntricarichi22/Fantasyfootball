@@ -26,6 +26,11 @@ type TradeOverride = { overall: number; rosterId: string };
 // client can read survival odds at the new slot.
 type TBOffer = { partner: string; partnerId: string; fromPick: string; toPick: string; give: TBPick[]; get: TBPick[]; net: number; rationale: string; overrides: TradeOverride[]; board: BoardPick[] };
 type TradeMode = "up" | "back";
+// The war-room director card: a verdict line, a few stat chips, and labeled
+// prose sections — the trade-modal treatment, applied to the live read.
+type DChip = { k: string; v: string };
+type DSection = { label: string; body: string };
+type DirectorCard = { verdict: string; vColor: string; chips: DChip[]; sections: DSection[] };
 
 // Softmax the engine's want scores into pick probabilities.
 function softmax(wants: number[], T = 0.12): number[] {
@@ -63,6 +68,7 @@ const LOBBY_ROUTE = "/scouting/draft-room";
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
 const listPhrase = (a: string[]) => (a.length <= 1 ? a[0] ?? "" : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`);
+const posTeam = (p: { pos: string | null; nflTeam: string | null }) => `${p.pos ?? ""}${p.nflTeam ? ` · ${p.nflTeam}` : ""}`;
 
 export function MockDraftView() {
   const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
@@ -381,19 +387,70 @@ export function MockDraftView() {
 
   const nickOnClock = onClock ? teamNickname(onClock.team) : "";
   const directorHeadline = isComplete ? "DRAFT COMPLETE" : yourTurn ? `OUR PICK · ${onClock?.pick ?? ""}` : onClock ? `${nickOnClock.toUpperCase()} · ${onClock.pick}` : "READING THE ROOM";
-  const projRank = read?.projected ? pool.findIndex((p) => p.name === read.projected!.name) + 1 : 0;
-  const ourAlt = (read?.field ?? []).find((f) => f.name !== read?.projected?.name);
-  const directorProse = isComplete
-    ? "That's the board — run it back with a different scenario whenever you want."
-    : yourTurn
-      ? (read?.projected
-          ? `${read.projected.name} (${read.projected.pos}${read.projected.nflTeam ? ` · ${read.projected.nflTeam}` : ""}) is the one I'd turn in${projRank > 0 ? ` — he's #${projRank} on our board and ${projRank <= 12 ? "a plug-and-play starter" : "the cleanest fit left"}` : ""}. ${read.rationale || ""}${ourAlt ? ` If you'd rather zag, ${ourAlt.name} is a real fit too — but the tier thins out fast after these two, so I'd lock it up here.` : ""}`
-          : "We're on the clock — I'd take the best guy on our board.")
-      : onClock
-        ? (onClockTop[0]
-            ? `The ${nickOnClock} ${onClock.needs.length ? `need ${listPhrase(onClock.needs)}` : "are set at their starters"}, and ${onClockTop[0].name} (${onClockTop[0].pos}) is the best value left on their board — I'd bet they turn him in.${onClockTop[1] ? ` If they zag, ${onClockTop[1].name} is the pivot, and either way a starter should still slide toward us.` : ""}`
-            : `The ${nickOnClock} are on the clock. ${onClock.why || onClock.reason || ""}`)
-        : "Setting the board…";
+  // The rich war-room read — verdict + stat chips + labeled prose sections,
+  // rebuilt every time the clock moves. Three modes: on the clock (our pick),
+  // watching (an AI team is up), and complete (handled by the grades card below).
+  const directorCard = useMemo<DirectorCard | null>(() => {
+    if (phase === "setup" || board.length === 0 || isComplete) return null;
+    const ourPickLabel = ourIdx >= 0 ? board[ourIdx].pick : "";
+    const keep = (arr: (DChip | null)[]): DChip[] => arr.filter((c): c is DChip => c != null);
+    const keepS = (arr: (DSection | null)[]): DSection[] => arr.filter((s): s is DSection => s != null);
+
+    if (yourTurn) {
+      const proj = read?.projected ?? null;
+      if (!proj) {
+        return { verdict: "Best on our board", vColor: GREEN, chips: [], sections: [{ label: "THE PICK", body: "We're on the clock — I'd take the best guy left on our board." }] };
+      }
+      const projPool = pool.find((p) => p.name === proj.name) ?? null;
+      const rnk = pool.findIndex((p) => p.name === proj.name) + 1;
+      const role = projPool ? (projPool.wouldStart ? "STARTER" : projPool.value >= 0.4 * maxVal ? "IN ROTATION" : "BACKUP") : rnk > 0 && rnk <= 12 ? "STARTER" : "IN ROTATION";
+      const rolePhrase = role === "STARTER" ? "a plug-and-play starter" : role === "IN ROTATION" ? "real rotational value" : "a developmental swing";
+      const posBucket = proj.pos === "QB" ? "QB" : proj.pos === "RB" ? "RB" : "WR/TE";
+      const fills = (onClock?.needs ?? []).includes(posBucket);
+      const alt = (read?.field ?? []).find((f) => f.name !== proj.name) ?? null;
+      return {
+        verdict: `Turn in ${proj.name}`,
+        vColor: GREEN,
+        chips: keep([
+          rnk > 0 ? { k: "OUR BOARD", v: `#${rnk}` } : null,
+          { k: "ROLE", v: role },
+          { k: "FILLS", v: fills ? posBucket : "BPA" },
+        ]),
+        sections: keepS([
+          { label: "THE PICK", body: `${proj.name} (${posTeam(proj)}) — ${rnk > 0 ? `#${rnk} on our board, ` : ""}${rolePhrase}${fills ? ` who answers our ${posBucket} need` : ", the cleanest value left on the board"}. ${role === "STARTER" ? "He steps into the lineup Week 1." : role === "IN ROTATION" ? "He earns a rotation role right away and has room to grow into more." : "He's a swing on upside — no pressure to play him early."}` },
+          alt ? { label: "IF YOU ZAG", body: `${alt.name} (${alt.pos}) is the alternative if you want to change the shape of the class — but the tier thins out fast after these two, so I'd lock it in right here.` } : null,
+        ]),
+      };
+    }
+
+    if (onClock) {
+      const likely = onClockTop[0] ?? null;
+      const pivot = onClockTop[1] ?? null;
+      const rows = pool.map((p) => ({ p, rank: rankById.get(p.id) ?? 999, surv: poolSurvivalById.get(p.id) ?? 1 }));
+      const slides = rows.filter((x) => x.rank <= 30 && x.surv >= 0.6).sort((a, b) => a.rank - b.rank).slice(0, 3);
+      const atRisk = rows.filter((x) => x.rank <= 12 && x.surv < 0.4).sort((a, b) => a.rank - b.rank).slice(0, 2);
+      const needPhrase = (onClock.needs ?? []).length ? `are hunting ${listPhrase(onClock.needs)}` : "are set across their starting lineup";
+      const usBody =
+        (slides.length
+          ? `${listPhrase(slides.map((s) => s.p.name))} ${slides.length === 1 ? "should still be" : "all project to still be"} on the board when it swings back to us at ${ourPickLabel}.`
+          : `The board thins out by the time it swings back to ${ourPickLabel || "our pick"} — we may have to take the best available.`) +
+        (atRisk.length ? ` But ${listPhrase(atRisk.map((s) => s.p.name))} ${atRisk.length === 1 ? "is" : "are"} on thin ice — under ${Math.round(Math.max(...atRisk.map((a) => a.surv)) * 100)}% to reach us. If you love ${atRisk.length === 1 ? "him" : "one"}, this is when you get on the phones.` : "");
+      return {
+        verdict: likely ? `${likely.name} is the card` : `Reading the ${nickOnClock}' board`,
+        vColor: GREEN,
+        chips: keep([
+          { k: "THEIR NEED", v: (onClock.needs ?? []).length ? onClock.needs.join(" · ") : "SET" },
+          likely ? { k: "LIKELY", v: `${Math.round(likely.p * 100)}%` } : null,
+          ourPickLabel ? { k: "WE'RE UP", v: ourPickLabel } : null,
+        ]),
+        sections: [
+          { label: "ON THE CLOCK", body: `The ${nickOnClock} ${needPhrase}. ${likely ? `${likely.name} (${posTeam(likely)}) grades out as the best value left on their board — I make it about ${Math.round(likely.p * 100)}% he's the card they turn in.` : (onClock.why || "No clear favorite on their board yet.")}${pivot ? ` If they zag, ${pivot.name} (${pivot.pos}) is the fallback.` : ""}` },
+          { label: "WHAT IT MEANS FOR US", body: usBody },
+        ],
+      };
+    }
+    return null;
+  }, [phase, board, isComplete, yourTurn, onClock, onClockTop, read, pool, rankById, poolSurvivalById, ourIdx, nickOnClock, maxVal]);
 
   // Trade modal offer (guarded index) + its computed context.
   const tradeOffer = tradeOffers.length ? tradeOffers[Math.min(tradeIdx, tradeOffers.length - 1)] : null;
@@ -544,7 +601,31 @@ export function MockDraftView() {
                 <img src="/avatars/scouting.png" alt="" style={{ width: 26, height: 26, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
                 <span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{directorHeadline}</span>
               </div>
-              <div className="mdScroll" style={{ padding: 13, overflowY: "auto", flex: 1, minHeight: 0, fontFamily: OSWALD, fontWeight: 400, fontSize: 12.5, lineHeight: 1.55, color: "#e6dcc4" }}>{directorProse}</div>
+              <div className="mdScroll" style={{ padding: "15px 15px 18px", overflowY: "auto", flex: 1, minHeight: 0 }}>
+                {directorCard ? (
+                  <>
+                    <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, lineHeight: 1.22, color: SCREAM, borderBottom: `4px solid ${directorCard.vColor}`, paddingBottom: 5, display: "inline-block" }}>{directorCard.verdict}</div>
+                    {directorCard.chips.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 13 }}>
+                        {directorCard.chips.map((c) => (
+                          <div key={c.k} style={{ background: RECESS2, border: `1px solid ${HLINE}`, borderRadius: 4, padding: "5px 10px" }}>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1.3, color: DIM }}>{c.k}</div>
+                            <div style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.3, color: SCREAM, marginTop: 1 }}>{c.v}</div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {directorCard.sections.map((s) => (
+                      <div key={s.label} style={{ marginTop: 16 }}>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9.5, letterSpacing: 2, color: FADE, marginBottom: 6 }}>{s.label}</div>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 14.5, lineHeight: 1.62, color: "#ece2ca" }}>{s.body}</div>
+                      </div>
+                    ))}
+                  </>
+                ) : (
+                  <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 14, lineHeight: 1.55, color: FADE }}>Setting the board…</div>
+                )}
+              </div>
             </div>
           </div>
         </div>
