@@ -65,21 +65,35 @@ const RUN_POSITIONS: Record<string, Position[]> = {
   "wr-run": ["WR", "TE"],
 };
 
+// Deterministic hash of two ints -> [0,1). Used to draw a pick from a SEEDED
+// per-session number, keyed by the pick's overall slot — so the same seed always
+// produces the same draft, and every projection of that draft (the live board,
+// a trade offer's re-mock) agrees on who goes where. A fresh page load passes a
+// new seed, so runs still vary; the trade modal just stops contradicting the
+// board within a session.
+function hashUnit(a: number, b: number): number {
+  let h = (Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x165667b1, 0xc2b2ae35)) >>> 0;
+  h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0x297a2d39) >>> 0;
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
 // Pick variability. Taking the want-leader every time makes every run of a
 // scenario byte-identical. Instead we SAMPLE the pick from a softmax over the
 // realistic top candidates — the SAME distribution (T = 0.12, top-6) the UI
 // surfaces as "who they take" / survival odds — so the favorite still usually
-// goes, close calls flip run to run, and a long-shot is never reached. Chalk,
-// forced picks and QB stashes stay deterministic on purpose.
+// goes, close calls flip run to run, and a long-shot is never reached. The draw
+// is seeded per pick (rand), so the sample is stable across re-projections.
+// Chalk, forced picks and QB stashes stay deterministic on purpose.
 const PICK_TEMP = 0.12;
 const PICK_POOL = 6; // mirrors SURVIVORS_SHOWN so sampling matches the shown odds
-function samplePick(ranked: Array<{ id: string; want: number }>): string {
+function samplePick(ranked: Array<{ id: string; want: number }>, rand: number): string {
   const top = ranked.slice(0, PICK_POOL);
   if (top.length <= 1) return top[0]?.id ?? ranked[0].id;
   const m = top[0].want;
   const exps = top.map((r) => Math.exp((r.want - m) / PICK_TEMP));
   const sum = exps.reduce((a, b) => a + b, 0) || 1;
-  let x = Math.random() * sum;
+  let x = rand * sum;
   for (let i = 0; i < top.length; i++) {
     x -= exps[i];
     if (x <= 0) return top[i].id;
@@ -166,8 +180,22 @@ export function runDraftEngine(
   // overall pick number -> playerId that's already locked (the user's own
   // in-sim picks). Forced picks are assigned as-is; everything else projects
   // around them, so the board stays correct when you draft your own guy.
-  forcedPicks?: Map<number, string>
-): { projection: SimPick[]; reads: TeamSlotRead[]; poolSize: number; draftPicks: number } {
+  forcedPicks?: Map<number, string>,
+  // seed: a per-session number so sampling is deterministic across every
+  // projection of the same draft (live board + trade re-mocks agree). youId: the
+  // team whose "if I pass, does he last to my next pick?" survival we compute.
+  opts?: { seed?: number; youId?: string }
+): {
+  projection: SimPick[];
+  reads: TeamSlotRead[];
+  poolSize: number;
+  draftPicks: number;
+  // One entry per youId pick (except the last): the counterfactual survival of
+  // every still-available player to youId's NEXT pick, if youId passed here.
+  ourSurvival: Array<{ pickOverall: number; survival: Record<string, number> }>;
+} {
+  const seed = Math.trunc(opts?.seed ?? 1) >>> 0;
+  const youId = opts?.youId ?? "";
   const runPositions = RUN_POSITIONS[scenario] ?? null;
   const isChalk = scenario === "chalk";
   const baseCells = grid.teams[0]?.cells ?? [];
@@ -358,9 +386,41 @@ export function runDraftEngine(
   const projection: SimPick[] = [];
   const goneAt = new Map<string, number>();
   const snapshot = new Map<number, SurvivorView[]>();
+  const ourSurvival: Array<{ pickOverall: number; survival: Record<string, number> }> = [];
 
-  for (const pick of order) {
+  // For each youId pick, the picks that fall between it and youId's NEXT pick —
+  // the field that could snap up a player if youId passes. Empty for the last.
+  const youOrderIdx = order.map((p, i) => (p.currentRosterId === youId ? i : -1)).filter((i) => i >= 0);
+  const interveningAfter = new Map<number, OwnedPick[]>();
+  for (let k = 0; k < youOrderIdx.length - 1; k++) {
+    interveningAfter.set(youOrderIdx[k], order.slice(youOrderIdx[k] + 1, youOrderIdx[k + 1]));
+  }
+
+  // Counterfactual survival: if youId passes at this pick, the chance each
+  // still-available player lasts to youId's next pick. Each intervening team is
+  // modeled as sampling from a softmax over its top want candidates (the same
+  // model the draft uses), evaluated on the CURRENT available field — so the guy
+  // we'd take here is contested like everyone else, not left at a phantom 100%.
+  const computeOurSurvival = (overall: number, field: OwnedPick[]) => {
+    const ids = [...available];
+    const surv: Record<string, number> = {};
+    for (const id of ids) surv[id] = 1;
+    for (const ip of field) {
+      const trid = ip.currentRosterId;
+      const wants = ids.map((id) => ({ id, want: wantScore(trid, id, ip.overall!) })).sort((a, b) => b.want - a.want);
+      const top = wants.slice(0, PICK_POOL);
+      const m = top[0]?.want ?? 0;
+      const exps = top.map((w) => Math.exp((w.want - m) / PICK_TEMP));
+      const s = exps.reduce((a, b) => a + b, 0) || 1;
+      for (let i = 0; i < top.length; i++) surv[top[i].id] *= 1 - exps[i] / s;
+    }
+    ourSurvival.push({ pickOverall: overall, survival: surv });
+  };
+
+  for (let oi = 0; oi < order.length; oi++) {
+    const pick = order[oi];
     const rid = pick.currentRosterId;
+    if (rid === youId && interveningAfter.has(oi)) computeOurSurvival(pick.overall!, interveningAfter.get(oi)!);
 
     // Locked pick (the user already made this one in the sim): assign it and
     // let the rest of the draft project around it.
@@ -423,8 +483,11 @@ export function runDraftEngine(
     }
 
     // The want-leader is the top of the survivor board either way; the ACTUAL
-    // pick is the leader for chalk/stash/forced, else sampled for variability.
-    const bestId: string | null = !ranked.length ? null : stashId || isChalk ? ranked[0].id : samplePick(ranked);
+    // pick is the leader for chalk/stash/forced AND for youId's own picks (we
+    // choose our picks — they're not random — so the projected pick must match
+    // what the director recommends, read.projected). Other teams sample for
+    // run-to-run variability.
+    const bestId: string | null = !ranked.length ? null : stashId || isChalk || rid === youId ? ranked[0].id : samplePick(ranked, hashUnit(seed, pick.overall!));
 
     const survivors: SurvivorView[] = ranked.slice(0, SURVIVORS_SHOWN).map((r) => {
       const cell = cellByTeam.get(rid)?.get(r.id);
@@ -549,5 +612,5 @@ export function runDraftEngine(
     };
   });
 
-  return { projection, reads, poolSize, draftPicks: order.length };
+  return { projection, reads, poolSize, draftPicks: order.length, ourSurvival };
 }

@@ -20,7 +20,8 @@ type DirectorRead = {
   projected: { name: string; pos: string; nflTeam: string | null } | null;
   field: FieldPlayer[];
 };
-type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null };
+type OurSurvival = Array<{ pickOverall: number; survival: Record<string, number> }>;
+type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null; ourSurvival?: OurSurvival };
 type TBPick = { pick: string; value: number };
 type TradeOverride = { overall: number; rosterId: string };
 // One trade offer (up or back) — the swapped picks plus a re-mocked board so the
@@ -88,7 +89,12 @@ export function MockDraftView() {
   const [board, setBoard] = useState<BoardPick[]>([]);
   const [pool, setPool] = useState<PoolPlayer[]>([]);
   const [read, setRead] = useState<DirectorRead | null>(null);
+  const [ourSurvival, setOurSurvival] = useState<OurSurvival>([]);
   const [scenario, setScenario] = useState<Scenario>("standard");
+  // One seed per draft session: every projection (live board + trade re-mocks)
+  // is sampled off it, so they agree with each other. A fresh page load makes a
+  // new seed, so runs still vary. Set on first load, then reused for every fetch.
+  const seedRef = useRef(1);
 
   const [phase, setPhase] = useState<"setup" | "running" | "paused">("setup");
   const [revealed, setRevealed] = useState(0);
@@ -127,7 +133,7 @@ export function MockDraftView() {
 
   // ── data ───────────────────────────────────────────────────────────────────
   function applyPayload(j: Payload) {
-    setBoard(j.board); setPool(j.pool); setRead(j.directorRead); setScenario(j.scenario);
+    setBoard(j.board); setPool(j.pool); setRead(j.directorRead); setScenario(j.scenario); setOurSurvival(j.ourSurvival ?? []);
   }
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -135,11 +141,13 @@ export function MockDraftView() {
     const scn: Scenario = SCENARIOS.some((s) => s.key === scnParam) ? (scnParam as Scenario) : "standard";
     const spd = Number(sp.get("speed"));
     const ctl = sp.get("control");
+    const seed = Math.floor(Math.random() * 2_000_000_000) + 1;
+    seedRef.current = seed;
     Promise.resolve().then(() => {
       if (Number.isFinite(spd) && spd >= 1 && spd <= 60) setSimSeconds(spd);
       if (ctl !== null) setControl(new Set(ctl.split(",").filter(Boolean)));
     });
-    fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=${scn}`)
+    fetch(`/api/scouting/mock-draft?teamId=${encodeURIComponent(teamId)}&scenario=${scn}&seed=${seed}`)
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
       // You reach this page by hitting "start the mock" in the lobby, so the
       // sim is already running — first team on the clock, no Start button.
@@ -151,7 +159,7 @@ export function MockDraftView() {
   function reproject(scn: Scenario) {
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     setBusy(true);
-    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario: scn, forcedPicks, tradeOverrides }) })
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario: scn, seed: seedRef.current, forcedPicks, tradeOverrides }) })
       .then((r) => r.json()).then((j: Payload) => applyPayload(j)).catch(() => setError("Re-mock failed.")).finally(() => setBusy(false));
   }
 
@@ -196,7 +204,7 @@ export function MockDraftView() {
     const route = mode === "up" ? "trade-up" : "trade-back";
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     setTradeMode(mode); setTradeInbound(false); setPhase("paused"); setTradeOpen(true); setTradeOffers([]); setTradeIdx(0); setTradeLoading(true);
-    fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
+    fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
       .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => { setTradeOffers(j.offers ?? []); setTradeIdx(0); })
       .catch(() => setTradeOffers([])).finally(() => setTradeLoading(false));
   }
@@ -208,7 +216,7 @@ export function MockDraftView() {
   function fetchInboundOffers(mode: TradeMode): Promise<TBOffer[]> {
     const route = mode === "up" ? "trade-up" : "trade-back";
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
-    return fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
+    return fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
       .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => j.offers ?? []).catch(() => []);
   }
   function fireInbound() {
@@ -230,7 +238,7 @@ export function MockDraftView() {
     const nextOverrides = [...owner.entries()].map(([overall, rosterId]) => ({ overall, rosterId }));
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     setTradeOverrides(nextOverrides); setTradeOpen(false); setTradeOffers([]); setBusy(true);
-    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides: nextOverrides }) })
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides: nextOverrides }) })
       .then((r) => r.json()).then((j: Payload) => { applyPayload(j); setPhase("running"); })
       .catch(() => setError("Trade failed.")).finally(() => setBusy(false));
   }
@@ -287,6 +295,15 @@ export function MockDraftView() {
   const poolSurvivalById = useMemo(() => {
     const m = new Map<string, number>();
     if (!survTarget) return m;
+    // On the clock, use the server's counterfactual survival ("if I pass here,
+    // does he last to my next pick?") — it contests the guy we'd take like anyone
+    // else, so a stud can't show a phantom 100%. Watching, chain the sampled
+    // board's survivor odds toward our upcoming pick (that window is contested
+    // normally, so the client math is correct there).
+    if (yourTurn) {
+      const entry = ourSurvival.find((e) => e.pickOverall === onClock?.overall);
+      if (entry) { for (const p of pool) m.set(p.id, entry.survival[p.id] ?? 1); return m; }
+    }
     const picks: { probs: number[]; ids: string[] }[] = [];
     for (let i = survTarget.chainStart; i < survTarget.targetIdx; i++) {
       const sv = board[i]?.survivors ?? [];
@@ -298,7 +315,7 @@ export function MockDraftView() {
       m.set(p.id, pr);
     }
     return m;
-  }, [survTarget, board, pool]);
+  }, [survTarget, board, pool, yourTurn, ourSurvival, onClock]);
 
   const ourIdx = useMemo(() => board.findIndex((b, i) => i >= revealed && (control ? control.has(b.rosterId) : b.mine)), [board, revealed, control]);
 
@@ -442,14 +459,18 @@ export function MockDraftView() {
       const likely = onClockTop[0] ?? null;
       const pivot = onClockTop[1] ?? null;
       const rows = pool.map((p) => ({ p, rank: rankById.get(p.id) ?? 999, surv: poolSurvivalById.get(p.id) ?? 1 }));
-      const slides = rows.filter((x) => x.rank <= 30 && x.surv >= 0.6).sort((a, b) => a.rank - b.rank).slice(0, 3);
       const atRisk = rows.filter((x) => x.rank <= 12 && x.surv < 0.4).sort((a, b) => a.rank - b.rank).slice(0, 2);
       const needPhrase = (onClock.needs ?? []).length ? `are hunting ${listPhrase(onClock.needs)}` : "are set across their starting lineup";
-      const usBody =
-        (slides.length
-          ? `${listPhrase(slides.map((s) => s.p.name))} ${slides.length === 1 ? "should still be" : "all project to still be"} on the board when it swings back to us at ${ourPickLabel}.`
-          : `The board thins out by the time it swings back to ${ourPickLabel || "our pick"} — we may have to take the best available.`) +
-        (atRisk.length ? ` But ${listPhrase(atRisk.map((s) => s.p.name))} ${atRisk.length === 1 ? "is" : "are"} on thin ice — under ${Math.round(Math.max(...atRisk.map((a) => a.surv)) * 100)}% to reach us. If you love ${atRisk.length === 1 ? "him" : "one"}, this is when you get on the phones.` : "");
+      // Lead with the exact guy the on-clock director will recommend (read.projected
+      // — the want-leader for our upcoming pick), so "who we'd get if we stay" matches
+      // "turn in X" once we're on the clock. No more highlighting a guy by raw value
+      // that we then never actually recommend.
+      const projP = read?.projected ?? null;
+      const projPool = projP ? pool.find((p) => p.name === projP.name) : null;
+      const projSurv = projPool ? (poolSurvivalById.get(projPool.id) ?? 1) : 1;
+      const usBody = projP
+        ? `If it swings back to us at ${ourPickLabel}, ${projP.name} (${posTeam(projP)}) is the one I'd turn in — ${projSurv >= 0.7 ? "and he should still be sitting there" : projSurv >= 0.4 ? `though he's no lock, around ${Math.round(projSurv * 100)}% to reach us` : `but he's on thin ice, only about ${Math.round(projSurv * 100)}% to last that long`}.${atRisk.length ? ` ${listPhrase(atRisk.map((s) => s.p.name))} ${atRisk.length === 1 ? "is" : "are"} likely gone before then — if you want ${atRisk.length === 1 ? "him" : "one"}, get on the phones.` : ""}`
+        : `The board's murky — I'd take the best available when it swings back to ${ourPickLabel || "us"}.`;
       return {
         verdict: likely ? `${likely.name} is the card` : `Reading the ${nickOnClock}' board`,
         vColor: GREEN,

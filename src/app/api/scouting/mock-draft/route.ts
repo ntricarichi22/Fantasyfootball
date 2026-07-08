@@ -41,17 +41,16 @@ function buildOrder(data: LeagueData, tradeOverrides?: Array<{ overall: number; 
   return current.map((p) => (owner.has(p.overall!) ? { ...p, currentRosterId: owner.get(p.overall!)! } : p));
 }
 
-function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string, forcedPicks?: Map<number, string>, order?: OwnedPick[]) {
+function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string, forcedPicks?: Map<number, string>, order?: OwnedPick[], seed = 1) {
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
+  const you =
+    data.teams.find((t) => t.rosterId === teamId) ??
+    data.teams.find((t) => /founders/i.test(t.teamName)) ??
+    data.teams[0];
+  const youId = you?.rosterId ?? "";
   return getAllBoards(data, grid).then((boards) => {
-    const { projection, reads, poolSize } = runDraftEngine(data, grid, profiles, boards, order, scenario, forcedPicks);
-
-    const you =
-      data.teams.find((t) => t.rosterId === teamId) ??
-      data.teams.find((t) => /founders/i.test(t.teamName)) ??
-      data.teams[0];
-    const youId = you?.rosterId ?? "";
+    const { projection, reads, poolSize, ourSurvival } = runDraftEngine(data, grid, profiles, boards, order, scenario, forcedPicks, { seed, youId });
 
     const isRookie = (id: string) => (data.players.get(id)?.exp ?? 99) === 0;
     const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
@@ -111,7 +110,7 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
         }
       : null;
 
-    return { scenario, you: { rosterId: youId, name: you?.teamName ?? "", picks: myPicks }, poolSize, pool, board, directorRead };
+    return { scenario, you: { rosterId: youId, name: you?.teamName ?? "", picks: myPicks }, poolSize, pool, board, directorRead, ourSurvival };
   });
 }
 
@@ -119,7 +118,9 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json(data, { status: 500 });
-  const payload = await buildPayload(data, asScenario(searchParams.get("scenario")), searchParams.get("teamId") ?? "");
+  const seedParam = Number(searchParams.get("seed"));
+  const seed = Number.isFinite(seedParam) && seedParam > 0 ? seedParam : 1;
+  const payload = await buildPayload(data, asScenario(searchParams.get("scenario")), searchParams.get("teamId") ?? "", undefined, undefined, seed);
   return NextResponse.json(payload);
 }
 
@@ -127,6 +128,7 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     teamId?: string;
     scenario?: string;
+    seed?: number;
     forcedPicks?: Array<{ overall: number; playerId: string }>;
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
@@ -137,6 +139,7 @@ export async function POST(req: Request) {
     if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);
   }
   const order = buildOrder(data, body.tradeOverrides);
-  const payload = await buildPayload(data, asScenario(body.scenario), body.teamId ?? "", forced, order);
+  const seed = typeof body.seed === "number" && body.seed > 0 ? body.seed : 1;
+  const payload = await buildPayload(data, asScenario(body.scenario), body.teamId ?? "", forced, order, seed);
   return NextResponse.json(payload);
 }

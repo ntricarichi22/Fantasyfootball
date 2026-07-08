@@ -25,10 +25,12 @@ export async function POST(req: Request) {
   const body = (await req.json().catch(() => ({}))) as {
     teamId?: string;
     scenario?: string;
+    seed?: number;
     targetOverall?: number;
     forcedPicks?: Array<{ overall: number; playerId: string }>;
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
+  const seed = typeof body.seed === "number" && body.seed > 0 ? body.seed : 1;
   const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const scenario = asScenario(body.scenario);
@@ -121,7 +123,7 @@ export async function POST(req: Request) {
     ];
     const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
     const order = current.map((p) => (ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p));
-    const { projection, reads } = runDraftEngine(data, grid, profiles, boards, order, scenario, forced);
+    const { projection, reads } = runDraftEngine(data, grid, profiles, boards, order, scenario, forced, { seed, youId });
 
     const readByOverall = new Map<number, (typeof reads)[number]["picks"][number]>();
     for (const r of reads) for (const p of r.picks) readByOverall.set(p.overall, p);
