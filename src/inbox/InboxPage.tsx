@@ -561,7 +561,7 @@ export default function InboxPage() {
                     gap: 5,
                     flexWrap: "wrap",
                     alignItems: "center",
-                    marginBottom: 14,
+                    marginBottom: 24,
                   }}
                 >
                   <input

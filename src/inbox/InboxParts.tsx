@@ -2,6 +2,7 @@
 
 import { Fragment, useRef, useState } from "react";
 import { Icon } from "@/shared/ui/Icon";
+import { teamColorFor } from "@/shared/league-data/teamColors";
 
 const FH = "Syne, sans-serif";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -158,7 +159,7 @@ export function NegotiationTile({
 
   if (!version) return null;
 
-  const frameColor = avatarColors(tile.counterpart, "trade").bg;
+  const frameColor = teamColorFor(tile.counterpart);
 
   const ledgerLabel: React.CSSProperties = {
     width: 42,
@@ -264,7 +265,7 @@ export function NegotiationTile({
                 height: 36,
                 borderRadius: "50%",
                 background: frameColor,
-                color: avatarColors(tile.counterpart, "trade").fg,
+                color: "#FEFCF9",
                 border: "1.5px solid #1A1A1A",
                 display: "inline-flex",
                 alignItems: "center",
