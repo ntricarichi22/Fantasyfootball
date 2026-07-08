@@ -653,7 +653,7 @@ export function MockDraftView() {
                 {/* sticky column header — same box model as the plates so the columns line up */}
                 <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", height: 30, padding: "0 4px 0 11px", flexShrink: 0 }}>
                   <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.8, color: FADE }}>PLAYER</span>
-                  {(yourTurn ? ["OUR RANK", "PROJ. ROLE", "FALLS TO US", "SELECT"] : ["OUR RANK", "PROJ. ROLE", "FALLS TO US"]).map((h) => (
+                  {(yourTurn ? ["OUR RANK", "PROJ. ROLE", "FALLS TO NEXT", "SELECT"] : ["OUR RANK", "PROJ. ROLE", "FALLS TO US"]).map((h) => (
                     <span key={h} style={{ width: 66, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.4, color: FADE }}>{h}</span>
                   ))}
                 </div>
