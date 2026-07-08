@@ -1,7 +1,22 @@
 import type { LeagueData, Position } from "@/shared/league-data";
 import { SLOT_ELIGIBLE } from "@/shared/team-profiles";
 import type { LineupSlot, NeedBucket, NeedDetail, TeamProfile } from "@/shared/team-profiles";
-import type { DraftFitCell, DraftFitGrid, ProspectInfo, TeamFit } from "./types";
+import type { DraftFitCell, DraftFitGrid, ProspectInfo, Role, TeamFit } from "./types";
+
+// How close to the startable floor a non-starter must be to count as "in
+// rotation" (a real depth / injury-replacement piece) rather than a buried
+// backup. 0.75 = within 25% of the weakest starter's value.
+export const ROTATION_FRAC = 0.75;
+
+// Roster-relative depth-chart slot for a player of `value` at a position whose
+// weakest startable slot is worth `floor`. floor === Infinity means the position
+// is eligible for no slot at all → the player can never see the field (BACKUP).
+export function roleFor(value: number, floor: number): Role {
+  if (floor === Infinity) return "BACKUP";
+  if (value > floor) return "STARTER";
+  if (value >= ROTATION_FRAC * floor) return "IN_ROTATION";
+  return "BACKUP";
+}
 
 // PASS_CATCHER = WR + TE (no dedicated TE slot in this league).
 function bucketForPosition(pos: Position): NeedBucket {
@@ -88,6 +103,7 @@ export function computeDraftFit(data: LeagueData, profiles: TeamProfile[]): Draf
         needScore: need.score,
         needLevel: need.level,
         upgrade,
+        role: roleFor(prospect.value, floor),
       };
     });
 

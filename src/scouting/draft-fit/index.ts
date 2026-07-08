@@ -1,2 +1,2 @@
-export type { ProspectInfo, DraftFitCell, TeamFit, DraftFitGrid } from "./types";
-export { computeDraftFit } from "./fit";
+export type { ProspectInfo, DraftFitCell, TeamFit, DraftFitGrid, Role } from "./types";
+export { computeDraftFit, roleFor, ROTATION_FRAC } from "./fit";

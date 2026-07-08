@@ -64,7 +64,7 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
     const pool = (myFit?.cells ?? [])
       .slice()
       .sort((a, b) => b.asset - a.asset)
-      .map((c) => ({ id: c.playerId, name: c.name, pos: c.position, nflTeam: nflTeamOf(c.playerId), value: c.asset, wouldStart: c.upgrade > 0, isRookie: isRookie(c.playerId) }));
+      .map((c) => ({ id: c.playerId, name: c.name, pos: c.position, nflTeam: nflTeamOf(c.playerId), value: c.asset, wouldStart: c.upgrade > 0, role: c.role, isRookie: isRookie(c.playerId) }));
 
     const board = projection.map((s) => {
       const pr = readByOverall.get(s.overall);

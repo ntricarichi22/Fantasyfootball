@@ -6,7 +6,8 @@ import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname } from "@/shared/league-data/nicknames";
 
 type Scenario = "standard" | "qb-run" | "rb-run" | "wr-run" | "chalk";
-type PoolPlayer = { id: string; name: string; pos: string; nflTeam: string | null; value: number; wouldStart: boolean; isRookie: boolean };
+type Role = "STARTER" | "IN_ROTATION" | "BACKUP";
+type PoolPlayer = { id: string; name: string; pos: string; nflTeam: string | null; value: number; wouldStart: boolean; role: Role; isRookie: boolean };
 type Survivor = { playerId: string; name: string; pos: string; nflTeam: string | null; want: number };
 type BoardPick = {
   pick: string; round: number; overall: number; rosterId: string; team: string;
@@ -386,10 +387,12 @@ export function MockDraftView() {
   }
 
   // ── fit tier + director prose (right pane of the war room) ─────────────────────
-  // Every player gets a fit read: STARTER (would upgrade our lineup), IN ROTATION
-  // (real depth / rotational value), or BACKUP (a flier). Value is our CFC asset.
-  const maxVal = useMemo(() => pool.reduce((m, p) => Math.max(m, p.value), 1), [pool]);
-  const fitTier = (p: PoolPlayer) => (p.wouldStart ? "STARTER" : p.value >= 0.4 * maxVal ? "IN ROTATION" : "BACKUP");
+  // Fit read from the roster-relative role the engine computes: STARTER (would
+  // crack our lineup), IN ROTATION (a real depth / injury piece), or BACKUP (a
+  // flier). Roster-relative, not a global value cutoff — so a prospect can't read
+  // as "in rotation" for a team already stacked at his position.
+  const roleLabel = (r: Role) => (r === "STARTER" ? "STARTER" : r === "IN_ROTATION" ? "IN ROTATION" : "BACKUP");
+  const fitTier = (p: PoolPlayer) => roleLabel(p.role);
   // The on-clock team's survivors, softmaxed into "who they take" order (for prose).
   const onClockTop = useMemo(() => {
     const sv = onClock?.survivors ?? [];
@@ -415,7 +418,7 @@ export function MockDraftView() {
       }
       const projPool = pool.find((p) => p.name === proj.name) ?? null;
       const rnk = pool.findIndex((p) => p.name === proj.name) + 1;
-      const role = projPool ? (projPool.wouldStart ? "STARTER" : projPool.value >= 0.4 * maxVal ? "IN ROTATION" : "BACKUP") : rnk > 0 && rnk <= 12 ? "STARTER" : "IN ROTATION";
+      const role = projPool ? (projPool.role === "STARTER" ? "STARTER" : projPool.role === "IN_ROTATION" ? "IN ROTATION" : "BACKUP") : rnk > 0 && rnk <= 12 ? "STARTER" : "IN ROTATION";
       const rolePhrase = role === "STARTER" ? "a plug-and-play starter" : role === "IN ROTATION" ? "real rotational value" : "a developmental swing";
       const posBucket = proj.pos === "QB" ? "QB" : proj.pos === "RB" ? "RB" : "WR/TE";
       const fills = (onClock?.needs ?? []).includes(posBucket);
@@ -462,7 +465,7 @@ export function MockDraftView() {
       };
     }
     return null;
-  }, [phase, board, isComplete, yourTurn, onClock, onClockTop, read, pool, rankById, poolSurvivalById, ourIdx, nickOnClock, maxVal]);
+  }, [phase, board, isComplete, yourTurn, onClock, onClockTop, read, pool, rankById, poolSurvivalById, ourIdx, nickOnClock]);
 
   // End-of-draft report card for OUR picks. Each pick blends value-vs-slot
   // surplus (0.40), BPA discipline / reach (0.30), role (0.20) and a light
@@ -493,12 +496,12 @@ export function MockDraftView() {
         for (let i = 0; i < pool.length; i++) if (!drafted.has(pool[i].id)) { bestAvail = i + 1; break; }
         const overReach = Math.max(0, rnk - bestAvail);
         const reachScore = clampN(20 - 12 * overReach, -100, 100);
-        const wouldStart = !!taken?.wouldStart;
-        const role = wouldStart ? "STARTER" : v >= 0.4 * maxVal ? "IN ROTATION" : "BACKUP";
-        const roleScore = wouldStart ? 70 : role === "IN ROTATION" ? 25 : -15;
+        const pRole = taken?.role ?? "BACKUP";
+        const wouldStart = pRole === "STARTER";
+        const roleScore = wouldStart ? 70 : pRole === "IN_ROTATION" ? 25 : -15;
         const posBucket = b.pos === "QB" ? "QB" : b.pos === "RB" ? "RB" : "WR/TE";
         const fills = (b.needs ?? []).includes(posBucket);
-        const contributor = wouldStart || v >= 0.4 * maxVal;
+        const contributor = pRole === "STARTER" || pRole === "IN_ROTATION";
         const needScore = fills && contributor ? 60 : fills ? 20 : roleScore < 0 ? -20 : 0;
         if (fills) filled.add(posBucket);
         const pickScore = 0.4 * valueScore + 0.3 * reachScore + 0.2 * roleScore + 0.1 * needScore;
@@ -534,7 +537,7 @@ export function MockDraftView() {
         ? `Headlined by ${best.pg.name} at ${best.pg.pick}${laggard ? `; the knock is ${worst.pg.name} at ${worst.pg.pick}` : ""}${needNote}.`
         : `${best.pg.name} at ${best.pg.pick}${needNote}.`;
     return { overall, overallLine, picks: rows.map((r) => r.pg) };
-  }, [isComplete, board, pool, rankById, maxVal, control]);
+  }, [isComplete, board, pool, rankById, control]);
 
   // Trade modal offer (guarded index) + its computed context.
   const tradeOffer = tradeOffers.length ? tradeOffers[Math.min(tradeIdx, tradeOffers.length - 1)] : null;

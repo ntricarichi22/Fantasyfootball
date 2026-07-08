@@ -21,6 +21,14 @@ export type ProspectInfo = {
 //   asset   — raw CFC value, the best-player-available read
 // The POV layer decides which story each cell tells (fills a hole / starts now
 // / take the asset anyway). Need and upgrade stay separate on purpose.
+// Roster-relative role: where an incoming player would land on THIS team's depth
+// chart at his position. STARTER = would crack the lineup (value over floor);
+// IN_ROTATION = within striking distance of the floor (a real depth / injury
+// piece); BACKUP = well below the floor (wouldn't see the field). Measured
+// against the team's own startable floor, NOT a global value cutoff — so a
+// prospect can't be "in rotation" for a team already stacked at his position.
+export type Role = "STARTER" | "IN_ROTATION" | "BACKUP";
+
 export type DraftFitCell = {
   playerId: string;
   name: string;
@@ -30,6 +38,7 @@ export type DraftFitCell = {
   needScore: number; // 0..1, 1 = league-worst room
   needLevel: NeedLevel;
   upgrade: number; // value over the position floor, never below 0
+  role: Role; // roster-relative depth-chart slot at this position
 };
 
 // One team's full read over the pool. floors[pos] is the weakest startable slot

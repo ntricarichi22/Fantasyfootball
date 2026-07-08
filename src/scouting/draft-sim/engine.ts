@@ -2,6 +2,7 @@ import type { LeagueData, OwnedPick, Position, RosteredTeam } from "@/shared/lea
 import { computeStrength, SLOT_ELIGIBLE } from "@/shared/team-profiles";
 import type { LineupSlot, NeedBucket, TeamProfile } from "@/shared/team-profiles";
 import type { DraftFitGrid, DraftFitCell } from "@/scouting/draft-fit";
+import { roleFor } from "@/scouting/draft-fit";
 import { computeSuccessorPressure } from "./signals";
 import type {
   TeamBoard,
@@ -253,18 +254,27 @@ export function runDraftEngine(
     const qbBand =
       cell.position === "QB" ? stashSlotFloor(data.values.rookieQbBoost.get(playerId) ?? 1) : Infinity;
     const beforeBand = qbBand !== Infinity && pickOverall < qbBand;
-    // Need + successor should reward filling a need with a player who'll
-    // actually contribute — a STARTER (would-start upgrade > 0), an IN-ROTATION
-    // asset (>= 40% of the pool's top value, matching the UI's fit tier), or any
-    // rookie (a development/stash play). A veteran backup-tier scrub doesn't
-    // really "fill a need," so his need + successor lift is halved — this stops a
-    // QB-thin team from reaching for a washed vet (e.g. Sam Howell) over the best
-    // real contributor left on the board. League-wide, not position-specific.
-    const inRotation = cell.asset >= 0.4 * globalMaxAsset;
+    // Need + successor only reward filling a need with a player who'd actually
+    // help THIS team at that spot — measured against the team's own live startable
+    // floor, not a global cutoff. Rookies keep full lift (a rookie draft is for
+    // development/stash plays); a veteran keeps it only if he'd START or land IN
+    // the rotation. A veteran who'd be buried on the depth chart (BACKUP) fills no
+    // real need, so his need + successor lift is gutted — this stops a team that's
+    // league-thin at QB but already rosters two starting QBs (e.g. the Kush, Love
+    // + Mayfield) from reaching for a washed vet like Watson or Leonard. The old
+    // global "in rotation" test let those vets through; the roster-relative role
+    // correctly reads them as backups. League-wide, not position-specific.
     const isRookie = (data.players.get(playerId)?.exp ?? 99) === 0;
-    const needMult = liveUpgrade > 0 || inRotation || isRookie ? 1 : 0.5;
+    const role = roleFor(cell.asset, liveFloors.get(rid)![cell.position]);
+    const needMult = isRookie || role === "STARTER" ? 1 : role === "IN_ROTATION" ? 0.5 : 0.25;
+    // A VETERAN who wouldn't even crack this team's rotation (BACKUP) is worth
+    // little to them in a rookie draft — he won't play and, unlike a rookie
+    // stash, has no upside to develop. Discount his raw-value appeal so the team
+    // takes a rookie with a future over a washed vet riding the bench. Rookies
+    // and anyone who'd start/rotate keep full value.
+    const assetMult = !isRookie && role === "BACKUP" ? 0.55 : 1;
     let signalWant =
-      SIGNAL_W.asset * assetNorm +
+      SIGNAL_W.asset * assetNorm * assetMult +
       SIGNAL_W.upgrade * upgradeNorm +
       (beforeBand
         ? 0
