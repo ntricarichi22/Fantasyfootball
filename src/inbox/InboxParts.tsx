@@ -408,24 +408,25 @@ export function NegotiationTile({
                           {monogram(v.fromUs ? tile.myTeam : tile.counterpart)}
                         </span>
                       )}
-                      {/* Direction badge riding the crest — the arrow does the talking */}
+                      {/* Direction badge riding the crest — gold for what lands
+                          on our desk, ink for what we fired out */}
                       <span
                         aria-label={v.fromUs ? "Sent by us" : "Sent to us"}
                         style={{
                           position: "absolute",
-                          top: -5,
-                          right: -7,
-                          width: 13,
-                          height: 13,
+                          top: -6,
+                          right: -8,
+                          width: 15,
+                          height: 15,
                           borderRadius: "50%",
-                          background: "#1A1A1A",
-                          border: "1.5px solid #FEFCF9",
-                          color: "#FEFCF9",
+                          background: v.fromUs ? "#1A1A1A" : "#F5C230",
+                          border: v.fromUs ? "1.5px solid #FEFCF9" : "1.5px solid #1A1A1A",
+                          color: v.fromUs ? "#FEFCF9" : "#1A1A1A",
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          fontSize: 8,
-                          fontWeight: 700,
+                          fontSize: 9.5,
+                          fontWeight: 800,
                           lineHeight: 1,
                           opacity: isCur || isSel ? 1 : 0.55,
                         }}

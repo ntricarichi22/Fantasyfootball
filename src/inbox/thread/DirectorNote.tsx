@@ -33,10 +33,11 @@ export default function DirectorNote({
         display: "flex",
         alignItems: "flex-start",
         gap: compact ? 9 : 12,
-        background: "#FBF8F1",
-        border: "1.5px solid #E8E1D4",
-        borderRadius: compact ? 6 : 0,
-        padding: compact ? "8px 10px" : "12px 14px",
+        // Compact homes (the negotiation card) show the director bare —
+        // avatar + words straight on the card, no note paper.
+        background: compact ? "transparent" : "#FBF8F1",
+        border: compact ? "none" : "1.5px solid #E8E1D4",
+        padding: compact ? "2px 2px" : "12px 14px",
         fontFamily: F,
         color: "#1A1A1A",
       }}
