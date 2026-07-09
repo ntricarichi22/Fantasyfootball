@@ -401,20 +401,50 @@ export function runDraftEngine(
   // modeled as sampling from a softmax over its top want candidates (the same
   // model the draft uses), evaluated on the CURRENT available field — so the guy
   // we'd take here is contested like everyone else, not left at a phantom 100%.
+  // Monte-Carlo it: replay the intervening picks with the SAME pick logic the
+  // real draft uses — each team samples from its top-6 want, rookie QBs get
+  // stashed, and the field DEPLETES as players come off. An analytic softmax on
+  // the full field badly overstated survival (it assumed the top skill players
+  // were always there to be taken instead, and ignored QB stashing — a top
+  // rookie QB read ~60% to fall when he actually fell ~0% of the time). Running
+  // real replays fixes both. Wants per (team,player) are fixed here, so they're
+  // computed once and only the availability changes across runs.
+  const MC_RUNS = 40;
   const computeOurSurvival = (overall: number, field: OwnedPick[]) => {
-    const ids = [...available];
-    const surv: Record<string, number> = {};
-    for (const id of ids) surv[id] = 1;
-    for (const ip of field) {
+    const baseAvail = [...available];
+    const pickWants = field.map((ip) => {
       const trid = ip.currentRosterId;
-      const wants = ids.map((id) => ({ id, want: wantScore(trid, id, ip.overall!) })).sort((a, b) => b.want - a.want);
-      const top = wants.slice(0, PICK_POOL);
-      const m = top[0]?.want ?? 0;
-      const exps = top.map((w) => Math.exp((w.want - m) / PICK_TEMP));
-      const s = exps.reduce((a, b) => a + b, 0) || 1;
-      for (let i = 0; i < top.length; i++) surv[top[i].id] *= 1 - exps[i] / s;
+      const w = new Map<string, number>();
+      for (const id of baseAvail) w.set(id, wantScore(trid, id, ip.overall!));
+      return { ip, trid, w };
+    });
+    const survived: Record<string, number> = {};
+    for (const id of baseAvail) survived[id] = 0;
+    for (let m = 0; m < MC_RUNS; m++) {
+      const avail = new Set(baseAvail);
+      for (const { ip, trid, w } of pickWants) {
+        const ranked = [...avail].map((id) => ({ id, want: w.get(id) ?? 0 })).sort((a, b) => b.want - a.want);
+        if (!ranked.length) break;
+        // stash decision — mirrors the draft loop so rookie QBs get grabbed.
+        let stashId: string | null = null;
+        const leader = ranked[0];
+        const probe = ranked[Math.min(2, ranked.length - 1)];
+        const flat = leader.want > 0 && (leader.want - probe.want) / leader.want <= 0.08;
+        const candidate = qbStashChoice(trid, leader.id, ip.overall!, avail);
+        if (candidate) {
+          const leaderUpgrade = liveUpgradeOf(trid, leader.id);
+          const leaderAsset = cellByTeam.get(trid)?.get(leader.id)?.asset ?? 0;
+          const qbAsset = cellByTeam.get(trid)?.get(candidate)?.asset ?? 0;
+          if (flat || (leaderUpgrade < STASH_MARGINAL_UPGRADE && qbAsset >= leaderAsset * STASH_ASSET_TOLERANCE)) stashId = candidate;
+        }
+        const pickId = stashId ?? samplePick(ranked, hashUnit(seed ^ ((m + 1) * 0x9e3779b1), ip.overall!));
+        avail.delete(pickId);
+      }
+      for (const id of baseAvail) if (avail.has(id)) survived[id]++;
     }
-    ourSurvival.push({ pickOverall: overall, survival: surv });
+    const survival: Record<string, number> = {};
+    for (const id of baseAvail) survival[id] = survived[id] / MC_RUNS;
+    ourSurvival.push({ pickOverall: overall, survival });
   };
 
   for (let oi = 0; oi < order.length; oi++) {
