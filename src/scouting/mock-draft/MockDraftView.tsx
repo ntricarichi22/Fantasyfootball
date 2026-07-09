@@ -21,7 +21,10 @@ type DirectorRead = {
   field: FieldPlayer[];
 };
 type OurSurvival = Array<{ pickOverall: number; survival: Record<string, number> }>;
-type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null; ourSurvival?: OurSurvival };
+type RosterSlot = { slot: string; playerId: string | null; name: string | null; pos: string | null; value: number; drafted: boolean };
+type BenchPlayer = { playerId: string; name: string; pos: string; nflTeam: string | null; value: number; drafted: boolean; cut: boolean };
+type RosterView = { slots: RosterSlot[]; bench: BenchPlayer[]; total: number; limit: number; overBy: number; cuts: Array<{ playerId: string; name: string; pos: string; value: number }> };
+type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null; ourSurvival?: OurSurvival; roster?: RosterView | null };
 type TBPick = { pick: string; value: number };
 type TradeOverride = { overall: number; rosterId: string };
 // One trade offer (up or back) — the swapped picks plus a re-mocked board so the
@@ -71,6 +74,9 @@ const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
 const listPhrase = (a: string[]) => (a.length <= 1 ? a[0] ?? "" : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`);
 const posTeam = (p: { pos: string | null; nflTeam: string | null }) => `${p.pos ?? ""}${p.nflTeam ? ` · ${p.nflTeam}` : ""}`;
+// Pretty lineup-slot labels for the roster tab.
+const SLOT_LABELS: Record<string, string> = { QB: "QB", RB: "RB", WR: "WR", TE: "TE", FLEX: "FLEX", REC_FLEX: "REC FLEX", WRRB_FLEX: "W/R FLEX", WRRB: "W/R", SUPER_FLEX: "SUPERFLEX", SUPERFLEX: "SUPERFLEX", QB_FLEX: "SUPERFLEX" };
+const slotLabel = (s: string) => SLOT_LABELS[s.toUpperCase()] ?? s.replace(/_/g, " ");
 
 // ── Draft-pick grading (rubric from analyst practice: value-vs-slot surplus,
 // BPA discipline / reach, role, and a light need modifier — dynasty "draft for
@@ -90,6 +96,8 @@ export function MockDraftView() {
   const [pool, setPool] = useState<PoolPlayer[]>([]);
   const [read, setRead] = useState<DirectorRead | null>(null);
   const [ourSurvival, setOurSurvival] = useState<OurSurvival>([]);
+  const [roster, setRoster] = useState<RosterView | null>(null);
+  const [poolTab, setPoolTab] = useState<"pool" | "roster">("pool");
   const [scenario, setScenario] = useState<Scenario>("standard");
   // One seed per draft session: every projection (live board + trade re-mocks)
   // is sampled off it, so they agree with each other. A fresh page load makes a
@@ -133,7 +141,7 @@ export function MockDraftView() {
 
   // ── data ───────────────────────────────────────────────────────────────────
   function applyPayload(j: Payload) {
-    setBoard(j.board); setPool(j.pool); setRead(j.directorRead); setScenario(j.scenario); setOurSurvival(j.ourSurvival ?? []);
+    setBoard(j.board); setPool(j.pool); setRead(j.directorRead); setScenario(j.scenario); setOurSurvival(j.ourSurvival ?? []); setRoster(j.roster ?? null);
   }
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
@@ -566,7 +574,7 @@ export function MockDraftView() {
   return (
     <div style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 2px ${ARED},inset 0 0 16px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 2px rgba(201,68,46,.45),inset 0 0 6px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}@keyframes tuPulse{0%,100%{box-shadow:3px 3px 0 ${BINK},0 0 0 0 rgba(233,196,106,0)}50%{box-shadow:3px 3px 0 ${BINK},0 0 15px 4px rgba(233,196,106,.85)}}@keyframes mdRing{0%,60%,100%{transform:rotate(0)}10%,30%{transform:rotate(-14deg)}20%,40%{transform:rotate(12deg)}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 2px ${ARED},inset 0 0 16px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 2px rgba(201,68,46,.45),inset 0 0 6px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}@keyframes tuPulse{0%,100%{box-shadow:3px 3px 0 ${BINK},0 0 0 0 rgba(233,196,106,0)}50%{box-shadow:3px 3px 0 ${BINK},0 0 15px 4px rgba(233,196,106,.85)}}@keyframes mdRing{0%,60%,100%{transform:rotate(0)}10%,30%{transform:rotate(-14deg)}20%,40%{transform:rotate(12deg)}}@keyframes mdDraftGlow{0%{box-shadow:0 0 0 0 rgba(233,196,106,.9)}60%{box-shadow:0 0 12px 3px rgba(233,196,106,.55)}100%{box-shadow:0 0 0 0 rgba(233,196,106,0)}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
 
       <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
 
@@ -656,20 +664,35 @@ export function MockDraftView() {
 
             {/* LEFT: the pool */}
             <div style={{ flex: 2, minWidth: 0, display: "flex", flexDirection: "column", borderRight: `1.5px solid ${HLINE}` }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, height: 40, padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
-                <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap" }}>{yourTurn ? "TAP A PLAYER TO DRAFT" : "PLAYER POOL"}</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#2a251e", border: "1px solid #4a4135", borderRadius: 3, padding: "3px 6px" }}>
-                    <span style={{ color: DIM, fontSize: 11 }}>⌕</span>
-                    <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={{ border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontSize: 11, color: SCREAM, width: 128 }} />
-                  </div>
-                  <div style={{ display: "flex", border: "1px solid #4a4135", borderRadius: 3, overflow: "hidden" }}>
-                    {(["ALL", "QB", "RB", "PC"] as const).map((f, i) => (
-                      <button key={f} onClick={() => setFilter(f)} style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, padding: "3px 7px", border: "none", borderLeft: i ? "1px solid #4a4135" : "none", background: filter === f ? GREEN : "transparent", color: filter === f ? SCREAM : FADE, cursor: "pointer" }}>{f}</button>
-                    ))}
-                  </div>
+              {/* ── file-folder tabs: player pool / our roster ── */}
+              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, height: 40, padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+                <div style={{ display: "flex", alignItems: "flex-end" }}>
+                  {([["pool", "PLAYER POOL"], ["roster", "OUR ROSTER"]] as const).map(([key, label]) => {
+                    const active = poolTab === key;
+                    const over = key === "roster" && (roster?.overBy ?? 0) > 0;
+                    return (
+                      <button key={key} onClick={() => setPoolTab(key)} style={{ fontFamily: ANTON, fontSize: 12.5, letterSpacing: 0.7, padding: "6px 15px 7px", cursor: "pointer", color: active ? SCREAM : FADE, background: active ? RECESS2 : "#191510", border: `1.5px solid ${active ? HLINE : "#2a2519"}`, borderBottom: `1.5px solid ${active ? RECESS2 : HLINE}`, borderRadius: "7px 7px 0 0", marginBottom: -1.5, marginRight: 4, position: "relative", zIndex: active ? 2 : 1, display: "flex", alignItems: "center", gap: 6 }}>
+                        {label}
+                        {over && <span style={{ fontFamily: ANTON, fontSize: 9, color: SCREAM, background: ARED, borderRadius: 8, padding: "0 5px", lineHeight: "15px" }}>+{roster!.overBy}</span>}
+                      </button>
+                    );
+                  })}
                 </div>
+                {poolTab === "pool" && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, paddingBottom: 5 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 4, background: "#2a251e", border: "1px solid #4a4135", borderRadius: 3, padding: "3px 6px" }}>
+                      <span style={{ color: DIM, fontSize: 11 }}>⌕</span>
+                      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search" style={{ border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontSize: 11, color: SCREAM, width: 110 }} />
+                    </div>
+                    <div style={{ display: "flex", border: "1px solid #4a4135", borderRadius: 3, overflow: "hidden" }}>
+                      {(["ALL", "QB", "RB", "PC"] as const).map((f, i) => (
+                        <button key={f} onClick={() => setFilter(f)} style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, padding: "3px 7px", border: "none", borderLeft: i ? "1px solid #4a4135" : "none", background: filter === f ? GREEN : "transparent", color: filter === f ? SCREAM : FADE, cursor: "pointer" }}>{f}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
+              {poolTab === "pool" ? (
               <div className="mdScroll" style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
                 {/* sticky column header — same box model as the plates so the columns line up */}
                 <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", height: 30, padding: "0 4px 0 11px", flexShrink: 0 }}>
@@ -700,6 +723,44 @@ export function MockDraftView() {
                   );
                 })}
               </div>
+              ) : (
+              <div className="mdScroll" style={{ padding: "11px 12px 14px", overflowY: "auto", flex: 1, minHeight: 0 }}>
+                {roster ? (
+                  <>
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 9 }}>
+                      <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: FADE }}>OPTIMAL STARTING LINEUP</span>
+                      <span style={{ fontFamily: ANTON, fontSize: 12.5, letterSpacing: 0.5, color: roster.overBy > 0 ? CRED : GSUB }}>{roster.total} / {roster.limit}</span>
+                    </div>
+                    {roster.slots.map((s, i) => (
+                      <div key={s.slot + i} style={{ display: "flex", alignItems: "center", gap: 8, height: 33, padding: "0 9px", marginBottom: 4, borderRadius: 3, boxSizing: "border-box", background: s.drafted ? "#33301d" : PLACARD, border: `1.5px solid ${s.drafted ? GOLD : BINK}`, animation: s.drafted ? "mdDraftGlow 1.5s ease-out 2" : "none" }}>
+                        <span style={{ width: 58, flexShrink: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.6, color: s.drafted ? GOLD : META }}>{slotLabel(s.slot)}</span>
+                        <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 13.5, color: s.drafted ? SCREAM : BINK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{s.name ?? "—"}</span>
+                        {s.drafted && <span style={{ fontFamily: ANTON, fontSize: 8, letterSpacing: 0.5, color: BINK, background: GOLD, borderRadius: 2, padding: "1px 5px", flexShrink: 0 }}>DRAFTED</span>}
+                        {s.pos && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, color: s.drafted ? "#33301d" : PLACARD, background: s.drafted ? GOLD : BINK, padding: "1px 5px", borderRadius: 2, flexShrink: 0 }}>{s.pos}</span>}
+                        <span style={{ width: 32, textAlign: "right", flexShrink: 0, fontFamily: ANTON, fontSize: 12, color: s.drafted ? GOLD : GSUB }}>{s.value}</span>
+                      </div>
+                    ))}
+                    <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 2, color: FADE, margin: "14px 0 7px" }}>BENCH</div>
+                    {roster.bench.map((b) => (
+                      <div key={b.playerId} style={{ display: "flex", alignItems: "center", gap: 7, height: 27, padding: "0 9px", marginBottom: 3, borderRadius: 3, boxSizing: "border-box", background: b.cut ? "rgba(201,68,46,.16)" : "transparent", border: `1px solid ${b.cut ? ARED : "#2a2519"}` }}>
+                        <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 600, fontSize: 12, color: b.cut ? CRED : b.drafted ? GOLD : FADE, textDecoration: b.cut ? "line-through" : "none", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.name}</span>
+                        {b.drafted && !b.cut && <span style={{ fontFamily: ANTON, fontSize: 7.5, color: BINK, background: GOLD, borderRadius: 2, padding: "1px 4px", flexShrink: 0 }}>NEW</span>}
+                        <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8.5, color: DIM, flexShrink: 0 }}>{b.pos}{b.nflTeam ? ` · ${b.nflTeam}` : ""}</span>
+                        {b.cut && <span style={{ fontFamily: ANTON, fontSize: 7.5, letterSpacing: 0.5, color: SCREAM, background: ARED, borderRadius: 2, padding: "1px 5px", flexShrink: 0 }}>CUT</span>}
+                        <span style={{ width: 28, textAlign: "right", flexShrink: 0, fontFamily: ANTON, fontSize: 11, color: b.cut ? CRED : GSUB }}>{b.value}</span>
+                      </div>
+                    ))}
+                    {roster.overBy > 0 && (
+                      <div style={{ marginTop: 11, padding: "9px 11px", background: "rgba(201,68,46,.14)", border: `1.5px solid ${ARED}`, borderRadius: 4, fontFamily: OSWALD, fontWeight: 600, fontSize: 11.5, lineHeight: 1.45, color: CRED }}>
+                        <span style={{ fontWeight: 700 }}>{roster.total} players — {roster.overBy} over the {roster.limit}-man limit.</span> Drop {listPhrase(roster.cuts.map((c) => c.name))} to get legal.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div style={{ padding: 16, fontFamily: OSWALD, fontSize: 12, color: DIM }}>Roster loading…</div>
+                )}
+              </div>
+              )}
             </div>
 
             {/* RIGHT: director prose (1/3) */}
@@ -710,6 +771,12 @@ export function MockDraftView() {
                 <span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{directorHeadline}</span>
               </div>
               <div className="mdScroll" style={{ padding: "15px 15px 18px", overflowY: "auto", flex: 1, minHeight: 0 }}>
+                {roster && roster.overBy > 0 && (
+                  <div style={{ marginBottom: 15, padding: "10px 12px", background: "rgba(201,68,46,.16)", border: `1.5px solid ${ARED}`, borderRadius: 5 }}>
+                    <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9.5, letterSpacing: 1.5, color: CRED, marginBottom: 5 }}>ROSTER CRUNCH</div>
+                    <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 13, lineHeight: 1.5, color: "#f0d9cf" }}>We&apos;re carrying {roster.total} — {roster.overBy} over the {roster.limit}-man limit. I&apos;d move on from {listPhrase(roster.cuts.map((c) => `${c.name} (${c.pos})`))} — {roster.overBy === 1 ? "he's" : "they're"} the lowest asset on the bench. Check the Our Roster tab.</div>
+                  </div>
+                )}
                 {isComplete && draftGrades ? (
                   <>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>

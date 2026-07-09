@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getLeagueData, type LeagueData, type OwnedPick } from "@/shared/league-data";
-import { buildTeamProfiles, type TeamProfile } from "@/shared/team-profiles";
+import { getLeagueData, type LeagueData, type OwnedPick, type Position, type RosteredTeam } from "@/shared/league-data";
+import { buildTeamProfiles, candidatesFor, fillLineup, startingSlots, type TeamProfile } from "@/shared/team-profiles";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
 
@@ -41,11 +41,65 @@ function buildOrder(data: LeagueData, tradeOverrides?: Array<{ overall: number; 
   return current.map((p) => (owner.has(p.overall!) ? { ...p, currentRosterId: owner.get(p.overall!)! } : p));
 }
 
+type RosterSlot = { slot: string; playerId: string | null; name: string | null; pos: string | null; value: number; drafted: boolean };
+type BenchPlayer = { playerId: string; name: string; pos: string; nflTeam: string | null; value: number; drafted: boolean; cut: boolean };
+type RosterView = {
+  slots: RosterSlot[];
+  bench: BenchPlayer[];
+  total: number;
+  limit: number;
+  overBy: number;
+  cuts: Array<{ playerId: string; name: string; pos: string; value: number }>;
+};
+
+// Our optimal starting lineup + bench, built from the league's REAL lineup slots
+// (data.settings.rosterPositions) and INCLUDING the rookies we've drafted so far
+// (board picks flagged "your-pick" — the ones we actually made). Over the roster
+// limit, it flags the lowest-value bench players as recommended cuts.
+function buildRoster(
+  data: LeagueData,
+  you: RosteredTeam,
+  board: Array<{ rosterId: string; playerId: string | null; player: string | null; pos: string | null; reason: string }>,
+  youId: string
+): RosterView {
+  const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
+  const draftedCands = board
+    .filter((b) => b.rosterId === youId && b.reason === "your-pick" && b.playerId)
+    .map((b) => {
+      const info = data.players.get(b.playerId!);
+      return { id: b.playerId!, name: b.player ?? info?.name ?? "—", position: (info?.position ?? (b.pos as Position) ?? "WR") as Position, age: info?.age ?? null, value: data.values.value.get(b.playerId!) ?? 0 };
+    });
+  const draftedIds = new Set(draftedCands.map((c) => c.id));
+  const cands = [...candidatesFor(you, data.values), ...draftedCands];
+  const { lineup, used } = fillLineup(cands, startingSlots(data.settings.rosterPositions));
+
+  const slots: RosterSlot[] = lineup.map((l) => ({
+    slot: l.slot, playerId: l.playerId, name: l.name, pos: l.position,
+    value: Math.round(l.value), drafted: l.playerId ? draftedIds.has(l.playerId) : false,
+  }));
+
+  const benchCands = cands.filter((c) => !used.has(c.id)).sort((a, b) => b.value - a.value);
+  // Roster limit = the Sleeper roster size (every slot a team fills, bench
+  // included) minus the reserve slots that don't count against it.
+  const limit = data.settings.rosterPositions.filter((s) => { const u = s.toUpperCase(); return u !== "IR" && u !== "TAXI"; }).length;
+  const overBy = Math.max(0, cands.length - limit);
+  const cutList = overBy > 0 ? benchCands.slice(-overBy) : [];
+  const cutIds = new Set(cutList.map((c) => c.id));
+  const cuts = cutList.map((c) => ({ playerId: c.id, name: c.name, pos: c.position, value: Math.round(c.value) }));
+
+  const bench: BenchPlayer[] = benchCands.map((c) => ({
+    playerId: c.id, name: c.name, pos: c.position, nflTeam: nflTeamOf(c.id),
+    value: Math.round(c.value), drafted: draftedIds.has(c.id), cut: cutIds.has(c.id),
+  }));
+
+  return { slots, bench, total: cands.length, limit, overBy, cuts };
+}
+
 function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string, forcedPicks?: Map<number, string>, order?: OwnedPick[], seed = 1) {
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   const you =
-    data.teams.find((t) => t.rosterId === teamId) ??
+    data.teams.find((t) => t.rosterId === String(teamId)) ??
     data.teams.find((t) => /founders/i.test(t.teamName)) ??
     data.teams[0];
   const youId = you?.rosterId ?? "";
@@ -110,7 +164,9 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
         }
       : null;
 
-    return { scenario, you: { rosterId: youId, name: you?.teamName ?? "", picks: myPicks }, poolSize, pool, board, directorRead, ourSurvival };
+    const roster = you ? buildRoster(data, you, board, youId) : null;
+
+    return { scenario, you: { rosterId: youId, name: you?.teamName ?? "", picks: myPicks }, poolSize, pool, board, directorRead, ourSurvival, roster };
   });
 }
 
