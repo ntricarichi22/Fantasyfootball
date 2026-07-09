@@ -23,7 +23,7 @@ type DirectorRead = {
 type OurSurvival = Array<{ pickOverall: number; survival: Record<string, number> }>;
 type RosterSlot = { slot: string; playerId: string | null; name: string | null; pos: string | null; value: number; drafted: boolean };
 type BenchPlayer = { playerId: string; name: string; pos: string; nflTeam: string | null; value: number; drafted: boolean; cut: boolean };
-type RosterView = { slots: RosterSlot[]; bench: BenchPlayer[]; total: number; limit: number; overBy: number; cuts: Array<{ playerId: string; name: string; pos: string; value: number }> };
+type RosterView = { slots: RosterSlot[]; bench: BenchPlayer[]; total: number; limit: number; overBy: number; cuts: Array<{ playerId: string; name: string; pos: string; value: number; reason: string }> };
 type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null; ourSurvival?: OurSurvival; roster?: RosterView | null };
 type TBPick = { pick: string; value: number };
 type TradeOverride = { overall: number; rosterId: string };
@@ -496,6 +496,44 @@ export function MockDraftView() {
     return null;
   }, [phase, board, isComplete, yourTurn, onClock, onClockTop, read, pool, rankById, poolSurvivalById, ourIdx, nickOnClock]);
 
+  // The director's read on the ROSTER tab: how our picks fit the lineup and,
+  // if we're over the 20-man limit, who to cut and why (depth-aware — a
+  // redundant piece at a stacked spot over a needed body at a thin one).
+  const rosterCard = useMemo<DirectorCard | null>(() => {
+    if (!roster) return null;
+    const startersAdded = roster.slots.filter((s) => s.drafted);
+    const benchAdded = roster.bench.filter((b) => b.drafted);
+    const totalDrafted = startersAdded.length + benchAdded.length;
+    const chips: DChip[] = [
+      { k: "ROSTER", v: `${roster.total}/${roster.limit}` },
+      ...(totalDrafted > 0 ? [{ k: "DRAFTED", v: String(totalDrafted) }] : []),
+      { k: "IN LINEUP", v: String(startersAdded.length) },
+    ];
+    const sections: DSection[] = [];
+    if (totalDrafted > 0) {
+      const bits: string[] = [];
+      if (startersAdded.length) bits.push(`${listPhrase(startersAdded.map((s) => `${s.name} takes over our ${slotLabel(s.slot)}`))}`);
+      if (benchAdded.length) bits.push(`${listPhrase(benchAdded.map((b) => b.name))} ${benchAdded.length === 1 ? "gives us depth" : "give us depth"} for now`);
+      sections.push({ label: "THE DRAFT SO FAR", body: `${bits.join("; ")}.` });
+    } else {
+      sections.push({ label: "THE DRAFT SO FAR", body: "Nothing's come in yet — this is the roster as it stands. Anyone we draft who beats a starter slots straight into the lineup above." });
+    }
+    if (roster.overBy > 0) {
+      const depthCut = roster.cuts.some((c) => /deep at/.test(c.reason));
+      const body = `We're carrying ${roster.total} — ${roster.overBy} over the ${roster.limit}-man limit. I'd move on from ${listPhrase(roster.cuts.map((c) => `${c.name} (${c.reason})`))}.${depthCut ? " It's not just the cheapest name — a redundant piece at a stacked spot hurts less to lose than a body at a thin one." : ""}`;
+      sections.push({ label: "WHO TO CUT", body });
+    } else {
+      const room = roster.limit - roster.total;
+      sections.push({ label: "ROSTER SPACE", body: `We're at ${roster.total} of ${roster.limit} — ${room} spot${room === 1 ? "" : "s"} to play with before anyone has to go.` });
+    }
+    return {
+      verdict: roster.overBy > 0 ? "Time to trim the roster" : totalDrafted > 0 ? "The board's taking shape" : "Our roster as it stands",
+      vColor: roster.overBy > 0 ? "#C9442E" : GREEN,
+      chips,
+      sections,
+    };
+  }, [roster]);
+
   // End-of-draft report card for OUR picks. Each pick blends value-vs-slot
   // surplus (0.40), BPA discipline / reach (0.30), role (0.20) and a light
   // need modifier (0.10) into a score → letter grade + one-line read. The
@@ -768,16 +806,28 @@ export function MockDraftView() {
               <div style={{ display: "flex", alignItems: "center", gap: 9, height: 40, padding: "0 12px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src="/avatars/scouting.png" alt="" style={{ width: 26, height: 26, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
-                <span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{directorHeadline}</span>
+                <span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{poolTab === "roster" ? "OUR ROSTER" : directorHeadline}</span>
               </div>
               <div className="mdScroll" style={{ padding: "15px 15px 18px", overflowY: "auto", flex: 1, minHeight: 0 }}>
-                {roster && roster.overBy > 0 && (
-                  <div style={{ marginBottom: 15, padding: "10px 12px", background: "rgba(201,68,46,.16)", border: `1.5px solid ${ARED}`, borderRadius: 5 }}>
-                    <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9.5, letterSpacing: 1.5, color: CRED, marginBottom: 5 }}>ROSTER CRUNCH</div>
-                    <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 13, lineHeight: 1.5, color: "#f0d9cf" }}>We&apos;re carrying {roster.total} — {roster.overBy} over the {roster.limit}-man limit. I&apos;d move on from {listPhrase(roster.cuts.map((c) => `${c.name} (${c.pos})`))} — {roster.overBy === 1 ? "he's" : "they're"} the lowest asset on the bench. Check the Our Roster tab.</div>
-                  </div>
-                )}
-                {isComplete && draftGrades ? (
+                {poolTab === "roster" && rosterCard ? (
+                  <>
+                    <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, lineHeight: 1.22, color: SCREAM, borderBottom: `4px solid ${rosterCard.vColor}`, paddingBottom: 5, display: "inline-block" }}>{rosterCard.verdict}</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 13 }}>
+                      {rosterCard.chips.map((c) => (
+                        <div key={c.k} style={{ background: RECESS2, border: `1px solid ${HLINE}`, borderRadius: 4, padding: "5px 10px" }}>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1.3, color: DIM }}>{c.k}</div>
+                          <div style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.3, color: c.k === "ROSTER" && roster && roster.overBy > 0 ? CRED : SCREAM, marginTop: 1 }}>{c.v}</div>
+                        </div>
+                      ))}
+                    </div>
+                    {rosterCard.sections.map((s) => (
+                      <div key={s.label} style={{ marginTop: 16 }}>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9.5, letterSpacing: 2, color: s.label === "WHO TO CUT" ? CRED : FADE, marginBottom: 6 }}>{s.label}</div>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 400, fontSize: 14.5, lineHeight: 1.62, color: "#ece2ca" }}>{s.body}</div>
+                      </div>
+                    ))}
+                  </>
+                ) : isComplete && draftGrades ? (
                   <>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <div style={{ width: 46, height: 46, borderRadius: 6, background: gradeColor(draftGrades.overall), border: `2px solid ${BINK}`, boxShadow: `2px 2px 0 ${BINK}`, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: ANTON, fontSize: 23, color: SCREAM, flexShrink: 0 }}>{draftGrades.overall}</div>

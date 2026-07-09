@@ -49,8 +49,15 @@ type RosterView = {
   total: number;
   limit: number;
   overBy: number;
-  cuts: Array<{ playerId: string; name: string; pos: string; value: number }>;
+  cuts: Array<{ playerId: string; name: string; pos: string; value: number; reason: string }>;
 };
+
+const CUT_BUCKET = (pos: string): "QB" | "RB" | "PASS_CATCHER" => (pos === "QB" ? "QB" : pos === "RB" ? "RB" : "PASS_CATCHER");
+const CUT_BUCKET_LABEL: Record<string, string> = { QB: "QB", RB: "RB", PASS_CATCHER: "WR/TE" };
+// How many players at a bucket a roster reasonably keeps (starters + depth,
+// counting flex usage). Beyond this a player is surplus depth — expendable even
+// if his raw value tops a scarcer player at a thin spot.
+const CUT_KEEP_DEPTH: Record<string, number> = { QB: 3, RB: 5, PASS_CATCHER: 7 };
 
 // Our optimal starting lineup + bench, built from the league's REAL lineup slots
 // (data.settings.rosterPositions) and INCLUDING the rookies we've drafted so far
@@ -83,9 +90,26 @@ function buildRoster(
   // included) minus the reserve slots that don't count against it.
   const limit = data.settings.rosterPositions.filter((s) => { const u = s.toUpperCase(); return u !== "IR" && u !== "TAXI"; }).length;
   const overBy = Math.max(0, cands.length - limit);
-  const cutList = overBy > 0 ? benchCands.slice(-overBy) : [];
+  // Depth-aware cuts: rank each player within his bucket (across the whole
+  // roster), then cut the DEEPEST surplus first — the 7th RB before the 5th WR,
+  // even if the RB is worth more — falling back to the cheapest bench guy when
+  // nothing is clearly surplus.
+  const byBucket: Record<string, typeof cands> = { QB: [], RB: [], PASS_CATCHER: [] };
+  for (const c of cands) byBucket[CUT_BUCKET(c.position)].push(c);
+  for (const b of Object.keys(byBucket)) byBucket[b].sort((a, c) => c.value - a.value);
+  const bucketRank = new Map<string, number>();
+  const bucketCount = new Map<string, number>();
+  for (const b of Object.keys(byBucket)) { byBucket[b].forEach((c, i) => bucketRank.set(c.id, i + 1)); bucketCount.set(b, byBucket[b].length); }
+  const surplusDepth = (c: { id: string; position: string }) => Math.max(0, (bucketRank.get(c.id) ?? 0) - (CUT_KEEP_DEPTH[CUT_BUCKET(c.position)] ?? 5));
+  const cutOrder = [...benchCands].sort((a, c) => (surplusDepth(c) - surplusDepth(a)) || (a.value - c.value));
+  const cutList = overBy > 0 ? cutOrder.slice(0, overBy) : [];
   const cutIds = new Set(cutList.map((c) => c.id));
-  const cuts = cutList.map((c) => ({ playerId: c.id, name: c.name, pos: c.position, value: Math.round(c.value) }));
+  const cuts = cutList.map((c) => {
+    const bucket = CUT_BUCKET(c.position);
+    const sd = surplusDepth(c);
+    const reason = sd > 0 ? `${bucketCount.get(bucket)} deep at ${CUT_BUCKET_LABEL[bucket]}` : "lowest asset on the bench";
+    return { playerId: c.id, name: c.name, pos: c.position, value: Math.round(c.value), reason };
+  });
 
   const bench: BenchPlayer[] = benchCands.map((c) => ({
     playerId: c.id, name: c.name, pos: c.position, nflTeam: nflTeamOf(c.id),
