@@ -25,11 +25,11 @@ type RosterSlot = { slot: string; playerId: string | null; name: string | null; 
 type BenchPlayer = { playerId: string; name: string; pos: string; nflTeam: string | null; value: number; drafted: boolean; cut: boolean };
 type RosterView = { slots: RosterSlot[]; bench: BenchPlayer[]; total: number; limit: number; overBy: number; cuts: Array<{ playerId: string; name: string; pos: string; value: number; reason: string }> };
 type Payload = { scenario: Scenario; you: { rosterId: string; name: string; picks: string[] }; pool: PoolPlayer[]; board: BoardPick[]; directorRead: DirectorRead | null; ourSurvival?: OurSurvival; roster?: RosterView | null };
-type TBPick = { pick: string; value: number };
+type TBAsset = { kind: "pick" | "player"; label: string; sublabel: string; value: number };
 type TradeOverride = { overall: number; rosterId: string };
 // One trade offer (up or back) — the swapped picks plus a re-mocked board so the
 // client can read survival odds at the new slot.
-type TBOffer = { partner: string; partnerId: string; fromPick: string; toPick: string; give: TBPick[]; get: TBPick[]; net: number; rationale: string; overrides: TradeOverride[]; board: BoardPick[] };
+type TBOffer = { partner: string; partnerId: string; fromPick: string; toPick: string; give: TBAsset[]; get: TBAsset[]; givePlayers?: string[]; net: number; rationale: string; overrides: TradeOverride[]; board: BoardPick[] };
 type TradeMode = "up" | "back";
 // The war-room director card: a verdict line, a few stat chips, and labeled
 // prose sections — the trade-modal treatment, applied to the live read.
@@ -123,6 +123,8 @@ export function MockDraftView() {
 
   // Accepted sim trades (ownership swaps that thread into every re-mock).
   const [tradeOverrides, setTradeOverrides] = useState<TradeOverride[]>([]);
+  // Roster players we've traded away in the sim — excluded from Our Roster.
+  const [tradedAway, setTradedAway] = useState<string[]>([]);
   // The one trade modal — up (while simming) or back (on the clock), plus incoming later.
   const [tradeOpen, setTradeOpen] = useState(false);
   const [tradeMode, setTradeMode] = useState<TradeMode>("up");
@@ -167,7 +169,7 @@ export function MockDraftView() {
   function reproject(scn: Scenario) {
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     setBusy(true);
-    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario: scn, seed: seedRef.current, forcedPicks, tradeOverrides }) })
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario: scn, seed: seedRef.current, forcedPicks, tradeOverrides, tradedAway }) })
       .then((r) => r.json()).then((j: Payload) => applyPayload(j)).catch(() => setError("Re-mock failed.")).finally(() => setBusy(false));
   }
 
@@ -245,8 +247,9 @@ export function MockDraftView() {
     for (const o of offer.overrides) owner.set(o.overall, o.rosterId);
     const nextOverrides = [...owner.entries()].map(([overall, rosterId]) => ({ overall, rosterId }));
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
-    setTradeOverrides(nextOverrides); setTradeOpen(false); setTradeOffers([]); setBusy(true);
-    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides: nextOverrides }) })
+    const nextTradedAway = [...new Set([...tradedAway, ...(offer.givePlayers ?? [])])];
+    setTradeOverrides(nextOverrides); setTradedAway(nextTradedAway); setTradeOpen(false); setTradeOffers([]); setBusy(true);
+    fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides: nextOverrides, tradedAway: nextTradedAway }) })
       .then((r) => r.json()).then((j: Payload) => { applyPayload(j); setPhase("running"); })
       .catch(() => setError("Trade failed.")).finally(() => setBusy(false));
   }
@@ -962,17 +965,19 @@ export function MockDraftView() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: `2.5px solid ${BINK}` }}>
                     <div style={{ padding: "11px 14px", borderRight: `2px solid ${BINK}` }}>
                       <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META, marginBottom: 7 }}>YOU SEND</div>
-                      {offer.give.map((g) => (
-                        <div key={g.pick} style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                          <span style={{ fontFamily: ANTON, fontSize: 15, color: GREEN }}>{g.pick}</span><span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, color: "#8a7d63" }}>your pick</span>
+                      {offer.give.map((g, gi) => (
+                        <div key={g.label + gi} style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                          <span style={{ fontFamily: g.kind === "player" ? OSWALD : ANTON, fontWeight: 700, fontSize: g.kind === "player" ? 12.5 : 15, color: GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{g.label}</span>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9.5, color: "#8a7d63", whiteSpace: "nowrap", flexShrink: 0 }}>{g.sublabel}</span>
                         </div>
                       ))}
                     </div>
                     <div style={{ padding: "11px 14px" }}>
                       <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META, marginBottom: 7 }}>YOU RECEIVE</div>
-                      {offer.get.map((g) => (
-                        <div key={g.pick} style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 0, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-                          <span style={{ fontFamily: ANTON, fontSize: 15, color: GREEN }}>{g.pick}</span><span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 10, color: "#8a7d63" }}>{nick}</span>
+                      {offer.get.map((g, gi) => (
+                        <div key={g.label + gi} style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                          <span style={{ fontFamily: g.kind === "player" ? OSWALD : ANTON, fontWeight: 700, fontSize: g.kind === "player" ? 12.5 : 15, color: GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{g.label}</span>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9.5, color: "#8a7d63", whiteSpace: "nowrap", flexShrink: 0 }}>{g.sublabel || nick}</span>
                         </div>
                       ))}
                     </div>

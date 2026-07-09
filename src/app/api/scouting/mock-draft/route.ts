@@ -67,7 +67,8 @@ function buildRoster(
   data: LeagueData,
   you: RosteredTeam,
   board: Array<{ rosterId: string; playerId: string | null; player: string | null; pos: string | null; reason: string }>,
-  youId: string
+  youId: string,
+  tradedAway: Set<string>
 ): RosterView {
   const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
   const draftedCands = board
@@ -77,7 +78,8 @@ function buildRoster(
       return { id: b.playerId!, name: b.player ?? info?.name ?? "—", position: (info?.position ?? (b.pos as Position) ?? "WR") as Position, age: info?.age ?? null, value: data.values.value.get(b.playerId!) ?? 0 };
     });
   const draftedIds = new Set(draftedCands.map((c) => c.id));
-  const cands = [...candidatesFor(you, data.values), ...draftedCands];
+  // Existing roster minus any players we've traded away in the sim, plus rookies drafted.
+  const cands = [...candidatesFor(you, data.values).filter((c) => !tradedAway.has(c.id)), ...draftedCands];
   const { lineup, used } = fillLineup(cands, startingSlots(data.settings.rosterPositions));
 
   const slots: RosterSlot[] = lineup.map((l) => ({
@@ -119,7 +121,7 @@ function buildRoster(
   return { slots, bench, total: cands.length, limit, overBy, cuts };
 }
 
-function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string, forcedPicks?: Map<number, string>, order?: OwnedPick[], seed = 1) {
+function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string, forcedPicks?: Map<number, string>, order?: OwnedPick[], seed = 1, tradedAway: Set<string> = new Set()) {
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   const you =
@@ -188,7 +190,7 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
         }
       : null;
 
-    const roster = you ? buildRoster(data, you, board, youId) : null;
+    const roster = you ? buildRoster(data, you, board, youId, tradedAway) : null;
 
     return { scenario, you: { rosterId: youId, name: you?.teamName ?? "", picks: myPicks }, poolSize, pool, board, directorRead, ourSurvival, roster };
   });
@@ -211,6 +213,7 @@ export async function POST(req: Request) {
     seed?: number;
     forcedPicks?: Array<{ overall: number; playerId: string }>;
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
+    tradedAway?: string[];
   };
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json(data, { status: 500 });
@@ -220,6 +223,7 @@ export async function POST(req: Request) {
   }
   const order = buildOrder(data, body.tradeOverrides);
   const seed = typeof body.seed === "number" && body.seed > 0 ? body.seed : 1;
-  const payload = await buildPayload(data, asScenario(body.scenario), body.teamId ?? "", forced, order, seed);
+  const tradedAway = new Set((body.tradedAway ?? []).filter((x): x is string => typeof x === "string"));
+  const payload = await buildPayload(data, asScenario(body.scenario), body.teamId ?? "", forced, order, seed, tradedAway);
   return NextResponse.json(payload);
 }

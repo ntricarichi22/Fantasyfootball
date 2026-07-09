@@ -71,9 +71,12 @@ export async function POST(req: Request) {
   const myPick = current.find((p) => p.currentRosterId === youId && !forcedOveralls.has(p.overall!));
   if (!myPick) return NextResponse.json({ offers: [] });
   const myOurVal = val(myPick, youId);
+  const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
+  const playerVal = (id: string, perspective?: string) => valueAsset({ type: "player", sleeperPlayerId: id }, ctx, perspective ? { perspective } : undefined);
 
-  // Targets: any unmade pick ahead of ours owned by another team. Team on the
-  // clock (targetOverall) first, then the closest jumps — no distance cap.
+  // Targets: unmade picks ahead of ours owned by another team, TEAM ON THE CLOCK
+  // (targetOverall) first, then the closest jumps. We surface offers for the
+  // clock team first and fall back to nearer teams so there's always something.
   const targetOverall = typeof body.targetOverall === "number" ? body.targetOverall : null;
   const candidates = current
     .filter((p) => p.overall! < myPick.overall! && p.currentRosterId !== youId && !forcedOveralls.has(p.overall!))
@@ -83,86 +86,99 @@ export async function POST(req: Request) {
       return (myPick.overall! - a.overall!) - (myPick.overall! - b.overall!);
     });
 
+  // Our tradeable assets besides the pick we're moving: later picks + roster
+  // players (all but our two most valuable — franchise pieces stay put).
+  const myExtraPicks = current.filter((p) => p.currentRosterId === youId && p.overall! !== myPick.overall! && !forcedOveralls.has(p.overall!));
+  const rosterPlayers = you.players
+    .map((pl) => ({ id: pl.id, name: pl.name, pos: pl.position, nflTeam: nflTeamOf(pl.id), vYou: playerVal(pl.id, youId) }))
+    .sort((a, b) => b.vYou - a.vYou);
+  const tradeablePlayers = rosterPlayers.slice(2); // keep the top two untouchable
+
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
-  const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
 
-  const offers: unknown[] = [];
-  const seenPartners = new Set<string>();
-  for (const cand of candidates) {
-    if (offers.length >= 3) break;
-    if (seenPartners.has(cand.currentRosterId)) continue;
-    const partnerId = cand.currentRosterId;
-
-    // Build the package: our pick + the cheapest of our later picks needed so the
-    // PARTNER accepts from their own seat (they receive our picks, give up cand;
-    // they take it when their receive/give ratio clears their persona floor).
-    const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
-    const theirGive = val(cand, partnerId);
-    const myLater = current
-      .filter((p) => p.currentRosterId === youId && p.overall! > myPick.overall! && !forcedOveralls.has(p.overall!))
-      .map((p) => ({ p, v: val(p, partnerId) }))
-      .sort((a, b) => a.v - b.v);
-    const extras: OwnedPick[] = [];
-    let theirReceive = val(myPick, partnerId);
-    for (const e of myLater) {
-      if (theirReceive >= band.min * theirGive || extras.length >= 3) break;
-      extras.push(e.p);
-      theirReceive += e.v;
-    }
-    if (theirReceive < band.min * theirGive) continue; // can't make them say yes — skip
-
-    seenPartners.add(partnerId);
-    const ourGive = myOurVal + extras.reduce((s, e) => s + val(e, youId), 0);
-    const ourReceive = val(cand, youId);
-
-    const overrides = [
-      { overall: cand.overall!, rosterId: youId },
-      { overall: myPick.overall!, rosterId: partnerId },
-      ...extras.map((e) => ({ overall: e.overall!, rosterId: partnerId })),
-    ];
-    const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
-    const order = current.map((p) => (ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p));
+  type Asset = { kind: "pick" | "player"; label: string; sublabel: string; vYou: number; vP: number; overall?: number; playerId?: string };
+  const buildBoard = (order: OwnedPick[]) => {
     const { projection, reads } = runDraftEngine(data, grid, profiles, boards, order, scenario, forced, { seed, youId });
-
     const readByOverall = new Map<number, (typeof reads)[number]["picks"][number]>();
     for (const r of reads) for (const p of r.picks) readByOverall.set(p.overall, p);
     const board = projection.map((s) => {
       const pr = readByOverall.get(s.overall);
       return {
-        pick: pickKey(s.round, s.slot),
-        round: s.round,
-        overall: s.overall,
-        rosterId: s.rosterId,
-        team: nameByRoster.get(s.rosterId) ?? s.rosterId,
-        player: s.name,
-        playerId: s.playerId,
-        pos: s.position,
-        reason: s.reason,
-        mine: s.rosterId === youId,
-        needs: [] as string[],
-        why: pr?.rationale ?? "",
-        tradeCandidate: false,
+        pick: pickKey(s.round, s.slot), round: s.round, overall: s.overall, rosterId: s.rosterId,
+        team: nameByRoster.get(s.rosterId) ?? s.rosterId, player: s.name, playerId: s.playerId, pos: s.position,
+        reason: s.reason, mine: s.rosterId === youId, needs: [] as string[], why: pr?.rationale ?? "", tradeCandidate: false,
         survivors: (pr?.topSurvivors ?? []).map((sv) => ({ playerId: sv.playerId, name: sv.name, pos: sv.position, nflTeam: nflTeamOf(sv.playerId), want: sv.want })),
       };
     });
-    const myRead = reads.find((r) => r.rosterId === youId);
+    return { board, myRead: reads.find((r) => r.rosterId === youId) };
+  };
 
-    offers.push({
-      partner: nameByRoster.get(partnerId) ?? partnerId,
-      partnerId,
-      fromPick: pickKey(myPick.round, myPick.slot),
-      toPick: pickKey(cand.round, cand.slot),
-      give: [
-        { pick: pickKey(myPick.round, myPick.slot), value: Math.round(myOurVal) },
-        ...extras.map((e) => ({ pick: pickKey(e.round, e.slot), value: Math.round(val(e, youId)) })),
-      ],
-      get: [{ pick: pickKey(cand.round, cand.slot), value: Math.round(ourReceive) }],
-      net: Math.round(ourReceive - ourGive),
-      rationale: myRead?.picks?.[0]?.rationale ?? "",
-      overrides,
-      board,
-    });
+  const offers: unknown[] = [];
+  const seenSignatures = new Set<string>();
+  for (const cand of candidates) {
+    if (offers.length >= 3) break;
+    const partnerId = cand.currentRosterId;
+    const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
+    // A team sliding DOWN wants a premium; they'll take ~85% of their pick's
+    // value in return (floor), so the mover-up overpays — which is fine, the
+    // director flags it. We always TRY to build a deal even if it's a bad one.
+    const floor = Math.min(band.min, 0.85);
+    const threshold = floor * val(cand, partnerId);
+
+    // Asset pools valued from the partner's seat (what they'd accept) and ours.
+    const myPickAsset: Asset = { kind: "pick", label: pickKey(myPick.round, myPick.slot), sublabel: "our pick", vYou: myOurVal, vP: val(myPick, partnerId), overall: myPick.overall! };
+    const pickPool: Asset[] = myExtraPicks.map((p) => ({ kind: "pick" as const, label: pickKey(p.round, p.slot), sublabel: "pick", vYou: val(p, youId), vP: val(p, partnerId), overall: p.overall! })).sort((a, b) => a.vP - b.vP);
+    const playerPool: Asset[] = tradeablePlayers.map((pl) => ({ kind: "player" as const, label: pl.name, sublabel: `${pl.pos}${pl.nflTeam ? ` · ${pl.nflTeam}` : ""}`, vYou: pl.vYou, vP: playerVal(pl.id, partnerId), playerId: pl.id })).sort((a, b) => a.vP - b.vP);
+    const interleaved: Asset[] = [];
+    for (let i = 0; i < Math.max(pickPool.length, playerPool.length); i++) { if (pickPool[i]) interleaved.push(pickPool[i]); if (playerPool[i]) interleaved.push(playerPool[i]); }
+
+    // Greedily fill from our pick + a preference order until the partner is made
+    // whole. Returns null if even everything falls short.
+    const build = (order: Asset[]): Asset[] | null => {
+      const pkg = [myPickAsset];
+      let recv = myPickAsset.vP;
+      for (const a of order) { if (recv >= threshold) break; pkg.push(a); recv += a.vP; }
+      return recv >= threshold ? pkg : null;
+    };
+    const variants = [
+      build([...pickPool, ...playerPool]),      // picks first
+      build([...playerPool, ...pickPool]),      // players first
+      build(interleaved),                        // mixed
+    ];
+
+    for (const pkg of variants) {
+      if (offers.length >= 3 || !pkg) continue;
+      const sig = pkg.map((a) => a.label).sort().join("|") + "->" + cand.overall;
+      if (seenSignatures.has(sig)) continue;
+      seenSignatures.add(sig);
+
+      const pickGives = pkg.filter((a) => a.kind === "pick");
+      const playerGives = pkg.filter((a) => a.kind === "player");
+      const overrides = [
+        { overall: cand.overall!, rosterId: youId },
+        ...pickGives.map((a) => ({ overall: a.overall!, rosterId: partnerId })),
+      ];
+      const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
+      const order = current.map((p) => (ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p));
+      const { board, myRead } = buildBoard(order);
+      const ourGive = pkg.reduce((s, a) => s + a.vYou, 0);
+      const ourReceive = val(cand, youId);
+
+      offers.push({
+        partner: nameByRoster.get(partnerId) ?? partnerId,
+        partnerId,
+        fromPick: pickKey(myPick.round, myPick.slot),
+        toPick: pickKey(cand.round, cand.slot),
+        give: pkg.map((a) => ({ kind: a.kind, label: a.label, sublabel: a.sublabel, value: Math.round(a.vYou) })),
+        get: [{ kind: "pick", label: pickKey(cand.round, cand.slot), sublabel: nameByRoster.get(partnerId) ?? "", value: Math.round(ourReceive) }],
+        givePlayers: playerGives.map((a) => a.playerId!),
+        net: Math.round(ourReceive - ourGive),
+        rationale: myRead?.picks?.[0]?.rationale ?? "",
+        overrides,
+        board,
+      });
+    }
   }
 
   return NextResponse.json({ offers });
