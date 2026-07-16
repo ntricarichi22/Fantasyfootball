@@ -20,7 +20,7 @@ type DirectorRead = {
   projected: { name: string; pos: string; nflTeam: string | null } | null;
   field: FieldPlayer[];
 };
-type OurSurvival = Array<{ pickOverall: number; survival: Record<string, number> }>;
+type OurSurvival = Array<{ toOverall: number; survival: Record<string, number> }>;
 type RosterSlot = { slot: string; playerId: string | null; name: string | null; pos: string | null; value: number; drafted: boolean };
 type BenchPlayer = { playerId: string; name: string; pos: string; nflTeam: string | null; value: number; drafted: boolean; cut: boolean };
 type RosterView = { slots: RosterSlot[]; bench: BenchPlayer[]; total: number; limit: number; overBy: number; cuts: Array<{ playerId: string; name: string; pos: string; value: number; reason: string }> };
@@ -306,15 +306,15 @@ export function MockDraftView() {
   const poolSurvivalById = useMemo(() => {
     const m = new Map<string, number>();
     if (!survTarget) return m;
-    // On the clock, use the server's counterfactual survival ("if I pass here,
-    // does he last to my next pick?") — it contests the guy we'd take like anyone
-    // else, so a stud can't show a phantom 100%. Watching, chain the sampled
-    // board's survivor odds toward our upcoming pick (that window is contested
-    // normally, so the client math is correct there).
-    if (yourTurn) {
-      const entry = ourSurvival.find((e) => e.pickOverall === onClock?.overall);
-      if (entry) { for (const p of pool) m.set(p.id, entry.survival[p.id] ?? 1); return m; }
-    }
+    // Prefer the server's Monte-Carlo survival to the target pick — it replays
+    // the intervening picks with the real draft logic (stash + depletion), so a
+    // stud can't show a phantom 90%. It's keyed by the TARGET pick, so it works
+    // both on the clock (survival to our NEXT pick) and while watching toward our
+    // upcoming pick. Only the short window toward our FIRST pick has no entry and
+    // falls back to the sampled-board chain below.
+    const targetOverall = board[survTarget.targetIdx]?.overall;
+    const entry = targetOverall != null ? ourSurvival.find((e) => e.toOverall === targetOverall) : null;
+    if (entry) { for (const p of pool) m.set(p.id, entry.survival[p.id] ?? 1); return m; }
     const picks: { probs: number[]; ids: string[] }[] = [];
     for (let i = survTarget.chainStart; i < survTarget.targetIdx; i++) {
       const sv = board[i]?.survivors ?? [];
@@ -326,7 +326,7 @@ export function MockDraftView() {
       m.set(p.id, pr);
     }
     return m;
-  }, [survTarget, board, pool, yourTurn, ourSurvival, onClock]);
+  }, [survTarget, board, pool, ourSurvival]);
 
   const ourIdx = useMemo(() => board.findIndex((b, i) => i >= revealed && (control ? control.has(b.rosterId) : b.mine)), [board, revealed, control]);
 

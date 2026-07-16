@@ -190,9 +190,9 @@ export function runDraftEngine(
   reads: TeamSlotRead[];
   poolSize: number;
   draftPicks: number;
-  // One entry per youId pick (except the last): the counterfactual survival of
-  // every still-available player to youId's NEXT pick, if youId passed here.
-  ourSurvival: Array<{ pickOverall: number; survival: Record<string, number> }>;
+  // One entry per youId pick gap, KEYED by the target (next youId pick) overall:
+  // the counterfactual survival of every still-available player to that pick.
+  ourSurvival: Array<{ toOverall: number; survival: Record<string, number> }>;
 } {
   const seed = Math.trunc(opts?.seed ?? 1) >>> 0;
   const youId = opts?.youId ?? "";
@@ -386,14 +386,16 @@ export function runDraftEngine(
   const projection: SimPick[] = [];
   const goneAt = new Map<string, number>();
   const snapshot = new Map<number, SurvivorView[]>();
-  const ourSurvival: Array<{ pickOverall: number; survival: Record<string, number> }> = [];
+  const ourSurvival: Array<{ toOverall: number; survival: Record<string, number> }> = [];
 
-  // For each youId pick, the picks that fall between it and youId's NEXT pick —
-  // the field that could snap up a player if youId passes. Empty for the last.
+  // For each youId pick, the picks that fall between it and youId's NEXT pick
+  // (the field that could snap up a player if youId passes) plus that next pick's
+  // overall — we KEY the survival by the target pick so the UI can look it up
+  // both on the clock (survival to our next pick) and while watching toward it.
   const youOrderIdx = order.map((p, i) => (p.currentRosterId === youId ? i : -1)).filter((i) => i >= 0);
-  const interveningAfter = new Map<number, OwnedPick[]>();
+  const interveningAfter = new Map<number, { field: OwnedPick[]; targetOverall: number }>();
   for (let k = 0; k < youOrderIdx.length - 1; k++) {
-    interveningAfter.set(youOrderIdx[k], order.slice(youOrderIdx[k] + 1, youOrderIdx[k + 1]));
+    interveningAfter.set(youOrderIdx[k], { field: order.slice(youOrderIdx[k] + 1, youOrderIdx[k + 1]), targetOverall: order[youOrderIdx[k + 1]].overall! });
   }
 
   // Counterfactual survival: if youId passes at this pick, the chance each
@@ -410,7 +412,7 @@ export function runDraftEngine(
   // real replays fixes both. Wants per (team,player) are fixed here, so they're
   // computed once and only the availability changes across runs.
   const MC_RUNS = 40;
-  const computeOurSurvival = (overall: number, field: OwnedPick[]) => {
+  const computeOurSurvival = (toOverall: number, field: OwnedPick[]) => {
     const baseAvail = [...available];
     const pickWants = field.map((ip) => {
       const trid = ip.currentRosterId;
@@ -444,13 +446,13 @@ export function runDraftEngine(
     }
     const survival: Record<string, number> = {};
     for (const id of baseAvail) survival[id] = survived[id] / MC_RUNS;
-    ourSurvival.push({ pickOverall: overall, survival });
+    ourSurvival.push({ toOverall, survival });
   };
 
   for (let oi = 0; oi < order.length; oi++) {
     const pick = order[oi];
     const rid = pick.currentRosterId;
-    if (rid === youId && interveningAfter.has(oi)) computeOurSurvival(pick.overall!, interveningAfter.get(oi)!);
+    if (rid === youId && interveningAfter.has(oi)) { const e = interveningAfter.get(oi)!; computeOurSurvival(e.targetOverall, e.field); }
 
     // Locked pick (the user already made this one in the sim): assign it and
     // let the rest of the draft project around it.
