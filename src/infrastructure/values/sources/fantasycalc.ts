@@ -30,7 +30,16 @@ type FantasyCalcRow = {
 export type FantasyCalcResult = {
   rows: SourceRow[];
   pick_101_value: number | null;
+  // Average of the 2026 1.01-1.04 picks — the "early 1st" tier, used to derive the
+  // tier->1.01 ratio that reconstructs KTC's (tier-only) 1.01.
+  pick_early1st_value: number | null;
 };
+
+// Average value of the first four picks (1.01-1.04) = the "early 1st" tier.
+function earlyFirstAvg(picks: Map<string, number>): number | null {
+  const vals = ["1.01", "1.02", "1.03", "1.04"].map((k) => picks.get(k)).filter((v): v is number => typeof v === "number");
+  return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+}
 
 export async function fetchFantasyCalc(): Promise<FantasyCalcResult> {
   const res = await fetch(ENDPOINT, {
@@ -48,8 +57,7 @@ export async function fetchFantasyCalc(): Promise<FantasyCalcResult> {
   }
 
   const rows: SourceRow[] = [];
-  let pick_101_value: number | null = null;
-  let pick_101_fallback: number | null = null;
+  const earlyPicks = new Map<string, number>(); // "1.01".."1.04" -> value
 
   for (const row of data) {
     const pos = row.player?.position?.toUpperCase() ?? "";
@@ -57,17 +65,8 @@ export async function fetchFantasyCalc(): Promise<FantasyCalcResult> {
     const value = typeof row.value === "number" ? row.value : 0;
 
     if (pos === "PICK") {
-      const upper = name.toUpperCase();
-      if (upper.includes(PICK_YEAR) && upper.includes("1.01")) {
-        pick_101_value = value;
-      } else if (
-        pick_101_fallback === null &&
-        upper.includes(PICK_YEAR) &&
-        upper.includes("EARLY") &&
-        upper.includes("1ST")
-      ) {
-        pick_101_fallback = value;
-      }
+      const m = name.match(new RegExp(`${PICK_YEAR}\\s*Pick\\s*(1\\.0[1-4])`, "i"));
+      if (m) earlyPicks.set(m[1], value);
       continue;
     }
 
@@ -83,6 +82,7 @@ export async function fetchFantasyCalc(): Promise<FantasyCalcResult> {
 
   return {
     rows,
-    pick_101_value: pick_101_value ?? pick_101_fallback,
+    pick_101_value: earlyPicks.get("1.01") ?? null,
+    pick_early1st_value: earlyFirstAvg(earlyPicks),
   };
 }

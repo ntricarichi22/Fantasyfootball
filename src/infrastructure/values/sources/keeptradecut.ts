@@ -28,7 +28,12 @@ const USER_AGENT =
 
 export type KeepTradeCutResult = {
   rows: SourceRow[];
+  // KTC's rankings feed only lists rookie picks as TIERS ("2026 Early 1st"), never
+  // an individual 1.01 (the calculator interpolates that in-browser). So we expose
+  // the Early-1st tier value; the refresh route reconstructs the true 1.01 from the
+  // tier->1.01 ratio of the sources that DO publish both (FantasyCalc, DynastyProcess).
   pick_101_value: number | null;
+  pick_early1st_value: number | null;
 };
 
 /**
@@ -45,7 +50,7 @@ export type KeepTradeCutResult = {
  *   "2026 Pick 1.01"             → "2026 Pick 1.01"  (no suffix)
  */
 function stripTeamSuffix(rawName: string): string {
-  let name = rawName.trim();
+  const name = rawName.trim();
 
   // RFA / FA suffixes (no Roman numeral involvement)
   if (name.endsWith("RFA")) {
@@ -172,6 +177,9 @@ export async function fetchKeepTradeCut(): Promise<KeepTradeCutResult> {
 
   return {
     rows,
-    pick_101_value: pickState.exact ?? pickState.fallback,
+    // KTC has no individual 1.01 in the feed — leave exact null so the route
+    // reconstructs it; expose the Early-1st tier for that reconstruction.
+    pick_101_value: pickState.exact,
+    pick_early1st_value: pickState.fallback,
   };
 }

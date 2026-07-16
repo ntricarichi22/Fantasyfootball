@@ -79,19 +79,19 @@ function isAuthorized(request: NextRequest): boolean {
 // Source fetching with skip+log+continue resilience
 // ──────────────────────────────────────────────────────────────────────
 
-type FetcherResult = { rows: SourceRow[]; pick_101_value: number | null };
+type FetcherResult = { rows: SourceRow[]; pick_101_value: number | null; pick_early1st_value?: number | null };
 
 async function fetchSourceSafely(
   sourceKey: string,
   fetcher: () => Promise<FetcherResult>,
-): Promise<{ source_key: string; rows: SourceRow[]; pick_101_value: number | null; error?: string }> {
+): Promise<{ source_key: string; rows: SourceRow[]; pick_101_value: number | null; pick_early1st_value: number | null; error?: string }> {
   try {
     const result = await fetcher();
-    return { source_key: sourceKey, rows: result.rows, pick_101_value: result.pick_101_value };
+    return { source_key: sourceKey, rows: result.rows, pick_101_value: result.pick_101_value, pick_early1st_value: result.pick_early1st_value ?? null };
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e);
     console.error(`[refresh-values] ${sourceKey} fetch failed:`, error);
-    return { source_key: sourceKey, rows: [], pick_101_value: null, error };
+    return { source_key: sourceKey, rows: [], pick_101_value: null, pick_early1st_value: null, error };
   }
 }
 
@@ -293,13 +293,31 @@ export async function GET(request: NextRequest) {
     }, { status: 500 });
   }
 
-  // 5. Build pick_101_value lookup per source. This is the denominator
-  // for multiple_101: source_player_value / source_1.01_value gives a ratio
-  // that, multiplied by our $300 anchor, yields the player's CFC composite.
+  // 5. Build the 1.01 denominator per source. Some sources (FantasyCalc,
+  // DynastyProcess) publish the individual 1.01 directly; KeepTradeCut only
+  // publishes an "Early 1st" TIER. So we derive the tier->1.01 ratio from the
+  // sources that expose BOTH, and reconstruct any source that only has a tier.
+  // source_player_value / this denominator, × our $300 anchor, = the composite.
+  const ratios: number[] = [];
+  for (const f of fetched) {
+    if (typeof f.pick_101_value === "number" && f.pick_101_value > 0 && typeof f.pick_early1st_value === "number" && f.pick_early1st_value > 0) {
+      ratios.push(f.pick_101_value / f.pick_early1st_value);
+    }
+  }
+  ratios.sort((a, b) => a - b);
+  const tierTo101 = ratios.length ? (ratios.length % 2 ? ratios[(ratios.length - 1) / 2] : (ratios[ratios.length / 2 - 1] + ratios[ratios.length / 2]) / 2) : 1;
+
   const pick101BySource: Record<string, number | null> = {};
   for (const f of fetched) {
-    pick101BySource[f.source_key] = f.pick_101_value;
+    // Exact 1.01 wins; otherwise reconstruct from the Early-1st tier × the ratio.
+    pick101BySource[f.source_key] =
+      typeof f.pick_101_value === "number" && f.pick_101_value > 0
+        ? f.pick_101_value
+        : typeof f.pick_early1st_value === "number" && f.pick_early1st_value > 0
+          ? Math.round(f.pick_early1st_value * tierTo101)
+          : null;
   }
+  console.log(`[refresh-values] tier->1.01 ratio ${tierTo101.toFixed(3)}; denominators`, pick101BySource);
 
   // Sources without a 1.01 anchor cannot be used (no denominator).
   // Filter resolved rows accordingly so we don't pollute the composite.
@@ -371,7 +389,7 @@ export async function GET(request: NextRequest) {
   }
   const dedupedRows = Array.from(dedupeMap.values());
 
-  const sourceValueRows = dedupedRows.map(r => {
+  const allSourceRows = dedupedRows.map(r => {
     const anchor = pick101BySource[r.source_key];
     if (typeof anchor !== "number" || anchor <= 0) {
       throw new Error(`Source ${r.source_key} has no 1.01 anchor — should have been filtered earlier`);
@@ -379,12 +397,35 @@ export async function GET(request: NextRequest) {
     return {
       import_batch: importBatch,
       asset_key: `player.${r.sleeper_player_id}`,
+      sleeper_player_id: r.sleeper_player_id,
       source_key: r.source_key,
       raw_value: r.raw_value,
       source_101_value: anchor,
       multiple_101: r.raw_value / anchor,
     };
   });
+
+  // ROOKIE-ONLY outlier exclusion. A source that floors an unranked rookie (e.g.
+  // DynastyProcess parking a real prospect at 109) drags his blend down; dropping
+  // that row lets the real sources speak. Only rookies (years_exp === 0) — vets
+  // keep every source as-is, since a low vet value is usually legit. A row is a
+  // low outlier if its multiple is under 35% of the player's median multiple.
+  let excludedOutliers = 0;
+  const byPlayer = new Map<string, typeof allSourceRows>();
+  for (const r of allSourceRows) { const g = byPlayer.get(r.sleeper_player_id); if (g) g.push(r); else byPlayer.set(r.sleeper_player_id, [r]); }
+  const median = (a: number[]) => { const s = [...a].sort((x, y) => x - y); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
+  const sourceValueRows: Omit<typeof allSourceRows[number], "sleeper_player_id">[] = [];
+  for (const [pid, rows] of byPlayer) {
+    const isRookie = sleeperPlayers[pid]?.years_exp === 0;
+    let keep = rows;
+    if (isRookie && rows.length > 1) {
+      const med = median(rows.map((r) => r.multiple_101));
+      const filtered = rows.filter((r) => r.multiple_101 >= 0.35 * med);
+      if (filtered.length && filtered.length < rows.length) { excludedOutliers += rows.length - filtered.length; keep = filtered; }
+    }
+    for (const r of keep) { const { sleeper_player_id: _sid, ...row } = r; void _sid; sourceValueRows.push(row); }
+  }
+  console.log(`[refresh-values] rookie outlier rows excluded: ${excludedOutliers}`);
 
   const SVBATCH = 500;
   for (let i = 0; i < sourceValueRows.length; i += SVBATCH) {

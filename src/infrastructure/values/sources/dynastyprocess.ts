@@ -68,6 +68,8 @@ async function fetchCSV(url: string): Promise<Record<string, string>[]> {
 export type DynastyProcessResult = {
   rows: SourceRow[];
   pick_101_value: number | null;
+  // Average of the 2026 1.01-1.04 picks — the "early 1st" tier (see refresh route).
+  pick_early1st_value: number | null;
 };
 
 export async function fetchDynastyProcess(): Promise<DynastyProcessResult> {
@@ -89,8 +91,7 @@ export async function fetchDynastyProcess(): Promise<DynastyProcessResult> {
   }
 
   const rows: SourceRow[] = [];
-  let pick_101_value: number | null = null;
-  let pick_101_fallback: number | null = null;
+  const earlyPicks = new Map<string, number>(); // "1.01".."1.04" -> value
 
   for (const v of values) {
     const name = (v.player ?? "").trim();
@@ -102,17 +103,8 @@ export async function fetchDynastyProcess(): Promise<DynastyProcessResult> {
 
     if (pos === "PICK") {
       if (!Number.isFinite(raw) || raw <= 0) continue;
-      const upper = name.toUpperCase();
-      if (upper.includes(PICK_YEAR) && upper.includes("1.01")) {
-        pick_101_value = raw;
-      } else if (
-        pick_101_fallback === null &&
-        upper.includes(PICK_YEAR) &&
-        upper.includes("EARLY") &&
-        upper.includes("1ST")
-      ) {
-        pick_101_fallback = raw;
-      }
+      const m = name.match(new RegExp(`${PICK_YEAR}\\s*Pick\\s*(1\\.0[1-4])`, "i"));
+      if (m) earlyPicks.set(m[1], raw);
       continue;
     }
 
@@ -128,8 +120,10 @@ export async function fetchDynastyProcess(): Promise<DynastyProcessResult> {
     });
   }
 
+  const early = ["1.01", "1.02", "1.03", "1.04"].map((k) => earlyPicks.get(k)).filter((x): x is number => typeof x === "number");
   return {
     rows,
-    pick_101_value: pick_101_value ?? pick_101_fallback,
+    pick_101_value: earlyPicks.get("1.01") ?? null,
+    pick_early1st_value: early.length ? early.reduce((a, b) => a + b, 0) / early.length : null,
   };
 }
