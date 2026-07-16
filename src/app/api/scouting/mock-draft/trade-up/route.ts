@@ -16,6 +16,9 @@ export const maxDuration = 30;
 // Studio uses — so an offer only surfaces if the PARTNER would actually take it
 // from their own seat. No more "give 2.10 for 2.06 straight up" nonsense.
 
+// A team sliding down demands this much over the raw value of the pick it gives
+// up — moving up the board costs a real premium, so no straight adjacent swaps.
+const MOVE_UP_PREMIUM = 1.15;
 const SCENARIOS: DraftScenario[] = ["standard", "qb-run", "rb-run", "wr-run", "chalk"];
 const asScenario = (v: unknown): DraftScenario =>
   typeof v === "string" && SCENARIOS.includes(v as DraftScenario) ? (v as DraftScenario) : "standard";
@@ -120,11 +123,11 @@ export async function POST(req: Request) {
     if (offers.length >= 3) break;
     const partnerId = cand.currentRosterId;
     const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
-    // A team sliding DOWN wants a premium; they'll take ~85% of their pick's
-    // value in return (floor), so the mover-up overpays — which is fine, the
-    // director flags it. We always TRY to build a deal even if it's a bad one.
-    const floor = Math.min(band.min, 0.85);
-    const threshold = floor * val(cand, partnerId);
+    // A team sliding DOWN gives up the better draft slot, so it demands a
+    // PREMIUM to do it — the mover-up must deliver MORE than the pick's raw
+    // value, never a straight swap for an adjacent pick. Threshold = their pick's
+    // value marked up by MOVE_UP_PREMIUM (and never below their persona floor).
+    const threshold = Math.max(band.min, MOVE_UP_PREMIUM) * val(cand, partnerId);
 
     // Asset pools valued from the partner's seat (what they'd accept) and ours.
     const myPickAsset: Asset = { kind: "pick", label: pickKey(myPick.round, myPick.slot), sublabel: "our pick", vYou: myOurVal, vP: val(myPick, partnerId), overall: myPick.overall! };
