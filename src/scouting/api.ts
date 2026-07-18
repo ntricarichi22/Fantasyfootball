@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { getLeagueData } from "@/shared/league-data";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const BOARD_LIMIT = 50;
@@ -10,7 +11,6 @@ const FANTASY_POSITIONS = new Set(["QB", "RB", "WR", "TE"]);
 type TierRow = { id: string; tier_order: number; label: string | null };
 type RankingRow = { player_id: string; tier_id: string | null; rank: number };
 type StarRow = { player_id: string; starred: boolean };
-type ValueRow = { sleeper_player_id: string | null; cfc_value: number | null };
 type PoolPlayer = {
   id: string;
   name: string;
@@ -35,7 +35,7 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
   const supabase = result.client;
 
   try {
-    const [tiersRes, rankingsRes, starsRes, valuesRes] = await Promise.all([
+    const [tiersRes, rankingsRes, starsRes, players] = await Promise.all([
       supabase.from("cfc_big_board_tiers")
         .select("id, tier_order, label")
         .eq("roster_id", rosterId)
@@ -48,9 +48,7 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
         .select("player_id, starred")
         .eq("roster_id", rosterId)
         .eq("starred", true),
-      supabase.from("cfc_trade_values_current")
-        .select("sleeper_player_id, cfc_value")
-        .not("sleeper_player_id", "is", null),
+      fetchPlayerPool(),
     ]);
 
     if (tiersRes.error || rankingsRes.error || starsRes.error) {
@@ -59,17 +57,6 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
         { status: 500 }
       );
     }
-
-    const valueMap = new Map<string, number>();
-    if (!valuesRes.error && valuesRes.data) {
-      for (const row of (valuesRes.data as ValueRow[])) {
-        if (row.sleeper_player_id && typeof row.cfc_value === "number") {
-          valueMap.set(row.sleeper_player_id, row.cfc_value);
-        }
-      }
-    }
-
-    const players = await fetchPlayerPool(valueMap);
 
     let tiers = (tiersRes.data ?? []) as TierRow[];
     let rankings = (rankingsRes.data ?? []) as RankingRow[];
@@ -215,6 +202,90 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: "invalid direction" }, { status: 400 });
     }
 
+    if (action === "set_tier_label") {
+      const tierId: string = body.tier_id;
+      const raw = typeof body.label === "string" ? body.label.trim() : "";
+      const label = raw ? raw.slice(0, 28) : null;
+      const { error } = await supabase
+        .from("cfc_big_board_tiers")
+        .update({ label })
+        .eq("id", tierId)
+        .eq("roster_id", rosterId);
+      if (error) throw error;
+      return NextResponse.json({ ok: true, label });
+    }
+
+    // Rebuild the tier lines from clear drops in CFC value along the user's
+    // CURRENT board order — the order never changes, only where the tiers cut.
+    // Labels carry over by position (old tier 2's label lands on new tier 2).
+    if (action === "auto_tier") {
+      const [pool, rankingsRes, tiersRes] = await Promise.all([
+        fetchPlayerPool(),
+        supabase.from("cfc_big_board_rankings")
+          .select("player_id, rank")
+          .eq("roster_id", rosterId)
+          .order("rank", { ascending: true }),
+        supabase.from("cfc_big_board_tiers")
+          .select("id, tier_order, label")
+          .eq("roster_id", rosterId)
+          .order("tier_order", { ascending: true }),
+      ]);
+      if (rankingsRes.error || tiersRes.error) throw rankingsRes.error ?? tiersRes.error;
+
+      const valueById = new Map(pool.map((p) => [p.id, p.consensusRank ?? 0]));
+      const poolIds = new Set(pool.map((p) => p.id));
+      const ranked = ((rankingsRes.data ?? []) as Array<{ player_id: string }>)
+        .map((r) => String(r.player_id))
+        .filter((id) => poolIds.has(id));
+      const seen = new Set(ranked);
+      const order = [...ranked, ...pool.filter((p) => !seen.has(p.id)).map((p) => p.id)];
+      if (order.length === 0) return NextResponse.json({ error: "empty board" }, { status: 400 });
+
+      const values = order.map((id) => valueById.get(id) ?? 0);
+      const boundaries = computeTierBoundaries(values);
+      const ranges: Array<{ order: number; startIdx: number; endIdx: number }> = [];
+      let start = 0;
+      for (let i = 0; i < boundaries.length; i++) {
+        ranges.push({ order: i + 1, startIdx: start, endIdx: boundaries[i] });
+        start = boundaries[i];
+      }
+      ranges.push({ order: boundaries.length + 1, startIdx: start, endIdx: order.length });
+
+      const oldTiers = (tiersRes.data ?? []) as TierRow[];
+      const { error: delErr } = await supabase
+        .from("cfc_big_board_tiers")
+        .delete()
+        .eq("roster_id", rosterId);
+      if (delErr) throw delErr;
+
+      const { data: newTiersData, error: insErr } = await supabase
+        .from("cfc_big_board_tiers")
+        .insert(ranges.map((r, i) => ({ roster_id: rosterId, tier_order: r.order, label: oldTiers[i]?.label ?? null })))
+        .select("id, tier_order, label");
+      if (insErr || !newTiersData) throw insErr ?? new Error("tier insert returned no data");
+      const newTiers = newTiersData as TierRow[];
+      const tierIdByOrder = new Map(newTiers.map((t) => [t.tier_order, t.id]));
+
+      const rows: Array<{ roster_id: string; player_id: string; tier_id: string; rank: number }> = [];
+      for (const range of ranges) {
+        const tierId = tierIdByOrder.get(range.order)!;
+        for (let i = range.startIdx; i < range.endIdx; i++) {
+          rows.push({ roster_id: rosterId, player_id: order[i], tier_id: tierId, rank: i + 1 });
+        }
+      }
+      const { error: upErr } = await supabase
+        .from("cfc_big_board_rankings")
+        .upsert(rows, { onConflict: "roster_id,player_id" });
+      if (upErr) throw upErr;
+
+      return NextResponse.json({
+        tiers: newTiers
+          .sort((a, b) => a.tier_order - b.tier_order)
+          .map((t) => ({ id: t.id, order: t.tier_order, label: t.label ?? undefined })),
+        rankings: rows.map((r) => ({ playerId: r.player_id, tierId: r.tier_id, rank: r.rank })),
+      });
+    }
+
     if (action === "reorder_players") {
       const rankings: { playerId: string; tierId: string | null; rank: number }[] = body.rankings;
       const rows = rankings.map((r) => ({
@@ -268,86 +339,39 @@ async function postStar(req: NextRequest): Promise<NextResponse> {
   }
 }
 
-async function fetchPlayerPool(valueMap: Map<string, number>): Promise<PoolPlayer[]> {
-  const leagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
-  if (!leagueId) {
-    console.warn("NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set; returning empty player pool");
-    return [];
-  }
-
+// The board's prospect pool, from the SAME feed the mock draft uses:
+// getLeagueData() grafts draft_log picks onto rosters, so players signed
+// in-app (not yet on Sleeper rosters) are correctly excluded. Mirrors
+// draft-fit's buildProspectPool — every unrostered, valued player.
+async function fetchPlayerPool(): Promise<PoolPlayer[]> {
   try {
-    const [playersRes, rostersRes] = await Promise.all([
-      fetch("https://api.sleeper.app/v1/players/nfl", {
-        next: { revalidate: 86400 },
-      }),
-      fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`, {
-        next: { revalidate: 300 },
-      }),
-    ]);
-
-    if (!playersRes.ok || !rostersRes.ok) {
-      console.error("Sleeper fetch failed", {
-        playersStatus: playersRes.status,
-        rostersStatus: rostersRes.status,
-      });
+    const data = await getLeagueData();
+    if ("error" in data) {
+      console.error("fetchPlayerPool: league data unavailable", data.error);
       return [];
     }
 
-    const players: Record<string, unknown> = await playersRes.json();
-    const rosters: Array<{ players?: string[] | null }> = await rostersRes.json();
-
     const rostered = new Set<string>();
-    for (const r of rosters) {
-      for (const pid of r.players ?? []) {
-        rostered.add(pid);
-      }
-    }
+    for (const t of data.teams) for (const id of t.playerIds) rostered.add(id);
 
     const pool: PoolPlayer[] = [];
-
-    for (const [id, raw] of Object.entries(players)) {
-      if (!raw || typeof raw !== "object") continue;
-      const p = raw as Record<string, unknown>;
-
-      if (rostered.has(id)) continue;
-      if (typeof p.position !== "string" || !FANTASY_POSITIONS.has(p.position)) continue;
-
-      const value = valueMap.get(id);
-      const hasValue = typeof value === "number";
-      const isActive = p.active === true;
-      const isRookie = p.years_exp === 0;
-
-      if (!(isActive || isRookie || hasValue)) continue;
-
-      const fullName = typeof p.full_name === "string" ? p.full_name : null;
-      const firstName = typeof p.first_name === "string" ? p.first_name : null;
-      const lastName = typeof p.last_name === "string" ? p.last_name : null;
-      const name = fullName ?? (firstName && lastName ? `${firstName} ${lastName}` : null);
-      if (!name) continue;
-
+    for (const p of data.players.values()) {
+      if (rostered.has(p.id)) continue;
+      if (!FANTASY_POSITIONS.has(p.position)) continue;
+      const value = data.values.value.get(p.id);
+      if (typeof value !== "number") continue;
       pool.push({
-        id,
-        name,
+        id: p.id,
+        name: p.name,
         position: p.position,
-        team: typeof p.team === "string" ? p.team : "",
-        age: typeof p.age === "number" ? p.age : null,
-        isRookie,
-        consensusRank: hasValue ? value : null,
+        team: p.team ?? "",
+        age: p.age ?? null,
+        isRookie: p.exp === 0,
+        consensusRank: value,
       });
     }
 
-    pool.sort((a, b) => {
-      const av = a.consensusRank;
-      const bv = b.consensusRank;
-      if (av !== null && bv !== null) {
-        if (av !== bv) return bv - av;
-        return a.name.localeCompare(b.name);
-      }
-      if (av !== null) return -1;
-      if (bv !== null) return 1;
-      return a.name.localeCompare(b.name);
-    });
-
+    pool.sort((a, b) => (b.consensusRank! - a.consensusRank!) || a.name.localeCompare(b.name));
     return pool.slice(0, BOARD_LIMIT);
   } catch (err) {
     console.error("fetchPlayerPool failed", err);
