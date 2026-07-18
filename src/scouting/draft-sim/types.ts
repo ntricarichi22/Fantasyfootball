@@ -11,6 +11,9 @@ export type TeamBoard = {
   starred: string[];
   hasStoredBoard: boolean;
   curation: number;
+  // Stored-board tier per playerId (order 1 = top tier, label null when the
+  // user never renamed it). Empty for consensus-fallback boards.
+  tierByPlayer: Map<string, { order: number; label: string | null }>;
 };
 
 // Forward-looking age signal, per bucket, 0..1. High = old/placeholder starting

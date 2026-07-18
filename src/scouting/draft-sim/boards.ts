@@ -4,8 +4,9 @@ import type { DraftFitGrid } from "@/scouting/draft-fit";
 import type { TeamBoard } from "./types";
 import { computeCuration } from "./signals";
 
-type RankingRow = { roster_id: string | number; player_id: string; rank: number };
+type RankingRow = { roster_id: string | number; player_id: string; rank: number; tier_id: string | null };
 type StarRow = { roster_id: string | number; player_id: string };
+type TierRow = { id: string; roster_id: string | number; tier_order: number; label: string | null };
 
 // Consensus order = the pool's playerIds sorted by global CFC value desc, read
 // straight off the fit grid. Any team's cells list the same pool and `asset` is
@@ -43,12 +44,14 @@ export async function getAllBoards(
 
   const byRosterRank = new Map<string, RankingRow[]>();
   const byRosterStar = new Map<string, string[]>();
+  const tierById = new Map<string, { order: number; label: string | null }>();
 
   const admin = getSupabaseAdminClient();
   if (admin.client) {
-    const [rankRes, starRes] = await Promise.all([
-      admin.client.from("cfc_big_board_rankings").select("roster_id, player_id, rank"),
+    const [rankRes, starRes, tierRes] = await Promise.all([
+      admin.client.from("cfc_big_board_rankings").select("roster_id, player_id, rank, tier_id"),
       admin.client.from("cfc_big_board_stars").select("roster_id, player_id").eq("starred", true),
+      admin.client.from("cfc_big_board_tiers").select("id, roster_id, tier_order, label"),
     ]);
     for (const r of (rankRes.data ?? []) as RankingRow[]) {
       const k = String(r.roster_id);
@@ -60,6 +63,9 @@ export async function getAllBoards(
       if (!byRosterStar.has(k)) byRosterStar.set(k, []);
       byRosterStar.get(k)!.push(String(s.player_id));
     }
+    for (const t of (tierRes.data ?? []) as TierRow[]) {
+      tierById.set(t.id, { order: t.tier_order, label: t.label });
+    }
   }
 
   for (const team of data.teams) {
@@ -69,7 +75,12 @@ export async function getAllBoards(
 
     let order: string[];
     let hasStored: boolean;
+    const tierByPlayer = new Map<string, { order: number; label: string | null }>();
     if (rows && rows.length) {
+      for (const r of rows) {
+        const tier = r.tier_id ? tierById.get(r.tier_id) : undefined;
+        if (tier && poolSet.has(String(r.player_id))) tierByPlayer.set(String(r.player_id), tier);
+      }
       // Stored board: rank asc, pool-only, then append any pool players the
       // board never mentions (in consensus order) so the sim sees the full set.
       const ranked = [...rows]
@@ -88,7 +99,7 @@ export async function getAllBoards(
     const pickOverall = earliestPickOverall(data.pickOwnership.get(rid));
     const curation = hasStored ? computeCuration(order, consensus, starred, pickOverall) : 0;
 
-    out.set(rid, { rosterId: rid, order, starred, hasStoredBoard: hasStored, curation });
+    out.set(rid, { rosterId: rid, order, starred, hasStoredBoard: hasStored, curation, tierByPlayer });
   }
 
   return out;

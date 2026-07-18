@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname } from "@/shared/league-data/nicknames";
 
 type Scenario = "standard" | "qb-run" | "rb-run" | "wr-run" | "chalk";
 type Role = "STARTER" | "IN_ROTATION" | "BACKUP";
-type PoolPlayer = { id: string; name: string; pos: string; nflTeam: string | null; value: number; wouldStart: boolean; role: Role; isRookie: boolean };
+type PoolPlayer = { id: string; name: string; pos: string; nflTeam: string | null; value: number; wouldStart: boolean; role: Role; isRookie: boolean; age: number | null; tier: { order: number; label: string } | null; myGuy: boolean };
 type Survivor = { playerId: string; name: string; pos: string; nflTeam: string | null; want: number };
 type BoardPick = {
   pick: string; round: number; overall: number; rosterId: string; team: string;
@@ -284,7 +284,8 @@ export function MockDraftView() {
       .filter((p) => (filter === "ALL" ? true : filter === "PC" ? p.pos === "WR" || p.pos === "TE" : p.pos === filter))
       .filter((p) => (q ? p.name.toLowerCase().includes(q) : true));
   }, [pool, query, filter, drafted]);
-  // Big-board rank = index in our fit-sorted pool.
+  // Big-board rank = index in the pool, which the server sorts by OUR stored
+  // big board (consensus value order when the board's untouched).
   const rankById = useMemo(() => new Map(pool.map((p, i) => [p.id, i + 1])), [pool]);
 
   // Where the pool's "falls to us" % aims: our upcoming pick when watching; the
@@ -542,11 +543,12 @@ export function MockDraftView() {
   // need modifier (0.10) into a score → letter grade + one-line read. The
   // overall is capital-weighted (early picks matter more) with an unaddressed-
   // needs penalty and a class-cohesion bonus. Par = the value expected at each
-  // draft slot (pool is value-sorted, so pool[seq] is that slot's par player).
+  // draft slot — off a value-sorted copy, since the pool itself is board-sorted.
   const draftGrades = useMemo<DraftGrades | null>(() => {
     if (!isComplete || board.length === 0 || pool.length === 0) return null;
     const isOurs = (b: BoardPick) => (control ? control.has(b.rosterId) : b.mine);
-    const parAt = (seq: number) => pool[Math.min(seq, pool.length - 1)]?.value ?? 1;
+    const byValue = [...pool].sort((a, b) => b.value - a.value);
+    const parAt = (seq: number) => byValue[Math.min(seq, byValue.length - 1)]?.value ?? 1;
     const ourNeeds = new Set<string>();
     for (const b of board) if (isOurs(b)) for (const n of b.needs) ourNeeds.add(n);
 
@@ -738,31 +740,52 @@ export function MockDraftView() {
                 {/* sticky column header — same box model as the plates so the columns line up */}
                 <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", height: 30, padding: "0 4px 0 11px", flexShrink: 0 }}>
                   <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.8, color: FADE }}>PLAYER</span>
-                  {(yourTurn ? ["OUR RANK", "PROJ. ROLE", "FALLS TO NEXT", "SELECT"] : ["OUR RANK", "PROJ. ROLE", "FALLS TO US"]).map((h) => (
-                    <span key={h} style={{ width: 66, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.4, color: FADE }}>{h}</span>
+                  {([["AGE", 40], ["OUR RANK", 66], ["PROJ. ROLE", 66], [yourTurn ? "FALLS TO NEXT" : "FALLS TO US", 66], ...(yourTurn ? [["SELECT", 66]] : [])] as [string, number][]).map(([h, w]) => (
+                    <span key={h} style={{ width: w, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.4, color: FADE }}>{h}</span>
                   ))}
                 </div>
                 {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
-                {visiblePool.slice(0, 80).map((p) => {
-                  const rank = rankById.get(p.id) ?? 0;
-                  const surv = poolSurvivalById.get(p.id);
-                  return (
-                    <div key={p.id} style={{ display: "flex", alignItems: "center", boxSizing: "border-box", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 34, padding: "0 4px 0 11px", flexShrink: 0 }}>
-                      <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, whiteSpace: "nowrap", overflow: "hidden" }}>
-                        <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                        <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 0.4, color: GSUB, flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
-                      </span>
-                      <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
-                      <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
-                      <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
-                      {yourTurn && (
-                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, display: "flex", justifyContent: "center", borderLeft: `1.5px solid #cbbd9c` }}>
-                          <button onClick={() => makePick(p.id)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 0.5, color: SCREAM, background: GREEN, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "3px 10px", cursor: busy ? "default" : "pointer" }}>SELECT</button>
+                {(() => {
+                  // Big-board tier dividers: the pool arrives in board order, so
+                  // tiers are contiguous runs — drop a rule wherever the tier
+                  // changes. No dividers at all when the board has no tiers.
+                  const hasTiers = visiblePool.some((p) => p.tier);
+                  let lastTier: number | null | undefined;
+                  const rows: ReactNode[] = [];
+                  for (const p of visiblePool.slice(0, 80)) {
+                    const tierKey = p.tier?.order ?? null;
+                    if (hasTiers && tierKey !== lastTier) {
+                      lastTier = tierKey;
+                      rows.push(
+                        <div key={`tier-${tierKey ?? "un"}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 3px 0", flexShrink: 0 }}>
+                          <span style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 1.5, color: GOLD, whiteSpace: "nowrap" }}>{p.tier ? p.tier.label : "UNRANKED"}</span>
+                          <span style={{ flex: 1, height: 1, background: HLINE }} />
+                        </div>
+                      );
+                    }
+                    const rank = rankById.get(p.id) ?? 0;
+                    const surv = poolSurvivalById.get(p.id);
+                    rows.push(
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", boxSizing: "border-box", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 34, padding: "0 4px 0 11px", flexShrink: 0 }}>
+                        <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, whiteSpace: "nowrap", overflow: "hidden" }}>
+                          {p.myGuy && <span title="My guy" style={{ color: "#c99514", fontSize: 12, flexShrink: 0, alignSelf: "center" }}>★</span>}
+                          <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 0.4, color: GSUB, flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
                         </span>
-                      )}
-                    </div>
-                  );
-                })}
+                        <span style={{ width: 40, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: GSUB }}>{p.age ?? "—"}</span>
+                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
+                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
+                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
+                        {yourTurn && (
+                          <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, display: "flex", justifyContent: "center", borderLeft: `1.5px solid #cbbd9c` }}>
+                            <button onClick={() => makePick(p.id)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 0.5, color: SCREAM, background: GREEN, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "3px 10px", cursor: busy ? "default" : "pointer" }}>SELECT</button>
+                          </span>
+                        )}
+                      </div>
+                    );
+                  }
+                  return rows;
+                })()}
               </div>
               ) : (
               <div className="mdScroll" style={{ padding: "11px 12px 14px", overflowY: "auto", flex: 1, minHeight: 0 }}>

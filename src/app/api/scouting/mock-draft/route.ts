@@ -140,10 +140,25 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
     for (const r of reads) for (const p of r.picks) readByOverall.set(p.overall, p);
 
     const myFit = grid.teams.find((t) => t.rosterId === youId);
+    // Pool order = OUR big board (stored board when curated, consensus value
+    // order otherwise — getAllBoards already resolves that), so every team sees
+    // their own ranking. Tier + "my guy" star come off the same stored board.
+    const myBoard = boards.get(youId);
+    const boardIdx = new Map((myBoard?.order ?? []).map((id, i) => [id, i]));
+    const myGuys = new Set(myBoard?.starred ?? []);
     const pool = (myFit?.cells ?? [])
       .slice()
-      .sort((a, b) => b.asset - a.asset)
-      .map((c) => ({ id: c.playerId, name: c.name, pos: c.position, nflTeam: nflTeamOf(c.playerId), value: c.asset, wouldStart: c.upgrade > 0, role: c.role, isRookie: isRookie(c.playerId) }));
+      .sort((a, b) => (boardIdx.get(a.playerId) ?? Infinity) - (boardIdx.get(b.playerId) ?? Infinity) || b.asset - a.asset)
+      .map((c) => {
+        const tier = myBoard?.tierByPlayer.get(c.playerId) ?? null;
+        return {
+          id: c.playerId, name: c.name, pos: c.position, nflTeam: nflTeamOf(c.playerId), value: c.asset,
+          wouldStart: c.upgrade > 0, role: c.role, isRookie: isRookie(c.playerId),
+          age: data.players.get(c.playerId)?.age ?? null,
+          tier: tier ? { order: tier.order, label: (tier.label ?? `Tier ${tier.order}`).toUpperCase() } : null,
+          myGuy: myGuys.has(c.playerId),
+        };
+      });
 
     const board = projection.map((s) => {
       const pr = readByOverall.get(s.overall);
