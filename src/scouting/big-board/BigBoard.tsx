@@ -151,23 +151,9 @@ function PlayerCard({
         touchAction: "pan-y",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "8px 10px 0" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "8px 10px 0", height: 34, boxSizing: "content-box" }}>
         <span style={{ fontFamily: FB, fontSize: 27, color: COLORS.ink, lineHeight: 0.95 }}>{rank || "—"}</span>
-        {player.team ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={nflLogoUrl(player.team)} alt={player.team} style={{ width: 27, height: 27, objectFit: "contain" }} />
-        ) : (
-          <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, color: COLORS.muted, border: `1.5px solid ${COLORS.muted}`, borderRadius: 4, padding: "2px 5px" }}>FA</span>
-        )}
-      </div>
-      <div style={{ padding: "5px 10px 8px" }}>
-        <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: COLORS.ink, lineHeight: 1.12 }}>{player.name}</div>
-        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: COLORS.mutedDark, marginTop: 2 }}>{sub}</div>
-        <div style={{ fontFamily: FM, fontSize: 10, fontWeight: 700, color: COLORS.ink, marginTop: 4 }}>
-          {player.consensusRank != null ? `CFC ${Math.round(player.consensusRank)}` : "UNVALUED"}
-        </div>
-      </div>
-      <div style={{ background: color.main, flex: 1, minHeight: 104, position: "relative", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+        <span style={{ flex: 1 }} />
         <button
           type="button"
           draggable={false}
@@ -177,11 +163,8 @@ function PlayerCard({
           onTouchStart={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           style={{
-            position: "absolute",
-            top: 7,
-            right: 7,
-            width: 30,
-            height: 30,
+            width: 28,
+            height: 28,
             borderRadius: "50%",
             background: starred ? COLORS.yellow : COLORS.paper,
             border: `2px solid ${COLORS.ink}`,
@@ -190,11 +173,24 @@ function PlayerCard({
             justifyContent: "center",
             cursor: "pointer",
             padding: 0,
-            zIndex: 2,
+            flexShrink: 0,
           }}
         >
-          <StarIcon filled={starred} />
+          <StarIcon filled={starred} size={14} />
         </button>
+        {player.team ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={nflLogoUrl(player.team)} alt={player.team} style={{ width: 28, height: 28, objectFit: "contain", flexShrink: 0 }} />
+        ) : (
+          <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, color: COLORS.muted, border: `1.5px solid ${COLORS.muted}`, borderRadius: 4, padding: "2px 5px", flexShrink: 0 }}>FA</span>
+        )}
+      </div>
+      {/* Fixed-height text zone so every card (and its color block) lines up. */}
+      <div style={{ padding: "5px 10px 8px" }}>
+        <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: COLORS.ink, lineHeight: 1.15, height: 32, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{player.name}</div>
+        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: COLORS.mutedDark, marginTop: 2, lineHeight: 1.3, height: 26, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
+      </div>
+      <div style={{ background: color.main, height: 122, position: "relative", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
         {imgOk ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -202,7 +198,7 @@ function PlayerCard({
             alt={player.name}
             onError={() => setImgOk(false)}
             draggable={false}
-            style={{ width: "100%", height: 118, objectFit: "cover", objectPosition: "center top", display: "block", filter: "grayscale(100%)", mixBlendMode: "multiply" }}
+            style={{ width: "100%", height: 122, objectFit: "cover", objectPosition: "center top", display: "block", filter: "grayscale(100%)", mixBlendMode: "multiply" }}
           />
         ) : (
           <svg viewBox="0 0 80 62" style={{ width: "76%" }} aria-hidden="true">
