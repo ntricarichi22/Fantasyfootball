@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   AVAILABILITY_CONFIG,
   NFL_TEAM_FULL_NAME,
@@ -8,7 +9,19 @@ import {
   type AttachmentLevel,
 } from "./availabilityConfig";
 
+const F = "var(--font-body, 'DM Sans', sans-serif)";
+const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
+const FB = "'Bowlby One SC', var(--font-headline, 'Syne', sans-serif)";
+const INK = "#1A1A1A";
+const PAPER = "#FEFCF9";
+const MUTED = "#8C7E6A";
+const MUTED_DARK = "#5C5C58";
+
+const nflLogoUrl = (team: string) =>
+  `https://sleepercdn.com/images/team_logos/nfl/${team.toLowerCase()}.png`;
+
 type RosterPlayerCardProps = {
+  rank: number;
   playerName: string;
   position: string | null;
   nflTeam: string | null;
@@ -18,7 +31,11 @@ type RosterPlayerCardProps = {
   onOpen: () => void;
 };
 
+// Ringer poster card, big-board proportions: rank numeral + NFL logo up top,
+// name bottom-anchored in a fixed slot, then the headshot duotoned in the
+// AVAILABILITY color (the color IS the availability), price in a slim footer.
 export default function RosterPlayerCard({
+  rank,
   playerName,
   position,
   nflTeam,
@@ -27,151 +44,66 @@ export default function RosterPlayerCard({
   finalValue,
   onOpen,
 }: RosterPlayerCardProps) {
+  const [imgOk, setImgOk] = useState(true);
   const avail = AVAILABILITY_CONFIG[attachment];
   const positionLabel = position ? POSITION_FULL_NAME[position] ?? position : "";
-  const teamLabel = nflTeam ? NFL_TEAM_FULL_NAME[nflTeam] ?? nflTeam : "";
-  const subtitle = [positionLabel, teamLabel].filter(Boolean).join(" \u00B7 ");
+  const teamLabel = nflTeam ? NFL_TEAM_FULL_NAME[nflTeam] ?? nflTeam : "Free agent";
+  const sub = [positionLabel, teamLabel].filter(Boolean).join(" · ");
 
   return (
     <div
       onClick={onOpen}
       style={{
-        background: "#FEFCF9",
-        border: "3px solid #1A1A1A",
+        background: PAPER,
+        border: `2px solid ${INK}`,
         borderRadius: 12,
-        boxShadow: "4px 4px 0 #1A1A1A",
-        boxSizing: "border-box",
         overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
         cursor: "pointer",
-        width: "100%",
       }}
     >
-      <div style={{ padding: "10px 10px 0" }}>
-        <div
-          style={{
-            background: avail.fill,
-            padding: 5,
-            borderRadius: 8,
-            boxSizing: "border-box",
-          }}
-        >
-          <div
-            style={{
-              aspectRatio: "1 / 1",
-              background: "#FEFCF9",
-              borderRadius: 5,
-              overflow: "hidden",
-            }}
-          >
-            <img
-              src={photoUrl}
-              alt={playerName}
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            />
-          </div>
-        </div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "8px 10px 0", height: 34, boxSizing: "content-box" }}>
+        <span style={{ fontFamily: FB, fontSize: 27, color: INK, lineHeight: 0.95 }}>{rank}</span>
+        <span style={{ flex: 1 }} />
+        {nflTeam ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={nflLogoUrl(nflTeam)} alt={nflTeam} style={{ width: 28, height: 28, objectFit: "contain", flexShrink: 0 }} />
+        ) : (
+          <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, color: MUTED, border: `1.5px solid ${MUTED}`, borderRadius: 4, padding: "2px 5px", flexShrink: 0 }}>FA</span>
+        )}
       </div>
 
-      <div style={{ padding: "12px 14px 8px" }}>
-        <p
-          style={{
-            fontFamily: "Impact, system-ui, sans-serif",
-            fontSize: 22,
-            fontWeight: 900,
-            color: "#1A1A1A",
-            margin: 0,
-            lineHeight: 1,
-            letterSpacing: "0.01em",
-          }}
-        >
-          {playerName.toUpperCase()}
-        </p>
-        <p
-          style={{
-            fontFamily: "'DM Sans', sans-serif",
-            fontSize: 11,
-            fontWeight: 700,
-            color: "#1A1A1A",
-            margin: "6px 0 0",
-          }}
-        >
-          {subtitle}
-        </p>
+      <div style={{ padding: "5px 10px 8px" }}>
+        <div style={{ height: 32, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+          <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: INK, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{playerName}</span>
+        </div>
+        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 26, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
       </div>
 
-      <div style={{ padding: "0 10px 6px" }}>
-        <div
-          style={{
-            background: avail.fill,
-            border: "2px solid #1A1A1A",
-            borderRadius: 8,
-            padding: "9px 12px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12,
-              fontWeight: 800,
-              color: avail.text,
-              letterSpacing: "0.06em",
-            }}
-          >
-            {avail.label}
-          </span>
-          <span
-            style={{
-              fontFamily: "system-ui, sans-serif",
-              fontSize: 16,
-              fontWeight: 700,
-              color: avail.text,
-              lineHeight: 1,
-            }}
-          >
-            {"\u203A"}
-          </span>
-        </div>
+      <div style={{ background: avail.fill, height: 122, position: "relative", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
+        <span style={{ position: "absolute", top: 6, left: 8, zIndex: 1, fontFamily: FM, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", color: avail.text }}>
+          {avail.label}
+        </span>
+        {imgOk ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={photoUrl}
+            alt={playerName}
+            onError={() => setImgOk(false)}
+            style={{ width: "100%", height: 122, objectFit: "cover", objectPosition: "center top", display: "block", filter: "grayscale(100%)", mixBlendMode: "multiply" }}
+          />
+        ) : (
+          <svg viewBox="0 0 80 62" style={{ width: "76%" }} aria-hidden="true">
+            <circle cx="40" cy="20" r="15" fill={avail.dark} />
+            <path d="M8 62 Q12 38 40 38 Q68 38 72 62 Z" fill={avail.dark} />
+          </svg>
+        )}
       </div>
 
-      <div style={{ padding: "0 10px 10px" }}>
-        <div
-          style={{
-            background: "#FEFCF9",
-            border: "2px solid #1A1A1A",
-            borderLeft: "6px solid #1A1A1A",
-            borderRadius: 8,
-            padding: "9px 12px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 16,
-              fontWeight: 800,
-              color: "#1A1A1A",
-              letterSpacing: "0.02em",
-            }}
-          >
-            {formatDollars(finalValue)}
-          </span>
-          <span
-            style={{
-              fontFamily: "system-ui, sans-serif",
-              fontSize: 16,
-              fontWeight: 700,
-              color: "#1A1A1A",
-              lineHeight: 1,
-            }}
-          >
-            {"\u203A"}
-          </span>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderTop: `2px solid ${INK}` }}>
+        <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(finalValue)}</span>
+        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 15, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
       </div>
     </div>
   );

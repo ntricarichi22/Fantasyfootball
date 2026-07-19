@@ -9,14 +9,16 @@ export const AVAILABILITY_ORDER: AttachmentLevel[] = [
 ];
 
 // Locked color system. Listening uses black text (yellow + white is unreadable).
+// `dark` is the deep stop of the same hue, used for duotone silhouettes and
+// the big round ordinal on pick cards (mirrors the big board's TierColor.dark).
 export const AVAILABILITY_CONFIG: Record<
   AttachmentLevel,
-  { label: string; fill: string; text: string }
+  { label: string; fill: string; text: string; dark: string }
 > = {
-  untouchable: { label: "UNTOUCHABLE", fill: "#E8503A", text: "#FEFCF9" },
-  core_piece: { label: "CORE PIECE", fill: "#3366CC", text: "#FEFCF9" },
-  listening: { label: "LISTENING", fill: "#F5C230", text: "#1A1A1A" },
-  moveable: { label: "MOVEABLE", fill: "#019942", text: "#FEFCF9" },
+  untouchable: { label: "UNTOUCHABLE", fill: "#E8503A", text: "#FEFCF9", dark: "#5C150C" },
+  core_piece: { label: "CORE PIECE", fill: "#3366CC", text: "#FEFCF9", dark: "#0D2A5C" },
+  listening: { label: "LISTENING", fill: "#F5C230", text: "#1A1A1A", dark: "#7A5F0A" },
+  moveable: { label: "MOVEABLE", fill: "#019942", text: "#FEFCF9", dark: "#0A4423" },
 };
 
 export const POSITION_FULL_NAME: Record<string, string> = {

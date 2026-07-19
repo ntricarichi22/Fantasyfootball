@@ -21,7 +21,13 @@ export const parsePickKey = (key: string): ParsedPick | null => {
 };
 
 const ORDINAL: Record<number, string> = { 1: "1ST", 2: "2ND", 3: "3RD" };
-const ordinalRound = (round: number): string => ORDINAL[round] ?? `${round}TH`;
+export const formatRoundOrdinal = (round: number): string => ORDINAL[round] ?? `${round}TH`;
+const ordinalRound = formatRoundOrdinal;
+
+const ROUND_WORD: Record<number, string> = { 1: "First", 2: "Second", 3: "Third", 4: "Fourth", 5: "Fifth" };
+// "First Rounder" for known rounds; "Round 6 Pick" beyond the word map.
+export const formatRoundName = (round: number): string =>
+  ROUND_WORD[round] ? `${ROUND_WORD[round]} Rounder` : `Round ${round} Pick`;
 
 // Known current-year slot -> "2.04"; otherwise the ordinal round -> "2ND".
 export const formatPickBigText = (parsed: ParsedPick): string => {
@@ -33,20 +39,3 @@ export const formatPickBigText = (parsed: ParsedPick): string => {
 
 export const formatPickSubtitle = (parsed: ParsedPick): string => `${parsed.year} Draft`;
 
-const PICK_HERO = {
-  top3: "https://owkxkpkdffhcordlxqte.supabase.co/storage/v1/object/public/Players/top%203%20pick%20card.png",
-  first: "https://owkxkpkdffhcordlxqte.supabase.co/storage/v1/object/public/Players/first%20rd%20pick%20card.png",
-  second: "https://owkxkpkdffhcordlxqte.supabase.co/storage/v1/object/public/Players/second%20rd%20pick%20card.png",
-  third: "https://owkxkpkdffhcordlxqte.supabase.co/storage/v1/object/public/Players/third%20rd%20pick%20card.png",
-};
-
-// Round 1 with a known top-3 slot gets the special TOP 3 art; everything else
-// falls to the round image (round 3+ shares the 3rd-round art for now).
-export const pickHeroImage = (parsed: ParsedPick): string => {
-  if (parsed.round === 1) {
-    if (parsed.slot != null && parsed.slot >= 1 && parsed.slot <= 3) return PICK_HERO.top3;
-    return PICK_HERO.first;
-  }
-  if (parsed.round === 2) return PICK_HERO.second;
-  return PICK_HERO.third;
-};

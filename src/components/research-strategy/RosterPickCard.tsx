@@ -7,10 +7,21 @@ import {
 } from "./availabilityConfig";
 import {
   formatPickBigText,
-  formatPickSubtitle,
-  pickHeroImage,
+  formatRoundName,
+  formatRoundOrdinal,
   type ParsedPick,
 } from "./pickDisplay";
+
+const F = "var(--font-body, 'DM Sans', sans-serif)";
+const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
+const FB = "'Bowlby One SC', var(--font-headline, 'Syne', sans-serif)";
+const INK = "#1A1A1A";
+const PAPER = "#FEFCF9";
+const MUTED_DARK = "#5C5C58";
+
+// "(own)" / "(via Kush)" -> "OWN" / "VIA KUSH" for the corner chip.
+const ownerChip = (suffix: string | undefined): string =>
+  (suffix ?? "(own)").replace(/[()]/g, "").trim().toUpperCase() || "OWN";
 
 type RosterPickCardProps = {
   parsed: ParsedPick;
@@ -20,6 +31,9 @@ type RosterPickCardProps = {
   onOpen: () => void;
 };
 
+// Same Ringer poster card as players: the pick number takes the rank-numeral
+// slot, the owner tag takes the logo slot, and the round ordinal sits in the
+// availability-colored block as the art (no hero images).
 export default function RosterPickCard({
   parsed,
   attachment,
@@ -29,163 +43,49 @@ export default function RosterPickCard({
 }: RosterPickCardProps) {
   const avail = AVAILABILITY_CONFIG[attachment];
   const bigText = formatPickBigText(parsed);
-  const subtitle = formatPickSubtitle(parsed);
-  const hero = pickHeroImage(parsed);
+  const roundName = formatRoundName(parsed.round);
+  const sub = `${parsed.year} Draft · Round ${parsed.round}`;
 
   return (
     <div
       onClick={onOpen}
       style={{
-        background: "#FEFCF9",
-        border: "3px solid #1A1A1A",
+        background: PAPER,
+        border: `2px solid ${INK}`,
         borderRadius: 12,
-        boxShadow: "4px 4px 0 #1A1A1A",
-        boxSizing: "border-box",
         overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
         cursor: "pointer",
-        width: "100%",
       }}
     >
-      <div style={{ padding: "10px 10px 0" }}>
-        <div
-          style={{
-            background: avail.fill,
-            padding: 5,
-            borderRadius: 8,
-            boxSizing: "border-box",
-          }}
-        >
-          <div
-            style={{
-              aspectRatio: "1 / 1",
-              background: "#FEFCF9",
-              borderRadius: 5,
-              overflow: "hidden",
-            }}
-          >
-            <img
-              src={hero}
-              alt={`${bigText} pick`}
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            />
-          </div>
-        </div>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "8px 10px 0", height: 34, boxSizing: "content-box" }}>
+        <span style={{ fontFamily: FB, fontSize: 24, color: INK, lineHeight: 1.05 }}>{bigText}</span>
+        <span style={{ flex: 1 }} />
+        <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 800, color: INK, border: `1.5px solid ${INK}`, borderRadius: 4, padding: "2px 5px", flexShrink: 0, letterSpacing: "0.04em", whiteSpace: "nowrap", maxWidth: 84, overflow: "hidden", textOverflow: "ellipsis" }}>
+          {ownerChip(ownerSuffix)}
+        </span>
       </div>
 
-      <div style={{ padding: "12px 14px 8px" }}>
-        <p
-          style={{
-            fontFamily: "Impact, system-ui, sans-serif",
-            fontSize: 22,
-            fontWeight: 900,
-            color: "#1A1A1A",
-            margin: 0,
-            lineHeight: 1,
-            letterSpacing: "0.01em",
-          }}
-        >
-          {bigText}
-          {ownerSuffix && (
-            <span
-              style={{
-                fontFamily: "Impact, system-ui, sans-serif",
-                fontSize: 22,
-                fontWeight: 900,
-                color: "#1A1A1A",
-                letterSpacing: "0.01em",
-                marginLeft: 8,
-              }}
-            >
-              {ownerSuffix}
-            </span>
-          )}
-        </p>
-        <p
-          style={{
-            fontFamily: "'DM Sans', sans-serif",
-            fontSize: 11,
-            fontWeight: 700,
-            color: "#1A1A1A",
-            margin: "6px 0 0",
-          }}
-        >
-          {subtitle}
-        </p>
+      <div style={{ padding: "5px 10px 8px" }}>
+        <div style={{ height: 32, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+          <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: INK, lineHeight: 1.15 }}>{roundName}</span>
+        </div>
+        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 26, overflow: "hidden" }}>{sub}</div>
       </div>
 
-      <div style={{ padding: "0 10px 6px" }}>
-        <div
-          style={{
-            background: avail.fill,
-            border: "2px solid #1A1A1A",
-            borderRadius: 8,
-            padding: "9px 12px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 12,
-              fontWeight: 800,
-              color: avail.text,
-              letterSpacing: "0.06em",
-            }}
-          >
-            {avail.label}
-          </span>
-          <span
-            style={{
-              fontFamily: "system-ui, sans-serif",
-              fontSize: 16,
-              fontWeight: 700,
-              color: avail.text,
-              lineHeight: 1,
-            }}
-          >
-            {"\u203A"}
-          </span>
-        </div>
+      <div style={{ background: avail.fill, height: 122, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ position: "absolute", top: 6, left: 8, fontFamily: FM, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", color: avail.text }}>
+          {avail.label}
+        </span>
+        <span style={{ fontFamily: FB, fontSize: 40, color: avail.dark, lineHeight: 1 }}>
+          {formatRoundOrdinal(parsed.round)}
+        </span>
       </div>
 
-      <div style={{ padding: "0 10px 10px" }}>
-        <div
-          style={{
-            background: "#FEFCF9",
-            border: "2px solid #1A1A1A",
-            borderLeft: "6px solid #1A1A1A",
-            borderRadius: 8,
-            padding: "9px 12px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono', monospace",
-              fontSize: 16,
-              fontWeight: 800,
-              color: "#1A1A1A",
-              letterSpacing: "0.02em",
-            }}
-          >
-            {formatDollars(value)}
-          </span>
-          <span
-            style={{
-              fontFamily: "system-ui, sans-serif",
-              fontSize: 16,
-              fontWeight: 700,
-              color: "#1A1A1A",
-              lineHeight: 1,
-            }}
-          >
-            {"\u203A"}
-          </span>
-        </div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderTop: `2px solid ${INK}` }}>
+        <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(value)}</span>
+        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 15, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
       </div>
     </div>
   );

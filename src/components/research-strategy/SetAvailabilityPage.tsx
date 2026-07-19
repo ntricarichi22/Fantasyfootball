@@ -10,6 +10,8 @@ import RosterPickCard from "./RosterPickCard";
 import PlayerEditorOverlay from "./PlayerEditorOverlay";
 import PickEditorOverlay, { type ClassScope, type ClassStrength } from "./PickEditorOverlay";
 import {
+  AVAILABILITY_CONFIG,
+  AVAILABILITY_ORDER,
   DEFAULT_PICK_ANCHORS,
   composeFromPicks,
   decomposeToPicks,
@@ -33,13 +35,37 @@ type TradeRow = {
 type PickAsset = { key: string; value: number; parsed: ParsedPick; ownerSuffix: string };
 
 type TabKey = "QB" | "RB" | "PC" | "PICKS";
+type LevelFilter = "ALL" | AttachmentLevel;
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: "QB", label: "QUARTERBACKS" },
-  { key: "RB", label: "RUNNING BACKS" },
-  { key: "PC", label: "PASS CATCHERS" },
-  { key: "PICKS", label: "PICKS" },
+const F = "var(--font-body, 'DM Sans', sans-serif)";
+const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
+const FH = "var(--font-headline, 'Syne', sans-serif)";
+const FB = "'Bowlby One SC', var(--font-headline, 'Syne', sans-serif)";
+
+const COLORS = {
+  ink: "#1A1A1A",
+  paper: "#FEFCF9",
+  cream: "#F5F0E6",
+  muted: "#8C7E6A",
+  mutedDark: "#5C5C58",
+  yellow: "#F5C230",
+};
+
+// Binder tab colors follow the big-board tier palette: the color IS the tab.
+const TABS: { key: TabKey; label: string; color: string; on: string }[] = [
+  { key: "QB", label: "QUARTERBACKS", color: "#F5C230", on: "#1A1A1A" },
+  { key: "RB", label: "RUNNING BACKS", color: "#3366CC", on: "#FEFCF9" },
+  { key: "PC", label: "PASS CATCHERS", color: "#E8503A", on: "#FEFCF9" },
+  { key: "PICKS", label: "PICKS", color: "#2F7D4F", on: "#FEFCF9" },
 ];
+
+// Short chip labels for the scoreboard strip (full words crowd the ticker).
+const LEVEL_CHIP: Record<AttachmentLevel, string> = {
+  untouchable: "UNTOUCHABLE",
+  core_piece: "CORE",
+  listening: "LISTENING",
+  moveable: "MOVEABLE",
+};
 
 // Strategy Director greeting for this surface. Set Availability is a work
 // surface — one tone-setting line, not per-card narration (see R&S spec).
@@ -70,18 +96,17 @@ const sortPicks = (a: PickAsset, b: PickAsset) => {
 
 const SA_CSS = `
 .sa-binder{margin:0 46px 0 40px;box-shadow:4px 4px 0 #1A1A1A;}
-.sa-content{padding:16px;}
-.sa-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;}
+.sa-content{padding:14px;}
+.sa-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}
 .sa-tabs{position:absolute;right:-34px;top:40px;display:flex;flex-direction:column;gap:8px;}
-.sa-tab{writing-mode:vertical-rl;text-orientation:mixed;height:140px;border:3px solid #1A1A1A;border-left:none;box-shadow:3px 3px 0 #1A1A1A;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:800;letter-spacing:0.1em;padding:14px 9px;cursor:pointer;}
+.sa-tab{writing-mode:vertical-rl;text-orientation:mixed;height:140px;border:3px solid #1A1A1A;border-left:none;border-radius:0 8px 8px 0;box-shadow:3px 3px 0 #1A1A1A;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:800;letter-spacing:0.1em;padding:14px 9px;cursor:pointer;}
 .sa-tab-short{display:none;}
 @media (max-width:700px){
   .sa-binder{margin:0;box-shadow:none;}
   .sa-hole{display:none;}
   .sa-content{padding:14px 14px 92px;}
-  .sa-grid{grid-template-columns:1fr;}
   .sa-tabs{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;gap:0;z-index:50;background:#FEFCF9;border-top:3px solid #1A1A1A;}
-  .sa-tab{writing-mode:horizontal-tb;height:auto;flex:1;border:none;border-right:2px solid #1A1A1A;box-shadow:none;padding:14px 4px;text-align:center;letter-spacing:0.06em;font-size:12px;}
+  .sa-tab{writing-mode:horizontal-tb;height:auto;flex:1;border:none;border-right:2px solid #1A1A1A;border-radius:0;box-shadow:none;padding:14px 4px;text-align:center;letter-spacing:0.06em;font-size:12px;}
   .sa-tab:last-child{border-right:none;}
   .sa-tab-full{display:none;}
   .sa-tab-short{display:inline;}
@@ -96,6 +121,8 @@ export default function SetAvailabilityPage() {
   const [pickState, setPickState] = useState<Record<string, PickCounts>>({});
   const [classByKey, setClassByKey] = useState<Record<string, ClassStrength>>({});
   const [activeTab, setActiveTab] = useState<TabKey>("QB");
+  const [levelFilter, setLevelFilter] = useState<LevelFilter>("ALL");
+  const [query, setQuery] = useState("");
   const [openPlayerId, setOpenPlayerId] = useState<string | null>(null);
   const [openPickKey, setOpenPickKey] = useState<string | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -231,7 +258,10 @@ export default function SetAvailabilityPage() {
     setPickState(next);
   }, [rows, anchors]);
 
-  const getAttachment = (id: string): AttachmentLevel => attachments[id] ?? "listening";
+  const getAttachment = useCallback(
+    (id: string): AttachmentLevel => attachments[id] ?? "listening",
+    [attachments],
+  );
   const getClass = (key: string): ClassStrength => classByKey[key] ?? "average";
 
   const setAttachment = async (id: string, level: AttachmentLevel) => {
@@ -319,166 +349,262 @@ export default function SetAvailabilityPage() {
 
   const visibleRows = useMemo(() => {
     if (activeTab === "PICKS") return [];
+    const q = query.trim().toLowerCase();
     return rows
       .filter((r) => positionMatchesTab(r.position, activeTab))
-      .sort((a, b) => b.final_value - a.final_value);
-  }, [rows, activeTab]);
+      .filter((r) => levelFilter === "ALL" || getAttachment(r.sleeper_player_id) === levelFilter)
+      .filter((r) => !q || (r.player_name ?? "").toLowerCase().includes(q))
+      .sort((a, b) => priceOf(b) - priceOf(a));
+  }, [rows, activeTab, levelFilter, query, getAttachment]);
+
+  const visiblePicks = useMemo(() => {
+    if (activeTab !== "PICKS") return [];
+    const q = query.trim().toLowerCase();
+    return picks
+      .filter((p) => levelFilter === "ALL" || getAttachment(p.key) === levelFilter)
+      .filter((p) => !q || `${p.parsed.year} round ${p.parsed.round} ${p.ownerSuffix}`.toLowerCase().includes(q));
+  }, [picks, activeTab, levelFilter, query, getAttachment]);
+
+  const levelCount = useCallback(
+    (level: AttachmentLevel) =>
+      rows.filter((r) => getAttachment(r.sleeper_player_id) === level).length +
+      picks.filter((p) => getAttachment(p.key) === level).length,
+    [rows, picks, getAttachment],
+  );
 
   const openRow = rows.find((r) => r.sleeper_player_id === openPlayerId) ?? null;
   const openPick = picks.find((p) => p.key === openPickKey) ?? null;
 
+  const tab = TABS.find((t) => t.key === activeTab) ?? TABS[0];
+  const railNote = activeTab === "PICKS" ? "YEAR · ROUND · SLOT" : "SORTED BY VALUE";
+  const railCount =
+    activeTab === "PICKS"
+      ? `${visiblePicks.length} IN THE VAULT`
+      : `${visibleRows.length} ON ROSTER`;
+
   return (
-    <div style={{ minHeight: "100vh", background: "#F5F0E6", color: "#1A1A1A" }}>
+    <div style={{ minHeight: "100vh", background: COLORS.cream, color: COLORS.ink, paddingBottom: 60 }}>
       <style>{SA_CSS}</style>
       <UnifiedTopbar />
-      <div style={{ height: 3, background: "#E8503A" }} />
 
-      <div
-        style={{
-          padding: "20px 24px",
-          maxWidth: 1100,
-          margin: "0 auto",
-          fontFamily: "'DM Sans', sans-serif",
-        }}
-      >
-      <div style={{ margin: "0 0 16px" }}>
-        <DirectorTwoBox
-          avatarSrc="/avatars/strategy.png"
-          label="Strategy Director"
-          message={STRATEGY_INTRO}
-        />
-      </div>
-
-      {error && (
-        <p style={{ color: "#E8503A", fontSize: 13, fontWeight: 700, margin: "0 0 12px" }}>{error}</p>
-      )}
-
-      <div
-        className="sa-binder"
-        style={{
-          position: "relative",
-          display: "flex",
-          border: "3px solid #1A1A1A",
-          background: "#F5F0E6",
-        }}
-      >
-        {/* Binder ring holes down the left edge */}
-        {[18, 50, 82].map((topPct) => (
-          <span
-            key={topPct}
-            aria-hidden
-            className="sa-hole"
-            style={{
-              position: "absolute",
-              left: -40,
-              top: `${topPct}%`,
-              transform: "translateY(-50%)",
-              width: 18,
-              height: 18,
-              borderRadius: "50%",
-              background: "#D9D2C4",
-              border: "3px solid #1A1A1A",
-              boxShadow: "2px 2px 0 #1A1A1A",
-            }}
-          />
-        ))}
-
-        <div className="sa-content" style={{ flex: 1, minHeight: 440 }}>
-          {loading && rows.length === 0 ? (
-            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
-              Loading roster values&hellip;
-            </p>
-          ) : activeTab === "PICKS" ? (
-            picks.length === 0 ? (
-              <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
-                No picks found.
-              </p>
-            ) : (
-              <div className="sa-grid">
-                {picks.map((pick) => (
-                  <RosterPickCard
-                    key={pick.key}
-                    parsed={pick.parsed}
-                    attachment={getAttachment(pick.key)}
-                    value={pick.value}
-                    ownerSuffix={pick.ownerSuffix}
-                    onOpen={() => setOpenPickKey(pick.key)}
-                  />
-                ))}
-              </div>
-            )
-          ) : visibleRows.length === 0 ? (
-            <p style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: "#8C7E6A" }}>
-              No players at this position.
-            </p>
-          ) : (
-            <div className="sa-grid">
-              {visibleRows.map((row) => (
-                <RosterPlayerCard
-                  key={row.sleeper_player_id}
-                  playerName={row.player_name ?? row.sleeper_player_id}
-                  position={row.position}
-                  nflTeam={row.nfl_team}
-                  photoUrl={headshotUrl(row.sleeper_player_id)}
-                  attachment={getAttachment(row.sleeper_player_id)}
-                  finalValue={priceOf(row)}
-                  onOpen={() => setOpenPlayerId(row.sleeper_player_id)}
-                />
-              ))}
-            </div>
-          )}
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "24px 20px 0", fontFamily: F }}>
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, flexWrap: "wrap", marginBottom: 16 }}>
+          <div style={{ fontFamily: FH, fontWeight: 900, fontSize: 34, color: COLORS.ink, letterSpacing: "-0.015em", lineHeight: 1.04 }}>
+            Set Availability
+          </div>
+          <div style={{ fontFamily: FM, fontSize: 11, letterSpacing: "0.16em", color: COLORS.mutedDark, fontWeight: 700, textTransform: "uppercase", paddingBottom: 5 }}>
+            {rows.length} players · {picks.length} picks · {levelCount("untouchable")} untouchable · {levelCount("moveable")} on the block
+          </div>
         </div>
 
-        {/* Binder tabs sticking out past the right edge */}
-        <div className="sa-tabs">
-          {TABS.map((tab) => {
-            const isActive = tab.key === activeTab;
+        <div style={{ margin: "0 0 14px" }}>
+          <DirectorTwoBox
+            avatarSrc="/avatars/strategy.png"
+            label="Strategy Director"
+            message={STRATEGY_INTRO}
+          />
+        </div>
+
+        {/* Scoreboard strip: search left, then availability filters — positions
+            already live on the binder tabs, so the ticker filters by level. */}
+        <div style={{ display: "flex", alignItems: "stretch", background: COLORS.ink, borderRadius: 8, overflowX: "auto", height: 38, marginBottom: 22 }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 13px", minWidth: 150, flex: 1 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b9ab8d" strokeWidth="2.5" strokeLinecap="round">
+              <circle cx="11" cy="11" r="7" />
+              <line x1="16.5" y1="16.5" x2="22" y2="22" />
+            </svg>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search roster…"
+              style={{ border: "none", outline: "none", background: "transparent", color: COLORS.paper, fontFamily: FM, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", width: "100%", minWidth: 90 }}
+            />
+          </span>
+          <button
+            type="button"
+            onClick={() => setLevelFilter("ALL")}
+            style={{
+              border: "none",
+              cursor: "pointer",
+              fontFamily: FM,
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: "0.1em",
+              padding: "0 14px",
+              background: levelFilter === "ALL" ? COLORS.yellow : "transparent",
+              color: levelFilter === "ALL" ? COLORS.ink : COLORS.paper,
+            }}
+          >
+            ALL
+          </button>
+          {AVAILABILITY_ORDER.map((level) => {
+            const cfg = AVAILABILITY_CONFIG[level];
+            const isActive = levelFilter === level;
             return (
               <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className="sa-tab"
+                key={level}
+                type="button"
+                onClick={() => setLevelFilter(isActive ? "ALL" : level)}
                 style={{
-                  background: isActive ? "#1A1A1A" : "#FEFCF9",
-                  color: isActive ? "#FEFCF9" : "#1A1A1A",
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  fontFamily: FM,
+                  fontSize: 10,
+                  fontWeight: 800,
+                  letterSpacing: "0.1em",
+                  padding: "0 12px",
+                  whiteSpace: "nowrap",
+                  background: isActive ? cfg.fill : "transparent",
+                  color: isActive ? cfg.text : COLORS.paper,
                 }}
               >
-                <span className="sa-tab-full">{tab.label}</span>
-                <span className="sa-tab-short">{tab.key}</span>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: isActive ? cfg.text : cfg.fill, flexShrink: 0 }} />
+                {LEVEL_CHIP[level]}
               </button>
             );
           })}
         </div>
-      </div>
 
-      {openRow && (
-        <PlayerEditorOverlay
-          playerName={openRow.player_name ?? openRow.sleeper_player_id}
-          position={openRow.position}
-          nflTeam={openRow.nfl_team}
-          attachment={getAttachment(openRow.sleeper_player_id)}
-          finalValue={priceOf(openRow)}
-          picks={pickState[openRow.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 }}
-          saving={savingId === openRow.sleeper_player_id}
-          onSetAttachment={(level) => setAttachment(openRow.sleeper_player_id, level)}
-          onAdjustPick={(key, delta) => adjustPick(openRow.sleeper_player_id, key, delta)}
-          onClose={() => setOpenPlayerId(null)}
-        />
-      )}
+        {error && (
+          <p style={{ color: "#E8503A", fontSize: 13, fontWeight: 700, margin: "0 0 12px" }}>{error}</p>
+        )}
 
-      {openPick && (
-        <PickEditorOverlay
-          parsed={openPick.parsed}
-          attachment={getAttachment(openPick.key)}
-          classStrength={getClass(openPick.key)}
-          value={openPick.value}
-          ownerSuffix={openPick.ownerSuffix}
-          saving={savingId === openPick.key}
-          onSetAttachment={(level) => setAttachment(openPick.key, level)}
-          onSetClassStrength={(strength, scope) => setClassStrength(openPick, strength, scope)}
-          onClose={() => setOpenPickKey(null)}
-        />
-      )}
+        <div className="sa-binder" style={{ position: "relative", display: "flex", border: `3px solid ${COLORS.ink}`, borderRadius: 8, background: COLORS.cream }}>
+          {/* Binder ring holes down the left edge */}
+          {[18, 50, 82].map((topPct) => (
+            <span
+              key={topPct}
+              aria-hidden
+              className="sa-hole"
+              style={{
+                position: "absolute",
+                left: -40,
+                top: `${topPct}%`,
+                transform: "translateY(-50%)",
+                width: 18,
+                height: 18,
+                borderRadius: "50%",
+                background: "#D9D2C4",
+                border: `3px solid ${COLORS.ink}`,
+                boxShadow: "2px 2px 0 #1A1A1A",
+              }}
+            />
+          ))}
+
+          <div className="sa-content" style={{ flex: 1, minHeight: 440 }}>
+            {/* Rail header: the binder page reads like a tier on the big board */}
+            <div style={{ display: "flex", alignItems: "stretch", border: `3px solid ${COLORS.ink}`, borderRadius: 8, overflow: "hidden", background: COLORS.paper, marginBottom: 12 }}>
+              <span style={{ background: tab.color, color: tab.on, padding: "7px 14px", fontFamily: FB, fontSize: 14, borderRight: `3px solid ${COLORS.ink}`, display: "flex", alignItems: "center", whiteSpace: "nowrap" }}>
+                {tab.label}
+              </span>
+              <span style={{ display: "flex", alignItems: "center", padding: "0 12px", fontFamily: FM, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", color: COLORS.muted, fontStyle: "italic", whiteSpace: "nowrap" }}>
+                {railNote}
+              </span>
+              <span style={{ flex: 1 }} />
+              <span style={{ display: "flex", alignItems: "center", padding: "0 12px", fontFamily: F, fontSize: 11, fontWeight: 700, color: COLORS.muted, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
+                {railCount}
+              </span>
+            </div>
+
+            {loading && rows.length === 0 ? (
+              <p style={{ fontFamily: FM, fontSize: 12, color: COLORS.muted }}>
+                Loading roster values&hellip;
+              </p>
+            ) : activeTab === "PICKS" ? (
+              visiblePicks.length === 0 ? (
+                <p style={{ fontFamily: FM, fontSize: 12, color: COLORS.muted }}>
+                  No picks found.
+                </p>
+              ) : (
+                <div className="sa-grid">
+                  {visiblePicks.map((pick) => (
+                    <RosterPickCard
+                      key={pick.key}
+                      parsed={pick.parsed}
+                      attachment={getAttachment(pick.key)}
+                      value={pick.value}
+                      ownerSuffix={pick.ownerSuffix}
+                      onOpen={() => setOpenPickKey(pick.key)}
+                    />
+                  ))}
+                </div>
+              )
+            ) : visibleRows.length === 0 ? (
+              <p style={{ fontFamily: FM, fontSize: 12, color: COLORS.muted }}>
+                No players at this position.
+              </p>
+            ) : (
+              <div className="sa-grid">
+                {visibleRows.map((row, i) => (
+                  <RosterPlayerCard
+                    key={row.sleeper_player_id}
+                    rank={i + 1}
+                    playerName={row.player_name ?? row.sleeper_player_id}
+                    position={row.position}
+                    nflTeam={row.nfl_team}
+                    photoUrl={headshotUrl(row.sleeper_player_id)}
+                    attachment={getAttachment(row.sleeper_player_id)}
+                    finalValue={priceOf(row)}
+                    onOpen={() => setOpenPlayerId(row.sleeper_player_id)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Binder tabs sticking out past the right edge */}
+          <div className="sa-tabs">
+            {TABS.map((t) => {
+              const isActive = t.key === activeTab;
+              return (
+                <button
+                  key={t.key}
+                  onClick={() => setActiveTab(t.key)}
+                  className="sa-tab"
+                  style={{
+                    background: isActive ? t.color : COLORS.paper,
+                    color: isActive ? t.on : COLORS.ink,
+                  }}
+                >
+                  <span className="sa-tab-full">{t.label}</span>
+                  <span className="sa-tab-short">{t.key}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {openRow && (
+          <PlayerEditorOverlay
+            playerName={openRow.player_name ?? openRow.sleeper_player_id}
+            position={openRow.position}
+            nflTeam={openRow.nfl_team}
+            attachment={getAttachment(openRow.sleeper_player_id)}
+            finalValue={priceOf(openRow)}
+            picks={pickState[openRow.sleeper_player_id] ?? { firsts: 0, seconds: 0, thirds: 0 }}
+            saving={savingId === openRow.sleeper_player_id}
+            onSetAttachment={(level) => setAttachment(openRow.sleeper_player_id, level)}
+            onAdjustPick={(key, delta) => adjustPick(openRow.sleeper_player_id, key, delta)}
+            onClose={() => setOpenPlayerId(null)}
+          />
+        )}
+
+        {openPick && (
+          <PickEditorOverlay
+            parsed={openPick.parsed}
+            attachment={getAttachment(openPick.key)}
+            classStrength={getClass(openPick.key)}
+            value={openPick.value}
+            ownerSuffix={openPick.ownerSuffix}
+            saving={savingId === openPick.key}
+            onSetAttachment={(level) => setAttachment(openPick.key, level)}
+            onSetClassStrength={(strength, scope) => setClassStrength(openPick, strength, scope)}
+            onClose={() => setOpenPickKey(null)}
+          />
+        )}
       </div>
     </div>
   );
