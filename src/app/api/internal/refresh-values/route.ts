@@ -24,6 +24,7 @@ import { fetchKeepTradeCut } from "@/infrastructure/values/sources/keeptradecut"
 import { fetchDynastyProcess } from "@/infrastructure/values/sources/dynastyprocess";
 import { normalizeRows, type SourceRow } from "@/infrastructure/values/normalize";
 import { rebuildTeamTradeValuesForTeam } from "@/research-strategy/api/service";
+import { applyTeRamp } from "@/infrastructure/values/teRamp";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300; // 5 minutes — value pipeline can take a bit
@@ -454,6 +455,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: `Rebuild failed: ${rebuildErr.message}`, summary }, { status: 500 });
   }
 
+  // 9b. Smooth the TE position multiplier (replaces the DB ladder's cliffs)
+  // BEFORE the team rebuilds so team-adjusted values inherit the smoothed base.
+  let teRampUpdated = 0;
+  try {
+    const { updated } = await applyTeRamp(client);
+    teRampUpdated = updated;
+  } catch (e) {
+    console.error("[refresh-values] TE ramp pass failed:", e);
+    // Don't abort — values fall back to the DB ladder until the next run.
+  }
+
   // 10. Rebuild team-adjusted values for all 12 teams
   const teamRebuildResults: { team_id: string; ok: boolean; error?: string }[] = [];
   for (let i = 1; i <= 12; i++) {
@@ -474,6 +486,7 @@ export async function GET(request: NextRequest) {
     pick_101_by_source: pick101BySource,
     distinct_players: distinctPlayerIds.size,
     scoring_factors_computed: scoringFactorCount,
+    te_ramp_updated: teRampUpdated,
     team_rebuilds: teamRebuildResults,
   });
 }
