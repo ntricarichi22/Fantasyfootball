@@ -4,7 +4,6 @@ import {
   useState, useEffect, useMemo, useCallback, useRef,
   type DragEvent as RDragEvent,
   type TouchEvent as RTouchEvent,
-  type ReactNode,
 } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
@@ -185,10 +184,14 @@ function PlayerCard({
           <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, color: COLORS.muted, border: `1.5px solid ${COLORS.muted}`, borderRadius: 4, padding: "2px 5px", flexShrink: 0 }}>FA</span>
         )}
       </div>
-      {/* Fixed-height text zone so every card (and its color block) lines up. */}
+      {/* Fixed-height text zone so every card (and its color block) lines up.
+          The name bottom-anchors in its slot: a one-line name leaves its slack
+          ABOVE (below the numeral row) and always sits flush on the details. */}
       <div style={{ padding: "5px 10px 8px" }}>
-        <div style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: COLORS.ink, lineHeight: 1.15, height: 32, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{player.name}</div>
-        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: COLORS.mutedDark, marginTop: 2, lineHeight: 1.3, height: 26, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
+        <div style={{ height: 32, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+          <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: COLORS.ink, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{player.name}</span>
+        </div>
+        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: COLORS.mutedDark, lineHeight: 1.3, height: 26, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
       </div>
       <div style={{ background: color.main, height: 122, position: "relative", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
         {imgOk ? (
@@ -246,32 +249,6 @@ function TierDropZone({
         {empty ? "DROP PLAYERS HERE" : "DROP HERE"}
       </div>
     </div>
-  );
-}
-
-function ChipButton({ active, onClick, children }: { active: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        background: active ? COLORS.ink : COLORS.paper,
-        color: active ? COLORS.paper : COLORS.ink,
-        border: `3px solid ${COLORS.ink}`,
-        padding: "0 13px",
-        height: 40,
-        display: "flex",
-        alignItems: "center",
-        fontFamily: FH,
-        fontWeight: 800,
-        fontSize: 11,
-        letterSpacing: "0.14em",
-        cursor: "pointer",
-        textTransform: "uppercase",
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -760,18 +737,19 @@ export function BigBoard() {
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 22 }}>
-          <div style={{
-            flex: 1,
-            minWidth: 180,
-            background: COLORS.paper,
-            border: `3px solid ${COLORS.ink}`,
-            display: "flex",
-            alignItems: "center",
-            padding: "0 12px",
-            height: 40,
-          }}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={COLORS.ink} strokeWidth="2.5" strokeLinecap="round">
+        {/* Scoreboard strip: one slim ink ticker — search left, position tabs
+            with a gold active notch, MY GUYS toggle, then the two actions. */}
+        <div style={{
+          display: "flex",
+          alignItems: "stretch",
+          background: COLORS.ink,
+          borderRadius: 8,
+          overflowX: "auto",
+          height: 38,
+          marginBottom: 22,
+        }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 13px", minWidth: 150, flex: 1 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b9ab8d" strokeWidth="2.5" strokeLinecap="round">
               <circle cx="11" cy="11" r="7" />
               <line x1="16.5" y1="16.5" x2="22" y2="22" />
             </svg>
@@ -786,102 +764,109 @@ export function BigBoard() {
                 outline: "none",
                 background: "transparent",
                 fontFamily: F,
-                fontSize: 14,
-                color: COLORS.ink,
-                padding: "8px",
-                minWidth: 0,
+                fontSize: 12.5,
+                color: COLORS.paper,
+                minWidth: 60,
               }}
             />
-          </div>
-
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <ChipButton active={positionFilter === "ALL"} onClick={() => setPositionFilter("ALL")}>All</ChipButton>
-            {POSITIONS.map((p) => (
-              <ChipButton key={p} active={positionFilter === p} onClick={() => setPositionFilter(p)}>{p}</ChipButton>
-            ))}
-          </div>
-
+          </span>
+          {(["ALL", ...POSITIONS] as const).map((p) => {
+            const active = positionFilter === p;
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setPositionFilter(p)}
+                style={{
+                  border: "none",
+                  background: active ? COLORS.yellow : "transparent",
+                  color: active ? COLORS.ink : "#8a8272",
+                  fontFamily: FB,
+                  fontSize: 11,
+                  letterSpacing: 1,
+                  padding: "0 13px",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                {p}
+              </button>
+            );
+          })}
           <button
             type="button"
             onClick={() => setStarredOnly((v) => !v)}
             style={{
-              background: starredOnly ? COLORS.ink : COLORS.paper,
-              color: starredOnly ? COLORS.paper : COLORS.ink,
-              border: `3px solid ${COLORS.ink}`,
+              border: "none",
+              borderLeft: "1px solid #3a362e",
+              background: starredOnly ? COLORS.yellow : "transparent",
+              color: starredOnly ? COLORS.ink : "#8a8272",
+              fontFamily: FB,
+              fontSize: 11,
+              letterSpacing: 1,
               padding: "0 13px",
-              height: 40,
               display: "flex",
               alignItems: "center",
-              gap: 7,
-              fontFamily: FH,
-              fontWeight: 800,
-              fontSize: 11,
-              letterSpacing: "0.14em",
+              gap: 6,
               cursor: "pointer",
-              textTransform: "uppercase",
+              flexShrink: 0,
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill={starredOnly ? COLORS.yellow : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill={starredOnly ? COLORS.ink : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
               <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
             </svg>
-            My guys
+            MY GUYS
           </button>
-
           <button
             type="button"
             onClick={suggestTiers}
             disabled={suggesting}
             title="Re-cut tiers where CFC value clearly drops"
             style={{
-              background: COLORS.yellow,
-              color: COLORS.ink,
-              border: `3px solid ${COLORS.ink}`,
-              boxShadow: `3px 3px 0 ${COLORS.ink}`,
-              padding: "0 15px",
-              height: 40,
-              fontFamily: FH,
-              fontWeight: 800,
+              border: "none",
+              borderLeft: "1px solid #3a362e",
+              background: "#2c2820",
+              color: COLORS.yellow,
+              fontFamily: FB,
               fontSize: 11,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
+              letterSpacing: 1,
+              padding: "0 13px",
               display: "flex",
               alignItems: "center",
-              gap: 7,
+              gap: 6,
               cursor: suggesting ? "wait" : "pointer",
               opacity: suggesting ? 0.6 : 1,
+              flexShrink: 0,
             }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={COLORS.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" />
             </svg>
-            {suggesting ? "Cutting…" : "Suggest tiers"}
+            {suggesting ? "CUTTING…" : "SUGGEST"}
           </button>
-
           <button
             type="button"
             onClick={addTier}
+            title="Add tier"
             style={{
+              border: "none",
               background: COLORS.blue,
               color: COLORS.paper,
-              border: `3px solid ${COLORS.ink}`,
-              boxShadow: `3px 3px 0 ${COLORS.ink}`,
-              padding: "0 15px",
-              height: 40,
-              fontFamily: FH,
-              fontWeight: 800,
+              fontFamily: FB,
               fontSize: 11,
-              letterSpacing: "0.14em",
-              textTransform: "uppercase",
+              letterSpacing: 1,
+              padding: "0 13px",
               display: "flex",
               alignItems: "center",
-              gap: 7,
+              gap: 6,
               cursor: "pointer",
+              flexShrink: 0,
             }}
           >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={COLORS.paper} strokeWidth="3" strokeLinecap="round">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
               <path d="M12 5v14M5 12h14" />
             </svg>
-            Add tier
+            TIER
           </button>
         </div>
 
