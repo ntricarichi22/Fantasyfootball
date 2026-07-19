@@ -1,23 +1,21 @@
 // Smooth TE position multiplier — replaces the DB rebuild's 4-step TE ladder
-// (1.0 / 0.85 / 0.7 / 0.5 with cliffs at $250/$150/$100 composite) with a
-// piecewise-linear ramp through the same levels, so a $2 market difference can
-// never swing a TE's value by 20 points. Runs as a post-pass right after
-// cfc_rebuild_value_layers() and before the per-team rebuilds, so every
-// downstream layer inherits the smoothed base.
+// (1.0 / 0.85 / 0.7 / 0.5 with cliffs at $250/$150/$100 composite). Runs as a
+// post-pass right after cfc_rebuild_value_layers() and before the per-team
+// rebuilds, so every downstream layer inherits the smoothed base.
 //
-// Anchors sit at the midpoints of the old tiers — same overall discount depth,
-// no cliffs. League rationale: no dedicated TE slot (TEs fight WR/RB for flex),
-// so the market's TE-slot scarcity premium doesn't transfer here.
+// Calibration (owner call, 2026-07-19): a flat 10% haircut that fades out at
+// the top — ×0.9 for every TE under $150 composite, linear to ×1.0 at $250+.
+// League rationale: no dedicated TE slot (TEs fight WR/RB for flex), so a mild
+// across-the-board discount; elite TEs (Bowers tier) are priced fairly by the
+// market already and keep full value.
 
 type SupabaseAdmin = NonNullable<
   ReturnType<typeof import("@/infrastructure/supabase/admin").getSupabaseAdminClient>["client"]
 >;
 
 const TE_RAMP: Array<{ comp: number; mult: number }> = [
-  { comp: 70, mult: 0.5 },
-  { comp: 125, mult: 0.7 },
-  { comp: 200, mult: 0.85 },
-  { comp: 275, mult: 1.0 },
+  { comp: 150, mult: 0.9 },
+  { comp: 250, mult: 1.0 },
 ];
 
 export function teRampMultiplier(composite: number): number {
