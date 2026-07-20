@@ -95,9 +95,11 @@ const sortPicks = (a: PickAsset, b: PickAsset) => {
 
 const SA_CSS = `
 .sa-binder{margin:0;box-shadow:4px 4px 0 #1A1A1A;}
-.sa-content{padding:14px 14px 14px 52px;}
-.sa-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
-.sa-slot{border:1.5px dashed #BFB29A;border-radius:10px;padding:9px;background:rgba(255,255,255,0.45);min-height:344px;display:flex;flex-direction:column;}
+.sa-content{padding:14px 40px 14px 52px;}
+.sa-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:1.5px dashed #BFB29A;border-radius:10px;overflow:hidden;}
+.sa-slot{border-right:1.5px dashed #BFB29A;border-bottom:1.5px dashed #BFB29A;padding:10px;background:rgba(255,255,255,0.45);min-height:344px;display:flex;flex-direction:column;}
+.sa-slot:nth-child(4n){border-right:none;}
+.sa-slot:nth-last-child(-n+4){border-bottom:none;}
 .sa-tabs{position:absolute;right:-26px;top:30px;display:flex;flex-direction:column;gap:8px;}
 .sa-tab{writing-mode:vertical-rl;text-orientation:mixed;height:64px;white-space:nowrap;border:2px solid #1A1A1A;border-left:none;border-radius:0 6px 6px 0;box-shadow:2px 2px 0 #1A1A1A;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0.08em;padding:0 6px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
 @media (max-width:700px){
@@ -106,6 +108,10 @@ const SA_CSS = `
   .sa-content{padding:14px 14px 92px;}
   .sa-grid{grid-template-columns:repeat(2,1fr);}
   .sa-slot{min-height:300px;}
+  .sa-slot:nth-child(4n){border-right:1.5px dashed #BFB29A;}
+  .sa-slot:nth-child(2n){border-right:none;}
+  .sa-slot:nth-last-child(-n+4){border-bottom:1.5px dashed #BFB29A;}
+  .sa-slot:nth-last-child(-n+2){border-bottom:none;}
   .sa-tabs{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;gap:0;z-index:50;background:#FEFCF9;border-top:3px solid #1A1A1A;}
   .sa-tab{writing-mode:horizontal-tb;height:auto;flex:1;border:none;border-right:2px solid #1A1A1A;border-radius:0;box-shadow:none;padding:14px 4px;text-align:center;letter-spacing:0.06em;font-size:12px;}
   .sa-tab:last-child{border-right:none;}

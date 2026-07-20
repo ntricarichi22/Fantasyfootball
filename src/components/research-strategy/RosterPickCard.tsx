@@ -68,11 +68,14 @@ export default function RosterPickCard({
         </span>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 12px", borderTop: `2px solid ${INK}`, background: avail.fill, color: avail.text }}>
-        <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", whiteSpace: "nowrap" }}>{avail.label}</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 12px", borderTop: `2px solid ${INK}` }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <span style={{ width: 9, height: 9, borderRadius: "50%", background: avail.fill, border: `1.5px solid ${INK}`, flexShrink: 0 }} />
+          <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 800, letterSpacing: "0.12em", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{avail.label}</span>
+        </span>
         <span style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
-          <span style={{ fontFamily: FM, fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>{formatDollars(value)}</span>
-          <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 17, fontWeight: 700, lineHeight: 1 }}>{"›"}</span>
+          <span style={{ fontFamily: FM, fontSize: 15, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(value)}</span>
+          <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 17, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
         </span>
       </div>
     </div>
