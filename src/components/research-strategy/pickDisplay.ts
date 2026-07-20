@@ -24,10 +24,6 @@ const ORDINAL: Record<number, string> = { 1: "1ST", 2: "2ND", 3: "3RD" };
 export const formatRoundOrdinal = (round: number): string => ORDINAL[round] ?? `${round}TH`;
 const ordinalRound = formatRoundOrdinal;
 
-const ROUND_WORD: Record<number, string> = { 1: "First", 2: "Second", 3: "Third", 4: "Fourth", 5: "Fifth" };
-// "First Rounder" for known rounds; "Round 6 Pick" beyond the word map.
-export const formatRoundName = (round: number): string =>
-  ROUND_WORD[round] ? `${ROUND_WORD[round]} Rounder` : `Round ${round} Pick`;
 
 // Known current-year slot -> "2.04"; otherwise the ordinal round -> "2ND".
 export const formatPickBigText = (parsed: ParsedPick): string => {

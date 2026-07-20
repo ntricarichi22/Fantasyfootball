@@ -40,7 +40,6 @@ type LevelFilter = "ALL" | AttachmentLevel;
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
-const FB = "'Bowlby One SC', var(--font-headline, 'Syne', sans-serif)";
 
 const COLORS = {
   ink: "#1A1A1A",
@@ -382,13 +381,6 @@ export default function SetAvailabilityPage() {
   const openRow = rows.find((r) => r.sleeper_player_id === openPlayerId) ?? null;
   const openPick = picks.find((p) => p.key === openPickKey) ?? null;
 
-  const tab = TABS.find((t) => t.key === activeTab) ?? TABS[0];
-  const railNote = activeTab === "PICKS" ? "YEAR · ROUND · SLOT" : "SORTED BY VALUE";
-  const railCount =
-    activeTab === "PICKS"
-      ? `${visiblePicks.length} IN THE VAULT`
-      : `${visibleRows.length} ON ROSTER`;
-
   return (
     <div style={{ minHeight: "100vh", background: COLORS.cream, color: COLORS.ink, paddingBottom: 60 }}>
       <style>{SA_CSS}</style>
@@ -414,7 +406,7 @@ export default function SetAvailabilityPage() {
 
         {/* Scoreboard strip: search left, then availability filters — positions
             already live on the binder tabs, so the ticker filters by level. */}
-        <div style={{ display: "flex", alignItems: "stretch", background: COLORS.ink, borderRadius: 8, overflowX: "auto", height: 38, marginBottom: 22 }}>
+        <div style={{ display: "flex", alignItems: "stretch", background: COLORS.ink, borderRadius: 8, overflowX: "auto", height: 38, marginBottom: 14 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 13px", minWidth: 150, flex: 1 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b9ab8d" strokeWidth="2.5" strokeLinecap="round">
               <circle cx="11" cy="11" r="7" />
@@ -502,20 +494,6 @@ export default function SetAvailabilityPage() {
           ))}
 
           <div className="sa-content" style={{ flex: 1, minHeight: 440 }}>
-            {/* Rail header: the binder page reads like a tier on the big board */}
-            <div style={{ display: "flex", alignItems: "stretch", border: `3px solid ${COLORS.ink}`, borderRadius: 8, overflow: "hidden", background: COLORS.paper, marginBottom: 12 }}>
-              <span style={{ background: tab.color, color: tab.on, padding: "7px 14px", fontFamily: FB, fontSize: 14, borderRight: `3px solid ${COLORS.ink}`, display: "flex", alignItems: "center", whiteSpace: "nowrap" }}>
-                {tab.label}
-              </span>
-              <span style={{ display: "flex", alignItems: "center", padding: "0 12px", fontFamily: FM, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", color: COLORS.muted, fontStyle: "italic", whiteSpace: "nowrap" }}>
-                {railNote}
-              </span>
-              <span style={{ flex: 1 }} />
-              <span style={{ display: "flex", alignItems: "center", padding: "0 12px", fontFamily: F, fontSize: 11, fontWeight: 700, color: COLORS.muted, letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
-                {railCount}
-              </span>
-            </div>
-
             {loading && rows.length === 0 ? (
               <p style={{ fontFamily: FM, fontSize: 12, color: COLORS.muted }}>
                 Loading roster values&hellip;

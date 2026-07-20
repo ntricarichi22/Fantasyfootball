@@ -82,9 +82,6 @@ export default function RosterPlayerCard({
       </div>
 
       <div style={{ background: avail.fill, flex: 1, minHeight: 170, position: "relative", overflow: "hidden" }}>
-        <span style={{ position: "absolute", top: 8, left: 10, zIndex: 1, fontFamily: FM, fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", color: avail.text }}>
-          {avail.label}
-        </span>
         {imgOk ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -101,9 +98,12 @@ export default function RosterPlayerCard({
         )}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderTop: `2px solid ${INK}` }}>
-        <span style={{ fontFamily: FM, fontSize: 15, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(finalValue)}</span>
-        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 17, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "9px 12px", borderTop: `2px solid ${INK}`, background: avail.fill, color: avail.text }}>
+        <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", whiteSpace: "nowrap" }}>{avail.label}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 7, flexShrink: 0 }}>
+          <span style={{ fontFamily: FM, fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>{formatDollars(finalValue)}</span>
+          <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 17, fontWeight: 700, lineHeight: 1 }}>{"›"}</span>
+        </span>
       </div>
     </div>
   );
