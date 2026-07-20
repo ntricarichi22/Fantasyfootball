@@ -31,9 +31,10 @@ type RosterPlayerCardProps = {
   onOpen: () => void;
 };
 
-// Ringer poster card, big-board proportions: rank numeral + NFL logo up top,
-// name bottom-anchored in a fixed slot, then the headshot duotoned in the
-// AVAILABILITY color (the color IS the availability), price in a slim footer.
+// Ringer poster card sized for the binder's 4-up sleeve page: rank numeral +
+// NFL logo up top, name bottom-anchored in a fixed slot, then the headshot
+// duotoned in the AVAILABILITY color (the color IS the availability). The
+// photo block flexes so the card fills its sleeve pocket top to bottom.
 export default function RosterPlayerCard({
   rank,
   playerName,
@@ -61,28 +62,29 @@ export default function RosterPlayerCard({
         display: "flex",
         flexDirection: "column",
         cursor: "pointer",
+        height: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "8px 10px 0", height: 34, boxSizing: "content-box" }}>
-        <span style={{ fontFamily: FB, fontSize: 27, color: INK, lineHeight: 0.95 }}>{rank}</span>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px 0", height: 40, boxSizing: "content-box" }}>
+        <span style={{ fontFamily: FB, fontSize: 32, color: INK, lineHeight: 0.95 }}>{rank}</span>
         <span style={{ flex: 1 }} />
         {nflTeam ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={nflLogoUrl(nflTeam)} alt={nflTeam} style={{ width: 28, height: 28, objectFit: "contain", flexShrink: 0 }} />
+          <img src={nflLogoUrl(nflTeam)} alt={nflTeam} style={{ width: 32, height: 32, objectFit: "contain", flexShrink: 0 }} />
         ) : (
-          <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, color: MUTED, border: `1.5px solid ${MUTED}`, borderRadius: 4, padding: "2px 5px", flexShrink: 0 }}>FA</span>
+          <span style={{ fontFamily: FM, fontSize: 10, fontWeight: 700, color: MUTED, border: `1.5px solid ${MUTED}`, borderRadius: 4, padding: "3px 6px", flexShrink: 0 }}>FA</span>
         )}
       </div>
 
-      <div style={{ padding: "5px 10px 8px" }}>
-        <div style={{ height: 32, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-          <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: INK, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{playerName}</span>
+      <div style={{ padding: "6px 12px 10px" }}>
+        <div style={{ height: 38, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+          <span style={{ fontFamily: F, fontSize: 16, fontWeight: 800, color: INK, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{playerName}</span>
         </div>
-        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 26, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
+        <div style={{ fontFamily: F, fontSize: 11, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 29, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
       </div>
 
-      <div style={{ background: avail.fill, height: 122, position: "relative", display: "flex", alignItems: "flex-end", justifyContent: "center" }}>
-        <span style={{ position: "absolute", top: 6, left: 8, zIndex: 1, fontFamily: FM, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", color: avail.text }}>
+      <div style={{ background: avail.fill, flex: 1, minHeight: 170, position: "relative", overflow: "hidden" }}>
+        <span style={{ position: "absolute", top: 8, left: 10, zIndex: 1, fontFamily: FM, fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", color: avail.text }}>
           {avail.label}
         </span>
         {imgOk ? (
@@ -91,19 +93,19 @@ export default function RosterPlayerCard({
             src={photoUrl}
             alt={playerName}
             onError={() => setImgOk(false)}
-            style={{ width: "100%", height: 122, objectFit: "cover", objectPosition: "center top", display: "block", filter: "grayscale(100%)", mixBlendMode: "multiply" }}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center top", display: "block", filter: "grayscale(100%)", mixBlendMode: "multiply" }}
           />
         ) : (
-          <svg viewBox="0 0 80 62" style={{ width: "76%" }} aria-hidden="true">
+          <svg viewBox="0 0 80 62" style={{ position: "absolute", left: "12%", bottom: 0, width: "76%" }} aria-hidden="true">
             <circle cx="40" cy="20" r="15" fill={avail.dark} />
             <path d="M8 62 Q12 38 40 38 Q68 38 72 62 Z" fill={avail.dark} />
           </svg>
         )}
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderTop: `2px solid ${INK}` }}>
-        <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(finalValue)}</span>
-        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 15, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderTop: `2px solid ${INK}` }}>
+        <span style={{ fontFamily: FM, fontSize: 15, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(finalValue)}</span>
+        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 17, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
       </div>
     </div>
   );

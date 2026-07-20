@@ -33,7 +33,8 @@ type RosterPickCardProps = {
 
 // Same Ringer poster card as players: the pick number takes the rank-numeral
 // slot, the owner tag takes the logo slot, and the round ordinal sits in the
-// availability-colored block as the art (no hero images).
+// availability-colored block as the art (no hero images). The color block
+// flexes so the card fills its sleeve pocket top to bottom.
 export default function RosterPickCard({
   parsed,
   attachment,
@@ -57,35 +58,36 @@ export default function RosterPickCard({
         display: "flex",
         flexDirection: "column",
         cursor: "pointer",
+        height: "100%",
       }}
     >
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 6, padding: "8px 10px 0", height: 34, boxSizing: "content-box" }}>
-        <span style={{ fontFamily: FB, fontSize: 24, color: INK, lineHeight: 1.05 }}>{bigText}</span>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "10px 12px 0", height: 40, boxSizing: "content-box" }}>
+        <span style={{ fontFamily: FB, fontSize: 28, color: INK, lineHeight: 1.05 }}>{bigText}</span>
         <span style={{ flex: 1 }} />
-        <span style={{ fontFamily: FM, fontSize: 8, fontWeight: 800, color: INK, border: `1.5px solid ${INK}`, borderRadius: 4, padding: "2px 5px", flexShrink: 0, letterSpacing: "0.04em", whiteSpace: "nowrap", maxWidth: 84, overflow: "hidden", textOverflow: "ellipsis" }}>
+        <span style={{ fontFamily: FM, fontSize: 9, fontWeight: 800, color: INK, border: `1.5px solid ${INK}`, borderRadius: 4, padding: "3px 6px", flexShrink: 0, letterSpacing: "0.04em", whiteSpace: "nowrap", maxWidth: 96, overflow: "hidden", textOverflow: "ellipsis" }}>
           {ownerChip(ownerSuffix)}
         </span>
       </div>
 
-      <div style={{ padding: "5px 10px 8px" }}>
-        <div style={{ height: 32, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-          <span style={{ fontFamily: F, fontSize: 14, fontWeight: 800, color: INK, lineHeight: 1.15 }}>{roundName}</span>
+      <div style={{ padding: "6px 12px 10px" }}>
+        <div style={{ height: 38, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
+          <span style={{ fontFamily: F, fontSize: 16, fontWeight: 800, color: INK, lineHeight: 1.15 }}>{roundName}</span>
         </div>
-        <div style={{ fontFamily: F, fontSize: 10, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 26, overflow: "hidden" }}>{sub}</div>
+        <div style={{ fontFamily: F, fontSize: 11, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 29, overflow: "hidden" }}>{sub}</div>
       </div>
 
-      <div style={{ background: avail.fill, height: 122, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ position: "absolute", top: 6, left: 8, fontFamily: FM, fontSize: 8, fontWeight: 800, letterSpacing: "0.14em", color: avail.text }}>
+      <div style={{ background: avail.fill, flex: 1, minHeight: 170, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <span style={{ position: "absolute", top: 8, left: 10, fontFamily: FM, fontSize: 9, fontWeight: 800, letterSpacing: "0.14em", color: avail.text }}>
           {avail.label}
         </span>
-        <span style={{ fontFamily: FB, fontSize: 40, color: avail.dark, lineHeight: 1 }}>
+        <span style={{ fontFamily: FB, fontSize: 52, color: avail.dark, lineHeight: 1 }}>
           {formatRoundOrdinal(parsed.round)}
         </span>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderTop: `2px solid ${INK}` }}>
-        <span style={{ fontFamily: FM, fontSize: 13, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(value)}</span>
-        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 15, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 12px", borderTop: `2px solid ${INK}` }}>
+        <span style={{ fontFamily: FM, fontSize: 15, fontWeight: 800, color: INK, letterSpacing: "0.02em" }}>{formatDollars(value)}</span>
+        <span style={{ fontFamily: "system-ui, sans-serif", fontSize: 17, fontWeight: 700, color: INK, lineHeight: 1 }}>{"›"}</span>
       </div>
     </div>
   );

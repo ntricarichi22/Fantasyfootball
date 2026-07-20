@@ -95,22 +95,32 @@ const sortPicks = (a: PickAsset, b: PickAsset) => {
 };
 
 const SA_CSS = `
-.sa-binder{margin:0 46px 0 40px;box-shadow:4px 4px 0 #1A1A1A;}
+.sa-binder{margin:0 30px 0 40px;box-shadow:4px 4px 0 #1A1A1A;}
 .sa-content{padding:14px;}
-.sa-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;}
-.sa-tabs{position:absolute;right:-34px;top:40px;display:flex;flex-direction:column;gap:8px;}
-.sa-tab{writing-mode:vertical-rl;text-orientation:mixed;height:140px;border:3px solid #1A1A1A;border-left:none;border-radius:0 8px 8px 0;box-shadow:3px 3px 0 #1A1A1A;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:800;letter-spacing:0.1em;padding:14px 9px;cursor:pointer;}
+.sa-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+.sa-slot{border:1.5px dashed #BFB29A;border-radius:10px;padding:9px;background:rgba(255,255,255,0.45);min-height:344px;display:flex;flex-direction:column;}
+.sa-tabs{position:absolute;right:-24px;top:34px;display:flex;flex-direction:column;gap:6px;}
+.sa-tab{writing-mode:vertical-rl;text-orientation:mixed;height:118px;white-space:nowrap;border:2px solid #1A1A1A;border-left:none;border-radius:0 6px 6px 0;box-shadow:2px 2px 0 #1A1A1A;font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:800;letter-spacing:0.08em;padding:10px 6px;cursor:pointer;}
 .sa-tab-short{display:none;}
 @media (max-width:700px){
   .sa-binder{margin:0;box-shadow:none;}
   .sa-hole{display:none;}
   .sa-content{padding:14px 14px 92px;}
+  .sa-grid{grid-template-columns:repeat(2,1fr);}
+  .sa-slot{min-height:300px;}
   .sa-tabs{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;gap:0;z-index:50;background:#FEFCF9;border-top:3px solid #1A1A1A;}
   .sa-tab{writing-mode:horizontal-tb;height:auto;flex:1;border:none;border-right:2px solid #1A1A1A;border-radius:0;box-shadow:none;padding:14px 4px;text-align:center;letter-spacing:0.06em;font-size:12px;}
   .sa-tab:last-child{border-right:none;}
   .sa-tab-full{display:none;}
   .sa-tab-short{display:inline;}
 }`;
+
+// Pad the sleeve page out with empty pockets: always at least two full rows,
+// and never a ragged last row (a real 9-pocket sheet has every slot stitched).
+const emptySlotCount = (filled: number, perRow = 4, minRows = 2): number => {
+  const total = Math.max(minRows * perRow, Math.ceil(filled / perRow) * perRow);
+  return total - filled;
+};
 
 export default function SetAvailabilityPage() {
   const { rosterId = "" } = readStoredTeam();
@@ -521,14 +531,18 @@ export default function SetAvailabilityPage() {
               ) : (
                 <div className="sa-grid">
                   {visiblePicks.map((pick) => (
-                    <RosterPickCard
-                      key={pick.key}
-                      parsed={pick.parsed}
-                      attachment={getAttachment(pick.key)}
-                      value={pick.value}
-                      ownerSuffix={pick.ownerSuffix}
-                      onOpen={() => setOpenPickKey(pick.key)}
-                    />
+                    <div key={pick.key} className="sa-slot">
+                      <RosterPickCard
+                        parsed={pick.parsed}
+                        attachment={getAttachment(pick.key)}
+                        value={pick.value}
+                        ownerSuffix={pick.ownerSuffix}
+                        onOpen={() => setOpenPickKey(pick.key)}
+                      />
+                    </div>
+                  ))}
+                  {Array.from({ length: emptySlotCount(visiblePicks.length) }).map((_, i) => (
+                    <div key={`empty-${i}`} className="sa-slot" aria-hidden />
                   ))}
                 </div>
               )
@@ -539,17 +553,21 @@ export default function SetAvailabilityPage() {
             ) : (
               <div className="sa-grid">
                 {visibleRows.map((row, i) => (
-                  <RosterPlayerCard
-                    key={row.sleeper_player_id}
-                    rank={i + 1}
-                    playerName={row.player_name ?? row.sleeper_player_id}
-                    position={row.position}
-                    nflTeam={row.nfl_team}
-                    photoUrl={headshotUrl(row.sleeper_player_id)}
-                    attachment={getAttachment(row.sleeper_player_id)}
-                    finalValue={priceOf(row)}
-                    onOpen={() => setOpenPlayerId(row.sleeper_player_id)}
-                  />
+                  <div key={row.sleeper_player_id} className="sa-slot">
+                    <RosterPlayerCard
+                      rank={i + 1}
+                      playerName={row.player_name ?? row.sleeper_player_id}
+                      position={row.position}
+                      nflTeam={row.nfl_team}
+                      photoUrl={headshotUrl(row.sleeper_player_id)}
+                      attachment={getAttachment(row.sleeper_player_id)}
+                      finalValue={priceOf(row)}
+                      onOpen={() => setOpenPlayerId(row.sleeper_player_id)}
+                    />
+                  </div>
+                ))}
+                {Array.from({ length: emptySlotCount(visibleRows.length) }).map((_, i) => (
+                  <div key={`empty-${i}`} className="sa-slot" aria-hidden />
                 ))}
               </div>
             )}
