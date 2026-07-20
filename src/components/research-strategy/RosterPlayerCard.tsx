@@ -49,7 +49,6 @@ export default function RosterPlayerCard({
   const avail = AVAILABILITY_CONFIG[attachment];
   const positionLabel = position ? POSITION_FULL_NAME[position] ?? position : "";
   const teamLabel = nflTeam ? NFL_TEAM_FULL_NAME[nflTeam] ?? nflTeam : "Free agent";
-  const sub = [positionLabel, teamLabel].filter(Boolean).join(" · ");
 
   return (
     <div
@@ -77,10 +76,9 @@ export default function RosterPlayerCard({
       </div>
 
       <div style={{ padding: "6px 12px 10px" }}>
-        <div style={{ height: 38, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-          <span style={{ fontFamily: F, fontSize: 16, fontWeight: 800, color: INK, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{playerName}</span>
-        </div>
-        <div style={{ fontFamily: F, fontSize: 11, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 29, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{sub}</div>
+        <div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: INK, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{playerName}</div>
+        <div style={{ fontFamily: F, fontSize: 12, fontWeight: 600, color: MUTED_DARK, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{positionLabel}</div>
+        <div style={{ fontFamily: F, fontSize: 12, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teamLabel}</div>
       </div>
 
       <div style={{ background: avail.fill, flex: 1, minHeight: 170, position: "relative", overflow: "hidden" }}>

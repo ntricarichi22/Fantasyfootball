@@ -45,7 +45,6 @@ export default function RosterPickCard({
   const avail = AVAILABILITY_CONFIG[attachment];
   const bigText = formatPickBigText(parsed);
   const roundName = formatRoundName(parsed.round);
-  const sub = `${parsed.year} Draft · Round ${parsed.round}`;
 
   return (
     <div
@@ -70,10 +69,9 @@ export default function RosterPickCard({
       </div>
 
       <div style={{ padding: "6px 12px 10px" }}>
-        <div style={{ height: 38, display: "flex", alignItems: "flex-end", overflow: "hidden" }}>
-          <span style={{ fontFamily: F, fontSize: 16, fontWeight: 800, color: INK, lineHeight: 1.15 }}>{roundName}</span>
-        </div>
-        <div style={{ fontFamily: F, fontSize: 11, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.3, height: 29, overflow: "hidden" }}>{sub}</div>
+        <div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: INK, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{roundName}</div>
+        <div style={{ fontFamily: F, fontSize: 12, fontWeight: 600, color: MUTED_DARK, lineHeight: 1.4, whiteSpace: "nowrap" }}>{parsed.year} Draft</div>
+        <div style={{ fontFamily: F, fontSize: 12, fontWeight: 500, color: MUTED_DARK, lineHeight: 1.4, whiteSpace: "nowrap" }}>Round {parsed.round}</div>
       </div>
 
       <div style={{ background: avail.fill, flex: 1, minHeight: 170, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
