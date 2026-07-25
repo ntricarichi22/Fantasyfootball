@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname } from "@/shared/league-data/nicknames";
@@ -204,6 +204,11 @@ export function MockDraftView() {
 
   // ── control panel ────────────────────────────────────────────────────────────
   function pauseResume() { setPhase((p) => (p === "running" ? "paused" : "running")); }
+  // Mobile speed chip: one tap cycles Relaxed → Steady → Quick.
+  function cycleSpeed() {
+    const idx = SPEEDS.findIndex((s) => s.seconds === simSeconds);
+    setSimSeconds(SPEEDS[(idx + 1) % SPEEDS.length].seconds);
+  }
   function runScenario(s: Scenario) {
     setScnMenuOpen(false);
     const qp = new URLSearchParams({ scenario: s, speed: String(simSeconds), control: control ? [...control].join(",") : "" });
@@ -358,6 +363,17 @@ export function MockDraftView() {
     if (Math.random() < 0.55) fireInbound();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, busy, tradeOpen, yourTurn, isComplete, ourIdx, revealed]);
+
+  // Mobile pick strip: keep the on-clock card centered as the draft advances.
+  const stripRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isMobile) return;
+    const strip = stripRef.current;
+    if (!strip) return;
+    const el = strip.querySelector<HTMLElement>(`[data-pick-idx="${Math.min(revealed, board.length - 1)}"]`);
+    if (!el) return;
+    strip.scrollTo({ left: Math.max(0, el.offsetLeft - (strip.clientWidth - el.clientWidth) / 2), behavior: "smooth" });
+  }, [isMobile, revealed, board.length]);
 
   // Who the director thinks survives to the NEW slot on a trade offer — with
   // big-board rank + a steal flag (ranked ahead of the slot).
@@ -626,12 +642,6 @@ export function MockDraftView() {
   .md-root{height:auto !important;min-height:100dvh;overflow:visible !important;}
   .md-wrap{padding:8px 8px 28px !important;}
   .md-panel{padding:8px !important;box-shadow:5px 5px 0 ${BINK} !important;}
-  .md-board{grid-template-columns:repeat(2,1fr) !important;grid-template-rows:repeat(6,auto) !important;gap:4px !important;}
-  .md-board-head{flex-wrap:wrap;row-gap:6px;padding:6px 10px !important;}
-  .md-board-crest{display:none !important;}
-  .md-board-title{font-size:16px !important;letter-spacing:2px !important;}
-  .md-board-pad{padding:8px !important;}
-  .md-slot{height:28px !important;}
   .md-war{flex-direction:column !important;}
   .md-war > *{flex:none !important;}
   .md-pool{border-right:none !important;border-bottom:1.5px solid ${HLINE};}
@@ -648,7 +658,10 @@ export function MockDraftView() {
             <div key={v + h} style={{ position: "absolute", [v]: 7, [h]: 7, width: 9, height: 9, borderRadius: "50%", background: BINK, boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.25)", zIndex: 5 }} />
           ))}
 
-          {/* ── CONTROL PANEL: the live-sim console (own emphasis, above the board) ── */}
+          {/* ── CONTROL PANEL: the live-sim console (own emphasis, above the board).
+              On mobile the running-state controls live inside the on-the-clock
+              hero card instead, so this panel only renders for draft-complete. ── */}
+          {(!isMobile || isComplete) && (
           <div style={{ position: "relative", background: FRAME, border: `2.5px solid ${BINK}`, borderRadius: 7, boxShadow: `4px 4px 0 ${BINK}`, padding: "8px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flexShrink: 0 }}>
             {isComplete && isMobile ? (
               <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 7 }}>
@@ -681,39 +694,6 @@ export function MockDraftView() {
                 </div>
                 <button onClick={() => window.location.assign(LOBBY_ROUTE)} style={consoleBtn}>Re-enter the Draft Lobby</button>
               </>
-            ) : isMobile ? (
-              /* Mobile console: two aligned rows of equal-height controls —
-                 PAUSE + speed segments, then Trigger Run + Trade. */
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 7 }}>
-                <div style={{ display: "flex", gap: 7 }}>
-                  <button onClick={pauseResume} style={{ ...consoleBtn, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, background: phase === "running" ? BROWN : GREEN, padding: "9px 14px", flexShrink: 0 }}>{phase === "running" ? "PAUSE" : "RESUME"}</button>
-                  <div style={{ flex: 1, display: "flex", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", boxShadow: `2px 2px 0 ${BINK}` }}>
-                    {SPEEDS.map((sp, i) => (
-                      <button key={sp.label} onClick={() => setSimSeconds(sp.seconds)} style={{ flex: 1, fontFamily: OSWALD, fontWeight: 700, fontSize: 10.5, letterSpacing: 0.5, padding: "9px 0", border: "none", borderRight: i < SPEEDS.length - 1 ? `2px solid ${BINK}` : "none", background: simSeconds === sp.seconds ? BROWN : FRAME, color: simSeconds === sp.seconds ? SCREAM : BINK, cursor: "pointer" }}>{sp.label}</button>
-                    ))}
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 7 }}>
-                  <div style={{ position: "relative", flex: 1, display: "flex" }}>
-                    <button onClick={() => setRunOpen((o) => !o)} disabled={yourTurn} style={{ ...consoleBtn, flex: 1, padding: "9px 0", textAlign: "center", opacity: yourTurn ? 0.5 : 1, cursor: yourTurn ? "default" : "pointer" }}>Trigger Run ▾</button>
-                    {runOpen && !yourTurn && (
-                      <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}` }}>
-                        {RUNS.map((s) => (
-                          <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ flex: 1, display: "flex", alignItems: "stretch" }}>
-                    {tradeUpNudge && !yourTurn && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src="/avatars/scouting.png" alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: `2.5px solid ${BINK}`, objectFit: "cover", marginRight: -14, position: "relative", zIndex: 2, alignSelf: "center" }} />
-                    )}
-                    <button onClick={() => openTrade(yourTurn ? "back" : "up")} style={{ flex: 1, fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: BROWN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: tradeUpNudge && !yourTurn ? "9px 0 9px 10px" : "9px 0", cursor: "pointer", animation: tradeUpNudge && !yourTurn ? "tuPulse 1.6s ease-in-out infinite" : "none" }}>{yourTurn ? "TRADE BACK" : "TRADE UP"}</button>
-                  </div>
-                </div>
-                {busy && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: ARED, textAlign: "center" }}>RE-MOCKING…</span>}
-              </div>
             ) : (
               <>
                 <button onClick={pauseResume} style={{ ...consoleBtn, fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, background: phase === "running" ? BROWN : GREEN, padding: "8px 18px" }}>{phase === "running" ? "PAUSE" : "RESUME"}</button>
@@ -747,8 +727,116 @@ export function MockDraftView() {
               </>
             )}
           </div>
+          )}
 
-          {/* ── GREEN DRAFT BOARD (results) ── */}
+          {/* ── MOBILE: on-the-clock hero + continuous swipe strip ── */}
+          {isMobile && !loading && (
+            <>
+              {!isComplete && onClock && (
+                <div style={{ background: GREEN, border: `3px solid ${BINK}`, borderRadius: 4, padding: 10, flexShrink: 0, boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.35)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                    <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: busy ? GOLD : CRED, whiteSpace: "nowrap" }}>{busy ? "RE-MOCKING…" : "ON THE CLOCK"}</span>
+                    <span style={{ display: "flex", gap: 5 }}>
+                      <button onClick={pauseResume} aria-label={phase === "running" ? "Pause" : "Resume"} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, color: BINK, cursor: "pointer", padding: 0 }}>
+                        <i className={`ti ${phase === "running" ? "ti-player-pause" : "ti-player-play"}`} style={{ fontSize: 13 }} aria-hidden="true" />
+                      </button>
+                      <button onClick={cycleSpeed} aria-label="Clock speed" style={{ height: 28, display: "flex", alignItems: "center", padding: "0 9px", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, color: BINK, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, cursor: "pointer" }}>{simSeconds}s</button>
+                      <span style={{ position: "relative", display: "flex" }}>
+                        <button onClick={() => setRunOpen((o) => !o)} disabled={yourTurn} aria-label="Trigger a positional run" style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, color: BINK, cursor: yourTurn ? "default" : "pointer", opacity: yourTurn ? 0.5 : 1, padding: 0 }}>
+                          <i className="ti ti-run" style={{ fontSize: 14 }} aria-hidden="true" />
+                        </button>
+                        {runOpen && !yourTurn && (
+                          <div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 40, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}`, minWidth: 130 }}>
+                            {RUNS.map((s) => (
+                              <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                            ))}
+                          </div>
+                        )}
+                      </span>
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
+                    <span style={{ width: 40, height: 40, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(onClock.team)}') center / cover`, flexShrink: 0 }} />
+                    <span style={{ minWidth: 0 }}>
+                      <span style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+                        <span style={{ fontFamily: ANTON, fontSize: 20, letterSpacing: 0.5, color: SCREAM, flexShrink: 0 }}>{onClock.pick}</span>
+                        <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nickOnClock}</span>
+                      </span>
+                      {yourTurn && <span style={{ display: "block", fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: GOLD, marginTop: 2 }}>YOU&rsquo;RE UP</span>}
+                    </span>
+                  </div>
+                  {!yourTurn && (
+                    <div style={{ height: 5, background: "rgba(0,0,0,0.4)", borderRadius: 3, marginTop: 9, overflow: "hidden" }}>
+                      <div style={{ height: "100%", background: CRED, width: `${Math.max(0, (seconds / simSeconds) * 100)}%`, transition: "width 1s linear" }} />
+                    </div>
+                  )}
+                  <button onClick={() => openTrade(yourTurn ? "back" : "up")} style={{ display: "block", width: "100%", marginTop: 9, fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, color: BINK, background: GOLD, border: `2px solid ${BINK}`, borderRadius: 3, padding: "10px 0", cursor: "pointer", animation: tradeUpNudge && !yourTurn ? "tuPulse 1.6s ease-in-out infinite" : "none" }}>{yourTurn ? "TRADE BACK" : "TRADE UP"}</button>
+                </div>
+              )}
+
+              <div ref={stripRef} className="cfc-hscroll" style={{ position: "relative", display: "flex", alignItems: "stretch", gap: 6, marginTop: 8, flexShrink: 0 }}>
+                {board.map((b, i) => {
+                  const divider = i > 0 && b.round !== board[i - 1].round;
+                  const filled = i < revealed;
+                  const current = i === revealed && !isComplete;
+                  const mine = isMine(b);
+                  const nameParts = (b.player ?? "").split(" ");
+                  const firstName = nameParts[0] ?? "";
+                  const lastName = nameParts.slice(1).join(" ");
+                  const nfl = b.playerId ? pool.find((p) => p.id === b.playerId)?.nflTeam ?? null : null;
+                  return (
+                    <Fragment key={b.overall}>
+                      {divider && (
+                        <div style={{ flexShrink: 0, width: 26, display: "flex", alignItems: "center", justifyContent: "center", background: BINK, borderRadius: 3 }}>
+                          <span style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 2, color: GOLD, writingMode: "vertical-rl" }}>RD {b.round}</span>
+                        </div>
+                      )}
+                      <div
+                        data-pick-idx={i}
+                        style={{
+                          flexShrink: 0,
+                          width: 104,
+                          boxSizing: "border-box",
+                          minHeight: 92,
+                          borderRadius: 3,
+                          padding: "6px 8px",
+                          position: "relative",
+                          background: filled || current ? PLACARD : "#d8cdb1",
+                          border: mine ? `2.5px solid ${ARED}` : filled || current ? `1.5px solid ${BINK}` : "1.5px dashed #57503f",
+                          opacity: filled || current ? 1 : 0.85,
+                        }}
+                      >
+                        <span style={{ position: "absolute", top: 5, right: 5, width: 20, height: 20, borderRadius: "50%", border: `1.5px solid ${BINK}`, background: `#fff url('${logoFor(b.team)}') center / cover` }} />
+                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, color: mine && !filled ? ARED : current ? ARED : META, paddingRight: 24 }}>{b.pick}{mine && !filled ? " · YOURS" : ""}</div>
+                        {filled ? (
+                          <>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: BINK, lineHeight: 1.15, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{firstName}</div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: BINK, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{lastName || " "}</div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8, color: META, marginTop: 4 }}>{b.pos ?? ""}{nfl ? ` · ${nfl}` : ""}</div>
+                          </>
+                        ) : current ? (
+                          <>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: "#857a62", lineHeight: 1.15, marginTop: 4 }}>On the</div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: "#857a62", lineHeight: 1.15 }}>clock…</div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8, color: META, marginTop: 4 }}>—</div>
+                          </>
+                        ) : (
+                          <>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, color: "#857a62", lineHeight: 1.15, marginTop: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teamNickname(b.team)}</div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, lineHeight: 1.15 }}>&nbsp;</div>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8, color: "#857a62", marginTop: 4 }}>—</div>
+                          </>
+                        )}
+                      </div>
+                    </Fragment>
+                  );
+                })}
+              </div>
+            </>
+          )}
+
+          {/* ── GREEN DRAFT BOARD (results) — desktop only; mobile uses the strip ── */}
+          {!isMobile && (
           <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)", flexShrink: 0 }}>
             <div className="md-board-head" style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
               <div className="md-board-crest" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 0.5, color: GOLD }}>CFC</span></div>
@@ -770,6 +858,7 @@ export function MockDraftView() {
               )}
             </div>
           </div>
+          )}
           {error && <div style={{ background: PLACARD, border: `2px solid ${BINK}`, padding: 10, marginTop: 13, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: ARED, flexShrink: 0 }}>{error}</div>}
 
           {/* ── WAR ROOM: player pool (2/3) + director prose (1/3) ── */}
