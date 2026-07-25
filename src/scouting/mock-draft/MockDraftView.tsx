@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname } from "@/shared/league-data/nicknames";
+import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 
 type Scenario = "standard" | "qb-run" | "rb-run" | "wr-run" | "chalk";
 type Role = "STARTER" | "IN_ROTATION" | "BACKUP";
@@ -91,6 +92,7 @@ type PickGrade = { pick: string; name: string; posTeam: string; grade: string; l
 type DraftGrades = { overall: string; overallLine: string; picks: PickGrade[] };
 
 export function MockDraftView() {
+  const isMobile = useIsMobile() === true;
   const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
   const [board, setBoard] = useState<BoardPick[]>([]);
   const [pool, setPool] = useState<PoolPlayer[]>([]);
@@ -756,7 +758,13 @@ export function MockDraftView() {
                 {/* sticky column header — same box model as the plates so the columns line up */}
                 <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", height: 30, padding: "0 4px 0 11px", flexShrink: 0 }}>
                   <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.8, color: FADE }}>PLAYER</span>
-                  {([["AGE", 40], ["OUR RANK", 66], ["PROJ. ROLE", 66], [yourTurn ? "FALLS TO NEXT" : "FALLS TO US", 66], ...(yourTurn ? [["SELECT", 66]] : [])] as [string, number][]).map(([h, w]) => (
+                  {([
+                    ["AGE", 40],
+                    [isMobile ? "RANK" : "OUR RANK", isMobile ? 46 : 66],
+                    ["PROJ. ROLE", 66],
+                    [isMobile ? "FALLS" : yourTurn ? "FALLS TO NEXT" : "FALLS TO US", isMobile ? 54 : 66],
+                    ...(yourTurn ? [["SELECT", isMobile ? 58 : 66]] : []),
+                  ] as [string, number][]).map(([h, w]) => (
                     <span key={h} className={h === "AGE" || h === "PROJ. ROLE" ? "md-col-hide" : undefined} style={{ width: w, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.4, color: FADE }}>{h}</span>
                   ))}
                 </div>
@@ -785,19 +793,23 @@ export function MockDraftView() {
                     const rank = rankById.get(p.id) ?? 0;
                     const surv = poolSurvivalById.get(p.id);
                     rows.push(
-                      <div key={p.id} style={{ display: "flex", alignItems: "center", boxSizing: "border-box", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: 34, padding: "0 4px 0 11px", flexShrink: 0 }}>
-                        <span style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "baseline", gap: 8, whiteSpace: "nowrap", overflow: "hidden" }}>
-                          {p.myGuy && <span title="My guy" style={{ color: "#c99514", fontSize: 12, flexShrink: 0, alignSelf: "center" }}>★</span>}
-                          <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                          <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 0.4, color: GSUB, flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
+                      <div key={p.id} style={{ display: "flex", alignItems: "center", boxSizing: "border-box", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, boxShadow: "0 1px 2px rgba(0,0,0,.4)", height: isMobile ? "auto" : 34, minHeight: isMobile ? 40 : undefined, padding: isMobile ? "5px 4px 5px 11px" : "0 4px 0 11px", flexShrink: 0 }}>
+                        {/* Mobile stacks name over pos·team so the full name
+                            shows; desktop keeps them inline on one 34px row. */}
+                        <span style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: isMobile ? "column" : "row", alignItems: isMobile ? "flex-start" : "baseline", gap: isMobile ? 1 : 8, whiteSpace: "nowrap", overflow: "hidden" }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 5, maxWidth: "100%" }}>
+                            {p.myGuy && <span title="My guy" style={{ color: "#c99514", fontSize: 12, flexShrink: 0 }}>★</span>}
+                            <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: isMobile ? 13.5 : 14, color: GREEN, overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                          </span>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: isMobile ? 9.5 : 11, letterSpacing: 0.4, color: GSUB, flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
                         </span>
                         <span className="md-col-hide" style={{ width: 40, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: GSUB }}>{p.age ?? "—"}</span>
-                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
+                        <span style={{ width: isMobile ? 46 : 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
                         <span className="md-col-hide" style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
-                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
+                        <span style={{ width: isMobile ? 54 : 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
                         {yourTurn && (
-                          <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, display: "flex", justifyContent: "center", borderLeft: `1.5px solid #cbbd9c` }}>
-                            <button onClick={() => makePick(p.id)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 0.5, color: SCREAM, background: GREEN, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "3px 10px", cursor: busy ? "default" : "pointer" }}>SELECT</button>
+                          <span style={{ width: isMobile ? 58 : 66, boxSizing: "border-box", flexShrink: 0, display: "flex", justifyContent: "center", borderLeft: `1.5px solid #cbbd9c` }}>
+                            <button onClick={() => makePick(p.id)} disabled={busy} style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 0.5, color: SCREAM, background: GREEN, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: isMobile ? "3px 7px" : "3px 10px", cursor: busy ? "default" : "pointer" }}>SELECT</button>
                           </span>
                         )}
                       </div>
