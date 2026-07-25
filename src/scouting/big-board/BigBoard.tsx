@@ -284,6 +284,13 @@ export function BigBoard() {
   // slot ahead of it, or tap a tier bar / drop zone to land at that tier's
   // end. No long-press drag — it fights the scroll gesture on touch.
   const [placingId, setPlacingId] = useState<string | null>(null);
+  // Mobile bar: search collapses to the mag-glass icon until tapped.
+  const [searchOpen, setSearchOpen] = useState(false);
+  // Confirmation modals: the director asks before re-cutting tiers, and a new
+  // tier gets named (optionally) before it's created.
+  const [suggestOpen, setSuggestOpen] = useState(false);
+  const [addTierOpen, setAddTierOpen] = useState(false);
+  const [addTierName, setAddTierName] = useState("");
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropTierId, setDropTierId] = useState<string | null>(null);
   const [editingTierId, setEditingTierId] = useState<string | null>(null);
@@ -395,10 +402,11 @@ export function BigBoard() {
     }
   }, [starredSet, rosterId]);
 
-  const addTier = useCallback(async () => {
+  const addTier = useCallback(async (label?: string) => {
     const nextOrder = (tiersByOrder[tiersByOrder.length - 1]?.order ?? 0) + 1;
+    const trimmed = (label ?? "").trim().slice(0, 28);
     const tempId = `tmp-${Date.now()}`;
-    const tier: Tier = { id: tempId, order: nextOrder };
+    const tier: Tier = { id: tempId, order: nextOrder, label: trimmed || undefined };
     setState((s) => ({ ...s, tiers: [...s.tiers, tier] }));
     try {
       const r = await fetch("/api/scouting/big-board/rankings", {
@@ -412,6 +420,13 @@ export function BigBoard() {
           ...s,
           tiers: s.tiers.map((t) => (t.id === tempId ? { ...t, id: j.tier_id } : t)),
         }));
+        if (trimmed) {
+          await fetch("/api/scouting/big-board/rankings", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ roster_id: rosterId, action: "set_tier_label", tier_id: j.tier_id, label: trimmed }),
+          });
+        }
       }
     } catch (err) {
       console.error("Add tier failed", err);
@@ -499,8 +514,8 @@ export function BigBoard() {
   }, [rosterId]);
 
   // Re-cut the tier lines from clear CFC value drops along the current order.
+  // Confirmation lives in the director modal (suggestOpen), not window.confirm.
   const suggestTiers = useCallback(async () => {
-    if (!window.confirm("Rebuild tiers from clear drops in CFC value? Your player order is kept — only the tier lines move.")) return;
     setSuggesting(true);
     try {
       const r = await fetch("/api/scouting/big-board/rankings", {
@@ -772,27 +787,205 @@ export function BigBoard() {
 
         {/* Scoreboard strip. Desktop: one slim ink ticker — search left,
             position tabs with a gold active notch, MY GUYS toggle, then the
-            two actions. Mobile: the search takes its own full-width row and
-            the chips WRAP below it — everything visible, nothing clipped. */}
+            two actions. Mobile: two rows — mag-glass search that expands
+            across row 1 on tap, then a tier-jump row (scrollable chips) with
+            SUGGEST / + pinned at its right end. */}
+        {isMobile ? (
+          <div style={{ background: COLORS.ink, borderRadius: 8, marginBottom: 22, overflow: "hidden" }}>
+            {/* Row 1: search icon + position chips + MY GUYS star */}
+            {searchOpen ? (
+              <div style={{ display: "flex", alignItems: "center", borderBottom: "1px solid #3a362e" }}>
+                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 42, alignSelf: "stretch", flexShrink: 0 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={COLORS.yellow} strokeWidth="2.5" strokeLinecap="round">
+                    <circle cx="11" cy="11" r="7" />
+                    <line x1="16.5" y1="16.5" x2="22" y2="22" />
+                  </svg>
+                </span>
+                <input
+                  autoFocus
+                  type="text"
+                  placeholder="Search players…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: F, fontSize: 13, color: COLORS.paper, padding: "13px 0" }}
+                />
+                <button
+                  type="button"
+                  aria-label="Close search"
+                  onClick={() => { setQuery(""); setSearchOpen(false); }}
+                  style={{ border: "none", background: "transparent", color: "#b9ab8d", padding: "0 14px", alignSelf: "stretch", cursor: "pointer" }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M18 6L6 18M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "stretch", borderBottom: "1px solid #3a362e" }}>
+                <button
+                  type="button"
+                  aria-label="Search players"
+                  onClick={() => setSearchOpen(true)}
+                  style={{ border: "none", borderRight: "1px solid #3a362e", background: "transparent", width: 42, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={query ? COLORS.yellow : "#b9ab8d"} strokeWidth="2.5" strokeLinecap="round">
+                    <circle cx="11" cy="11" r="7" />
+                    <line x1="16.5" y1="16.5" x2="22" y2="22" />
+                  </svg>
+                </button>
+                {(["ALL", ...POSITIONS] as const).map((p) => {
+                  const active = positionFilter === p;
+                  return (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setPositionFilter(p)}
+                      style={{
+                        flex: 1,
+                        border: "none",
+                        background: active ? COLORS.yellow : "transparent",
+                        color: active ? COLORS.ink : "#8a8272",
+                        fontFamily: FB,
+                        fontSize: 11,
+                        letterSpacing: 1,
+                        padding: "13px 0",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+                <button
+                  type="button"
+                  aria-label={starredOnly ? "Show all players" : "Show my guys only"}
+                  onClick={() => setStarredOnly((v) => !v)}
+                  style={{
+                    border: "none",
+                    borderLeft: "1px solid #3a362e",
+                    background: starredOnly ? COLORS.yellow : "transparent",
+                    color: starredOnly ? COLORS.ink : "#8a8272",
+                    width: 42,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill={starredOnly ? COLORS.ink : "none"} stroke="currentColor" strokeWidth="2" strokeLinejoin="round">
+                    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                  </svg>
+                </button>
+              </div>
+            )}
+
+            {/* Row 2: tier-jump chips (scrollable) + pinned SUGGEST / + TIER */}
+            <div style={{ display: "flex", alignItems: "stretch" }}>
+              <div className="cfc-hscroll" style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", flex: 1, minWidth: 0 }}>
+                {tiersByOrder.map((t, i) => {
+                  const c = TIER_PALETTE[i % TIER_PALETTE.length];
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => document.getElementById(`tier-sec-${t.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                      style={{
+                        border: `1.5px solid ${c.main}`,
+                        borderRadius: 4,
+                        background: "transparent",
+                        color: c.main,
+                        fontFamily: FM,
+                        fontSize: 10,
+                        fontWeight: 800,
+                        letterSpacing: "0.04em",
+                        padding: "5px 9px",
+                        cursor: "pointer",
+                        flexShrink: 0,
+                      }}
+                    >
+                      T{i + 1}
+                    </button>
+                  );
+                })}
+                {unrankedRows.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => document.getElementById("tier-sec-unranked")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    style={{
+                      border: `1.5px solid ${UNRANKED_COLOR.main}`,
+                      borderRadius: 4,
+                      background: "transparent",
+                      color: UNRANKED_COLOR.main,
+                      fontFamily: FM,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      letterSpacing: "0.04em",
+                      padding: "5px 9px",
+                      cursor: "pointer",
+                      flexShrink: 0,
+                    }}
+                  >
+                    UNR
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                aria-label="Suggest tiers"
+                onClick={() => setSuggestOpen(true)}
+                disabled={suggesting}
+                style={{
+                  border: "none",
+                  borderLeft: "1px solid #3a362e",
+                  background: "#2c2820",
+                  color: COLORS.yellow,
+                  width: 42,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: suggesting ? "wait" : "pointer",
+                  opacity: suggesting ? 0.6 : 1,
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 4V2M15 16v-2M8 9h2M20 9h2M17.8 11.8L19 13M17.8 6.2L19 5M3 21l9-9M12.2 6.2L11 5" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                aria-label="Add tier"
+                onClick={() => { setAddTierName(""); setAddTierOpen(true); }}
+                style={{
+                  border: "none",
+                  background: COLORS.blue,
+                  color: COLORS.paper,
+                  width: 42,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        ) : (
         <div style={{
           display: "flex",
           alignItems: "stretch",
-          flexWrap: isMobile ? "wrap" : "nowrap",
           background: COLORS.ink,
           borderRadius: 8,
-          overflowX: isMobile ? "visible" : "auto",
-          height: isMobile ? "auto" : 38,
+          overflowX: "auto",
+          height: 38,
           marginBottom: 22,
         }}>
-          <span style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: isMobile ? "10px 13px" : "0 13px",
-            minWidth: 150,
-            flex: isMobile ? "1 1 100%" : 1,
-            borderBottom: isMobile ? "1px solid #3a362e" : "none",
-          }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 13px", minWidth: 150, flex: 1 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b9ab8d" strokeWidth="2.5" strokeLinecap="round">
               <circle cx="11" cy="11" r="7" />
               <line x1="16.5" y1="16.5" x2="22" y2="22" />
@@ -828,7 +1021,7 @@ export function BigBoard() {
                   fontFamily: FB,
                   fontSize: 11,
                   letterSpacing: 1,
-                  padding: isMobile ? "12px 13px" : "0 13px",
+                  padding: "0 13px",
                   cursor: "pointer",
                   flexShrink: 0,
                 }}
@@ -848,7 +1041,7 @@ export function BigBoard() {
               fontFamily: FB,
               fontSize: 11,
               letterSpacing: 1,
-              padding: isMobile ? "12px 13px" : "0 13px",
+              padding: "0 13px",
               display: "flex",
               alignItems: "center",
               gap: 6,
@@ -863,7 +1056,7 @@ export function BigBoard() {
           </button>
           <button
             type="button"
-            onClick={suggestTiers}
+            onClick={() => setSuggestOpen(true)}
             disabled={suggesting}
             title="Re-cut tiers where CFC value clearly drops"
             style={{
@@ -874,7 +1067,7 @@ export function BigBoard() {
               fontFamily: FB,
               fontSize: 11,
               letterSpacing: 1,
-              padding: isMobile ? "12px 13px" : "0 13px",
+              padding: "0 13px",
               display: "flex",
               alignItems: "center",
               gap: 6,
@@ -890,7 +1083,7 @@ export function BigBoard() {
           </button>
           <button
             type="button"
-            onClick={addTier}
+            onClick={() => { setAddTierName(""); setAddTierOpen(true); }}
             title="Add tier"
             style={{
               border: "none",
@@ -899,7 +1092,7 @@ export function BigBoard() {
               fontFamily: FB,
               fontSize: 11,
               letterSpacing: 1,
-              padding: isMobile ? "12px 13px" : "0 13px",
+              padding: "0 13px",
               display: "flex",
               alignItems: "center",
               gap: 6,
@@ -913,13 +1106,14 @@ export function BigBoard() {
             TIER
           </button>
         </div>
+        )}
 
         {tiersByOrder.map((tier, tierIdx) => {
           const rows = groupedRows.get(tier.id) ?? [];
           const color = TIER_PALETTE[tierIdx % TIER_PALETTE.length];
           const showZone = rows.length === 0 || draggingId != null || placingId != null;
           return (
-            <section key={tier.id} style={{ marginBottom: 26 }}>
+            <section key={tier.id} id={`tier-sec-${tier.id}`} style={{ marginBottom: 26 }}>
               {renderRail({ key: tier.id, color, title: `TIER ${tierIdx + 1}`, tier, rows })}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
                 {rows.map(({ player, displayRank }) => (
@@ -959,7 +1153,7 @@ export function BigBoard() {
         })}
 
         {unrankedRows.length > 0 && (
-          <section style={{ marginBottom: 26 }}>
+          <section id="tier-sec-unranked" style={{ marginBottom: 26 }}>
             {renderRail({ key: "unranked", color: UNRANKED_COLOR, title: "UNRANKED", rows: unrankedRows })}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 12 }}>
               {unrankedRows.map(({ player, displayRank }) => (
@@ -986,6 +1180,109 @@ export function BigBoard() {
           </section>
         )}
       </div>
+
+      {/* Suggest-tiers confirmation — the Scouting Director asks first. */}
+      {suggestOpen && (
+        <div
+          onClick={() => setSuggestOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(26,26,26,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: COLORS.cream, border: `3px solid ${COLORS.ink}`, boxShadow: `6px 6px 0 ${COLORS.ink}`, maxWidth: 380, width: "100%", padding: 20 }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src="/avatars/scouting.png" alt="" style={{ width: 44, height: 44, borderRadius: "50%", objectFit: "cover", border: `2px solid ${COLORS.ink}`, flexShrink: 0 }} />
+              <div style={{ fontFamily: FM, fontSize: 10, fontWeight: 700, letterSpacing: "0.16em", color: COLORS.mutedDark, textTransform: "uppercase" }}>
+                Scouting Director
+              </div>
+            </div>
+            <div style={{ fontFamily: F, fontSize: 15, fontWeight: 600, color: COLORS.ink, lineHeight: 1.45, marginBottom: 16 }}>
+              Want me to suggest tiers? Your order stays put — I only re-cut the tier lines where the value clearly drops.
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setSuggestOpen(false)}
+                style={{ flex: 1, border: `2px solid ${COLORS.ink}`, background: COLORS.paper, color: COLORS.ink, fontFamily: FM, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", padding: "11px 0", cursor: "pointer" }}
+              >
+                NOT NOW
+              </button>
+              <button
+                type="button"
+                onClick={() => { setSuggestOpen(false); void suggestTiers(); }}
+                style={{ flex: 1, border: `2px solid ${COLORS.ink}`, background: COLORS.ink, color: COLORS.yellow, fontFamily: FM, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", padding: "11px 0", cursor: "pointer" }}
+              >
+                CUT THE TIERS
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add-tier modal — titled with the tier it will become, name optional. */}
+      {addTierOpen && (
+        <div
+          onClick={() => setAddTierOpen(false)}
+          style={{ position: "fixed", inset: 0, zIndex: 100, background: "rgba(26,26,26,0.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: COLORS.cream, border: `3px solid ${COLORS.ink}`, boxShadow: `6px 6px 0 ${COLORS.ink}`, maxWidth: 380, width: "100%", padding: 20 }}
+          >
+            <div style={{ fontFamily: FB, fontSize: 22, color: COLORS.ink, marginBottom: 4 }}>
+              TIER {tiersByOrder.length + 1}
+            </div>
+            <div style={{ fontFamily: F, fontSize: 13, color: COLORS.mutedDark, marginBottom: 14 }}>
+              Give it a name, or leave it blank and label it later.
+            </div>
+            <input
+              autoFocus
+              type="text"
+              value={addTierName}
+              maxLength={28}
+              placeholder="e.g. FUTURE STARTERS"
+              onChange={(e) => setAddTierName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { setAddTierOpen(false); void addTier(addTierName); }
+                if (e.key === "Escape") setAddTierOpen(false);
+              }}
+              style={{
+                width: "100%",
+                boxSizing: "border-box",
+                border: `2px solid ${COLORS.ink}`,
+                background: COLORS.paper,
+                fontFamily: FM,
+                fontSize: 13,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                textTransform: "uppercase",
+                color: COLORS.ink,
+                padding: "11px 12px",
+                outline: "none",
+                marginBottom: 16,
+              }}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                type="button"
+                onClick={() => setAddTierOpen(false)}
+                style={{ flex: 1, border: `2px solid ${COLORS.ink}`, background: COLORS.paper, color: COLORS.ink, fontFamily: FM, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", padding: "11px 0", cursor: "pointer" }}
+              >
+                CANCEL
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAddTierOpen(false); void addTier(addTierName); }}
+                style={{ flex: 1, border: `2px solid ${COLORS.ink}`, background: COLORS.blue, color: COLORS.paper, fontFamily: FM, fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", padding: "11px 0", cursor: "pointer" }}
+              >
+                ADD TIER
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tap-to-place banner: pinned to the viewport floor while a card is in
           hand — same fixed-bottom-bar language as the rest of mobile. */}
