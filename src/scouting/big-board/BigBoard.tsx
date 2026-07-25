@@ -456,12 +456,26 @@ export function BigBoard() {
     }).catch((err) => console.error("Reorder failed", err));
   }, [rosterId]);
 
+  // The board's canonical sequence is the VISUAL one: tier 1's players, then
+  // tier 2's, ..., then unranked — by stored rank within each group. Stored
+  // ranks can drift out of step with that (e.g. an unranked player holding
+  // rank 2 while displaying at the bottom), and reordering against raw ranks
+  // then lands players somewhere other than where the user aimed. Every move
+  // sorts visually first and renumbers 1..N in that order, so the stored
+  // ranks re-converge on what the user actually sees.
+  const visualOrder = useCallback((rankings: Ranking[]): Ranking[] => {
+    const tierPos = new Map(tiersByOrder.map((t, i) => [t.id, i]));
+    const posOf = (r: Ranking) =>
+      r.tierId != null ? (tierPos.get(r.tierId) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER;
+    return [...rankings].sort((a, b) => posOf(a) - posOf(b) || a.rank - b.rank);
+  }, [tiersByOrder]);
+
   // Drop on a card: insert before it, adopting its tier. Dragging a player the
   // board has never ranked creates their ranking on the fly.
   const reorderPlayer = useCallback((draggedId: string, targetId: string) => {
     if (draggedId === targetId) return;
     setState((s) => {
-      const sorted = [...s.rankings].sort((a, b) => a.rank - b.rank);
+      const sorted = visualOrder(s.rankings);
       if (!sorted.some((r) => r.playerId === targetId)) return s;
       const fromIdx = sorted.findIndex((r) => r.playerId === draggedId);
       const moved: Ranking = fromIdx >= 0 ? sorted.splice(fromIdx, 1)[0] : { playerId: draggedId, tierId: null, rank: 0 };
@@ -472,12 +486,12 @@ export function BigBoard() {
       persistRankings(renumbered);
       return { ...s, rankings: renumbered };
     });
-  }, [persistRankings]);
+  }, [persistRankings, visualOrder]);
 
   // Drop on a tier's tail zone: land at the end of that tier.
   const moveToTierEnd = useCallback((draggedId: string, tierId: string) => {
     setState((s) => {
-      const sorted = [...s.rankings].sort((a, b) => a.rank - b.rank);
+      const sorted = visualOrder(s.rankings);
       const fromIdx = sorted.findIndex((r) => r.playerId === draggedId);
       const moved: Ranking = fromIdx >= 0 ? sorted.splice(fromIdx, 1)[0] : { playerId: draggedId, tierId: null, rank: 0 };
       moved.tierId = tierId;
@@ -493,7 +507,7 @@ export function BigBoard() {
       persistRankings(renumbered);
       return { ...s, rankings: renumbered };
     });
-  }, [persistRankings, tiersByOrder]);
+  }, [persistRankings, tiersByOrder, visualOrder]);
 
   const saveTierLabel = useCallback(async (tierId: string, raw: string) => {
     const trimmed = raw.trim().slice(0, 28);
