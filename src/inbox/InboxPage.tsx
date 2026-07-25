@@ -623,8 +623,11 @@ export default function InboxPage() {
                   <div
                     style={{
                       display: "grid",
+                      // Mobile: one negotiation card per row — full width so
+                      // every detail of the offer reads without squinting;
+                      // you scroll down to the next one.
                       gridTemplateColumns: isMobile
-                        ? "repeat(2, minmax(0, 1fr))"
+                        ? "1fr"
                         : "repeat(auto-fill, minmax(225px, 1fr))",
                       gap: 14,
                     }}
