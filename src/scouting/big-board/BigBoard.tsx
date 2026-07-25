@@ -6,6 +6,7 @@ import {
   type TouchEvent as RTouchEvent,
 } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { NFL_TEAM_FULL_NAME, POSITION_FULL_NAME } from "@/components/research-strategy/availabilityConfig";
 
@@ -102,12 +103,15 @@ function PlayerCard({
   color,
   isDragging,
   isDropTarget,
+  isPlacing,
+  draggable,
   onToggleStar,
   onDragStart,
   onDragOver,
   onDrop,
   onDragEnd,
   onTouchStart,
+  onTap,
 }: {
   player: BoardPlayer;
   rank: number;
@@ -115,12 +119,16 @@ function PlayerCard({
   color: TierColor;
   isDragging: boolean;
   isDropTarget: boolean;
+  /** Mobile tap-to-place: this card is the one currently "in hand". */
+  isPlacing: boolean;
+  draggable: boolean;
   onToggleStar: (playerId: string) => void;
   onDragStart: (playerId: string) => void;
   onDragOver: (e: RDragEvent<HTMLDivElement>, playerId: string) => void;
   onDrop: (playerId: string) => void;
   onDragEnd: () => void;
   onTouchStart: (playerId: string) => void;
+  onTap?: (playerId: string) => void;
 }) {
   const [imgOk, setImgOk] = useState(true);
   const posLabel = POSITION_FULL_NAME[player.position] ?? player.position;
@@ -129,13 +137,14 @@ function PlayerCard({
 
   return (
     <div
-      draggable
+      draggable={draggable}
       data-player-id={player.id}
       onDragStart={() => onDragStart(player.id)}
       onDragOver={(e) => onDragOver(e, player.id)}
       onDrop={() => onDrop(player.id)}
       onDragEnd={onDragEnd}
       onTouchStart={() => onTouchStart(player.id)}
+      onClick={onTap ? () => onTap(player.id) : undefined}
       style={{
         background: COLORS.paper,
         border: `2px solid ${COLORS.ink}`,
@@ -143,10 +152,11 @@ function PlayerCard({
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",
-        cursor: "grab",
+        cursor: onTap ? "pointer" : "grab",
         opacity: isDragging ? 0.35 : 1,
-        outline: isDropTarget ? `3px solid ${COLORS.blue}` : "none",
+        outline: isDropTarget || isPlacing ? `3px solid ${COLORS.blue}` : "none",
         outlineOffset: 2,
+        transform: isPlacing ? "scale(0.97)" : "none",
         touchAction: "pan-y",
       }}
     >
@@ -220,33 +230,40 @@ function TierDropZone({
   tierId,
   active,
   empty,
+  placing,
   onDragOver,
   onDrop,
+  onTap,
 }: {
   tierId: string;
   active: boolean;
   empty: boolean;
+  /** Mobile tap-to-place mode is live — a tap here lands the held player. */
+  placing: boolean;
   onDragOver: (e: RDragEvent<HTMLDivElement>, tierId: string) => void;
   onDrop: (tierId: string) => void;
+  onTap: (tierId: string) => void;
 }) {
   return (
     <div
       data-tier-drop={tierId}
       onDragOver={(e) => onDragOver(e, tierId)}
       onDrop={() => onDrop(tierId)}
+      onClick={placing ? () => onTap(tierId) : undefined}
       style={{
-        border: `2px dashed ${active ? COLORS.blue : COLORS.muted}`,
-        background: active ? "rgba(51,102,204,0.08)" : "transparent",
+        border: `2px dashed ${active || placing ? COLORS.blue : COLORS.muted}`,
+        background: active || placing ? "rgba(51,102,204,0.08)" : "transparent",
         borderRadius: 12,
         minHeight: empty ? 120 : 220,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        opacity: active ? 1 : 0.55,
+        opacity: active || placing ? 1 : 0.55,
+        cursor: placing ? "pointer" : "default",
       }}
     >
-      <div style={{ textAlign: "center", color: active ? COLORS.blue : COLORS.muted, fontFamily: FM, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", padding: 10 }}>
-        {empty ? "DROP PLAYERS HERE" : "DROP HERE"}
+      <div style={{ textAlign: "center", color: active || placing ? COLORS.blue : COLORS.muted, fontFamily: FM, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", padding: 10 }}>
+        {placing ? "TAP TO DROP HERE" : empty ? "DROP PLAYERS HERE" : "DROP HERE"}
       </div>
     </div>
   );
@@ -254,6 +271,7 @@ function TierDropZone({
 
 export function BigBoard() {
   const { rosterId = "" } = readStoredTeam();
+  const isMobile = useIsMobile() === true;
 
   const [pool, setPool] = useState<BoardPlayer[]>([]);
   const [state, setState] = useState<BoardState>({ tiers: [], rankings: [], stars: [] });
@@ -262,6 +280,10 @@ export function BigBoard() {
   const [positionFilter, setPositionFilter] = useState<Position | "ALL">("ALL");
   const [starredOnly, setStarredOnly] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  // Mobile reorder = tap-to-place: tap a card to pick it up, tap a card to
+  // slot ahead of it, or tap a tier bar / drop zone to land at that tier's
+  // end. No long-press drag — it fights the scroll gesture on touch.
+  const [placingId, setPlacingId] = useState<string | null>(null);
   const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const [dropTierId, setDropTierId] = useState<string | null>(null);
   const [editingTierId, setEditingTierId] = useState<string | null>(null);
@@ -523,10 +545,26 @@ export function BigBoard() {
     clearDrag();
   }, [draggingId, moveToTierEnd, clearDrag]);
 
+  // Mobile tap-to-place handlers.
+  const handleCardTap = useCallback((playerId: string) => {
+    if (!placingId) { setPlacingId(playerId); return; }
+    if (placingId === playerId) { setPlacingId(null); return; }
+    reorderPlayer(placingId, playerId);
+    setPlacingId(null);
+  }, [placingId, reorderPlayer]);
+  const handleTierTap = useCallback((tierId: string) => {
+    if (!placingId) return;
+    moveToTierEnd(placingId, tierId);
+    setPlacingId(null);
+  }, [placingId, moveToTierEnd]);
+
   // Touch: long-press a card to pick it up, slide, lift to drop.
+  // Desktop-with-touchscreen only — on mobile tap-to-place owns the gesture,
+  // and the long-press hijack is what made scrolling feel broken.
   const handleTouchStart = useCallback((playerId: string) => {
+    if (isMobile) return;
     longPressTimer.current = window.setTimeout(() => setDraggingId(playerId), 400);
-  }, []);
+  }, [isMobile]);
   const handleTouchMove = useCallback((e: RTouchEvent<HTMLDivElement>) => {
     if (!draggingId) return;
     e.preventDefault();
@@ -582,19 +620,22 @@ export function BigBoard() {
     rows: DisplayRow[];
   }) => {
     const { color, title, tier, rows } = opts;
-    const first = rows[0]?.displayRank;
-    const last = rows[rows.length - 1]?.displayRank;
-    const rangeText = rows.length === 0 ? "EMPTY" : first === last ? `RANK ${first}` : `RANKS ${first}–${last}`;
     const editing = tier && editingTierId === tier.id;
+    // Tap-to-place: while a card is in hand, the whole rail is a drop target
+    // (land at the end of this tier).
+    const railDroppable = !!tier && placingId != null;
     return (
-      <div style={{
+      <div
+        onClick={railDroppable ? () => handleTierTap(tier!.id) : undefined}
+        style={{
         display: "flex",
         alignItems: "stretch",
-        border: `3px solid ${COLORS.ink}`,
+        border: `3px solid ${railDroppable ? COLORS.blue : COLORS.ink}`,
         borderRadius: 8,
         overflow: "hidden",
         background: COLORS.paper,
         marginBottom: 13,
+        cursor: railDroppable ? "pointer" : "default",
       }}>
         <span style={{
           background: color.main,
@@ -639,7 +680,14 @@ export function BigBoard() {
           ) : (
             <button
               type="button"
-              onClick={() => { setLabelDraft(tier.label ?? ""); setEditingTierId(tier.id); }}
+              onClick={(e) => {
+                // While placing, taps on the rail (including this label) drop
+                // the held card — let the rail's onClick handle it.
+                if (placingId) return;
+                e.stopPropagation();
+                setLabelDraft(tier.label ?? "");
+                setEditingTierId(tier.id);
+              }}
               title="Edit tier label"
               style={{
                 border: "none",
@@ -666,23 +714,14 @@ export function BigBoard() {
           )
         )}
         <span style={{ flex: 1 }} />
-        <span style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "0 12px",
-          fontFamily: F,
-          fontSize: 11,
-          fontWeight: 700,
-          color: COLORS.muted,
-          letterSpacing: "0.08em",
-          whiteSpace: "nowrap",
-        }}>
-          {rangeText}
-        </span>
         {tier && (
           <button
             type="button"
-            onClick={() => deleteTier(tier.id)}
+            onClick={(e) => {
+              if (placingId) return;
+              e.stopPropagation();
+              deleteTier(tier.id);
+            }}
             title="Delete tier (players drop to unranked)"
             style={{
               border: "none",
@@ -737,18 +776,29 @@ export function BigBoard() {
           </div>
         </div>
 
-        {/* Scoreboard strip: one slim ink ticker — search left, position tabs
-            with a gold active notch, MY GUYS toggle, then the two actions. */}
+        {/* Scoreboard strip. Desktop: one slim ink ticker — search left,
+            position tabs with a gold active notch, MY GUYS toggle, then the
+            two actions. Mobile: the search takes its own full-width row and
+            the chips WRAP below it — everything visible, nothing clipped. */}
         <div style={{
           display: "flex",
           alignItems: "stretch",
+          flexWrap: isMobile ? "wrap" : "nowrap",
           background: COLORS.ink,
           borderRadius: 8,
-          overflowX: "auto",
-          height: 38,
+          overflowX: isMobile ? "visible" : "auto",
+          height: isMobile ? "auto" : 38,
           marginBottom: 22,
         }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 13px", minWidth: 150, flex: 1 }}>
+          <span style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: isMobile ? "10px 13px" : "0 13px",
+            minWidth: 150,
+            flex: isMobile ? "1 1 100%" : 1,
+            borderBottom: isMobile ? "1px solid #3a362e" : "none",
+          }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b9ab8d" strokeWidth="2.5" strokeLinecap="round">
               <circle cx="11" cy="11" r="7" />
               <line x1="16.5" y1="16.5" x2="22" y2="22" />
@@ -784,7 +834,7 @@ export function BigBoard() {
                   fontFamily: FB,
                   fontSize: 11,
                   letterSpacing: 1,
-                  padding: "0 13px",
+                  padding: isMobile ? "12px 13px" : "0 13px",
                   cursor: "pointer",
                   flexShrink: 0,
                 }}
@@ -804,7 +854,7 @@ export function BigBoard() {
               fontFamily: FB,
               fontSize: 11,
               letterSpacing: 1,
-              padding: "0 13px",
+              padding: isMobile ? "12px 13px" : "0 13px",
               display: "flex",
               alignItems: "center",
               gap: 6,
@@ -830,7 +880,7 @@ export function BigBoard() {
               fontFamily: FB,
               fontSize: 11,
               letterSpacing: 1,
-              padding: "0 13px",
+              padding: isMobile ? "12px 13px" : "0 13px",
               display: "flex",
               alignItems: "center",
               gap: 6,
@@ -855,7 +905,7 @@ export function BigBoard() {
               fontFamily: FB,
               fontSize: 11,
               letterSpacing: 1,
-              padding: "0 13px",
+              padding: isMobile ? "12px 13px" : "0 13px",
               display: "flex",
               alignItems: "center",
               gap: 6,
@@ -873,7 +923,7 @@ export function BigBoard() {
         {tiersByOrder.map((tier, tierIdx) => {
           const rows = groupedRows.get(tier.id) ?? [];
           const color = TIER_PALETTE[tierIdx % TIER_PALETTE.length];
-          const showZone = rows.length === 0 || draggingId != null;
+          const showZone = rows.length === 0 || draggingId != null || placingId != null;
           return (
             <section key={tier.id} style={{ marginBottom: 26 }}>
               {renderRail({ key: tier.id, color, title: `TIER ${tierIdx + 1}`, tier, rows })}
@@ -887,12 +937,15 @@ export function BigBoard() {
                     color={color}
                     isDragging={draggingId === player.id}
                     isDropTarget={dropTargetId === player.id}
+                    isPlacing={placingId === player.id}
+                    draggable={!isMobile}
                     onToggleStar={toggleStar}
                     onDragStart={handleDragStart}
                     onDragOver={handleCardDragOver}
                     onDrop={handleCardDrop}
                     onDragEnd={clearDrag}
                     onTouchStart={handleTouchStart}
+                    onTap={isMobile ? handleCardTap : undefined}
                   />
                 ))}
                 {showZone && (
@@ -900,8 +953,10 @@ export function BigBoard() {
                     tierId={tier.id}
                     active={dropTierId === tier.id}
                     empty={rows.length === 0}
+                    placing={placingId != null}
                     onDragOver={handleZoneDragOver}
                     onDrop={handleZoneDrop}
+                    onTap={handleTierTap}
                   />
                 )}
               </div>
@@ -922,18 +977,70 @@ export function BigBoard() {
                   color={UNRANKED_COLOR}
                   isDragging={draggingId === player.id}
                   isDropTarget={dropTargetId === player.id}
+                  isPlacing={placingId === player.id}
+                  draggable={!isMobile}
                   onToggleStar={toggleStar}
                   onDragStart={handleDragStart}
                   onDragOver={handleCardDragOver}
                   onDrop={handleCardDrop}
                   onDragEnd={clearDrag}
                   onTouchStart={handleTouchStart}
+                  onTap={isMobile ? handleCardTap : undefined}
                 />
               ))}
             </div>
           </section>
         )}
       </div>
+
+      {/* Tap-to-place banner: pinned to the viewport floor while a card is in
+          hand — same fixed-bottom-bar language as the rest of mobile. */}
+      {placingId && (() => {
+        const held = pool.find((p) => p.id === placingId);
+        return (
+          <div style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 60,
+            background: COLORS.ink,
+            borderTop: `3px solid ${COLORS.blue}`,
+            padding: "12px 14px",
+            paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: FM, fontSize: 9, fontWeight: 700, letterSpacing: "0.14em", color: COLORS.yellow }}>
+                PLACING {held ? held.name.toUpperCase() : "PLAYER"}
+              </div>
+              <div style={{ fontFamily: F, fontSize: 11.5, color: COLORS.paper, marginTop: 3, lineHeight: 1.35 }}>
+                Tap a card to slot ahead of it, or tap a tier bar to drop at its end.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setPlacingId(null)}
+              style={{
+                border: `2px solid ${COLORS.paper}`,
+                background: "transparent",
+                color: COLORS.paper,
+                fontFamily: FM,
+                fontSize: 11,
+                fontWeight: 800,
+                letterSpacing: "0.08em",
+                padding: "9px 14px",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              CANCEL
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }
