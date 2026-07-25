@@ -615,13 +615,29 @@ export function MockDraftView() {
   const tradeOffer = tradeOffers.length ? tradeOffers[Math.min(tradeIdx, tradeOffers.length - 1)] : null;
 
   return (
-    <div style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div className="md-root" style={{ height: "100vh", background: CANVAS, display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <UnifiedTopbar />
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 2px ${ARED},inset 0 0 16px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 2px rgba(201,68,46,.45),inset 0 0 6px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}@keyframes tuPulse{0%,100%{box-shadow:3px 3px 0 ${BINK},0 0 0 0 rgba(233,196,106,0)}50%{box-shadow:3px 3px 0 ${BINK},0 0 15px 4px rgba(233,196,106,.85)}}@keyframes mdRing{0%,60%,100%{transform:rotate(0)}10%,30%{transform:rotate(-14deg)}20%,40%{transform:rotate(12deg)}}@keyframes mdDraftGlow{0%{box-shadow:0 0 0 0 rgba(233,196,106,.9)}60%{box-shadow:0 0 12px 3px rgba(233,196,106,.55)}100%{box-shadow:0 0 0 0 rgba(233,196,106,0)}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes cfcSlide{0%{transform:translateX(-116%)}70%{transform:translateX(3%)}100%{transform:translateX(0)}}@keyframes cfcGlow{0%,100%{box-shadow:inset 0 0 0 2px ${ARED},inset 0 0 16px rgba(201,68,46,.35)}50%{box-shadow:inset 0 0 0 2px rgba(201,68,46,.45),inset 0 0 6px rgba(201,68,46,.12)}}@keyframes cfcBlink{0%,100%{opacity:1}50%{opacity:.45}}@keyframes tuPulse{0%,100%{box-shadow:3px 3px 0 ${BINK},0 0 0 0 rgba(233,196,106,0)}50%{box-shadow:3px 3px 0 ${BINK},0 0 15px 4px rgba(233,196,106,.85)}}@keyframes mdRing{0%,60%,100%{transform:rotate(0)}10%,30%{transform:rotate(-14deg)}20%,40%{transform:rotate(12deg)}}@keyframes mdDraftGlow{0%{box-shadow:0 0 0 0 rgba(233,196,106,.9)}60%{box-shadow:0 0 12px 3px rgba(233,196,106,.55)}100%{box-shadow:0 0 0 0 rgba(233,196,106,0)}}.mdScroll{scrollbar-width:thin;scrollbar-color:#4a4135 #1b1813}.mdScroll::-webkit-scrollbar{width:9px;height:9px}.mdScroll::-webkit-scrollbar-track{background:#1b1813}.mdScroll::-webkit-scrollbar-thumb{background:#4a4135;border-radius:5px;border:2px solid #1b1813}.mdScroll::-webkit-scrollbar-thumb:hover{background:#5a5042}
+@media (max-width:768px){
+  /* The desktop war room is a fixed-viewport cockpit; on a phone the page
+     itself scrolls and each section sizes to its content. */
+  .md-root{height:auto !important;min-height:100dvh;overflow:visible !important;}
+  .md-wrap{padding:8px 8px 28px !important;}
+  .md-panel{padding:8px !important;box-shadow:5px 5px 0 ${BINK} !important;}
+  .md-board{grid-template-columns:repeat(2,1fr) !important;grid-template-rows:repeat(6,auto) !important;}
+  .md-board-head{flex-wrap:wrap;row-gap:6px;padding:8px 10px !important;}
+  .md-war{flex-direction:column !important;}
+  .md-war > *{flex:none !important;}
+  .md-pool{border-right:none !important;border-bottom:1.5px solid ${HLINE};}
+  .md-pool-head{height:auto !important;flex-wrap:wrap;align-items:center !important;padding:8px 10px !important;row-gap:8px;}
+  .md-pool-scroll{flex:none !important;max-height:55vh;}
+  .md-dir-scroll{flex:none !important;}
+  .md-col-hide{display:none !important;}
+}`}</style>
 
-      <div style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+      <div className="md-wrap" style={{ maxWidth: 1560, width: "100%", margin: "0 auto", padding: "14px 22px 16px", boxSizing: "border-box", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
 
-        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        <div className="md-panel" style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
           {([["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]] as const).map(([v, h]) => (
             <div key={v + h} style={{ position: "absolute", [v]: 7, [h]: 7, width: 9, height: 9, borderRadius: "50%", background: BINK, boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.25)", zIndex: 5 }} />
           ))}
@@ -680,7 +696,7 @@ export function MockDraftView() {
 
           {/* ── GREEN DRAFT BOARD (results) ── */}
           <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)", flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
+            <div className="md-board-head" style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
               <div style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 0.5, color: GOLD }}>CFC</span></div>
               <span style={{ fontFamily: ANTON, fontSize: 20, letterSpacing: 3, color: SCREAM, whiteSpace: "nowrap" }}>MOCK DRAFT</span>
               <div style={{ display: "flex", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", boxShadow: `2px 2px 0 ${BINK}`, marginLeft: 2 }}>
@@ -694,7 +710,7 @@ export function MockDraftView() {
               {loading ? (
                 <div style={{ padding: 18, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 2, color: SCREAM }}>LOADING THE BOARD…</div>
               ) : (
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "repeat(4, auto)", gridAutoFlow: "column", gap: 6 }}>
+                <div className="md-board" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridTemplateRows: "repeat(4, auto)", gridAutoFlow: "column", gap: 6 }}>
                   {viewPicks.map((x) => slot(x.b, x.i))}
                 </div>
               )}
@@ -703,12 +719,12 @@ export function MockDraftView() {
           {error && <div style={{ background: PLACARD, border: `2px solid ${BINK}`, padding: 10, marginTop: 13, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: ARED, flexShrink: 0 }}>{error}</div>}
 
           {/* ── WAR ROOM: player pool (2/3) + director prose (1/3) ── */}
-          <div style={{ flex: 1, minHeight: 0, marginTop: 13, display: "flex", background: RECESS2, border: `2.5px solid ${BINK}`, borderRadius: 8, overflow: "hidden", boxShadow: `4px 4px 0 ${BINK}` }}>
+          <div className="md-war" style={{ flex: 1, minHeight: 0, marginTop: 13, display: "flex", background: RECESS2, border: `2.5px solid ${BINK}`, borderRadius: 8, overflow: "hidden", boxShadow: `4px 4px 0 ${BINK}` }}>
 
             {/* LEFT: the pool */}
-            <div style={{ flex: 2, minWidth: 0, display: "flex", flexDirection: "column", borderRight: `1.5px solid ${HLINE}` }}>
+            <div className="md-pool" style={{ flex: 2, minWidth: 0, display: "flex", flexDirection: "column", borderRight: `1.5px solid ${HLINE}` }}>
               {/* ── file-folder tabs: player pool / our roster ── */}
-              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, height: 40, padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
+              <div className="md-pool-head" style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, height: 40, padding: "0 11px", borderBottom: `1.5px solid ${HLINE}`, flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "flex-end" }}>
                   {([["pool", "PLAYER POOL"], ["roster", "OUR ROSTER"]] as const).map(([key, label]) => {
                     const active = poolTab === key;
@@ -736,12 +752,12 @@ export function MockDraftView() {
                 )}
               </div>
               {poolTab === "pool" ? (
-              <div className="mdScroll" style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
+              <div className="mdScroll md-pool-scroll" style={{ padding: "0 8px 8px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto", flex: 1, minHeight: 0 }}>
                 {/* sticky column header — same box model as the plates so the columns line up */}
                 <div style={{ position: "sticky", top: 0, zIndex: 1, background: RECESS2, boxSizing: "border-box", border: "1.5px solid transparent", display: "flex", alignItems: "center", height: 30, padding: "0 4px 0 11px", flexShrink: 0 }}>
                   <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.8, color: FADE }}>PLAYER</span>
                   {([["AGE", 40], ["OUR RANK", 66], ["PROJ. ROLE", 66], [yourTurn ? "FALLS TO NEXT" : "FALLS TO US", 66], ...(yourTurn ? [["SELECT", 66]] : [])] as [string, number][]).map(([h, w]) => (
-                    <span key={h} style={{ width: w, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.4, color: FADE }}>{h}</span>
+                    <span key={h} className={h === "AGE" || h === "PROJ. ROLE" ? "md-col-hide" : undefined} style={{ width: w, boxSizing: "border-box", borderLeft: "1.5px solid transparent", flexShrink: 0, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 10, letterSpacing: 0.4, color: FADE }}>{h}</span>
                   ))}
                 </div>
                 {visiblePool.length === 0 && <div style={{ padding: 16, textAlign: "center", fontFamily: OSWALD, fontSize: 12, color: DIM }}>No players match.</div>}
@@ -757,7 +773,10 @@ export function MockDraftView() {
                     if (hasTiers && tierKey !== lastTier) {
                       lastTier = tierKey;
                       rows.push(
-                        <div key={`tier-${tierKey ?? "un"}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 3px 0", flexShrink: 0 }}>
+                        // Keyed by the player it precedes — the same tier label can
+                        // recur once drafted players are filtered out, so the tier
+                        // key alone isn't unique.
+                        <div key={`tier-${tierKey ?? "un"}-${p.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 3px 0", flexShrink: 0 }}>
                           <span style={{ fontFamily: ANTON, fontSize: 10, letterSpacing: 1.5, color: GOLD, whiteSpace: "nowrap" }}>{p.tier ? p.tier.label : "UNRANKED"}</span>
                           <span style={{ flex: 1, height: 1, background: HLINE }} />
                         </div>
@@ -772,9 +791,9 @@ export function MockDraftView() {
                           <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 14, color: GREEN, overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
                           <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 11, letterSpacing: 0.4, color: GSUB, flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
                         </span>
-                        <span style={{ width: 40, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: GSUB }}>{p.age ?? "—"}</span>
+                        <span className="md-col-hide" style={{ width: 40, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: GSUB }}>{p.age ?? "—"}</span>
                         <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 14, color: GSUB }}>{rank > 0 ? `#${rank}` : "—"}</span>
-                        <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
+                        <span className="md-col-hide" style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: OSWALD, fontWeight: 700, fontSize: 8.5, letterSpacing: 0.2, color: GREEN }}>{fitTier(p)}</span>
                         <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, textAlign: "center", borderLeft: `1.5px solid #cbbd9c`, fontFamily: ANTON, fontSize: 15, color: GREEN }}>{surv == null ? "—" : `${Math.round(surv * 100)}%`}</span>
                         {yourTurn && (
                           <span style={{ width: 66, boxSizing: "border-box", flexShrink: 0, display: "flex", justifyContent: "center", borderLeft: `1.5px solid #cbbd9c` }}>
@@ -788,7 +807,7 @@ export function MockDraftView() {
                 })()}
               </div>
               ) : (
-              <div className="mdScroll" style={{ padding: "11px 12px 14px", overflowY: "auto", flex: 1, minHeight: 0 }}>
+              <div className="mdScroll md-pool-scroll" style={{ padding: "11px 12px 14px", overflowY: "auto", flex: 1, minHeight: 0 }}>
                 {roster ? (
                   <>
                     <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 9 }}>
@@ -834,7 +853,7 @@ export function MockDraftView() {
                 <img src="/avatars/scouting.png" alt="" style={{ width: 26, height: 26, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
                 <span style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{poolTab === "roster" ? "OUR ROSTER" : directorHeadline}</span>
               </div>
-              <div className="mdScroll" style={{ padding: "15px 15px 18px", overflowY: "auto", flex: 1, minHeight: 0 }}>
+              <div className="mdScroll md-dir-scroll" style={{ padding: "15px 15px 18px", overflowY: "auto", flex: 1, minHeight: 0 }}>
                 {poolTab === "roster" && rosterCard ? (
                   <>
                     <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, lineHeight: 1.22, color: SCREAM, borderBottom: `4px solid ${rosterCard.vColor}`, paddingBottom: 5, display: "inline-block" }}>{rosterCard.verdict}</div>

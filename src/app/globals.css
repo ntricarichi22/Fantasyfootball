@@ -367,7 +367,7 @@ body {
   box-shadow: var(--cfc-shadow);
   overflow: hidden;
 }
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .cfc-hero { grid-template-columns: 1fr; }
 }
 
@@ -797,7 +797,7 @@ body {
   transform: translate(3px, 3px);
   box-shadow: 0 0 0 #1A1A1A;
 }
-@media (max-width: 760px) {
+@media (max-width: 768px) {
   .cfc-scout-card {
     flex-direction: column;
     gap: 14px;
@@ -1569,4 +1569,21 @@ body {
 }
 .cfc-mobile-flip-draft-btn:active {
   transform: translate(2px, 2px);
+}
+
+/* =====================================================================
+   SHARED MOBILE UTILITIES
+   ===================================================================== */
+
+/* Horizontal scroll strip with the scrollbar hidden (topbar tabs, filter
+   chips, etc.). Content still scrolls by touch/trackpad. */
+.cfc-hscroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.cfc-hscroll::-webkit-scrollbar {
+  display: none;
 }

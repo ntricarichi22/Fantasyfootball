@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/shared/ui/Icon";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { teamCrestSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { DIRECTORS } from "@/home/directors";
 import PersonaPicker from "@/inbox/persona/PersonaPicker";
@@ -151,6 +152,8 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
   const teamName = stored?.teamName ?? stored?.name ?? "—";
   const rosterId = stored?.rosterId ?? "";
   const initials = getInitials(teamName);
+  const crestSrc = teamCrestSrc(teamName);
+  const [crestFailed, setCrestFailed] = useState(false);
 
   const [navOpen, setNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -237,15 +240,16 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
     </button>
   );
 
+  const showCrest = !!crestSrc && !crestFailed;
   const teamAvatar = (
     <button
       type="button"
       onClick={() => setSettingsOpen(true)}
       aria-label="Settings"
       style={{
-        width: isMobile ? 24 : 26,
-        height: isMobile ? 24 : 26,
-        background: "#3366CC",
+        width: isMobile ? 26 : 28,
+        height: isMobile ? 26 : 28,
+        background: showCrest ? "#FEFCF9" : "#3366CC",
         border: "2px solid #1A1A1A",
         color: "#FEFCF9",
         fontFamily: FH,
@@ -254,9 +258,22 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
         cursor: "pointer",
         padding: 0,
         flexShrink: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
       }}
     >
-      {initials}
+      {showCrest ? (
+        <img
+          src={crestSrc}
+          alt={teamName}
+          onError={() => setCrestFailed(true)}
+          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+        />
+      ) : (
+        initials
+      )}
     </button>
   );
 
@@ -311,8 +328,13 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
           </div>
         ) : (
           <>
-            {/* Responsibility tabs (Office + workrooms). Hidden on Home. */}
-            <nav style={{ display: "flex", alignItems: "stretch", marginLeft: isMobile ? 8 : 12, minWidth: 0, overflow: "hidden" }}>
+            {/* Responsibility tabs (Office + workrooms). Hidden on Home.
+                cfc-hscroll: on narrow screens the strip scrolls horizontally
+                instead of silently clipping tabs. */}
+            <nav
+              className="cfc-hscroll"
+              style={{ display: "flex", alignItems: "stretch", marginLeft: isMobile ? 8 : 12, minWidth: 0 }}
+            >
               {tabs.map((tab, i) => {
                 const on = i === tabIdx;
                 return (
@@ -341,7 +363,9 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
                           position: "absolute",
                           left: isMobile ? 6 : 10,
                           right: isMobile ? 6 : 10,
-                          bottom: -3,
+                          // The scroll container clips anything past its edge,
+                          // so the active underline sits at 0 (not -3).
+                          bottom: 0,
                           height: 3,
                           background: "#3366CC",
                         }}

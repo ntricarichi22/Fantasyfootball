@@ -1,9 +1,17 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "CFC — Cleveland Football Club",
   description: "Cleveland Football Club fantasy football command center.",
+};
+
+// viewportFit: "cover" lets fixed bottom tab bars extend under the iOS home
+// indicator (paired with env(safe-area-inset-bottom) padding where needed).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

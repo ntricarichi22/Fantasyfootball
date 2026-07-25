@@ -7,6 +7,7 @@ import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard"
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
+import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import type { StudioOffer } from "@/pro-personnel/trade-engine/studio/types";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
@@ -61,6 +62,10 @@ function toCardAssets(items: StudioOffer["send"]): CardAsset[] {
 
 export default function TradeStudioView() {
   const { rosterId = "", teamName = "" } = readStoredTeam();
+  const isMobile = useIsMobile() === true;
+  // Mobile shows one pane at a time once offers exist: the block (roster
+  // list) or the offers drawer, switched by a bottom tab bar.
+  const [mobilePane, setMobilePane] = useState<"block" | "offers">("block");
   const [allRosters, setAllRosters] = useState<Record<string, RosterApiAsset[]>>({});
   const [teamNames, setTeamNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -163,6 +168,7 @@ export default function TradeStudioView() {
       setAdvisorByOffer({});
       setNeedsRegenerate(false);
       setDrawerOpen(true);
+      setMobilePane("offers");
     } catch (err) {
       flash(err instanceof Error ? err.message : "Generation failed");
     } finally {
@@ -351,36 +357,37 @@ export default function TradeStudioView() {
   }
 
   return (
-    <div style={{ height: "100vh", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+    <div style={{ height: "100dvh", background: "#F5F0E6", fontFamily: F, color: "#1A1A1A", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       {toast && (
         <div style={{ position: "fixed", left: "50%", top: 24, transform: "translateX(-50%)", zIndex: 50, background: "#185FA5", color: "#fff", padding: "8px 20px", fontFamily: FM, fontSize: 12, fontWeight: 700, border: "2px solid #1A1A1A", boxShadow: "3px 3px 0 #1A1A1A" }}>{toast}</div>
       )}
 
       <UnifiedTopbar />
 
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: drawerOpen ? "40% 60%" : "1fr", minHeight: 0, overflow: "hidden" }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: !isMobile && drawerOpen ? "40% 60%" : "1fr", minHeight: 0, overflow: "hidden" }}>
         {/* LEFT: roster panel. In selection state, director two-box sits
             above it (full width). In drawer state, the panel is the only
-            thing in this column. */}
+            thing in this column. On mobile only one pane renders at a time
+            (the bottom tab bar switches). */}
         {!drawerOpen ? (
           <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-            <div style={{ padding: "20px 24px 0 24px", flexShrink: 0 }}>
+            <div style={{ padding: isMobile ? "12px 12px 0" : "20px 24px 0 24px", flexShrink: 0 }}>
               <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={SELECTION_INTRO} />
             </div>
-            <div style={{ flex: 1, minHeight: 0, paddingTop: 16, display: "flex", flexDirection: "column" }}>
+            <div style={{ flex: 1, minHeight: 0, paddingTop: isMobile ? 10 : 16, display: "flex", flexDirection: "column" }}>
               <RosterPanel
                 assets={myAssets}
                 selectedKeys={shopKeys}
                 onToggle={handleToggle}
                 onGenerate={handleGenerate}
-                layout="grid"
+                layout={isMobile ? "list" : "grid"}
                 buttonLabel={generateButtonLabel}
                 buttonPulse={false}
                 buttonDisabled={generateButtonDisabled}
               />
             </div>
           </div>
-        ) : (
+        ) : (!isMobile || mobilePane === "block") ? (
           <RosterPanel
             assets={myAssets}
             selectedKeys={shopKeys}
@@ -391,19 +398,19 @@ export default function TradeStudioView() {
             buttonPulse={needsRegenerate}
             buttonDisabled={generateButtonDisabled}
           />
-        )}
+        ) : null}
 
         {/* RIGHT: drawer with director two-box + offer card. Only renders
-            in drawer state (60% column). */}
-        {drawerOpen && (
+            in drawer state (60% column; full width on mobile). */}
+        {drawerOpen && (!isMobile || mobilePane === "offers") && (
           <div style={{
             background: "#FEFCF9",
             display: "flex",
             flexDirection: "column",
             overflow: "hidden",
-            borderLeft: "2px solid #1A1A1A",
+            borderLeft: isMobile ? "none" : "2px solid #1A1A1A",
           }}>
-            <div style={{ padding: "20px 24px 0 24px", flexShrink: 0 }}>
+            <div style={{ padding: isMobile ? "12px 12px 0" : "20px 24px 0 24px", flexShrink: 0 }}>
               <DirectorTwoBox avatarSrc="/avatars/pro-personnel.png" label="Personnel Director" message={currentOffer ? REVIEW_INTRO : NO_OFFERS_INTRO} />
             </div>
             {/* Carousel controls are PINNED here (between director + card) so they
@@ -423,7 +430,7 @@ export default function TradeStudioView() {
                 </button>
               </div>
             )}
-            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "12px 24px 20px" }}>
+            <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: isMobile ? "12px 12px 16px" : "12px 24px 20px" }}>
               {loading || generating ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: 40, fontFamily: FM, fontSize: 11, color: "#8C7E6A" }}>
                   Generating offers…
@@ -462,6 +469,50 @@ export default function TradeStudioView() {
           </div>
         )}
       </div>
+
+      {/* Mobile bottom tab bar — appears once offers exist so the GM can flip
+          between the block (roster) and the offers. Same pattern as the
+          Set Strategy / Set Availability bottom tabs. */}
+      {isMobile && drawerOpen && (
+        <div
+          style={{
+            display: "flex",
+            flexShrink: 0,
+            background: "#FEFCF9",
+            borderTop: "3px solid #1A1A1A",
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+        >
+          {([
+            { key: "block" as const, label: "THE BLOCK" },
+            { key: "offers" as const, label: `OFFERS${offers.length ? ` (${offers.length})` : ""}` },
+          ]).map((t, i) => {
+            const on = mobilePane === t.key;
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setMobilePane(t.key)}
+                style={{
+                  flex: 1,
+                  border: "none",
+                  borderRight: i === 0 ? "2px solid #1A1A1A" : "none",
+                  padding: "14px 4px",
+                  cursor: "pointer",
+                  fontFamily: FM,
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  background: on ? "#1A1A1A" : "#FEFCF9",
+                  color: on ? "#FEFCF9" : "#1A1A1A",
+                }}
+              >
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

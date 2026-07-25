@@ -14,8 +14,11 @@
 // Layout: two cells in one 2.5px-bordered box, no rounded corners, no shadow.
 //   Left cell  — black fill, circular avatar + stacked mono-caps label (paper).
 //   Right cell — paper fill, a single message line, vertically centered.
-// Slim by design (48px avatar, tight padding) to protect vertical space on
-// height-constrained pages. Message font is fluid via clamp().
+// Slim by design to protect vertical space on height-constrained pages.
+// On mobile it collapses further into a single ~56px strip (small avatar,
+// inline label, tighter type) so the cards below get the screen.
+
+import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -27,7 +30,67 @@ type DirectorTwoBoxProps = {
 };
 
 export default function DirectorTwoBox({ avatarSrc, label, message }: DirectorTwoBoxProps) {
+  const isMobile = useIsMobile() === true;
   const labelLines = label.trim().split(/\s+/);
+
+  if (isMobile) {
+    // Compact strip: avatar in the black cell, label + message inline.
+    return (
+      <div style={{
+        display: "grid",
+        gridTemplateColumns: "auto 1fr",
+        border: "2.5px solid #1A1A1A",
+        background: "#FEFCF9",
+      }}>
+        <div style={{
+          background: "#1A1A1A",
+          padding: "8px 10px",
+          display: "flex",
+          alignItems: "center",
+          borderRight: "2.5px solid #1A1A1A",
+        }}>
+          <img
+            src={avatarSrc}
+            alt=""
+            style={{ width: 32, height: 32, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
+          />
+        </div>
+        <div style={{
+          padding: "6px 12px",
+          background: "#FEFCF9",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          gap: 2,
+          minWidth: 0,
+        }}>
+          <div style={{
+            fontFamily: FM,
+            fontSize: 8,
+            letterSpacing: "0.14em",
+            fontWeight: 700,
+            color: "#8C7E6A",
+            textTransform: "uppercase",
+          }}>
+            {label}
+          </div>
+          <div style={{
+            fontFamily: F,
+            fontSize: 12.5,
+            lineHeight: 1.3,
+            color: "#1A1A1A",
+            fontWeight: 500,
+            display: "-webkit-box",
+            WebkitLineClamp: 2,
+            WebkitBoxOrient: "vertical",
+            overflow: "hidden",
+          }}>
+            {message}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{

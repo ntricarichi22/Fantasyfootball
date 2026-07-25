@@ -102,17 +102,19 @@ const SA_CSS = `
 .sa-slot:nth-last-child(-n+4){border-bottom:none;}
 .sa-tabs{position:absolute;right:-26px;top:30px;display:flex;flex-direction:column;gap:8px;}
 .sa-tab{writing-mode:vertical-rl;text-orientation:mixed;height:64px;white-space:nowrap;border:2px solid #1A1A1A;border-left:none;border-radius:0 6px 6px 0;box-shadow:2px 2px 0 #1A1A1A;font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:800;letter-spacing:0.08em;padding:0 6px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-@media (max-width:700px){
+@media (max-width:768px){
   .sa-binder{box-shadow:none;}
   .sa-hole{display:none;}
-  .sa-content{padding:14px 14px 92px;}
-  .sa-grid{grid-template-columns:repeat(2,1fr);}
-  .sa-slot{min-height:300px;}
-  .sa-slot:nth-child(4n){border-right:1.5px dashed #BFB29A;}
-  .sa-slot:nth-child(2n){border-right:none;}
+  .sa-content{padding:12px 12px 96px;}
+  /* One sleeve pocket per screen: a single column you scroll down through. */
+  .sa-grid{grid-template-columns:1fr;}
+  .sa-slot{min-height:0;border-right:none !important;}
   .sa-slot:nth-last-child(-n+4){border-bottom:1.5px dashed #BFB29A;}
-  .sa-slot:nth-last-child(-n+2){border-bottom:none;}
-  .sa-tabs{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;gap:0;z-index:50;background:#FEFCF9;border-top:3px solid #1A1A1A;}
+  .sa-slot:last-child{border-bottom:none;}
+  /* The empty pad pockets exist to square off desktop rows — in a single
+     column they'd just be dead dashed boxes, so drop them. */
+  .sa-slot[aria-hidden]{display:none;}
+  .sa-tabs{position:fixed;left:0;right:0;bottom:0;top:auto;flex-direction:row;gap:0;z-index:50;background:#FEFCF9;border-top:3px solid #1A1A1A;padding-bottom:env(safe-area-inset-bottom);}
   .sa-tab{writing-mode:horizontal-tb;height:auto;flex:1;border:none;border-right:2px solid #1A1A1A;border-radius:0;box-shadow:none;padding:14px 4px;text-align:center;letter-spacing:0.06em;font-size:12px;}
   .sa-tab:last-child{border-right:none;}
 }`;
@@ -412,7 +414,7 @@ export default function SetAvailabilityPage() {
 
         {/* Scoreboard strip: search left, then availability filters — positions
             already live on the binder tabs, so the ticker filters by level. */}
-        <div style={{ display: "flex", alignItems: "stretch", background: COLORS.ink, borderRadius: 8, overflowX: "auto", height: 38, marginBottom: 14 }}>
+        <div className="cfc-hscroll" style={{ display: "flex", alignItems: "stretch", background: COLORS.ink, borderRadius: 8, height: 38, marginBottom: 14 }}>
           <span style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 13px", minWidth: 150, flex: 1 }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#b9ab8d" strokeWidth="2.5" strokeLinecap="round">
               <circle cx="11" cy="11" r="7" />

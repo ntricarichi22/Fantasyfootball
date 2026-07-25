@@ -41,6 +41,8 @@ export function HomeScreen() {
   const [rosterId, setRosterId] = useState<string>("")
   const [unreadCount, setUnreadCount] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
+  // Mobile shows one ID badge at a time; the bottom tab bar picks which.
+  const [mobileBadge, setMobileBadge] = useState<string>("gm")
   const [persona, setPersona] = useState<GmPersona>(FALLBACK_PERSONA)
   const [personaModalOpen, setPersonaModalOpen] = useState(false)
   const [gmStats, setGmStats] = useState<GmStats>({ championships: 0, tenure: 0, titleYears: [] })
@@ -225,24 +227,68 @@ export function HomeScreen() {
     </div>
   )
 
-  // ── Mobile: vertical scroll of the four full badges ──
+  // ── Mobile: one full badge at a time, picked by the bottom tab bar ──
+  // (same fixed-bottom-tab pattern as Set Strategy / Set Availability).
   if (isMobile) {
+    const mobileTabs = [
+      { key: "gm", label: "GM" },
+      ...DIRECTORS.map((d) => ({ key: d.key, label: d.title.split(/\s+/).pop()!.toUpperCase() })),
+    ]
+    const activeDirector = DIRECTORS.find((d) => d.key === mobileBadge) ?? null
     return (
-      <div style={{ background: TAN, height: "100vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div style={{ background: TAN, height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <UnifiedTopbar />
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "12px 12px 28px" }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "12px 12px 96px" }}>
           <div style={{ maxWidth: 430, width: "100%", margin: "0 auto" }}>
             <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} compact />
             {frontOfficeHero(true)}
-            <div style={{ display: "flex", flexDirection: "column", gap: 16, marginTop: 6 }}>
-              <div style={{ height: 460, flexShrink: 0 }}>{gmCard}</div>
-              {DIRECTORS.map((d) => (
-                <div key={d.key} style={{ height: 460, flexShrink: 0 }}>
-                  <DirectorPersonCard director={d} teamName={teamName} crestSrc={crestSrc} />
-                </div>
-              ))}
+            <div style={{ height: 460, marginTop: 6 }}>
+              {activeDirector ? (
+                <DirectorPersonCard director={activeDirector} teamName={teamName} crestSrc={crestSrc} />
+              ) : (
+                gmCard
+              )}
             </div>
           </div>
+        </div>
+        <div
+          style={{
+            position: "fixed",
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 50,
+            display: "flex",
+            background: "#FEFCF9",
+            borderTop: "3px solid #1A1A1A",
+            paddingBottom: "env(safe-area-inset-bottom)",
+          }}
+        >
+          {mobileTabs.map((t, i) => {
+            const on = t.key === mobileBadge
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setMobileBadge(t.key)}
+                style={{
+                  flex: 1,
+                  border: "none",
+                  borderRight: i === mobileTabs.length - 1 ? "none" : "2px solid #1A1A1A",
+                  padding: "14px 4px",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+                  fontSize: 11,
+                  fontWeight: 800,
+                  letterSpacing: "0.06em",
+                  background: on ? "#1A1A1A" : "#FEFCF9",
+                  color: on ? "#FEFCF9" : "#1A1A1A",
+                }}
+              >
+                {t.label}
+              </button>
+            )
+          })}
         </div>
         {personaModal}
       </div>

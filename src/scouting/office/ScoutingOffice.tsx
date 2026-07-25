@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
   DirectorChat,
@@ -120,7 +121,9 @@ function buildReturningOpening(povs: POV[]): Extract<Message, { kind: "director_
 export function ScoutingOffice() {
   const stored = readStoredTeam();
   const rosterId = stored.rosterId ?? "";
-  const avatarInitials = "NT";
+  const teamName = stored.teamName ?? "";
+  const avatarInitials = teamInitials(teamName);
+  const avatarSrc = teamCrestSrc(teamName);
 
   const [opening, setOpening] = useState<Extract<Message, { kind: "director_opening" }> | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -265,6 +268,7 @@ export function ScoutingOffice() {
             directorLabel={DIRECTOR_LABEL}
             directorRole="scouting"
             userAvatarInitials={avatarInitials}
+            userAvatarSrc={avatarSrc}
             onUserMessage={handleUserMessage}
             onCommit={handleCommit}
             placeholder="Ask the Scouting Director…"

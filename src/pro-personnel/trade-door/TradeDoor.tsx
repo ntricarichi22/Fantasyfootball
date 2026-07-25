@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
@@ -485,7 +486,8 @@ export default function TradeDoor() {
               opening={opening}
               directorLabel={DIRECTOR_LABEL}
               directorRole="personnel"
-              userAvatarInitials="NT"
+              userAvatarInitials={teamInitials(teamName)}
+              userAvatarSrc={teamCrestSrc(teamName)}
               onUserMessage={handleUserMessage}
               onCommit={handleCommit}
               placeholder="Ask the Personnel Director…"

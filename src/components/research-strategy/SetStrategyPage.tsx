@@ -110,12 +110,12 @@ const optsFor = (cfg: CardCfg, stance: Market): Opt[] =>
 const CSS = `
 .ss-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:14px;}
 .ss-bnav{display:none;}
-@media (max-width:700px){
+@media (max-width:768px){
   .ss-wrap{padding-bottom:96px;}
   .ss-grid{grid-template-columns:1fr;}
   .ss-card{display:none;}
   .ss-card.active{display:block;}
-  .ss-bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:50;background:${PAPER};border-top:3px solid ${INK};}
+  .ss-bnav{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:50;background:${PAPER};border-top:3px solid ${INK};padding-bottom:env(safe-area-inset-bottom);}
   .ss-bnav button{flex:1;border:none;border-right:2px solid ${INK};padding:14px 4px;cursor:pointer;font-family:${mono};font-size:12px;font-weight:800;letter-spacing:0.06em;}
   .ss-bnav button:last-child{border-right:none;}
 }`;

@@ -88,6 +88,8 @@ export type Message =
       kind: "user";
       text: string;
       avatarInitials: string;
+      /** Team crest image; when set it replaces the initials block. */
+      avatarSrc?: string | null;
     };
 
 export function DirectorBubble({
@@ -125,10 +127,14 @@ export function DirectorBubble({
 export function UserBubble({
   text,
   avatarInitials,
+  avatarSrc,
 }: {
   text: string;
   avatarInitials: string;
+  avatarSrc?: string | null;
 }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const showCrest = !!avatarSrc && !imgFailed;
   return (
     <div style={{
       display: "flex",
@@ -152,8 +158,9 @@ export function UserBubble({
         {text}
       </div>
       <div style={{
-        background: COLORS.ink,
+        background: showCrest ? COLORS.paper : COLORS.ink,
         color: COLORS.paper,
+        border: showCrest ? `2px solid ${COLORS.ink}` : "none",
         width: 32,
         height: 32,
         display: "flex",
@@ -164,8 +171,19 @@ export function UserBubble({
         fontWeight: 700,
         letterSpacing: "0.04em",
         flexShrink: 0,
+        overflow: "hidden",
+        boxSizing: "border-box",
       }}>
-        {avatarInitials}
+        {showCrest ? (
+          <img
+            src={avatarSrc!}
+            alt=""
+            onError={() => setImgFailed(true)}
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+          />
+        ) : (
+          avatarInitials
+        )}
       </div>
     </div>
   );
@@ -631,6 +649,7 @@ export function DirectorChat({
   directorLabel,
   directorRole,
   userAvatarInitials,
+  userAvatarSrc,
   onUserMessage,
   onCommit,
   placeholder = "Ask the director…",
@@ -640,6 +659,8 @@ export function DirectorChat({
   directorLabel: string;
   directorRole: DirectorRole;
   userAvatarInitials: string;
+  /** Team crest for the user's chat bubbles; initials are the fallback. */
+  userAvatarSrc?: string | null;
   onUserMessage: (text: string) => Promise<Extract<Message, { kind: "director_response" }> | null>;
   onCommit: (item: ActionItem) => Promise<boolean>;
   placeholder?: string;
@@ -666,7 +687,7 @@ export function DirectorChat({
 
   const handlePOVClick = useCallback(async (pov: POV) => {
     const anchor = pov.anchor ?? `Let's dig into #${pov.number}.`;
-    const userMsg: Message = { kind: "user", text: anchor, avatarInitials: userAvatarInitials };
+    const userMsg: Message = { kind: "user", text: anchor, avatarInitials: userAvatarInitials, avatarSrc: userAvatarSrc };
     setThread((prev) => [...prev, userMsg]);
     setSending(true);
     try {
@@ -683,7 +704,7 @@ export function DirectorChat({
       return;
     }
     if (item.kind === "respond" && item.respondAs) {
-      const userMsg: Message = { kind: "user", text: item.respondAs, avatarInitials: userAvatarInitials };
+      const userMsg: Message = { kind: "user", text: item.respondAs, avatarInitials: userAvatarInitials, avatarSrc: userAvatarSrc };
       setThread((prev) => [...prev, userMsg]);
       setSending(true);
       try {
@@ -718,7 +739,7 @@ export function DirectorChat({
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || sending) return;
-    const userMsg: Message = { kind: "user", text, avatarInitials: userAvatarInitials };
+    const userMsg: Message = { kind: "user", text, avatarInitials: userAvatarInitials, avatarSrc: userAvatarSrc };
     setThread((prev) => [...prev, userMsg]);
     setInput("");
     setSending(true);

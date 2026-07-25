@@ -194,12 +194,21 @@ export function DraftRoomLobby() {
   return (
     <div style={{ minHeight: "100vh", background: CANVAS, display: "flex", flexDirection: "column" }}>
       <UnifiedTopbar />
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes lobbyHot{0%,100%{box-shadow:0 0 0 3px rgba(201,68,46,.55),0 2px 4px rgba(0,0,0,.45)}50%{box-shadow:0 0 0 1px rgba(201,68,46,.15),0 2px 4px rgba(0,0,0,.45)}}@keyframes lobbyBlink{0%,100%{opacity:1}50%{opacity:.5}}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Anton&family=Oswald:wght@400;500;600;700&display=swap');@keyframes lobbyHot{0%,100%{box-shadow:0 0 0 3px rgba(201,68,46,.55),0 2px 4px rgba(0,0,0,.45)}50%{box-shadow:0 0 0 1px rgba(201,68,46,.15),0 2px 4px rgba(0,0,0,.45)}}@keyframes lobbyBlink{0%,100%{opacity:1}50%{opacity:.5}}
+@media (max-width:768px){
+  .dl-page{padding:10px 12px 16px !important;}
+  .dl-panel{padding:10px !important;box-shadow:5px 5px 0 ${BINK} !important;}
+  .dl-felt{padding:12px !important;gap:14px !important;}
+  .dl-bill{width:100% !important;}
+  .dl-plates{min-width:0 !important;width:100%;}
+  .dl-scn{grid-template-columns:1fr 1fr !important;}
+  .dl-seats{grid-template-columns:1fr 1fr !important;}
+}`}</style>
 
-      <div style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: "14px 22px 20px", boxSizing: "border-box", flex: 1, display: "flex", flexDirection: "column" }}>
+      <div className="dl-page" style={{ maxWidth: 1180, width: "100%", margin: "0 auto", padding: "14px 22px 20px", boxSizing: "border-box", flex: 1, display: "flex", flexDirection: "column" }}>
 
         {/* ── ONE CREAM PANEL — everything lives on the felt ── */}
-        <div style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, flex: 1, display: "flex", flexDirection: "column" }}>
+        <div className="dl-panel" style={{ position: "relative", background: FRAME, border: `3px solid ${BINK}`, borderRadius: 5, boxShadow: `9px 9px 0 ${BINK}`, padding: 15, flex: 1, display: "flex", flexDirection: "column" }}>
           {([["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]] as const).map(([v, h]) => (
             <div key={v + h} style={{ position: "absolute", [v]: 7, [h]: 7, width: 9, height: 9, borderRadius: "50%", background: BINK, boxShadow: "inset 1px 1px 0 rgba(255,255,255,0.25)", zIndex: 5 }} />
           ))}
@@ -219,11 +228,11 @@ export function DraftRoomLobby() {
             {!hero || !cal ? (
               <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 42, fontFamily: OSWALD, fontWeight: 600, fontSize: 13, letterSpacing: 2, color: SCREAM }}>READING THE DRAFT CALENDAR…</div>
             ) : (
-              <div style={{ flex: 1, display: "flex", gap: 20, flexWrap: "wrap", padding: 20 }}>
+              <div className="dl-felt" style={{ flex: 1, display: "flex", gap: 20, flexWrap: "wrap", padding: 20 }}>
 
                   {/* The bill — draft-week poster, full height of the plate stack:
                       eyebrow pinned top, headline centered, round chip pinned bottom. */}
-                  <div style={{ flexShrink: 0, width: 272, display: "flex", flexDirection: "column" }}>
+                  <div className="dl-bill" style={{ flexShrink: 0, width: 272, display: "flex", flexDirection: "column" }}>
                     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-between", background: RECESS2, backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 5px)", border: `3px solid ${BINK}`, borderRadius: 3, boxShadow: "0 3px 6px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(233,196,106,0.35)", padding: "22px 16px", textAlign: "center" }}>
                       {spread(hero.eyebrow.toUpperCase(), { fontFamily: ANTON, fontSize: 24, color: GOLD, borderBottom: "2.5px solid rgba(233,196,106,0.45)", paddingBottom: 12 })}
                       <div style={{ padding: "18px 0" }}>
@@ -241,7 +250,7 @@ export function DraftRoomLobby() {
                   </div>
 
                   {/* Every door on one stack of tin plates */}
-                  <div style={{ flex: 1, minWidth: 300, display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div className="dl-plates" style={{ flex: 1, minWidth: 300, display: "flex", flexDirection: "column", gap: 10 }}>
                     {plates}
                   </div>
               </div>
@@ -284,7 +293,7 @@ export function DraftRoomLobby() {
               <span style={{ fontFamily: ANTON, fontSize: 12, letterSpacing: 2, color: SCREAM }}>SCENARIO</span>
               <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11, letterSpacing: 1.5, color: GOLD, whiteSpace: "nowrap" }}>{SCENARIOS.find((s) => s.key === scn)?.label.toUpperCase()}</span>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 8 }}>
+            <div className="dl-scn" style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 8, marginTop: 8 }}>
               {SCENARIOS.map((s) => {
                 const on = scn === s.key;
                 return (
@@ -331,7 +340,7 @@ export function DraftRoomLobby() {
                 Seat list unavailable — you&rsquo;ll drive your own team.
               </div>
             ) : (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 7, marginTop: 8 }}>
+              <div className="dl-seats" style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 7, marginTop: 8 }}>
                 {(cal.teams ?? []).map((t) => {
                   const on = seats.has(t.rosterId);
                   return (

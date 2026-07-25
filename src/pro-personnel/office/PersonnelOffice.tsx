@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
   DirectorChat,
@@ -131,7 +132,9 @@ function buildReturningOpening(povs: POV[]): Opening {
 export function PersonnelOffice() {
   const stored = readStoredTeam();
   const rosterId = stored.rosterId ?? "";
-  const avatarInitials = "NT";
+  const teamName = stored.teamName ?? "";
+  const avatarInitials = teamInitials(teamName);
+  const avatarSrc = teamCrestSrc(teamName);
 
   const [opening, setOpening] = useState<Opening | null>(null);
 
@@ -225,6 +228,7 @@ export function PersonnelOffice() {
             directorLabel={DIRECTOR_LABEL}
             directorRole="personnel"
             userAvatarInitials={avatarInitials}
+            userAvatarSrc={avatarSrc}
             onUserMessage={handleUserMessage}
             onCommit={handleCommit}
             placeholder="Ask the Personnel Director…"
