@@ -4,6 +4,7 @@ import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname } from "@/shared/league-data/nicknames";
+import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 
 type Phase = "pre-day-one" | "between" | "complete";
 type Calendar = {
@@ -67,6 +68,7 @@ function countdown(iso: string | null): string | null {
 }
 
 export function DraftRoomLobby() {
+  const isMobile = useIsMobile() === true;
   const [cal, setCal] = useState<Calendar | null>(null);
 
   // Mock-setup modal: scenario, clock speed, and which seats you drive.
@@ -114,9 +116,13 @@ export function DraftRoomLobby() {
   const draftLive = !!cal?.upcomingDraftAt && new Date(cal.upcomingDraftAt).getTime() <= Date.now() && cal.phase !== "complete";
 
   // The bill headline stacks one word per line; size to the longest word.
+  // Mobile shrinks the whole poster so the door plates are visible without
+  // scrolling past a screen-high headline.
   const words = (hero?.title ?? "").toUpperCase().split(" ");
   const maxLen = Math.max(...words.map((w) => w.length), 1);
-  const billSize = maxLen <= 4 ? 88 : maxLen <= 6 ? 60 : 42;
+  const billSize = isMobile
+    ? maxLen <= 4 ? 52 : maxLen <= 6 ? 38 : 28
+    : maxLen <= 4 ? 88 : maxLen <= 6 ? 60 : 42;
 
   // Poster-justify a row: characters spread edge to edge across the bill.
   const spread = (text: string, style: CSSProperties) => (
@@ -130,7 +136,36 @@ export function DraftRoomLobby() {
   // teaser (dimmed, SOON rivet).
   function plate(p: { num: string; title: string; desc: string; mode: "live" | "hot" | "locked" | "teaser"; href?: string; onClick?: () => void; tag?: string; cta?: string }) {
     const dim = p.mode === "locked" || p.mode === "teaser";
-    const inner = (
+    const chip =
+      p.mode === "live" ? (
+        <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 12, letterSpacing: 1, color: SCREAM, background: ARED, border: `2px solid ${BINK}`, borderRadius: 2, padding: "8px 15px", whiteSpace: "nowrap" }}>{p.cta ?? "ENTER ›"}</span>
+      ) : p.mode === "hot" ? (
+        <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 12, letterSpacing: 1, color: ARED, background: SCREAM, border: `2px solid ${BINK}`, borderRadius: 2, padding: "8px 15px", animation: "lobbyBlink 1s steps(2) infinite", whiteSpace: "nowrap" }}>WE&rsquo;RE LIVE ›</span>
+      ) : p.mode === "locked" ? (
+        <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 10, letterSpacing: 1.5, color: GOLD, background: BINK, borderRadius: 2, padding: "5px 10px", whiteSpace: "nowrap" }}>{p.tag ?? "LOCKED"}</span>
+      ) : (
+        <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 10, letterSpacing: 1.5, color: GOLD, background: BINK, borderRadius: 2, padding: "5px 10px", whiteSpace: "nowrap" }}>SOON</span>
+      );
+    // Mobile: the title/desc/chip stack vertically with full width and wrap
+    // freely — a nowrap title sharing one row with the chip is what chopped
+    // "MOCK DAY TWO" down to "MOCK DA…" on real phones.
+    const inner = isMobile ? (
+      <div style={{
+        height: "100%", boxSizing: "border-box", display: "flex", alignItems: "stretch", gap: 12, overflow: "hidden",
+        background: p.mode === "hot" ? ARED : dim ? "#d8cdb1" : PLACARD,
+        border: `2px solid ${dim ? "#57503f" : BINK}`, borderRadius: 3,
+        boxShadow: dim ? "0 1px 3px rgba(0,0,0,0.35)" : "0 2px 4px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.7)",
+        opacity: dim ? 0.82 : 1,
+        animation: p.mode === "hot" ? "lobbyHot 1.1s ease-in-out infinite" : "none",
+      }}>
+        <div style={{ flexShrink: 0, width: 46, display: "flex", alignItems: "center", justifyContent: "center", background: dim ? META : BINK, color: p.mode === "hot" ? SCREAM : dim ? PLACARD : GOLD, fontFamily: ANTON, fontSize: 17 }}>{p.num}</div>
+        <div style={{ flex: 1, minWidth: 0, padding: "11px 12px 12px 0", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6 }}>
+          <div style={{ fontFamily: ANTON, fontSize: 19, letterSpacing: 0.5, color: p.mode === "hot" ? SCREAM : dim ? META : GREEN, lineHeight: 1.1 }}>{p.title.toUpperCase()}</div>
+          <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.4, lineHeight: 1.35, color: p.mode === "hot" ? "#f4cfc5" : dim ? "#857a62" : GSUB }}>{p.desc}</div>
+          {chip}
+        </div>
+      </div>
+    ) : (
       <div style={{
         height: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 15, minHeight: 66, overflow: "hidden",
         background: p.mode === "hot" ? ARED : dim ? "#d8cdb1" : PLACARD,
@@ -144,10 +179,7 @@ export function DraftRoomLobby() {
           <div style={{ fontFamily: ANTON, fontSize: 21, letterSpacing: 0.5, color: p.mode === "hot" ? SCREAM : dim ? META : GREEN, lineHeight: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.title.toUpperCase()}</div>
           <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12.5, letterSpacing: 0.4, color: p.mode === "hot" ? "#f4cfc5" : dim ? "#857a62" : GSUB, marginTop: 4 }}>{p.desc}</div>
         </div>
-        {p.mode === "live" && <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 12, letterSpacing: 1, color: SCREAM, background: ARED, border: `2px solid ${BINK}`, borderRadius: 2, padding: "8px 15px" }}>{p.cta ?? "ENTER ›"}</span>}
-        {p.mode === "hot" && <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 12, letterSpacing: 1, color: ARED, background: SCREAM, border: `2px solid ${BINK}`, borderRadius: 2, padding: "8px 15px", animation: "lobbyBlink 1s steps(2) infinite" }}>WE&rsquo;RE LIVE ›</span>}
-        {p.mode === "locked" && <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 10, letterSpacing: 1.5, color: GOLD, background: BINK, borderRadius: 2, padding: "5px 10px" }}>{p.tag ?? "LOCKED"}</span>}
-        {p.mode === "teaser" && <span style={{ flexShrink: 0, fontFamily: ANTON, fontSize: 10, letterSpacing: 1.5, color: GOLD, background: BINK, borderRadius: 2, padding: "5px 10px" }}>SOON</span>}
+        {chip}
       </div>
     );
     if (p.href) {
@@ -233,9 +265,9 @@ export function DraftRoomLobby() {
                   {/* The bill — draft-week poster, full height of the plate stack:
                       eyebrow pinned top, headline centered, round chip pinned bottom. */}
                   <div className="dl-bill" style={{ flexShrink: 0, width: 272, display: "flex", flexDirection: "column" }}>
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-between", background: RECESS2, backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 5px)", border: `3px solid ${BINK}`, borderRadius: 3, boxShadow: "0 3px 6px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(233,196,106,0.35)", padding: "22px 16px", textAlign: "center" }}>
-                      {spread(hero.eyebrow.toUpperCase(), { fontFamily: ANTON, fontSize: 24, color: GOLD, borderBottom: "2.5px solid rgba(233,196,106,0.45)", paddingBottom: 12 })}
-                      <div style={{ padding: "18px 0" }}>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "space-between", background: RECESS2, backgroundImage: "repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 5px)", border: `3px solid ${BINK}`, borderRadius: 3, boxShadow: "0 3px 6px rgba(0,0,0,0.5), inset 0 0 0 2px rgba(233,196,106,0.35)", padding: isMobile ? "14px 12px" : "22px 16px", textAlign: "center" }}>
+                      {spread(hero.eyebrow.toUpperCase(), { fontFamily: ANTON, fontSize: isMobile ? 17 : 24, color: GOLD, borderBottom: "2.5px solid rgba(233,196,106,0.45)", paddingBottom: isMobile ? 8 : 12 })}
+                      <div style={{ padding: isMobile ? "12px 0" : "18px 0" }}>
                         {words.map((w) => (
                           <div key={w} style={{ fontFamily: ANTON, fontSize: billSize, lineHeight: 0.96, color: SCREAM, textShadow: "3px 3px 0 rgba(0,0,0,0.55)", textAlign: "center" }}>{w}</div>
                         ))}
