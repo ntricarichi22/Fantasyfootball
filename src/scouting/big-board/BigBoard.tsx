@@ -636,6 +636,11 @@ export function BigBoard() {
         background: COLORS.paper,
         marginBottom: 13,
         cursor: railDroppable ? "pointer" : "default",
+        // Mobile: the rail sticks while you scroll its tier, so you always
+        // know which tier you're in (and have a drop target in reach).
+        position: isMobile ? "sticky" : undefined,
+        top: isMobile ? 8 : undefined,
+        zIndex: isMobile ? 5 : undefined,
       }}>
         <span style={{
           background: color.main,
@@ -762,17 +767,6 @@ export function BigBoard() {
             lineHeight: 1.04,
           }}>
             Big Board
-          </div>
-          <div style={{
-            fontFamily: FM,
-            fontSize: 11,
-            letterSpacing: "0.16em",
-            color: COLORS.mutedDark,
-            fontWeight: 700,
-            textTransform: "uppercase",
-            paddingBottom: 5,
-          }}>
-            {pool.length} players · {state.tiers.length} tiers · {starredSet.size} starred
           </div>
         </div>
 
