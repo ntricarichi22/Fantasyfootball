@@ -386,7 +386,7 @@ export function MockDraftView() {
     const filled = i < revealed;
     const clock = i === revealed && phase !== "setup" && !isComplete;
     return (
-      <div key={b.overall} style={{ position: "relative", height: 32, borderRadius: 3, overflow: "hidden", background: RECESS, boxShadow: "inset 0 2px 4px rgba(0,0,0,0.7)", animation: clock ? "cfcGlow 1.2s ease-in-out infinite" : "none" }}>
+      <div key={b.overall} className="md-slot" style={{ position: "relative", height: 32, borderRadius: 3, overflow: "hidden", background: RECESS, boxShadow: "inset 0 2px 4px rgba(0,0,0,0.7)", animation: clock ? "cfcGlow 1.2s ease-in-out infinite" : "none" }}>
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", padding: "0 9px", gap: 8 }}>
           <span style={{ fontFamily: ANTON, fontSize: 12, letterSpacing: 0.5, color: clock ? CRED : FUT, minWidth: 34 }}>{b.pick}</span>
           {clock ? (
@@ -626,8 +626,12 @@ export function MockDraftView() {
   .md-root{height:auto !important;min-height:100dvh;overflow:visible !important;}
   .md-wrap{padding:8px 8px 28px !important;}
   .md-panel{padding:8px !important;box-shadow:5px 5px 0 ${BINK} !important;}
-  .md-board{grid-template-columns:repeat(2,1fr) !important;grid-template-rows:repeat(6,auto) !important;}
-  .md-board-head{flex-wrap:wrap;row-gap:6px;padding:8px 10px !important;}
+  .md-board{grid-template-columns:repeat(2,1fr) !important;grid-template-rows:repeat(6,auto) !important;gap:4px !important;}
+  .md-board-head{flex-wrap:wrap;row-gap:6px;padding:6px 10px !important;}
+  .md-board-crest{display:none !important;}
+  .md-board-title{font-size:16px !important;letter-spacing:2px !important;}
+  .md-board-pad{padding:8px !important;}
+  .md-slot{height:28px !important;}
   .md-war{flex-direction:column !important;}
   .md-war > *{flex:none !important;}
   .md-pool{border-right:none !important;border-bottom:1.5px solid ${HLINE};}
@@ -646,7 +650,22 @@ export function MockDraftView() {
 
           {/* ── CONTROL PANEL: the live-sim console (own emphasis, above the board) ── */}
           <div style={{ position: "relative", background: FRAME, border: `2.5px solid ${BINK}`, borderRadius: 7, boxShadow: `4px 4px 0 ${BINK}`, padding: "8px 12px", marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", flexShrink: 0 }}>
-            {isComplete ? (
+            {isComplete && isMobile ? (
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 7 }}>
+                <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1.5, color: BINK, textAlign: "center" }}>DRAFT COMPLETE</span>
+                <div style={{ position: "relative", display: "flex" }}>
+                  <button onClick={() => setScnMenuOpen((o) => !o)} style={{ ...consoleBtn, flex: 1, padding: "9px 0", textAlign: "center" }}>Run a Different Scenario ▾</button>
+                  {scnMenuOpen && (
+                    <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}` }}>
+                      {SCENARIOS.map((s) => (
+                        <button key={s.key} onClick={() => runScenario(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => window.location.assign(LOBBY_ROUTE)} style={{ ...consoleBtn, padding: "9px 0", textAlign: "center" }}>Re-enter the Draft Lobby</button>
+              </div>
+            ) : isComplete ? (
               <>
                 <span style={{ fontFamily: ANTON, fontSize: 14, letterSpacing: 1.5, color: BINK }}>DRAFT COMPLETE</span>
                 <span style={{ flex: 1 }} />
@@ -662,6 +681,39 @@ export function MockDraftView() {
                 </div>
                 <button onClick={() => window.location.assign(LOBBY_ROUTE)} style={consoleBtn}>Re-enter the Draft Lobby</button>
               </>
+            ) : isMobile ? (
+              /* Mobile console: two aligned rows of equal-height controls —
+                 PAUSE + speed segments, then Trigger Run + Trade. */
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 7 }}>
+                <div style={{ display: "flex", gap: 7 }}>
+                  <button onClick={pauseResume} style={{ ...consoleBtn, fontFamily: ANTON, fontSize: 12, letterSpacing: 1.5, background: phase === "running" ? BROWN : GREEN, padding: "9px 14px", flexShrink: 0 }}>{phase === "running" ? "PAUSE" : "RESUME"}</button>
+                  <div style={{ flex: 1, display: "flex", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", boxShadow: `2px 2px 0 ${BINK}` }}>
+                    {SPEEDS.map((sp, i) => (
+                      <button key={sp.label} onClick={() => setSimSeconds(sp.seconds)} style={{ flex: 1, fontFamily: OSWALD, fontWeight: 700, fontSize: 10.5, letterSpacing: 0.5, padding: "9px 0", border: "none", borderRight: i < SPEEDS.length - 1 ? `2px solid ${BINK}` : "none", background: simSeconds === sp.seconds ? BROWN : FRAME, color: simSeconds === sp.seconds ? SCREAM : BINK, cursor: "pointer" }}>{sp.label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 7 }}>
+                  <div style={{ position: "relative", flex: 1, display: "flex" }}>
+                    <button onClick={() => setRunOpen((o) => !o)} disabled={yourTurn} style={{ ...consoleBtn, flex: 1, padding: "9px 0", textAlign: "center", opacity: yourTurn ? 0.5 : 1, cursor: yourTurn ? "default" : "pointer" }}>Trigger Run ▾</button>
+                    {runOpen && !yourTurn && (
+                      <div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 40, background: FRAME, border: `2px solid ${BINK}`, boxShadow: `3px 3px 0 ${BINK}` }}>
+                        {RUNS.map((s) => (
+                          <button key={s.key} onClick={() => triggerRun(s.key)} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 12px", background: "transparent", color: BINK, border: "none", borderBottom: `1px solid ${BINK}33`, fontFamily: OSWALD, fontWeight: 700, fontSize: 12, cursor: "pointer" }}>{s.label}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ flex: 1, display: "flex", alignItems: "stretch" }}>
+                    {tradeUpNudge && !yourTurn && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src="/avatars/scouting.png" alt="" style={{ width: 32, height: 32, borderRadius: "50%", border: `2.5px solid ${BINK}`, objectFit: "cover", marginRight: -14, position: "relative", zIndex: 2, alignSelf: "center" }} />
+                    )}
+                    <button onClick={() => openTrade(yourTurn ? "back" : "up")} style={{ flex: 1, fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: BROWN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: tradeUpNudge && !yourTurn ? "9px 0 9px 10px" : "9px 0", cursor: "pointer", animation: tradeUpNudge && !yourTurn ? "tuPulse 1.6s ease-in-out infinite" : "none" }}>{yourTurn ? "TRADE BACK" : "TRADE UP"}</button>
+                  </div>
+                </div>
+                {busy && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: ARED, textAlign: "center" }}>RE-MOCKING…</span>}
+              </div>
             ) : (
               <>
                 <button onClick={pauseResume} style={{ ...consoleBtn, fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, background: phase === "running" ? BROWN : GREEN, padding: "8px 18px" }}>{phase === "running" ? "PAUSE" : "RESUME"}</button>
@@ -699,8 +751,8 @@ export function MockDraftView() {
           {/* ── GREEN DRAFT BOARD (results) ── */}
           <div style={{ position: "relative", border: `3px solid ${BINK}`, borderRadius: 3, overflow: "hidden", background: GREEN, backgroundImage: "repeating-linear-gradient(91deg, rgba(0,0,0,0.07) 0px, rgba(0,0,0,0.07) 2px, transparent 2px, transparent 6px)", boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.5), inset 0 0 60px rgba(0,0,0,0.4)", flexShrink: 0 }}>
             <div className="md-board-head" style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 12px", background: HGREEN, borderBottom: `3px solid ${BINK}` }}>
-              <div style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 0.5, color: GOLD }}>CFC</span></div>
-              <span style={{ fontFamily: ANTON, fontSize: 20, letterSpacing: 3, color: SCREAM, whiteSpace: "nowrap" }}>MOCK DRAFT</span>
+              <div className="md-board-crest" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, background: GREEN, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 0.5, color: GOLD }}>CFC</span></div>
+              <span className="md-board-title" style={{ fontFamily: ANTON, fontSize: 20, letterSpacing: 3, color: SCREAM, whiteSpace: "nowrap" }}>MOCK DRAFT</span>
               <div style={{ display: "flex", border: `2px solid ${BINK}`, borderRadius: 4, overflow: "hidden", boxShadow: `2px 2px 0 ${BINK}`, marginLeft: 2 }}>
                 {rounds.map((r, idx) => (
                   <button key={r} onClick={() => setViewRound(r)} style={{ fontFamily: ANTON, fontSize: 11, letterSpacing: 1, padding: "4px 12px", border: "none", borderRight: idx < rounds.length - 1 ? `2px solid ${BINK}` : "none", background: viewRound === r ? GOLD : FRAME, color: BINK, cursor: "pointer", whiteSpace: "nowrap" }}>RD {r}</button>
@@ -708,7 +760,7 @@ export function MockDraftView() {
               </div>
               <span style={{ flex: 1 }} />
             </div>
-            <div style={{ padding: 10 }}>
+            <div className="md-board-pad" style={{ padding: 10 }}>
               {loading ? (
                 <div style={{ padding: 18, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 12, letterSpacing: 2, color: SCREAM }}>LOADING THE BOARD…</div>
               ) : (
