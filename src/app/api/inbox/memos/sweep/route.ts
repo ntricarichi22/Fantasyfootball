@@ -10,7 +10,7 @@
 //   1. offer_received — a pending inbound offer with no memo yet. Subject +
 //      short read in his voice; the offer itself rides as an OfferCard via
 //      play_mode "offer_card" (the same global card as everywhere else), with
-//      his verdict chip computed from OUR seat and the stored ai_quip as prose.
+//      his verdict chip from the canonical engine and LLM-minted prose.
 //   2. offer_reminder — the offer is STILL pending after ~36h and exactly one
 //      reminder hasn't been sent. Tone is deferential (he's emailing his boss)
 //      and modulates on whether the first email was even opened. One reminder,
@@ -64,7 +64,6 @@ type PendingOffer = {
   to_team_id: string;
   assets_from: OfferAsset[];
   assets_to: OfferAsset[];
-  ai_quip: string | null;
   created_at: string;
 };
 
@@ -109,7 +108,7 @@ export async function POST(req: Request) {
     const [offersRes, memosRes, personaRes] = await Promise.all([
       client
         .from("trade_offers")
-        .select("id, thread_id, from_team_id, to_team_id, assets_from, assets_to, ai_quip, created_at")
+        .select("id, thread_id, from_team_id, to_team_id, assets_from, assets_to, created_at")
         .eq("league_id", LEAGUE_ID)
         .eq("to_team_id", teamId)
         .eq("status", "pending"),
@@ -186,13 +185,8 @@ export async function POST(req: Request) {
       const verdict = grade.label;
       const verdictColor = grade.color;
 
-      let quip = "";
-      try {
-        quip = offer.ai_quip ? (JSON.parse(offer.ai_quip)?.to ?? "") : "";
-      } catch { /* malformed quip — fall through */ }
       // Deterministic fallback if the LLM is unavailable/fails.
       const fallbackProse =
-        quip ||
         `They're putting up ${names(receiveAssets)} and asking for ${names(sendAssets)}. ` +
         (grade.bucket === "great" || grade.bucket === "ahead" || grade.bucket === "fair"
           ? "The math works for us — I'd move on it before they rethink."
