@@ -26,7 +26,12 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getLeagueData } from "@/shared/league-data";
-import { buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
+import { buildValuationContext } from "@/shared/asset-values";
+import { priceDeal } from "@/pro-personnel/engine/pricing";
+import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
+import { normalizePersona } from "@/pro-personnel/engine/core/personas";
+import type { Gap } from "@/pro-personnel/engine/core/types";
+import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
 import { generateOfferProse } from "./offerProse";
 
 export const dynamic = "force-dynamic";
@@ -65,12 +70,12 @@ type PendingOffer = {
 
 // trade_offers keys arrive in two formats depending on which surface created
 // the offer: prefixed ("player:9484") from the manual builder, raw sleeper ids
-// from the engine doors. Normalize both into a valuation AssetRef.
-function refFor(a: OfferAsset): AssetRef {
-  if (a.key.startsWith("pick:")) return { type: "pick", key: a.key };
-  if (a.key.startsWith("player:")) return { type: "player", sleeperPlayerId: a.key.slice(7) };
-  if (a.type === "pick") return { type: "pick", key: a.key };
-  return { type: "player", sleeperPlayerId: a.key };
+// from the engine doors. Normalize both into the engine's key vocabulary
+// (raw sleeper ids for players, canonical "pick:" keys for picks).
+function toEngineAsset(a: OfferAsset, side: "send" | "receive"): EngineOfferAsset {
+  const isPick = a.key.startsWith("pick:") || a.type === "pick";
+  const key = a.key.startsWith("player:") ? a.key.slice(7) : a.key;
+  return { key, name: a.label || a.key, type: isPick ? "pick" : "player", side };
 }
 
 function names(assets: OfferAsset[]): string {
@@ -101,7 +106,7 @@ export async function POST(req: Request) {
   try {
     // Pending inbound offers + every offer-card memo we've already sent
     // (ALL statuses — an archived email still counts as sent for dedupe).
-    const [offersRes, memosRes] = await Promise.all([
+    const [offersRes, memosRes, personaRes] = await Promise.all([
       client
         .from("trade_offers")
         .select("id, thread_id, from_team_id, to_team_id, assets_from, assets_to, ai_quip, created_at")
@@ -113,6 +118,12 @@ export async function POST(req: Request) {
         .select("status, created_at, play_payload")
         .eq("team_id", teamId)
         .eq("play_mode", "offer_card"),
+      client
+        .from("cfc_team_strategy_profiles")
+        .select("gm_persona")
+        .eq("league_id", LEAGUE_ID)
+        .eq("team_id", teamId)
+        .maybeSingle(),
     ]);
     if (offersRes.error) return NextResponse.json({ error: offersRes.error.message }, { status: 500 });
     if (memosRes.error) return NextResponse.json({ error: memosRes.error.message }, { status: 500 });
@@ -138,6 +149,7 @@ export async function POST(req: Request) {
     const teamName = (id: string) =>
       data.teams.find((t) => t.rosterId === id)?.teamName ?? `Team ${id}`;
     const ctx = await buildValuationContext();
+    const ourPersona = normalizePersona(personaRes.data?.gm_persona);
 
     const rows: Record<string, unknown>[] = [];
     const now = new Date().toISOString();
@@ -148,18 +160,31 @@ export async function POST(req: Request) {
       const sendAssets = offer.assets_to ?? [];
       const receiveAssets = offer.assets_from ?? [];
 
-      // Verdict chip from OUR seat (two-scoreboard convention: our assets at
-      // our perspective value, theirs at neutral base).
-      const sendVal = sendAssets.reduce(
-        (s, a) => s + valueAsset(refFor(a), ctx, { perspective: teamId }), 0);
-      const recvVal = receiveAssets.reduce((s, a) => s + valueAsset(refFor(a), ctx), 0);
-      const ratio = sendVal > 0 ? recvVal / sendVal : 2;
-      const [verdict, verdictColor] =
-        ratio >= 0.97
-          ? ["We should take this deal", "#019942"]
-          : ratio >= 0.85
-            ? ["I'd push for more here", "#F5C230"]
-            : ["Don't even entertain this", "#E8503A"];
+      // Verdict chip from the SAME engine as the builder/studio chip:
+      // priceDeal's two-scoreboard pricing + personaAwareGrade on OUR seat.
+      // An offer now grades identically here and in the trade builder.
+      const engineAssets: EngineOfferAsset[] = [
+        ...sendAssets.map((a) => toEngineAsset(a, "send")),
+        ...receiveAssets.map((a) => toEngineAsset(a, "receive")),
+      ];
+      const { ours } = priceDeal({
+        ourTeamId: teamId,
+        partnerTeamId: offer.from_team_id,
+        assets: engineAssets,
+        ctx,
+      });
+      const gap: Gap = {
+        sendValue: ours.sendValue,
+        receiveValue: ours.receiveValue,
+        ratio: ours.ratio,
+        delta: ours.receiveValue - ours.sendValue,
+        verdict: ours.verdict,
+        hasSend: sendAssets.length > 0,
+        hasReceive: receiveAssets.length > 0,
+      };
+      const grade = personaAwareGrade(gap, ourPersona);
+      const verdict = grade.label;
+      const verdictColor = grade.color;
 
       let quip = "";
       try {
@@ -169,9 +194,9 @@ export async function POST(req: Request) {
       const fallbackProse =
         quip ||
         `They're putting up ${names(receiveAssets)} and asking for ${names(sendAssets)}. ` +
-        (ratio >= 0.97
+        (grade.bucket === "great" || grade.bucket === "ahead" || grade.bucket === "fair"
           ? "The math works for us — I'd move on it before they rethink."
-          : ratio >= 0.85
+          : grade.bucket === "reaching"
             ? "It's close, but I think there's more in their pocket if we push."
             : "The ask is heavier than the return. I'd pass or make them earn it.");
 
@@ -199,8 +224,8 @@ export async function POST(req: Request) {
           partnerTeamId: offer.from_team_id,
           sendAssets,
           receiveAssets,
-          sendVal,
-          recvVal,
+          sendVal: ours.sendValue,
+          recvVal: ours.receiveValue,
           verdict,
           fallback: fallbackProse,
         });
