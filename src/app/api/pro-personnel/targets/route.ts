@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getLeagueData } from "@/shared/league-data";
-import { buildValuationContext, valueAsset } from "@/shared/asset-values";
+import { buildValuationContext, valueAsset, isYoung } from "@/shared/asset-values";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -12,7 +12,7 @@ const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 type AttachRow = { team_id: string; sleeper_player_id: string; attachment: string };
 type StratRow = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; pc_market: string; picks_market: string };
 type TeamValueRow = { team_id: string; sleeper_player_id: string; player_name: string; position: string; final_value: number };
-type BaseValueRow = { sleeper_player_id: string | null; display_name: string; cfc_value: number; elite_multiplier_applied: number | null; age_multiplier_applied: number | null };
+type BaseValueRow = { sleeper_player_id: string | null; display_name: string; cfc_value: number; elite_multiplier_applied: number | null };
 
 function needLevel(m: string): number { return m === "buy" ? 3 : m === "sell" ? 0 : 1; }
 function getNeedPositions(p: StratRow | null): Record<string, number> {
@@ -81,7 +81,7 @@ export async function GET(request: NextRequest) {
     client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market").eq("league_id", league_id),
     client.from("team_email_map").select("roster_id, team_name"),
     client.from("cfc_team_trade_values_current").select("team_id, sleeper_player_id, player_name, position, final_value").eq("league_id", league_id),
-    client.from("cfc_trade_values_current").select("sleeper_player_id, display_name, cfc_value, elite_multiplier_applied, age_multiplier_applied"),
+    client.from("cfc_trade_values_current").select("sleeper_player_id, display_name, cfc_value, elite_multiplier_applied"),
     LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/rosters`, { next: { revalidate: 300 } }).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
     // The full players dictionary is ~5MB and changes ~daily — this was being
     // re-downloaded uncached on every targets call.
@@ -101,13 +101,14 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Stud / youth flags by display name (player values come from teamValues; pick
-  // values now come from the canonical valuation below).
+  // Stud flags by display name (player values come from teamValues; pick
+  // values now come from the canonical valuation below). Youth is NOT read
+  // from the value table — the age multiplier encodes rookie/young as > 1.0
+  // and prime as 1.0, so it can't be a youth flag. Youth comes from the
+  // canonical isYoung() (position age bands OR rookie-deal experience).
   const baseStud: Record<string, boolean> = {};
-  const baseYouth: Record<string, boolean> = {};
   for (const v of (baseValRes.data ?? []) as BaseValueRow[]) {
     if (v.display_name && v.elite_multiplier_applied != null) baseStud[v.display_name] = v.elite_multiplier_applied > 1.0;
-    if (v.display_name && v.age_multiplier_applied != null) baseYouth[v.display_name] = v.age_multiplier_applied === 1.0;
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -138,7 +139,7 @@ export async function GET(request: NextRequest) {
       const age = computeAge(info);
       const att = attMap[`${rid}:${pid}`] || "core";
       const isStud = baseStud[name] ?? false;
-      const isYouth = baseYouth[name] ?? false;
+      const isYouth = isYoung(pos, age, typeof info.years_exp === "number" ? info.years_exp : null);
       const needW = myNeeds[pos] ?? 0;
       const wantsW = (myWants.has("elite_producers") && isStud) ? 25 : (myWants.has("young_upside") && isYouth) ? 20 : (myWants.has("roster_depth") && val >= 30 && val <= 120) ? 10 : 0;
       const fitScore = needW * 30 + wantsW - tierSort(att) * 3 + Math.min(val / 10, 25);

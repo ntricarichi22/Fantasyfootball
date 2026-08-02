@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
+import { isYoung } from "@/shared/asset-values";
+import { getPlayerDictionary } from "@/shared/league-data";
 
 export const dynamic = "force-dynamic";
 
@@ -72,16 +74,23 @@ async function lookupBaseValues(client: ReturnType<typeof getSupabaseAdminClient
   const pickValueMap: Record<string, number> = {};
 
   if (playerIds.length > 0) {
-    const { data } = await client
-      .from("cfc_trade_values_current")
-      .select("sleeper_player_id, cfc_value, elite_multiplier_applied, age_multiplier_applied")
-      .in("sleeper_player_id", playerIds);
+    // Youth comes from the canonical isYoung() (position age bands OR
+    // rookie-deal experience) — the value table's age multiplier encodes
+    // prime as 1.0 and young as > 1.0, so it is not a youth flag.
+    const [{ data }, dict] = await Promise.all([
+      client
+        .from("cfc_trade_values_current")
+        .select("sleeper_player_id, cfc_value, elite_multiplier_applied")
+        .in("sleeper_player_id", playerIds),
+      getPlayerDictionary(),
+    ]);
     for (const p of data ?? []) {
       if (!p.sleeper_player_id) continue;
+      const info = dict.get(p.sleeper_player_id);
       playerMap[p.sleeper_player_id] = {
         value: typeof p.cfc_value === "number" ? p.cfc_value : 0,
         isStud: typeof p.elite_multiplier_applied === "number" && p.elite_multiplier_applied > 1.0,
-        isYouth: p.age_multiplier_applied === 1.0,
+        isYouth: info ? isYoung(info.position, info.age, info.exp) : false,
       };
     }
   }
