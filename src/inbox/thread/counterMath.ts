@@ -176,11 +176,13 @@ export function gradeForRatio(ratio: number): Grade {
 
 // The director's read of an INCOMING offer (our-POV ratio = receive / send).
 // Tees the offer up in the thread, above it: where it lands on our scale + a
-// nudge toward counter / accept. Deterministic, zero-latency.
+// nudge toward counter / accept. Deterministic, zero-latency. Bands match the
+// canonical verdictFromRatio table (0.8 / 0.9 / 1.1) so this prose can never
+// contradict the grade chip rendered beside it.
 export function offerRead(ratio: number): string {
-  if (ratio < 0.85) return "They're lowballing you — this lands well under fair value. I'd counter hard or pass.";
-  if (ratio < 0.97) return "A touch under fair. Worth a counter to nudge it your way.";
-  if (ratio <= 1.08) return "Right around fair value. Fine to take as-is, or counter for a little more.";
+  if (ratio < 0.8) return "They're lowballing you — this lands well under fair value. I'd counter hard or pass.";
+  if (ratio < 0.9) return "A touch under fair. Worth a counter to nudge it your way.";
+  if (ratio <= 1.1) return "Right around fair value. Fine to take as-is, or counter for a little more.";
   return "This one favors you — a strong offer. You could take it.";
 }
 

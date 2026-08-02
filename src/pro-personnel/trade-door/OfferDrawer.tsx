@@ -183,19 +183,16 @@ export default function OfferDrawer({
         body: JSON.stringify({
           from_team_id: myTeamId,
           to_team_id: offer.partnerTeam.id,
+          // Values + grade are computed server-side by trades/create (canonical
+          // engine) — clients no longer send them.
           assets_from: offer.sendAssets.map(a => ({
             key: a.key, label: a.name,
             type: a.type ?? (a.key.startsWith("pick:") ? "pick" : "player"),
-            value: a.value ?? 0,
           })),
           assets_to: offer.receiveAssets.map(a => ({
             key: a.key, label: a.name,
             type: a.type ?? (a.key.startsWith("pick:") ? "pick" : "player"),
-            value: a.value ?? 0,
           })),
-          from_value: Math.round(offer.gap?.sendValue ?? 0),
-          to_value: Math.round(offer.gap?.receiveValue ?? 0),
-          grade_label: "Builder",
         }),
       });
       if (res.ok) {

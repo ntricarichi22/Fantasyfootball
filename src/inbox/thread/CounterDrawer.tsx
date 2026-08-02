@@ -401,11 +401,10 @@ export default function CounterDrawer({
         body: JSON.stringify({
           from_team_id: myRosterId,
           to_team_id: offer.from_team_id === myRosterId ? offer.to_team_id : offer.from_team_id,
+          // Values + grade are computed server-side by trades/create (canonical
+          // engine) — clients no longer send them.
           assets_from: deal.send,
           assets_to: deal.receive,
-          from_value: Math.round(sumValue(deal.send)),
-          to_value: Math.round(sumValue(deal.receive)),
-          grade_label: grade.label,
           parent_offer_id: offer.id,
           thread_id: threadId,
         }),

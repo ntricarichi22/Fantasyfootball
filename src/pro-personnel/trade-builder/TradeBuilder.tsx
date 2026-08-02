@@ -483,11 +483,10 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
         body: JSON.stringify({
           from_team_id: myTeamId,
           to_team_id: to.id,
-          assets_from: ms.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("pick:") ? "pick" : "player", value: 0 })),
-          assets_to: mr.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("pick:") ? "pick" : "player", value: 0 })),
-          from_value: 0,
-          to_value: 0,
-          grade_label: advisorGrade || "Fair",
+          // Values + grade are computed server-side by trades/create (canonical
+          // engine) — clients no longer send them.
+          assets_from: ms.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("pick:") ? "pick" : "player" })),
+          assets_to: mr.map(a => ({ key: a.key, label: a.name, type: a.key.startsWith("pick:") ? "pick" : "player" })),
         }),
       });
       if (res.ok) {
@@ -510,7 +509,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     } finally {
       setSending(false);
     }
-  }, [sending, dealAssets, myTeamId, otherTeams, advisorGrade, flash]);
+  }, [sending, dealAssets, myTeamId, otherTeams, flash]);
 
   const activeRoster = useMemo(() => {
     const players = rosters[activeTab] ?? [];

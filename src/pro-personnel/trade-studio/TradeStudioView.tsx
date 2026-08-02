@@ -300,11 +300,10 @@ export default function TradeStudioView() {
         body: JSON.stringify({
           from_team_id: rosterId,
           to_team_id: offer.partnerTeamId,
-          assets_from: offer.send.map(a => ({ key: a.key, label: a.name, type: a.type, value: a.value })),
-          assets_to: offer.receive.map(a => ({ key: a.key, label: a.name, type: a.type, value: a.value })),
-          from_value: Math.round(offer.sendValue),
-          to_value: Math.round(offer.receiveValue),
-          grade_label: "Studio",
+          // Values + grade are computed server-side by trades/create (canonical
+          // engine) — clients no longer send them.
+          assets_from: offer.send.map(a => ({ key: a.key, label: a.name, type: a.type })),
+          assets_to: offer.receive.map(a => ({ key: a.key, label: a.name, type: a.type })),
         }),
       });
       if (res.ok) {

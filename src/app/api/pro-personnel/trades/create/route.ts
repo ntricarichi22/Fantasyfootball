@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
-import { isYoung } from "@/shared/asset-values";
+import { isYoung, buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
 import { getPlayerDictionary } from "@/shared/league-data";
+import { priceDeal } from "@/pro-personnel/engine/pricing";
+import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
+import { normalizePersona } from "@/pro-personnel/engine/core/personas";
+import type { Gap } from "@/pro-personnel/engine/core/types";
+import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
 
 export const dynamic = "force-dynamic";
 
@@ -142,14 +147,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  // from_value / to_value / grade_label are NO LONGER read from the body —
+  // every surface used to compute (or skip) them differently, so the same
+  // columns held three different meanings. They're computed server-side below,
+  // from the canonical engine, for every offer regardless of which door sent it.
   const {
-    from_team_id, to_team_id, assets_from, assets_to,
-    from_value, to_value, grade_label, parent_offer_id,
+    from_team_id, to_team_id, assets_from, assets_to, parent_offer_id,
   } = body as {
     from_team_id?: string; to_team_id?: string;
     assets_from?: IncomingAsset[]; assets_to?: IncomingAsset[];
-    from_value?: number; to_value?: number;
-    grade_label?: string; parent_offer_id?: string;
+    parent_offer_id?: string;
   };
 
   if (!from_team_id || !to_team_id) {
@@ -176,6 +183,56 @@ export async function POST(request: NextRequest) {
   const asset_summary = { from: fromBreakdown.summary, to: toBreakdown.summary };
   const from_base_value = Math.round(fromBreakdown.totalValue);
   const to_base_value = Math.round(toBreakdown.totalValue);
+
+  // ── Canonical pricing (server-side, single source of truth) ───────────
+  // Sender's scoreboard from the SAME engine as every chip: the sender's own
+  // assets at their team-perspective value, incoming assets at neutral base.
+  // grade_label is the sender's persona-aware grade of their own offer.
+  // Per-asset values are stamped at neutral base so thread/inbox ratio math
+  // never sees the zeros the manual builder used to send.
+  const ekey = (k: string) => (k.startsWith("player:") ? k.slice(7) : k);
+  const refOf = (a: IncomingAsset): AssetRef =>
+    a.key.startsWith("pick:")
+      ? { type: "pick", key: a.key }
+      : { type: "player", sleeperPlayerId: ekey(a.key) };
+  const toEngineAsset = (a: IncomingAsset, side: "send" | "receive"): EngineOfferAsset => ({
+    key: ekey(a.key),
+    name: a.label ?? a.key,
+    type: a.key.startsWith("pick:") ? "pick" : "player",
+    side,
+  });
+  const [ctx, senderStratRes] = await Promise.all([
+    buildValuationContext(),
+    client
+      .from("cfc_team_strategy_profiles")
+      .select("gm_persona")
+      .eq("league_id", league_id)
+      .eq("team_id", from_team_id)
+      .maybeSingle(),
+  ]);
+  const { ours } = priceDeal({
+    ourTeamId: from_team_id,
+    partnerTeamId: to_team_id,
+    assets: [
+      ...assets_from.map((a) => toEngineAsset(a, "send")),
+      ...assets_to.map((a) => toEngineAsset(a, "receive")),
+    ],
+    ctx,
+  });
+  const gap: Gap = {
+    sendValue: ours.sendValue,
+    receiveValue: ours.receiveValue,
+    ratio: ours.ratio,
+    delta: ours.receiveValue - ours.sendValue,
+    verdict: ours.verdict,
+    hasSend: assets_from.length > 0,
+    hasReceive: assets_to.length > 0,
+  };
+  const gradeLabel = personaAwareGrade(gap, normalizePersona(senderStratRes.data?.gm_persona)).label;
+  const stampValues = (list: IncomingAsset[]): IncomingAsset[] =>
+    list.map((a) => ({ ...a, value: Math.round(valueAsset(refOf(a), ctx)) }));
+  const assetsFromStamped = stampValues(assets_from);
+  const assetsToStamped = stampValues(assets_to);
 
   // ── Thread resolution ─────────────────────────────────────────────────
   // Counter (parent_offer_id set) → reuse parent's thread.
@@ -233,13 +290,15 @@ export async function POST(request: NextRequest) {
   const { data, error } = await client
     .from("trade_offers")
     .insert({
-      league_id, from_team_id, to_team_id, assets_from, assets_to,
-      from_value: typeof from_value === "number" ? from_value : 0,
-      to_value: typeof to_value === "number" ? to_value : 0,
+      league_id, from_team_id, to_team_id,
+      assets_from: assetsFromStamped,
+      assets_to: assetsToStamped,
+      from_value: Math.round(ours.sendValue),
+      to_value: Math.round(ours.receiveValue),
       from_base_value,
       to_base_value,
       asset_summary,
-      grade_label: typeof grade_label === "string" ? grade_label : "",
+      grade_label: gradeLabel,
       status: "pending",
       parent_offer_id: parent_offer_id || null,
       thread_id: threadId,
