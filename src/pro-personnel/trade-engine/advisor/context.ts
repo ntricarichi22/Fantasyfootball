@@ -2,114 +2,15 @@
 // and produces natural-language sentences. The AI never sees raw flags — it sees prose
 // that already understands the meaning. This is what kills "you've marked as core at WR
 // when you're buying at that position."
+//
+// translateStrategy + summarizeRoster now live in the SHARED ingredients module
+// (@/shared/director-prose) so every prose surface — advisor, inbox memos, any
+// future director voice — reads the same translations. Re-exported here so
+// advisor-side imports keep working.
 
-import type { StrategyProfile, RosterAsset, Gap, PostTradeWarning } from "./engine";
+import type { Gap, PostTradeWarning } from "./engine";
 
-// ─────────────────────────────────────────────────────────────────────────
-// Strategy translator — raw markets → natural language
-// ─────────────────────────────────────────────────────────────────────────
-
-export function translateStrategy(profile: StrategyProfile | null, teamName: string, isMe: boolean): string {
-  if (!profile) return `${isMe ? "Your" : `${teamName}'s`} strategy isn't on file.`;
-
-  const subject = isMe ? "You" : teamName;
-  const verb = isMe ? "are" : "is";
-  const possessive = isMe ? "you" : teamName;
-
-  const buying: string[] = [];
-  const selling: string[] = [];
-  const holding: string[] = [];
-
-  const markets: Array<[keyof StrategyProfile, string]> = [
-    ["qb_market", "QB"],
-    ["rb_market", "RB"],
-    ["pc_market", "pass catchers"],
-    ["picks_market", "picks"],
-  ];
-
-  for (const [key, label] of markets) {
-    const v = profile[key];
-    if (v === "buy") buying.push(label);
-    else if (v === "sell") selling.push(label);
-    else if (v === "hold") holding.push(label);
-  }
-
-  const lines: string[] = [];
-
-  if (buying.length > 0) {
-    const list = buying.join(", ");
-    if (isMe) {
-      lines.push(`You're SHOPPING for ${list} — meaning you want MORE bodies at ${buying.length === 1 ? "that position" : "those positions"}, not specifically elite ones.`);
-    } else {
-      lines.push(`${teamName} is shopping for ${list} — they want more depth there.`);
-    }
-  }
-
-  if (selling.length > 0) {
-    const list = selling.join(", ");
-    if (isMe) {
-      lines.push(`You're WILLING to move ${list} — when suggesting what you should send, prioritize this group.`);
-    } else {
-      lines.push(`${teamName} is willing to move ${list} — that's what they'll be open to sending.`);
-    }
-  }
-
-  // FIX: Don't say "set at" — that implies roster strength. Use neutral market language.
-  // The market is "hold" but that says nothing about whether the user is actually deep
-  // at the position. Don't let this leak into prose as a roster-quality claim.
-  if (holding.length > 0 && isMe) {
-    lines.push(`Your stance on ${holding.join(", ")} is HOLD — not actively shopping or selling, but situational moves are still on the table. Do NOT describe the user as "set at" any of these positions; that's a roster-quality claim, not a market signal.`);
-  }
-
-  // Translate wants_more separately and explicitly
-  const wants = profile.wants_more ?? [];
-  if (wants.length > 0) {
-    const wantsTranslated: string[] = [];
-    if (wants.includes("elite_producers")) {
-      wantsTranslated.push(isMe ? "stud-level talent (the kind of player that anchors a lineup)" : "studs");
-    }
-    if (wants.includes("young_upside")) {
-      wantsTranslated.push(isMe ? "young players with upside" : "youth");
-    }
-    if (wants.includes("draft_picks")) {
-      wantsTranslated.push(isMe ? "draft picks (you're trying to NET acquire picks — but a smaller pick going out for a bigger return is still a net win)" : "more draft picks");
-    }
-    if (wants.includes("roster_depth")) {
-      wantsTranslated.push(isMe ? "general roster depth" : "depth");
-    }
-    if (wantsTranslated.length > 0) {
-      lines.push(`${subject} ${verb} also targeting: ${wantsTranslated.join(", ")}. This is SEPARATE from position markets — ${possessive} can be shopping for WRs without specifically wanting elite WRs.`);
-    }
-  }
-
-  if (lines.length === 0) {
-    return `${subject} ${verb} not signaling any clear direction.`;
-  }
-  return lines.join(" ");
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-// Roster summary for prompt — compact, prioritized
-// ─────────────────────────────────────────────────────────────────────────
-
-export function summarizeRoster(roster: RosterAsset[], teamName: string, isMine: boolean): string {
-  if (!roster.length) return `${teamName} roster: not loaded.`;
-
-  const sorted = [...roster].sort((a, b) => b.value - a.value);
-  const lines: string[] = [];
-  for (const p of sorted.slice(0, 30)) {
-    const tags: string[] = [];
-    if (p.isStud) tags.push("STUD");
-    if (p.isYouth) tags.push("YOUNG");
-    if (p.tier === "untouchable") tags.push("UNTOUCHABLE");
-    else if (p.tier === "moveable") tags.push("MOVEABLE");
-    else if (p.tier === "listening") tags.push("LISTENING");
-    const tagStr = tags.length ? ` [${tags.join(", ")}]` : "";
-    lines.push(`  ${p.name} (${p.position})${tagStr}`);
-  }
-  const label = isMine ? `${teamName.toUpperCase()}'S ROSTER (this is YOUR roster — only suggest sending these):` : `${teamName.toUpperCase()}'S ROSTER (the OTHER team — only suggest receiving these):`;
-  return `${label}\n${lines.join("\n")}`;
-}
+export { translateStrategy, summarizeRoster } from "@/shared/director-prose";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Gap verdict translator

@@ -6,12 +6,17 @@
 // the raw player-for-player swap (read_body already does) and without a
 // bottom-line line (rendered separately from the verdict).
 //
-// Mirrors the server-side pattern in src/app/api/inbox/ai-quip/route.ts: same
-// Anthropic model, same strategy/attachment context, deterministic fallback when
-// the API key is missing or the call fails. Called LAZILY by the sweep — only
-// when an email is actually minted, never on every sweep pass.
+// Ingredients come from the SHARED director-prose module (translateStrategy,
+// VOICE_RULES) — same translations and same hard rules as the trade-builder
+// advisor, so the director never does the math differently in an email than he
+// does in the builder. The verdict passed in is the canonical engine grade
+// (priceDeal + personaAwareGrade, computed by the sweep); the prompt's job is
+// the WHY, and it must agree with that verdict. Deterministic fallback when the
+// API key is missing or the call fails. Called LAZILY by the sweep — only when
+// an email is actually minted, never on every sweep pass.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { VOICE_RULES, translateStrategy } from "@/shared/director-prose";
 
 const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
 
@@ -21,6 +26,7 @@ type StrategyRow = {
   qb_market?: string;
   rb_market?: string;
   pc_market?: string;
+  picks_market?: string;
 };
 type AttachmentRow = { sleeper_player_id: string; attachment: string };
 
@@ -29,43 +35,18 @@ function nameOf(label?: string): string {
 }
 
 function assetLine(assets: Asset[]): string {
-  return (
-    assets
-      .map((a) => {
-        const v = typeof a.value === "number" ? ` (${Math.round(a.value)})` : "";
-        return `${nameOf(a.label)}${v}`;
-      })
-      .join(", ") || "nothing"
-  );
+  return assets.map((a) => nameOf(a.label)).join(", ") || "nothing";
 }
 
-// Translate a raw strategy row into the director's natural-language posture.
-function strategyLine(p: StrategyRow | null, label: string): string {
-  if (!p) return `${label}: no strategy on file.`;
-  const need: string[] = [];
-  if (p.qb_market === "buy") need.push("QB");
-  if (p.rb_market === "buy") need.push("RB");
-  if (p.pc_market === "buy") { need.push("WR"); need.push("TE"); }
-  const sell: string[] = [];
-  if (p.qb_market === "sell") sell.push("QB");
-  if (p.rb_market === "sell") sell.push("RB");
-  if (p.pc_market === "sell") { sell.push("WR"); sell.push("TE"); }
-  const parts = [
-    need.length ? `buying ${need.join("/")}` : "",
-    sell.length ? `selling ${sell.join("/")}` : "",
-    p.wants_more?.length ? `targeting ${p.wants_more.join(", ")}` : "",
-  ].filter(Boolean);
-  return `${label}: ${parts.length ? parts.join("; ") : "balanced, no strong lean"}.`;
-}
-
-// Flag any player we'd be moving that we've marked untouchable/moveable/listening.
+// Attachment tags on players we'd move. Tags only — the voice rules instruct
+// the model to translate them to GM language, never echo them raw.
 function attachmentLine(atts: AttachmentRow[], assets: Asset[]): string {
   const out: string[] = [];
   for (const a of assets) {
     const pid = (a.key || "").startsWith("player:") ? (a.key as string).slice(7) : "";
     if (!pid) continue;
     const m = atts.find((x) => x.sleeper_player_id === pid);
-    if (m) out.push(`${nameOf(a.label)} is ${m.attachment.toUpperCase()}`);
+    if (m) out.push(`${nameOf(a.label)} [${m.attachment.toUpperCase()}]`);
   }
   return out.join("; ");
 }
@@ -108,14 +89,12 @@ export async function generateOfferProse(params: {
   partnerTeamId: string;
   sendAssets: Asset[]; // what WE give up
   receiveAssets: Asset[]; // what WE get
-  sendVal: number;
-  recvVal: number;
-  verdict: string; // computed verdict label, e.g. "I'd push for more here"
+  verdict: string; // canonical engine grade label, e.g. "I'd push for more here"
   fallback: string;
 }): Promise<string> {
   const {
     client, leagueId, teamId, ourName, partnerName, partnerTeamId,
-    sendAssets, receiveAssets, sendVal, recvVal, verdict, fallback,
+    sendAssets, receiveAssets, verdict, fallback,
   } = params;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -124,13 +103,13 @@ export async function generateOfferProse(params: {
   const [ourStrat, theirStrat, ourAtt] = await Promise.all([
     client
       .from("cfc_team_strategy_profiles")
-      .select("wants_more, qb_market, rb_market, pc_market")
+      .select("wants_more, qb_market, rb_market, pc_market, picks_market")
       .eq("league_id", leagueId)
       .eq("team_id", teamId)
       .maybeSingle(),
     client
       .from("cfc_team_strategy_profiles")
-      .select("wants_more, qb_market, rb_market, pc_market")
+      .select("wants_more, qb_market, rb_market, pc_market, picks_market")
       .eq("league_id", leagueId)
       .eq("team_id", partnerTeamId)
       .maybeSingle(),
@@ -145,17 +124,15 @@ export async function generateOfferProse(params: {
   const theirStrategy = (theirStrat.data as StrategyRow) ?? null;
   const ourAtts = (ourAtt.data ?? []) as AttachmentRow[];
   const sendAtt = attachmentLine(ourAtts, sendAssets);
-  const ratioPct = sendVal > 0 ? Math.round((recvVal / sendVal) * 100) : 100;
 
   const user = [
     `Inbound trade offer from ${partnerName} to us (${ourName}) in a dynasty fantasy football league.`,
-    `We would SEND: ${assetLine(sendAssets)} (our value ${Math.round(sendVal)}).`,
-    `We would RECEIVE: ${assetLine(receiveAssets)} (value ${Math.round(recvVal)}).`,
-    `Value coming back vs. going out: ${ratioPct}%.`,
-    strategyLine(ourStrategy, "Our posture"),
-    strategyLine(theirStrategy, "Their posture"),
-    sendAtt ? `On the player(s) we'd move: ${sendAtt}.` : "",
-    `Our valuation verdict: "${verdict}".`,
+    `We would SEND: ${assetLine(sendAssets)}.`,
+    `We would RECEIVE: ${assetLine(receiveAssets)}.`,
+    `OUR STRATEGY: ${translateStrategy(ourStrategy, ourName, true)}`,
+    `THEIR STRATEGY: ${translateStrategy(theirStrategy, partnerName, false)}`,
+    sendAtt ? `Our flags on the player(s) we'd move: ${sendAtt}.` : "",
+    `Our valuation verdict (already decided by the front office — your read MUST agree with it, never contradict it): "${verdict}".`,
     "",
     "Write the director's read for the boss: 2-3 sentences on how this fits our roster needs and contention window, and the reasoning behind that verdict.",
   ]
@@ -167,6 +144,9 @@ export async function generateOfferProse(params: {
     "Speak in first person plural ('we', 'us', 'I'). Reference the specific players and positions, how the deal fits our roster needs and contention window, and the why behind the recommendation. " +
     "Do NOT restate the raw player-for-player swap — the email already shows it. " +
     "Do NOT write a greeting or sign-off, and do NOT include a 'bottom line' sentence (that is rendered separately). " +
+    `${VOICE_RULES.noNumbers(`"noticeably more," "in the same ballpark," "a light return."`)} ` +
+    `${VOICE_RULES.noRawDbTerms} ` +
+    `${VOICE_RULES.noSycophancy} ` +
     "2-3 sentences, conversational, no markdown.";
 
   const text = await callAnthropic(system, user, apiKey);

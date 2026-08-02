@@ -224,8 +224,6 @@ export async function POST(req: Request) {
           partnerTeamId: offer.from_team_id,
           sendAssets,
           receiveAssets,
-          sendVal: ours.sendValue,
-          recvVal: ours.receiveValue,
           verdict,
           fallback: fallbackProse,
         });
