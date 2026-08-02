@@ -26,6 +26,7 @@ import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives } from "@/shared/team-narratives";
 import { buildValuationContext } from "@/shared/asset-values";
+import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import { construct, builderRequestForTarget, type EngineContext, type EngineOffer } from "@/pro-personnel/engine";
@@ -33,8 +34,9 @@ import { construct, builderRequestForTarget, type EngineContext, type EngineOffe
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
-const LLM_TIMEOUT_MS = 6_000;
+// 8s cap: Sonnet needs more room than Haiku did; past it the deterministic
+// fallback ships and the chat answers anyway.
+const LLM_TIMEOUT_MS = 8_000;
 
 type FenceStatus = "spendable" | "sacred" | "unknown";
 
@@ -201,8 +203,9 @@ async function llmProse(system: string, user: string): Promise<string | null> {
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: DIRECTOR_PROSE_MODEL,
         max_tokens: 300,
+        thinking: { type: "disabled" },
         system,
         messages: [{ role: "user", content: user }],
       }),

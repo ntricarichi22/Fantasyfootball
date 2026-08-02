@@ -29,10 +29,10 @@ import {
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-// Haiku for the deal-read prose: a short (~350-token) advisory blurb where
-// speed matters more than the extra nuance of Sonnet. Revert to a Sonnet id if
-// the director's voice regresses.
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+// Model comes from the shared director-prose module — one model for every
+// director voice surface. Thinking is explicitly disabled in the request body
+// (see the module comment).
+import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
 
 type RequestBody = {
   my_team_id?: string;
@@ -380,8 +380,9 @@ export async function POST(request: NextRequest) {
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: DIRECTOR_PROSE_MODEL,
           max_tokens: 350,
+          thinking: { type: "disabled" },
           system: systemPrompt,
           messages: [{ role: "user", content: userPrompt }],
         }),

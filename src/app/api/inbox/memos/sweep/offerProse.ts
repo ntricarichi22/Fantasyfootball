@@ -16,9 +16,7 @@
 // an email is actually minted, never on every sweep pass.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { VOICE_RULES, translateStrategy } from "@/shared/director-prose";
-
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+import { DIRECTOR_PROSE_MODEL, VOICE_RULES, translateStrategy } from "@/shared/director-prose";
 
 type Asset = { key?: string; label?: string; value?: number };
 type StrategyRow = {
@@ -61,8 +59,9 @@ async function callAnthropic(system: string, user: string, apiKey: string): Prom
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: DIRECTOR_PROSE_MODEL,
         max_tokens: 220,
+        thinking: { type: "disabled" },
         system,
         messages: [{ role: "user", content: user }],
       }),

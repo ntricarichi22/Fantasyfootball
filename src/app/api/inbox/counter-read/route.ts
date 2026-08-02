@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { counterProse, type CounterPartner } from "@/inbox/thread/counterMath";
+import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -11,7 +12,6 @@ export const maxDuration = 30;
 // counterProse when there's no API key or the call fails, so the drawer always
 // gets a usable line.
 
-const ANTHROPIC_MODEL = "claude-sonnet-4-6";
 
 type AssetLite = { name?: string };
 type PartnerLite = {
@@ -87,8 +87,9 @@ async function callAnthropic(user: string, apiKey: string): Promise<string | nul
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: DIRECTOR_PROSE_MODEL,
         max_tokens: 320,
+        thinking: { type: "disabled" },
         system: SYSTEM,
         messages: [{ role: "user", content: user }],
       }),

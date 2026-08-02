@@ -12,12 +12,14 @@
 // fallback when no API key / timeout.
 
 import { NextRequest, NextResponse } from "next/server";
+import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
 
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
-const LLM_TIMEOUT_MS = 6_000;
+// 8s cap: Sonnet needs more room than Haiku did; past it the deterministic
+// fallback ships and the chat continues anyway.
+const LLM_TIMEOUT_MS = 8_000;
 
 type BeatGoal = { label: string; evidence: string; count: number };
 type Body = {
@@ -70,8 +72,9 @@ export async function POST(req: NextRequest) {
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
         body: JSON.stringify({
-          model: ANTHROPIC_MODEL,
+          model: DIRECTOR_PROSE_MODEL,
           max_tokens: 300,
+          thinking: { type: "disabled" },
           system: SYSTEM,
           messages: [{
             role: "user",

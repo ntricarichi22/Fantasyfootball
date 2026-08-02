@@ -19,6 +19,17 @@
 // Types here are structural minimums so this module depends on nothing —
 // the engine's RosterAsset / StrategyProfile satisfy them as-is.
 
+// ─── Model ────────────────────────────────────────────────────────────────
+//
+// THE model every director-prose surface uses. Sonnet for voice quality
+// (user call, Aug 2026 — Haiku's reads were too thin). Callers should pass
+// thinking: {type: "disabled"} in the request body: Sonnet 5 runs adaptive
+// thinking BY DEFAULT, thinking tokens count against max_tokens, and these
+// are short blurbs with small caps where thinking only adds latency and
+// truncation risk — all the analysis is already done deterministically.
+
+export const DIRECTOR_PROSE_MODEL = "claude-sonnet-5";
+
 // ─── Universal voice rules ────────────────────────────────────────────────
 //
 // noNumbers takes the surface's own example phrases (the Studio coaches with

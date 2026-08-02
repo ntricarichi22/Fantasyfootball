@@ -26,7 +26,7 @@ import { buildTeamNarratives, ACQUIRE_GOAL_KINDS, type Thesis, type Goal } from 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const ANTHROPIC_MODEL = "claude-haiku-4-5-20251001";
+import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
 
 const BUCKET_LABEL: Record<string, string> = {
   QB: "QB",
@@ -121,7 +121,10 @@ Hard rules:
 // ships and the room opens anyway. Nulls are never cached.
 const proseCache = new Map<string, { v: DirectorProse; exp: number }>();
 const PROSE_TTL = 10 * 60_000;
-const LLM_TIMEOUT_MS = 4_000;
+// 8s cap: Sonnet needs more room than Haiku did. Worst case the first
+// door-open of the 10-minute cache window waits a bit longer; past the cap
+// the deterministic fallback ships and the room opens anyway.
+const LLM_TIMEOUT_MS = 8_000;
 
 async function llmProse(
   teamId: string,
@@ -149,8 +152,9 @@ async function llmProse(
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       body: JSON.stringify({
-        model: ANTHROPIC_MODEL,
+        model: DIRECTOR_PROSE_MODEL,
         max_tokens: 600,
+        thinking: { type: "disabled" },
         system: LLM_SYSTEM,
         messages: [{
           role: "user",
