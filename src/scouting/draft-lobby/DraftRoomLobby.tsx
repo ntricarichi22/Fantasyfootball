@@ -28,9 +28,9 @@ const SCENARIOS: { key: Scenario; label: string; desc: string }[] = [
   { key: "chalk", label: "Chalk", desc: "Every seat takes the best player left. No needs, no reaches — the purest value board there is." },
 ];
 const SPEEDS: { label: string; seconds: number }[] = [
-  { label: "Relaxed", seconds: 20 },
+  { label: "Relaxed", seconds: 15 },
   { label: "Steady", seconds: 10 },
-  { label: "Quick", seconds: 5 },
+  { label: "Quick", seconds: 2 },
 ];
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");

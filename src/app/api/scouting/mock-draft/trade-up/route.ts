@@ -15,6 +15,13 @@ export const maxDuration = 30;
 // valuation (valueAsset) and per-team persona accept bands the real Trade
 // Studio uses — so an offer only surfaces if the PARTNER would actually take it
 // from their own seat. No more "give 2.10 for 2.06 straight up" nonsense.
+//
+// Three modes, one body shape:
+//   (default)        — auto-generated offers; the engine assembles the packages
+//   mode: "context"  — raw materials for the build-it-myself modal (targets +
+//                      our tradeable picks/players, valued from our seat)
+//   mode: "propose"  — a user-built package; the partner says yes ONLY if it
+//                      clears the same acceptance threshold the auto path uses
 
 // A team sliding down demands this much over the raw value of the pick it gives
 // up — moving up the board costs a real premium, so no straight adjacent swaps.
@@ -32,6 +39,9 @@ export async function POST(req: Request) {
     targetOverall?: number;
     forcedPicks?: Array<{ overall: number; playerId: string }>;
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
+    tradedAway?: string[];
+    mode?: "context" | "propose";
+    give?: Array<{ kind?: string; overall?: number; playerId?: string }>;
   };
   const seed = typeof body.seed === "number" && body.seed > 0 ? body.seed : 1;
   const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
@@ -72,7 +82,7 @@ export async function POST(req: Request) {
   current.sort((a, b) => a.overall! - b.overall!);
 
   const myPick = current.find((p) => p.currentRosterId === youId && !forcedOveralls.has(p.overall!));
-  if (!myPick) return NextResponse.json({ offers: [] });
+  if (!myPick) return NextResponse.json(body.mode === "context" ? { fromPick: null, targets: [], picks: [], players: [] } : { offers: [] });
   const myOurVal = val(myPick, youId);
   const nflTeamOf = (id: string) => data.players.get(id)?.team ?? null;
   const playerVal = (id: string, perspective?: string) => valueAsset({ type: "player", sleeperPlayerId: id }, ctx, perspective ? { perspective } : undefined);
@@ -90,12 +100,26 @@ export async function POST(req: Request) {
     });
 
   // Our tradeable assets besides the pick we're moving: later picks + roster
-  // players (all but our two most valuable — franchise pieces stay put).
+  // players (minus anyone already dealt away in this sim). The auto path keeps
+  // our two most valuable players untouchable; a manual build can offer anyone.
+  const gone = new Set((body.tradedAway ?? []).filter((v): v is string => typeof v === "string"));
   const myExtraPicks = current.filter((p) => p.currentRosterId === youId && p.overall! !== myPick.overall! && !forcedOveralls.has(p.overall!));
   const rosterPlayers = you.players
+    .filter((pl) => !gone.has(pl.id))
     .map((pl) => ({ id: pl.id, name: pl.name, pos: pl.position, nflTeam: nflTeamOf(pl.id), vYou: playerVal(pl.id, youId) }))
     .sort((a, b) => b.vYou - a.vYou);
-  const tradeablePlayers = rosterPlayers.slice(2); // keep the top two untouchable
+  const tradeablePlayers = rosterPlayers.slice(2); // keep the top two untouchable (auto offers only)
+
+  // Raw materials for the build-it-myself modal — no board sim needed, so we
+  // answer before the expensive draft-fit / board work below.
+  if (body.mode === "context") {
+    return NextResponse.json({
+      fromPick: { overall: myPick.overall, pick: pickKey(myPick.round, myPick.slot), value: Math.round(myOurVal) },
+      targets: candidates.map((p) => ({ overall: p.overall, pick: pickKey(p.round, p.slot), team: nameByRoster.get(p.currentRosterId) ?? p.currentRosterId, partnerId: p.currentRosterId, value: Math.round(val(p, youId)) })),
+      picks: myExtraPicks.map((p) => ({ overall: p.overall, pick: pickKey(p.round, p.slot), value: Math.round(val(p, youId)) })),
+      players: rosterPlayers.map((pl) => ({ id: pl.id, name: pl.name, pos: pl.pos, nflTeam: pl.nflTeam, value: Math.round(pl.vYou) })),
+    });
+  }
 
   const grid = computeDraftFit(data, profiles);
   const boards = await getAllBoards(data, grid);
@@ -117,6 +141,67 @@ export async function POST(req: Request) {
     return { board, myRead: reads.find((r) => r.rosterId === youId) };
   };
 
+  const myPickAssetFor = (partnerId: string): Asset =>
+    ({ kind: "pick", label: pickKey(myPick.round, myPick.slot), sublabel: "our pick", vYou: myOurVal, vP: val(myPick, partnerId), overall: myPick.overall! });
+
+  // One offer object, shared by the auto path and user-built proposals.
+  const makeOffer = (pkg: Asset[], cand: OwnedPick) => {
+    const partnerId = cand.currentRosterId;
+    const pickGives = pkg.filter((a) => a.kind === "pick");
+    const playerGives = pkg.filter((a) => a.kind === "player");
+    const overrides = [
+      { overall: cand.overall!, rosterId: youId },
+      ...pickGives.map((a) => ({ overall: a.overall!, rosterId: partnerId })),
+    ];
+    const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
+    const order = current.map((p) => (ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p));
+    const { board, myRead } = buildBoard(order);
+    const ourGive = pkg.reduce((s, a) => s + a.vYou, 0);
+    const ourReceive = val(cand, youId);
+    return {
+      partner: nameByRoster.get(partnerId) ?? partnerId,
+      partnerId,
+      fromPick: pickKey(myPick.round, myPick.slot),
+      toPick: pickKey(cand.round, cand.slot),
+      give: pkg.map((a) => ({ kind: a.kind, label: a.label, sublabel: a.sublabel, value: Math.round(a.vYou) })),
+      get: [{ kind: "pick", label: pickKey(cand.round, cand.slot), sublabel: nameByRoster.get(partnerId) ?? "", value: Math.round(ourReceive) }],
+      givePlayers: playerGives.map((a) => a.playerId!),
+      net: Math.round(ourReceive - ourGive),
+      rationale: myRead?.picks?.[0]?.rationale ?? "",
+      overrides,
+      board,
+    };
+  };
+
+  // A user-built package: our pick is always in; the rest is exactly what they
+  // put on the table. The partner accepts only if the package clears the same
+  // premium-marked acceptance threshold the auto offers must — no counters.
+  if (body.mode === "propose") {
+    const cand = candidates.find((p) => p.overall === body.targetOverall);
+    if (!cand) return NextResponse.json({ accepted: false, hint: "far", error: "That pick isn't available." });
+    const partnerId = cand.currentRosterId;
+    const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
+    const threshold = Math.max(band.min, MOVE_UP_PREMIUM) * val(cand, partnerId);
+    const pickByOverall = new Map(myExtraPicks.map((p) => [p.overall!, p]));
+    const playerById = new Map(rosterPlayers.map((pl) => [pl.id, pl]));
+    const pkg: Asset[] = [myPickAssetFor(partnerId)];
+    const seen = new Set<string>();
+    for (const g of body.give ?? []) {
+      if (g?.kind === "pick" && typeof g.overall === "number" && pickByOverall.has(g.overall) && !seen.has(`pick:${g.overall}`)) {
+        seen.add(`pick:${g.overall}`);
+        const p = pickByOverall.get(g.overall)!;
+        pkg.push({ kind: "pick", label: pickKey(p.round, p.slot), sublabel: "pick", vYou: val(p, youId), vP: val(p, partnerId), overall: p.overall! });
+      } else if (g?.kind === "player" && typeof g.playerId === "string" && playerById.has(g.playerId) && !seen.has(`player:${g.playerId}`)) {
+        seen.add(`player:${g.playerId}`);
+        const pl = playerById.get(g.playerId)!;
+        pkg.push({ kind: "player", label: pl.name, sublabel: `${pl.pos}${pl.nflTeam ? ` · ${pl.nflTeam}` : ""}`, vYou: pl.vYou, vP: playerVal(pl.id, partnerId), playerId: pl.id });
+      }
+    }
+    const recv = pkg.reduce((s, a) => s + a.vP, 0);
+    if (recv < threshold) return NextResponse.json({ accepted: false, hint: recv >= 0.9 * threshold ? "close" : "far" });
+    return NextResponse.json({ accepted: true, offer: makeOffer(pkg, cand) });
+  }
+
   const offers: unknown[] = [];
   const seenSignatures = new Set<string>();
   for (const cand of candidates) {
@@ -130,7 +215,7 @@ export async function POST(req: Request) {
     const threshold = Math.max(band.min, MOVE_UP_PREMIUM) * val(cand, partnerId);
 
     // Asset pools valued from the partner's seat (what they'd accept) and ours.
-    const myPickAsset: Asset = { kind: "pick", label: pickKey(myPick.round, myPick.slot), sublabel: "our pick", vYou: myOurVal, vP: val(myPick, partnerId), overall: myPick.overall! };
+    const myPickAsset = myPickAssetFor(partnerId);
     const pickPool: Asset[] = myExtraPicks.map((p) => ({ kind: "pick" as const, label: pickKey(p.round, p.slot), sublabel: "pick", vYou: val(p, youId), vP: val(p, partnerId), overall: p.overall! })).sort((a, b) => a.vP - b.vP);
     const playerPool: Asset[] = tradeablePlayers.map((pl) => ({ kind: "player" as const, label: pl.name, sublabel: `${pl.pos}${pl.nflTeam ? ` · ${pl.nflTeam}` : ""}`, vYou: pl.vYou, vP: playerVal(pl.id, partnerId), playerId: pl.id })).sort((a, b) => a.vP - b.vP);
     const interleaved: Asset[] = [];
@@ -155,32 +240,7 @@ export async function POST(req: Request) {
       const sig = pkg.map((a) => a.label).sort().join("|") + "->" + cand.overall;
       if (seenSignatures.has(sig)) continue;
       seenSignatures.add(sig);
-
-      const pickGives = pkg.filter((a) => a.kind === "pick");
-      const playerGives = pkg.filter((a) => a.kind === "player");
-      const overrides = [
-        { overall: cand.overall!, rosterId: youId },
-        ...pickGives.map((a) => ({ overall: a.overall!, rosterId: partnerId })),
-      ];
-      const ownerByOverall = new Map(overrides.map((o) => [o.overall, o.rosterId]));
-      const order = current.map((p) => (ownerByOverall.has(p.overall!) ? { ...p, currentRosterId: ownerByOverall.get(p.overall!)! } : p));
-      const { board, myRead } = buildBoard(order);
-      const ourGive = pkg.reduce((s, a) => s + a.vYou, 0);
-      const ourReceive = val(cand, youId);
-
-      offers.push({
-        partner: nameByRoster.get(partnerId) ?? partnerId,
-        partnerId,
-        fromPick: pickKey(myPick.round, myPick.slot),
-        toPick: pickKey(cand.round, cand.slot),
-        give: pkg.map((a) => ({ kind: a.kind, label: a.label, sublabel: a.sublabel, value: Math.round(a.vYou) })),
-        get: [{ kind: "pick", label: pickKey(cand.round, cand.slot), sublabel: nameByRoster.get(partnerId) ?? "", value: Math.round(ourReceive) }],
-        givePlayers: playerGives.map((a) => a.playerId!),
-        net: Math.round(ourReceive - ourGive),
-        rationale: myRead?.picks?.[0]?.rationale ?? "",
-        overrides,
-        board,
-      });
+      offers.push(makeOffer(pkg, cand));
     }
   }
 

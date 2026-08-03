@@ -32,6 +32,12 @@ type TradeOverride = { overall: number; rosterId: string };
 // client can read survival odds at the new slot.
 type TBOffer = { partner: string; partnerId: string; fromPick: string; toPick: string; give: TBAsset[]; get: TBAsset[]; givePlayers?: string[]; net: number; rationale: string; overrides: TradeOverride[]; board: BoardPick[] };
 type TradeMode = "up" | "back";
+// Build-it-myself raw materials (trade-up "context" mode): the picks ahead we
+// can chase plus our tradeable picks and players, all valued from our seat.
+type TUTarget = { overall: number; pick: string; team: string; partnerId: string; value: number };
+type TUPickAsset = { overall: number; pick: string; value: number };
+type TUPlayerAsset = { id: string; name: string; pos: string; nflTeam: string | null; value: number };
+type TUContext = { fromPick: TUPickAsset; targets: TUTarget[]; picks: TUPickAsset[]; players: TUPlayerAsset[] };
 // The war-room director card: a verdict line, a few stat chips, and labeled
 // prose sections — the trade-modal treatment, applied to the live read.
 type DChip = { k: string; v: string };
@@ -56,6 +62,9 @@ const PLACARD = "#EDE3CD", SCREAM = "#F3ECD9", GOLD = "#E9C46A", CRED = "#E07A5F
 const RECESS2 = "#1e1a15", HLINE = "#322c24", DIM = "#8a7d63", FADE = "#b9ab8d", BROWN = "#a8632a";
 const ANTON = "'Anton', sans-serif", OSWALD = "'Oswald', sans-serif";
 const SIM_SECONDS = 10;
+// How long the "pick is in" announcement holds the clock card before the next
+// team's clock starts.
+const ANNOUNCE_MS = 2000;
 
 // Display names match the lobby's setup modal; engine keys are unchanged.
 const SCENARIOS: { key: Scenario; label: string }[] = [
@@ -67,7 +76,7 @@ const RUNS: { key: Scenario; label: string }[] = [
 ];
 // Clock speeds — must mirror the lobby's setup modal (DraftRoomLobby SPEEDS).
 const SPEEDS: { label: string; seconds: number }[] = [
-  { label: "Relaxed", seconds: 20 }, { label: "Steady", seconds: 10 }, { label: "Quick", seconds: 5 },
+  { label: "Relaxed", seconds: 15 }, { label: "Steady", seconds: 10 }, { label: "Quick", seconds: 2 },
 ];
 const LOBBY_ROUTE = "/scouting/draft-room";
 
@@ -110,6 +119,10 @@ export function MockDraftView() {
   const [revealed, setRevealed] = useState(0);
   const [viewRound, setViewRound] = useState(2);
   const [seconds, setSeconds] = useState(SIM_SECONDS);
+  // The pick-is-in beat: when a pick lands (clock expiry or our own selection),
+  // the clock card announces the player for a moment before the board advances
+  // and the next team's clock starts.
+  const [announce, setAnnounce] = useState<{ idx: number } | null>(null);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"ALL" | "QB" | "RB" | "PC">("ALL");
 
@@ -136,6 +149,15 @@ export function MockDraftView() {
   // True when the CURRENT trade modal is an incoming call (computer-initiated) —
   // drives the red alarm skin + Reject/Accept labels.
   const [tradeInbound, setTradeInbound] = useState(false);
+  // Build-it-myself (trade up only): modal sub-view, the raw assets the server
+  // hands us, what we've put on the table, and the partner's last answer.
+  const [buildOpen, setBuildOpen] = useState(false);
+  const [buildCtx, setBuildCtx] = useState<TUContext | null>(null);
+  const [buildLoading, setBuildLoading] = useState(false);
+  const [buildTarget, setBuildTarget] = useState<number | null>(null);
+  const [buildGive, setBuildGive] = useState<Set<string>>(new Set());
+  const [buildBusy, setBuildBusy] = useState(false);
+  const [buildRejected, setBuildRejected] = useState<null | "close" | "far">(null);
 
   const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
   const onClock = revealed < board.length ? board[revealed] : null;
@@ -182,7 +204,7 @@ export function MockDraftView() {
   const secondsRef = useRef(SIM_SECONDS);
   useEffect(() => { secondsRef.current = seconds; }, [seconds]);
   useEffect(() => {
-    if (phase !== "running" || busy) return;
+    if (phase !== "running" || busy || announce) return;
     if (revealed >= board.length) return;
     const cur = board[revealed];
     if (cur && (control ? control.has(cur.rosterId) : cur.mine)) return;
@@ -194,13 +216,25 @@ export function MockDraftView() {
       remaining -= 1;
       if (remaining <= 0) {
         clearInterval(id);
-        const next = revealed + 1;
-        if (board[next] && board[next].round !== board[revealed].round) setViewRound(board[next].round);
-        setRevealed(next);
+        setAnnounce({ idx: revealed });
       } else { setSeconds(remaining); }
     }, 1000);
     return () => clearInterval(id);
-  }, [phase, revealed, board, busy, control, simSeconds]);
+  }, [phase, revealed, board, busy, control, simSeconds, announce]);
+
+  // Hold the announcement, then advance the board — the next team's clock only
+  // starts once the announcement clears.
+  useEffect(() => {
+    if (!announce || phase !== "running") return;
+    const id = setTimeout(() => {
+      const next = announce.idx + 1;
+      if (board[next] && board[next].round !== board[announce.idx].round) setViewRound(board[next].round);
+      setRevealed(next);
+      setAnnounce(null);
+    }, ANNOUNCE_MS);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [announce, phase]);
 
   // ── control panel ────────────────────────────────────────────────────────────
   function pauseResume() { setPhase((p) => (p === "running" ? "paused" : "running")); }
@@ -217,43 +251,103 @@ export function MockDraftView() {
   function triggerRun(s: Scenario) { setRunOpen(false); reproject(s); }
 
   // ── trades (one modal: up while simming, back on the clock) ────────────────────
+  // An announced pick is already made — the card's turned in, it just hasn't
+  // slid onto the board yet. Before any trade talk, commit it so offers are
+  // built against the true state (and a stale announcement can't advance the
+  // board past a slot a trade just handed us). Returns the true revealed count.
+  function flushAnnounce(): number {
+    if (!announce) return revealed;
+    const next = Math.max(revealed, announce.idx + 1);
+    if (board[next] && board[next].round !== board[announce.idx].round) setViewRound(board[next].round);
+    setRevealed(next);
+    setAnnounce(null);
+    return next;
+  }
+  // Shared POST body for the sim trade routes — everything the engine needs to
+  // rebuild the live board from this exact moment.
+  function tradeBody(revAt = revealed) {
+    const forcedPicks = board.slice(0, revAt).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    return { teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides, tradedAway, targetOverall: board[revAt]?.overall };
+  }
   function openTrade(mode: TradeMode) {
     const route = mode === "up" ? "trade-up" : "trade-back";
-    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    const rev = flushAnnounce();
     setTradeMode(mode); setTradeInbound(false); setPhase("paused"); setTradeOpen(true); setTradeOffers([]); setTradeIdx(0); setTradeLoading(true);
-    fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
+    fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tradeBody(rev)) })
       .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => { setTradeOffers(j.offers ?? []); setTradeIdx(0); })
       .catch(() => setTradeOffers([])).finally(() => setTradeLoading(false));
   }
-  function closeTrade() { setTradeOpen(false); setTradeInbound(false); setTradeOffers([]); if (!isComplete) setPhase("running"); }
+  function closeTrade() { setTradeOpen(false); setTradeInbound(false); setTradeOffers([]); setBuildOpen(false); setBuildRejected(null); if (!isComplete) setPhase("running"); }
+
+  // ── build-it-myself (trade up): you assemble the package; the partner only
+  // says yes if it clears their acceptance band — the same canonical check the
+  // auto-generated offers pass. No counters, just yes or no. ─────────────────────
+  function openBuilder() {
+    setBuildOpen(true); setBuildRejected(null); setBuildGive(new Set()); setBuildCtx(null); setBuildLoading(true);
+    fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...tradeBody(), mode: "context" }) })
+      .then((r) => r.json())
+      .then((j: TUContext) => {
+        setBuildCtx(Array.isArray(j?.targets) ? j : null);
+        const onClockTarget = j?.targets?.find((t) => t.overall === onClock?.overall);
+        setBuildTarget(onClockTarget ? onClockTarget.overall : j?.targets?.[0]?.overall ?? null);
+      })
+      .catch(() => setBuildCtx(null))
+      .finally(() => setBuildLoading(false));
+  }
+  function toggleGive(key: string) {
+    setBuildGive((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
+    setBuildRejected(null);
+  }
+  function proposeBuild() {
+    if (!buildCtx || buildTarget == null || buildBusy) return;
+    setBuildBusy(true); setBuildRejected(null);
+    const give = [...buildGive].map((k) => (k.startsWith("pick:") ? { kind: "pick" as const, overall: Number(k.slice(5)) } : { kind: "player" as const, playerId: k.slice(7) }));
+    fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...tradeBody(), mode: "propose", targetOverall: buildTarget, give }) })
+      .then((r) => r.json())
+      .then((j: { accepted?: boolean; offer?: TBOffer; hint?: string }) => {
+        // Accepted: flip to the standard offer card so the director weighs in
+        // and MAKE THE CALL applies it through the normal accept path.
+        if (j.accepted && j.offer) { setBuildOpen(false); setTradeOffers([j.offer]); setTradeIdx(0); }
+        else setBuildRejected(j.hint === "close" ? "close" : "far");
+      })
+      .catch(() => setBuildRejected("far"))
+      .finally(() => setBuildBusy(false));
+  }
 
   // An INCOMING call — a team rings a pick or two before you're up, wanting to
   // jump your slot (trade-back for you) or bank picks (trade-up for you). Reuses
   // the same acceptance-checked routes; only fires if the board justifies it.
-  function fetchInboundOffers(mode: TradeMode): Promise<TBOffer[]> {
+  function fetchInboundOffers(mode: TradeMode, revAt: number): Promise<TBOffer[]> {
     const route = mode === "up" ? "trade-up" : "trade-back";
-    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
-    return fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides, targetOverall: onClock?.overall }) })
+    return fetch(`/api/scouting/mock-draft/${route}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(tradeBody(revAt)) })
       .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => j.offers ?? []).catch(() => []);
   }
   function fireInbound() {
+    // Count a pending announcement as made for the offer math (don't cut its
+    // hold short here); the real flush happens if the call actually connects.
+    const revAt = announce ? Math.max(revealed, announce.idx + 1) : revealed;
     const first: TradeMode = Math.random() < 0.5 ? "back" : "up";
     const second: TradeMode = first === "back" ? "up" : "back";
     // One call = one offer (the best). Rejecting it doesn't reveal a worse
-    // version of the same deal from another team.
+    // version of the same deal from another team. Any announcement still
+    // pending here freezes with the pause; acceptTrade commits it fresh.
     const open = (mode: TradeMode, offers: TBOffer[]) => {
       setTradeMode(mode); setTradeInbound(true); setTradeOffers([offers[0]]); setTradeIdx(0); setTradeLoading(false); setTradeOpen(true); setPhase("paused");
     };
-    fetchInboundOffers(first).then((offers) => {
+    fetchInboundOffers(first, revAt).then((offers) => {
       if (offers.length) { open(first, offers); return; }
-      fetchInboundOffers(second).then((o2) => { if (o2.length) open(second, o2); });
+      fetchInboundOffers(second, revAt).then((o2) => { if (o2.length) open(second, o2); });
     });
   }
   function acceptTrade(offer: TBOffer) {
+    // Commit any pending announcement first — its pick is already made, and a
+    // stale announce advancing after the re-mock would skip a slot the trade
+    // may have just made ours.
+    const rev = flushAnnounce();
     const owner = new Map(tradeOverrides.map((o) => [o.overall, o.rosterId]));
     for (const o of offer.overrides) owner.set(o.overall, o.rosterId);
     const nextOverrides = [...owner.entries()].map(([overall, rosterId]) => ({ overall, rosterId }));
-    const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
+    const forcedPicks = board.slice(0, rev).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     const nextTradedAway = [...new Set([...tradedAway, ...(offer.givePlayers ?? [])])];
     setTradeOverrides(nextOverrides); setTradedAway(nextTradedAway); setTradeOpen(false); setTradeOffers([]); setBusy(true);
     fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides: nextOverrides, tradedAway: nextTradedAway }) })
@@ -264,7 +358,7 @@ export function MockDraftView() {
   // ── draft a player (on the clock) ──────────────────────────────────────────────
   function makePick(playerId: string) {
     const cur = board[revealed];
-    if (!cur || busy) return;
+    if (!cur || busy || announce) return;
     const forcedPicks = [
       ...board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string })),
       { overall: cur.overall, playerId },
@@ -273,9 +367,8 @@ export function MockDraftView() {
     fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, forcedPicks, tradeOverrides }) })
       .then((r) => r.json()).then((j: Payload) => {
         applyPayload(j);
-        const next = revealed + 1;
-        if (j.board[next] && j.board[next].round !== j.board[revealed].round) setViewRound(j.board[next].round);
-        setRevealed(next);
+        // Announce our pick too — the announce effect advances when it clears.
+        setAnnounce({ idx: revealed });
       }).catch(() => setError("Pick failed.")).finally(() => setBusy(false));
   }
 
@@ -399,8 +492,11 @@ export function MockDraftView() {
 
   // A compact board slot (the vintage scoreboard pick tile).
   function slot(b: BoardPick, i: number) {
-    const filled = i < revealed;
-    const clock = i === revealed && phase !== "setup" && !isComplete;
+    // While announcing, the on-clock slot flips to the drafted player's placard
+    // (gold flash) for the hold, then settles into the normal filled look.
+    const announcing = announce?.idx === i && phase !== "setup";
+    const filled = i < revealed || announcing;
+    const clock = i === revealed && !announcing && phase !== "setup" && !isComplete;
     return (
       <div key={b.overall} className="md-slot" style={{ position: "relative", height: 32, borderRadius: 3, overflow: "hidden", background: RECESS, boxShadow: "inset 0 2px 4px rgba(0,0,0,0.7)", animation: clock ? "cfcGlow 1.2s ease-in-out infinite" : "none" }}>
         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", padding: "0 9px", gap: 8 }}>
@@ -422,7 +518,7 @@ export function MockDraftView() {
           ) : null}
         </div>
         {filled && (
-          <div style={{ position: "absolute", top: 2, left: 2, right: 2, bottom: 2, display: "flex", alignItems: "center", gap: 7, borderRadius: 2, border: `1.5px solid ${BINK}`, background: PLACARD, boxShadow: "0 1px 2px rgba(0,0,0,0.4)", animation: "cfcSlide 0.5s cubic-bezier(0.33,0.9,0.42,1) both", overflow: "hidden" }}>
+          <div style={{ position: "absolute", top: 2, left: 2, right: 2, bottom: 2, display: "flex", alignItems: "center", gap: 7, borderRadius: 2, border: `1.5px solid ${BINK}`, background: announcing ? GOLD : PLACARD, boxShadow: "0 1px 2px rgba(0,0,0,0.4)", animation: "cfcSlide 0.5s cubic-bezier(0.33,0.9,0.42,1) both", overflow: "hidden" }}>
             <div style={{ alignSelf: "stretch", display: "flex", alignItems: "center", justifyContent: "center", width: 34, background: BINK, color: PLACARD, fontFamily: ANTON, fontSize: 11, letterSpacing: 0.3, flexShrink: 0 }}>{b.pick}</div>
             <div style={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%", border: `1.5px solid ${BINK}`, background: `#fff url('${logoFor(b.team)}') center / cover` }} />
             <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 12.5, letterSpacing: 0.2, color: BINK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.player ?? "—"}</span>
@@ -735,7 +831,7 @@ export function MockDraftView() {
               {!isComplete && onClock && (
                 <div style={{ background: GREEN, border: `3px solid ${BINK}`, borderRadius: 4, padding: 10, flexShrink: 0, boxShadow: "inset 0 0 0 2px rgba(233,220,189,0.35)" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-                    <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: busy ? GOLD : CRED, whiteSpace: "nowrap" }}>{busy ? "RE-MOCKING…" : "ON THE CLOCK"}</span>
+                    <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 2, color: busy ? GOLD : announce ? GOLD : CRED, whiteSpace: "nowrap" }}>{busy ? "RE-MOCKING…" : announce ? "THE PICK IS IN" : "ON THE CLOCK"}</span>
                     <span style={{ display: "flex", gap: 5 }}>
                       <button onClick={pauseResume} aria-label={phase === "running" ? "Pause" : "Resume"} style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", background: PLACARD, border: `1.5px solid ${BINK}`, borderRadius: 3, color: BINK, cursor: "pointer", padding: 0 }}>
                         <i className={`ti ${phase === "running" ? "ti-player-pause" : "ti-player-play"}`} style={{ fontSize: 13 }} aria-hidden="true" />
@@ -760,12 +856,16 @@ export function MockDraftView() {
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
                         <span style={{ fontFamily: ANTON, fontSize: 20, letterSpacing: 0.5, color: SCREAM, flexShrink: 0 }}>{onClock.pick}</span>
-                        <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, color: SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nickOnClock}</span>
+                        <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 17, color: announce ? GOLD : SCREAM, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{announce ? onClock.player ?? "—" : nickOnClock}</span>
                       </span>
-                      {yourTurn && <span style={{ display: "block", fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: GOLD, marginTop: 2 }}>YOU&rsquo;RE UP</span>}
+                      {announce ? (
+                        <span style={{ display: "block", fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: SCREAM, opacity: 0.85, marginTop: 2 }}>{onClock.pos ? `${onClock.pos} · ` : ""}{nickOnClock.toUpperCase()}</span>
+                      ) : yourTurn ? (
+                        <span style={{ display: "block", fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: GOLD, marginTop: 2 }}>YOU&rsquo;RE UP</span>
+                      ) : null}
                     </span>
                   </div>
-                  {!yourTurn && (
+                  {!yourTurn && !announce && (
                     <div style={{ height: 5, background: "rgba(0,0,0,0.4)", borderRadius: 3, marginTop: 9, overflow: "hidden" }}>
                       <div style={{ height: "100%", background: CRED, width: `${Math.max(0, (seconds / simSeconds) * 100)}%`, transition: "width 1s linear" }} />
                     </div>
@@ -777,7 +877,7 @@ export function MockDraftView() {
               <div ref={stripRef} className="cfc-hscroll" style={{ position: "relative", display: "flex", alignItems: "stretch", gap: 6, marginTop: 8, flexShrink: 0 }}>
                 {board.map((b, i) => {
                   const divider = i > 0 && b.round !== board[i - 1].round;
-                  const filled = i < revealed;
+                  const filled = i < revealed || announce?.idx === i;
                   const current = i === revealed && !isComplete;
                   const mine = isMine(b);
                   const nameParts = (b.player ?? "").split(" ");
@@ -1084,13 +1184,106 @@ export function MockDraftView() {
           <div className="mdScroll" onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", background: "#f2e8d0", border: `3px solid ${BINK}`, borderRadius: 8, boxShadow: `7px 7px 0 ${BINK}`, fontFamily: OSWALD }}>
             {tradeLoading ? (
               <div style={{ padding: 44, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: META }}>WORKING THE PHONES…</div>
-            ) : !tradeOffer ? (
+            ) : buildOpen ? (() => {
+              // ── BUILD IT MYSELF: pick a target, stack the package, make the call.
+              const bt = buildCtx?.targets.find((t) => t.overall === buildTarget) ?? null;
+              const pkgTotal = (buildCtx?.fromPick.value ?? 0)
+                + (buildCtx?.picks.filter((p) => buildGive.has(`pick:${p.overall}`)).reduce((s, p) => s + p.value, 0) ?? 0)
+                + (buildCtx?.players.filter((p) => buildGive.has(`player:${p.id}`)).reduce((s, p) => s + p.value, 0) ?? 0);
+              return (
+                <>
+                  <div style={{ background: GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/avatars/scouting.png" alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
+                      <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM }}>BUILD THE DEAL</span>
+                    </span>
+                    <span onClick={closeTrade} style={{ cursor: "pointer", color: SCREAM, fontFamily: ANTON, fontSize: 18, lineHeight: 1 }}>×</span>
+                  </div>
+                  {buildLoading ? (
+                    <div style={{ padding: 44, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: META }}>PULLING THE FILES…</div>
+                  ) : !buildCtx || buildCtx.targets.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>Nobody ahead of us has a pick left to chase right now.</div>
+                  ) : (
+                    <>
+                      <div style={{ padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, background: PLACARD }}>
+                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META, marginBottom: 7 }}>THE PICK WE WANT</div>
+                        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
+                          {buildCtx.targets.map((t) => {
+                            const on = buildTarget === t.overall;
+                            return (
+                              <button key={t.overall} onClick={() => { setBuildTarget(t.overall); setBuildRejected(null); }} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 1, background: on ? GOLD : "#EDE3CD", border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: on ? `2px 2px 0 ${BINK}` : "none", padding: "5px 10px", cursor: "pointer" }}>
+                                <span style={{ fontFamily: ANTON, fontSize: 14, color: BINK }}>{t.pick}</span>
+                                <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8.5, color: META, whiteSpace: "nowrap" }}>{teamNickname(t.team)}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div style={{ padding: "11px 14px", borderBottom: `2.5px solid ${BINK}` }}>
+                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 7 }}>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META }}>YOU SEND</span>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, color: GSUB, whiteSpace: "nowrap" }}>PACKAGE {Math.round(pkgTotal)}{bt ? ` · THEIR PICK ${bt.value}` : ""}</span>
+                        </div>
+                        <div style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                          <span style={{ fontFamily: ANTON, fontWeight: 700, fontSize: 15, color: GREEN }}>{buildCtx.fromPick.pick}</span>
+                          <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9.5, color: "#8a7d63", whiteSpace: "nowrap", flexShrink: 0 }}>our pick · in every deal · {buildCtx.fromPick.value}</span>
+                        </div>
+                        {buildCtx.picks.length > 0 && (
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                            {buildCtx.picks.map((p) => {
+                              const on = buildGive.has(`pick:${p.overall}`);
+                              return (
+                                <button key={p.overall} onClick={() => toggleGive(`pick:${p.overall}`)} style={{ display: "flex", alignItems: "baseline", gap: 6, background: on ? GREEN : "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "5px 9px", cursor: "pointer" }}>
+                                  <span style={{ fontFamily: ANTON, fontSize: 13, color: on ? SCREAM : GREEN }}>{p.pick}</span>
+                                  <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: on ? SCREAM : "#8a7d63" }}>{p.value}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="mdScroll" style={{ maxHeight: 170, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
+                          {buildCtx.players.map((p) => {
+                            const key = `player:${p.id}`;
+                            const on = buildGive.has(key);
+                            return (
+                              <button key={p.id} onClick={() => toggleGive(key)} style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", background: on ? GREEN : "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", cursor: "pointer", flexShrink: 0 }}>
+                                <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 12.5, color: on ? SCREAM : GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+                                <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: on ? SCREAM : "#8a7d63", flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
+                                <span style={{ fontFamily: ANTON, fontSize: 12, color: on ? GOLD : GSUB, flexShrink: 0 }}>{p.value}</span>
+                                <span style={{ fontFamily: ANTON, fontSize: 11, color: on ? SCREAM : BINK, border: `1.5px solid ${on ? SCREAM : BINK}`, borderRadius: 3, padding: "0 6px", flexShrink: 0 }}>{on ? "✓" : "+"}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {buildRejected && (
+                        <div style={{ margin: "11px 14px 0", padding: "9px 11px", background: "rgba(201,68,46,.12)", border: `1.5px solid ${ARED}`, borderRadius: 4, fontFamily: OSWALD, fontWeight: 600, fontSize: 12, lineHeight: 1.45, color: ARED }}>
+                          {bt ? `The ${teamNickname(bt.team)} passed. ` : "They passed. "}{buildRejected === "close" ? "But they're still listening — sweeten it a touch." : "That package isn't close to what it costs to move up."}
+                        </div>
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "12px 14px" }}>
+                        <button onClick={() => { setBuildOpen(false); setBuildRejected(null); }} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: BINK, background: "#f2e8d0", border: `2px solid ${BINK}`, borderRadius: 4, padding: 11, cursor: "pointer" }}>BACK</button>
+                        <button onClick={proposeBuild} disabled={buildBusy || buildTarget == null} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: 11, cursor: buildBusy ? "default" : "pointer", opacity: buildBusy ? 0.6 : 1 }}>{buildBusy ? "CALLING…" : "SEND THE OFFER"}</button>
+                      </div>
+                    </>
+                  )}
+                </>
+              );
+            })() : !tradeOffer ? (
               <>
                 <div style={{ background: GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM }}>{tradeMode === "up" ? "TRADE UP" : "TRADE BACK"}</span>
                   <span onClick={closeTrade} style={{ cursor: "pointer", color: SCREAM, fontFamily: ANTON, fontSize: 18, lineHeight: 1 }}>×</span>
                 </div>
-                <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>{tradeMode === "up" ? "No team ahead will slide back for a fair package right now." : "No team behind has a clean move-up package right now."} Sit tight — I&rsquo;ll keep working it.</div>
+                <div style={{ padding: "24px 24px 4px", textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>{tradeMode === "up" ? "No team ahead will slide back for a fair package right now." : "No team behind has a clean move-up package right now."} Sit tight — I&rsquo;ll keep working it.</div>
+                {tradeMode === "up" && !tradeInbound ? (
+                  <div style={{ padding: "16px 24px 20px", textAlign: "center" }}>
+                    <button onClick={openBuilder} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: "11px 22px", cursor: "pointer" }}>BUILD IT MYSELF</button>
+                  </div>
+                ) : (
+                  <div style={{ height: 20 }} />
+                )}
               </>
             ) : (() => {
               const offer = tradeOffer;
