@@ -17,8 +17,9 @@ import { priceDeal } from "@/pro-personnel/engine/pricing";
 import type { EngineOfferAsset, Scoreboard } from "@/pro-personnel/engine/types";
 import { buildValuationContext, valueAsset, isAging, type AssetRef, type ValuationContext } from "@/shared/asset-values";
 import { getLeagueData, type LeagueData } from "@/shared/league-data";
-import { computeNeeds, buildScrubSets, bucketOf } from "@/shared/team-profiles";
-import { describeNeeds, rankDealPieces } from "@/shared/director-prose";
+import { computeNeeds, buildScrubSets, bucketOf, buildTeamProfiles } from "@/shared/team-profiles";
+import { buildTeamDossiers } from "@/shared/team-dossier";
+import { describeNeeds, rankDealPieces, describeDirection } from "@/shared/director-prose";
 import { getPersonality } from "@/pro-personnel/trade-engine/advisor/personality";
 import {
   SYSTEM_PROMPT,
@@ -67,24 +68,6 @@ type RequestBody = {
 function getCFCYear(): number {
   const n = new Date();
   return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
-}
-
-// Lightweight win-now / rebuild read for prose flavor only (the engine's trade
-// decisions run off storylines, not this). Confident contender or rebuild, else
-// "unknown" and the prompt skips the line. No "retool" — that concept is dead.
-function inferTeamMode(roster: RosterAsset[]): "contend" | "rebuild" | "unknown" {
-  if (!roster.length) return "unknown";
-  const players = roster.filter(p => p.type === "player");
-  if (players.length < 5) return "unknown";
-
-  const studCount = players.filter(p => p.isStud).length;
-  const youthCount = players.filter(p => p.isYouth).length;
-  const totalValue = players.reduce((sum, p) => sum + p.value, 0);
-  const avgValue = totalValue / players.length;
-
-  if (studCount >= 3 && avgValue >= 90) return "contend";
-  if (youthCount >= 5 && studCount <= 1) return "rebuild";
-  return "unknown";
 }
 
 // ── One-tap balancing package ──────────────────────────────────────────────
@@ -343,6 +326,8 @@ export async function POST(request: NextRequest) {
   // prose just loses its grounding lines and suggestions lose the gates.
   let myNeedsLine: string | null = null;
   let otherNeedsLine: string | null = null;
+  let myDirectionLine: string | null = null;
+  let otherDirectionLine: string | null = null;
   let scrubs: ReturnType<typeof buildScrubSets> | null = null;
   let playersDict: LeagueData["players"] | null = null;
   if (!("error" in leagueData)) {
@@ -351,6 +336,14 @@ export async function POST(request: NextRequest) {
     const otherNeeds = needsMap.get(otherTeamId);
     if (myNeeds) myNeedsLine = describeNeeds(myNeeds, myTeamName, true);
     if (otherNeeds) otherNeedsLine = describeNeeds(otherNeeds, otherTeamName, false);
+    // Direction comes from the canonical dossier — never inferred from roster
+    // shape (that heuristic called a win-now contender "rebuilding").
+    const profiles = buildTeamProfiles(leagueData);
+    const dossiers = buildTeamDossiers(profiles, leagueData);
+    const myDossier = dossiers.find(d => d.rosterId === my_team_id);
+    const otherDossier = dossiers.find(d => d.rosterId === otherTeamId);
+    if (myDossier) myDirectionLine = describeDirection(myDossier, myTeamName, true);
+    if (otherDossier) otherDirectionLine = describeDirection(otherDossier, otherTeamName, false);
     scrubs = buildScrubSets(leagueData);
     playersDict = leagueData.players;
   }
@@ -402,7 +395,6 @@ export async function POST(request: NextRequest) {
   );
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
-  const otherTeamMode = inferTeamMode(otherRoster);
   const personality = getPersonality(otherTeamName);
   const cfcYear = getCFCYear();
 
@@ -413,19 +405,19 @@ export async function POST(request: NextRequest) {
   const userPrompt = mode === "builder"
     ? buildBuilderUserPrompt({
         myTeamName, myProfile, myRoster,
-        otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster, otherTeamMode,
+        otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster,
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
         cfcYear, behaviorSummary, partnerRead: partner_read, partnerAngle: partner_angle,
-        myNeedsLine, otherNeedsLine, dealRankingLine,
+        myNeedsLine, otherNeedsLine, dealRankingLine, myDirectionLine, otherDirectionLine,
       })
     : buildUserPrompt({
         myTeamName, myProfile, myRoster,
-        otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster, otherTeamMode,
+        otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster,
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
         cfcYear, behaviorSummary,
-        myNeedsLine, otherNeedsLine, dealRankingLine,
+        myNeedsLine, otherNeedsLine, dealRankingLine, myDirectionLine, otherDirectionLine,
         ...(priorTake ? { priorTake } : {}),
       });
 

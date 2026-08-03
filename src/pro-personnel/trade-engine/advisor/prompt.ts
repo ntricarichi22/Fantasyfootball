@@ -23,7 +23,6 @@ export type PromptInputs = {
   otherTeamPersonality: TeamPersonality;
   otherProfile: StrategyProfile | null;
   otherRoster: RosterAsset[];
-  otherTeamMode: "contend" | "rebuild" | "unknown";
   dealAssets: DealAsset[];
   myTeamId: string;
   otherTeamId: string;
@@ -34,11 +33,15 @@ export type PromptInputs = {
   cfcYear: number;
   behaviorSummary: string;
   // Canonical grounding lines (shared/director-prose): the needs read for each
-  // side (so the LLM can't infer "stacked" from a pile of bodies) and the
-  // deal-piece value ranking (so it can't invert which asset is worth more).
+  // side (so the LLM can't infer "stacked" from a pile of bodies), the
+  // deal-piece value ranking (so it can't invert which asset is worth more),
+  // and each side's dossier direction (so it can't call a win-now contender
+  // "a rebuilding team" off roster shape).
   myNeedsLine?: string | null;
   otherNeedsLine?: string | null;
   dealRankingLine?: string | null;
+  myDirectionLine?: string | null;
+  otherDirectionLine?: string | null;
 };
 
 export const SYSTEM_PROMPT = `You are a sharp dynasty fantasy football trade advisor for the Cleveland Football Club, a 12-team Superflex league. You're advising one specific GM on a trade THEY are proposing — they're actively trying to get a deal done, not browsing.
@@ -142,10 +145,11 @@ export function buildBuilderUserPrompt(
 ): string {
   const {
     myTeamName, myProfile, myRoster,
-    otherTeamName, otherTeamPersonality, otherProfile, otherRoster, otherTeamMode,
+    otherTeamName, otherTeamPersonality, otherProfile, otherRoster,
     dealAssets, myTeamId,
     cfcYear, behaviorSummary, partnerRead, partnerAngle,
     myNeedsLine, otherNeedsLine, dealRankingLine,
+    myDirectionLine, otherDirectionLine,
   } = inputs;
 
   const sections: string[] = [];
@@ -154,19 +158,13 @@ export function buildBuilderUserPrompt(
 
   sections.push("YOUR STRATEGY:");
   sections.push(translateStrategy(myProfile, myTeamName, true));
+  if (myDirectionLine) sections.push(myDirectionLine);
   if (myNeedsLine) sections.push(myNeedsLine);
 
   sections.push(`\n${otherTeamName.toUpperCase()}'S STRATEGY:`);
   sections.push(translateStrategy(otherProfile, otherTeamName, false));
+  if (otherDirectionLine) sections.push(otherDirectionLine);
   if (otherNeedsLine) sections.push(otherNeedsLine);
-
-  if (otherTeamMode !== "unknown") {
-    const modeLabel =
-      otherTeamMode === "contend" ? "in CONTENDER mode — they want win-now help; picks are a tougher sell" :
-      otherTeamMode === "rebuild" ? "in REBUILD mode — they want picks and youth; established vets are a tougher sell" :
-      "in RETOOL mode — open to mixed deals depending on direction";
-    sections.push(`\n${otherTeamName} appears to be ${modeLabel}.`);
-  }
 
   sections.push(`\n${otherTeamName.toUpperCase()} OWNER PROFILE:`);
   sections.push(`  ${otherTeamPersonality.identity}`);
@@ -219,11 +217,12 @@ export function buildBuilderUserPrompt(
 export function buildUserPrompt(inputs: PromptInputs & { priorTake?: string }): string {
   const {
     myTeamName, myProfile, myRoster,
-    otherTeamName, otherTeamPersonality, otherProfile, otherRoster, otherTeamMode,
+    otherTeamName, otherTeamPersonality, otherProfile, otherRoster,
     dealAssets, myTeamId, otherTeamId,
     gap, suggestions, warnings, shapeMismatch,
     cfcYear, behaviorSummary, priorTake,
     myNeedsLine, otherNeedsLine, dealRankingLine,
+    myDirectionLine, otherDirectionLine,
   } = inputs;
 
   const sections: string[] = [];
@@ -232,19 +231,13 @@ export function buildUserPrompt(inputs: PromptInputs & { priorTake?: string }): 
 
   sections.push("YOUR STRATEGY:");
   sections.push(translateStrategy(myProfile, myTeamName, true));
+  if (myDirectionLine) sections.push(myDirectionLine);
   if (myNeedsLine) sections.push(myNeedsLine);
 
   sections.push(`\n${otherTeamName.toUpperCase()}'S STRATEGY:`);
   sections.push(translateStrategy(otherProfile, otherTeamName, false));
+  if (otherDirectionLine) sections.push(otherDirectionLine);
   if (otherNeedsLine) sections.push(otherNeedsLine);
-
-  if (otherTeamMode !== "unknown") {
-    const modeLabel =
-      otherTeamMode === "contend" ? "in CONTENDER mode — they want win-now help; picks are a tougher sell" :
-      otherTeamMode === "rebuild" ? "in REBUILD mode — they want picks and youth; established vets are a tougher sell" :
-      "in RETOOL mode — open to mixed deals depending on direction";
-    sections.push(`\n${otherTeamName} appears to be ${modeLabel}.`);
-  }
 
   sections.push(`\n${otherTeamName.toUpperCase()} OWNER PROFILE:`);
   sections.push(`  ${otherTeamPersonality.identity}`);

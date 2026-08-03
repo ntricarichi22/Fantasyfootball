@@ -180,6 +180,30 @@ export function describeNeeds(needs: TeamNeedsLike, teamName: string, isMe: bool
   );
 }
 
+// ─── Team direction → natural language ────────────────────────────────────
+//
+// The canonical dossier read (buildTeamDossiers) translated for the LLM.
+// Without this the model guesses a team's direction from roster shape —
+// a young-skewing roster reads as "rebuilding" even when the canonical
+// verdict is "Win-now contender". Structural type; TeamDossier satisfies it.
+
+export type DirectionLike = {
+  tierLabel: string;
+  verdict: string;
+  wants: string;
+  sells: string;
+  tradeStance: string;
+};
+
+export function describeDirection(d: DirectionLike, teamName: string, isMe: boolean): string {
+  const subject = isMe ? "YOUR TEAM'S" : `${teamName.toUpperCase()}'S`;
+  return (
+    `${subject} DIRECTION (canonical front-office read — your prose must NOT contradict it; ` +
+    `do not infer a different direction from the roster): ${d.verdict} ` +
+    `Competitive tier: ${d.tierLabel}. Chasing: ${d.wants}. Shedding: ${d.sells}. Trade posture: ${d.tradeStance}.`
+  );
+}
+
 // ─── Deal-piece ranking → natural language ────────────────────────────────
 //
 // Orders the pieces of a deal by OUR board's value and states the order in
