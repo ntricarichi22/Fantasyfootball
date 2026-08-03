@@ -9,7 +9,7 @@ import { teamTheme } from "./teamTheme"
 import { DIRECTORS } from "./directors"
 import { gmNameFor } from "./gmNames"
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam"
-import { teamNickname } from "@/shared/league-data/nicknames"
+import { teamNickname, gmAvatarSrc } from "@/shared/league-data/nicknames"
 import { Icon } from "@/shared/ui/Icon"
 import PersonaPicker from "@/inbox/persona/PersonaPicker"
 import type { GmPersona } from "@/research-strategy/api/types"
@@ -30,11 +30,6 @@ const MOBILE_BREAKPOINT = 768
 const TAN = "#C7BA9B"
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-")
-
-/** Team-specific GM headshot under public/avatars/gm/, keyed by nickname. */
-function gmAvatarFor(teamName: string): string {
-  return `/avatars/gm/${slugify(teamNickname(teamName))}.png`
-}
 
 export function HomeScreen() {
   const [teamName, setTeamName] = useState<string>("Virginia Founders")
@@ -180,7 +175,7 @@ export function HomeScreen() {
       championships={gmStats.championships}
       years={gmStats.tenure}
       unreadCount={unreadCount}
-      avatarSrc={gmAvatarFor(teamName)}
+      avatarSrc={gmAvatarSrc(teamName) ?? ""}
       onPersonaClick={() => setPersonaModalOpen(true)}
     />
   )

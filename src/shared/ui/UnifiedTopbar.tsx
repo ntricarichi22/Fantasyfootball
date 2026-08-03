@@ -4,21 +4,25 @@ import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/shared/ui/Icon";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
-import { teamCrestSrc } from "@/shared/league-data/nicknames";
+import { teamCrestSrc, gmAvatarSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { DIRECTORS } from "@/home/directors";
+import { NAVY, AMBER, RED } from "@/home/BadgeShell";
 import PersonaPicker from "@/inbox/persona/PersonaPicker";
 import type { GmPersona } from "@/research-strategy/api/types";
 
-// One bar for the whole app. Driven by the same DIRECTORS source-of-truth the
+// One bar for the whole app, driven by the same DIRECTORS source-of-truth the
 // home cards use, so adding a door/responsibility there updates the bar too.
 //
-//   Tier 1 (Home "/")  → bare bar; the home cards do the navigating.
-//   Tier 2 (a door)    → wordmark = the door, tabs = Office + its workrooms.
-//   Tier 3 (a workroom)→ same bar, the deeper tab is lit.
+//   Row 1 — every door (Inbox + each director), each wearing a shrunken copy
+//           of its home-screen employee badge. Identical on every page, Home
+//           included; the door you're inside gets the gold bar.
+//   Row 2 — the active door's responsibilities (Office + workrooms), blue tab.
 //
-// The CFC block is the "navigator": click it for a grouped menu that jumps to
-// any door/responsibility in one move.
+// Desktop has no dropdown: every door is one click away in the bar, and the
+// CFC block is a plain home link. Mobile keeps the CFC menu, but it's a fixed
+// directory — every door with all its workrooms, never reshaped by where
+// you're standing.
 
 type MobileSearchConfig = {
   placeholder: string;
@@ -30,13 +34,13 @@ type UnifiedTopbarProps = {
   historianHref?: string;
   mobileSearch?: MobileSearchConfig;
   // Optional mobile-only affordance (e.g. Inbox's folder drawer). The CFC
-  // block owns the nav navigator, so a page that needs its own drawer passes
+  // block owns the nav directory, so a page that needs its own drawer passes
   // this to get a second mobile icon button.
   onMenuClick?: () => void;
 };
 
 // Tabs are gated to routes that actually ship, so a workroom listed in
-// directors.ts without a page yet (e.g. Mock Draft) doesn't render a 404 tab.
+// directors.ts without a page yet doesn't render a 404 tab.
 const SHIPPED_ROUTES = new Set<string>([
   "/inbox",
   "/scouting",
@@ -52,7 +56,16 @@ const SHIPPED_ROUTES = new Set<string>([
 ]);
 
 type Tab = { label: string; href: string; match: string };
-type Door = { key: string; word: string; match: string[]; tabs: Tab[] };
+type Door = {
+  key: string;
+  word: string;
+  match: string[];
+  tabs: Tab[];
+  // Shrunken employee badge: the same headshot + field color the door's
+  // home-screen ID badge uses (GM amber for Inbox, director red otherwise).
+  badgeSrc: string | null;
+  badgeField: string;
+};
 
 const FH = "Syne, sans-serif";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -68,15 +81,16 @@ function getInitials(teamName: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-// Inbox isn't a director — it's the GM's own door — so it's modelled here.
-const INBOX_DOOR: Door = {
-  key: "inbox",
-  word: "INBOX",
-  match: ["/inbox"],
-  tabs: [],
-};
-
-function buildDoors(): Door[] {
+function buildDoors(teamName: string): Door[] {
+  // Inbox isn't a director — it's the GM's own door — so it's modelled here.
+  const inboxDoor: Door = {
+    key: "inbox",
+    word: "INBOX",
+    match: ["/inbox"],
+    tabs: [],
+    badgeSrc: gmAvatarSrc(teamName),
+    badgeField: AMBER,
+  };
   const directorDoors: Door[] = DIRECTORS.map((d) => {
     // Pro Personnel has two office routes (/personnel-office is the trade door,
     // /pro-personnel is the office landing) — match both to the same door.
@@ -89,9 +103,11 @@ function buildDoors(): Door[] {
         { label: "Office", href: d.officeHref, match: stripQuery(d.officeHref) },
         ...d.workrooms.map((w) => ({ label: w.title, href: w.href, match: stripQuery(w.href) })),
       ].filter((t) => SHIPPED_ROUTES.has(t.match)),
+      badgeSrc: d.avatarSrc,
+      badgeField: RED,
     };
   });
-  return [INBOX_DOOR, ...directorDoors];
+  return [inboxDoor, ...directorDoors];
 }
 
 // Longest-prefix match so "/strategy/set-strategy" beats "/strategy".
@@ -137,14 +153,44 @@ function Caret({ up = false }: { up?: boolean }) {
   );
 }
 
+// A door's employee badge shrunk to bar scale — the same portrait treatment
+// as BadgeShell's Portrait: colored field, navy frame, grayscale headshot
+// sitting flush to the bottom. Key it by src so a late-loading team name
+// (Inbox's GM headshot) resets the error state.
+function DoorBadge({ src, field }: { src: string | null; field: string }) {
+  const [failed, setFailed] = useState(false);
+  return (
+    <span
+      aria-hidden="true"
+      style={{
+        width: 20,
+        height: 22,
+        background: field,
+        border: `2px solid ${NAVY}`,
+        borderRadius: 3,
+        overflow: "hidden",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "flex-end",
+        flexShrink: 0,
+        boxSizing: "border-box",
+      }}
+    >
+      {src && !failed && (
+        <img
+          src={src}
+          alt=""
+          onError={() => setFailed(true)}
+          style={{ width: "100%", height: "auto", display: "block", filter: "grayscale(1)" }}
+        />
+      )}
+    </span>
+  );
+}
+
 export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMenuClick }: UnifiedTopbarProps) {
   const path = usePathname() || "/";
   const isMobile = useIsMobile();
-  const doors = useMemo(() => buildDoors(), []);
-
-  const isHome = path === "/";
-  const door = activeDoor(doors, path);
-  const tabIdx = door ? activeTabIndex(door, path) : 0;
 
   const stored = readStoredTeam() as
     | { teamName?: string; name?: string; rosterId?: string }
@@ -154,6 +200,10 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
   const initials = getInitials(teamName);
   const crestSrc = teamCrestSrc(teamName);
   const [crestFailed, setCrestFailed] = useState(false);
+
+  const doors = useMemo(() => buildDoors(teamName), [teamName]);
+  const door = activeDoor(doors, path);
+  const tabIdx = door ? activeTabIndex(door, path) : 0;
 
   const [navOpen, setNavOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -191,53 +241,49 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
     }
   };
 
-  const wordmark = isHome || !door ? "FRONT OFFICE" : door.word;
-
-  const brandBlock = (
+  const brandStyle = {
+    background: "#1A1A1A",
+    border: "none",
+    padding: isMobile ? "10px 18px 10px 12px" : "11px 24px 11px 16px",
+    clipPath:
+      "polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)",
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexShrink: 0,
+    cursor: "pointer",
+    textDecoration: "none",
+  } as const;
+  const brandMark = (
+    <span
+      style={{
+        color: "#F5C230",
+        fontFamily: FH,
+        fontWeight: 900,
+        fontSize: isMobile ? 12 : 14,
+        letterSpacing: "0.02em",
+      }}
+    >
+      CFC
+    </span>
+  );
+  // Desktop: plain home link (the doors live in the bar, so there's no menu).
+  // Mobile: toggles the directory dropdown.
+  const brandBlock = isMobile ? (
     <button
       type="button"
       onClick={() => setNavOpen((o) => !o)}
       aria-label="Navigation menu"
       aria-expanded={navOpen}
-      style={{
-        background: "#1A1A1A",
-        border: "none",
-        padding: isMobile ? "10px 18px 10px 12px" : "11px 26px 11px 16px",
-        clipPath:
-          "polygon(0 0, calc(100% - 14px) 0, 100% 50%, calc(100% - 14px) 100%, 0 100%)",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        flexShrink: 0,
-        cursor: "pointer",
-      }}
+      style={brandStyle}
     >
-      <span
-        style={{
-          color: "#F5C230",
-          fontFamily: FH,
-          fontWeight: 900,
-          fontSize: isMobile ? 12 : 14,
-          letterSpacing: "0.02em",
-        }}
-      >
-        CFC
-      </span>
-      {!isMobile && (
-        <span
-          style={{
-            color: "#FEFCF9",
-            fontFamily: FH,
-            fontWeight: 800,
-            fontSize: 12,
-            letterSpacing: "0.05em",
-          }}
-        >
-          {wordmark}
-        </span>
-      )}
+      {brandMark}
       <Caret up={navOpen} />
     </button>
+  ) : (
+    <a href="/" aria-label="Home" style={brandStyle}>
+      {brandMark}
+    </a>
   );
 
   const showCrest = !!crestSrc && !crestFailed;
@@ -277,108 +323,112 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
     </button>
   );
 
-  const tabs = !isHome && door ? door.tabs : [];
+  const tabs = door?.tabs ?? [];
+  const showTabsRow = tabs.length > 0;
 
   return (
     <>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          background: "#F5F0E6",
-          borderBottom: "3px solid #1A1A1A",
-          position: "relative",
-        }}
-      >
-        {brandBlock}
+      <div style={{ background: "#F5F0E6", borderBottom: "3px solid #1A1A1A", position: "relative" }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            borderBottom: showTabsRow ? "2px solid #1A1A1A" : "none",
+          }}
+        >
+          {brandBlock}
 
-        {isMobile && mobileSearch ? (
-          <div style={{ flex: 1, minWidth: 0, padding: "6px 6px 6px 0", display: "flex", alignItems: "center" }}>
-            <div
-              style={{
-                background: "#FEFCF9",
-                border: "2px solid #1A1A1A",
-                padding: "5px 8px",
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                width: "100%",
-              }}
-            >
-              <span style={{ color: "#8C7E6A", display: "flex", flexShrink: 0 }}>
-                <Icon name="search" size={13} />
-              </span>
-              <input
-                type="text"
-                value={mobileSearch.value}
-                onChange={(e) => mobileSearch.onChange(e.target.value)}
-                placeholder={mobileSearch.placeholder}
-                style={{
-                  flex: 1,
-                  border: "none",
-                  outline: "none",
-                  background: "transparent",
-                  fontSize: 12,
-                  color: "#1A1A1A",
-                  fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                  minWidth: 0,
-                }}
-              />
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Responsibility tabs (Office + workrooms). Hidden on Home.
-                cfc-hscroll: on narrow screens the strip scrolls horizontally
-                instead of silently clipping tabs. */}
-            <nav
-              className="cfc-hscroll"
-              style={{ display: "flex", alignItems: "stretch", marginLeft: isMobile ? 8 : 12, minWidth: 0 }}
-            >
-              {tabs.map((tab, i) => {
-                const on = i === tabIdx;
-                return (
-                  <a
-                    key={tab.href}
-                    href={tab.href}
+          {isMobile ? (
+            mobileSearch ? (
+              <div style={{ flex: 1, minWidth: 0, padding: "6px 6px 6px 0", display: "flex", alignItems: "center" }}>
+                <div
+                  style={{
+                    background: "#FEFCF9",
+                    border: "2px solid #1A1A1A",
+                    padding: "5px 8px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    width: "100%",
+                  }}
+                >
+                  <span style={{ color: "#8C7E6A", display: "flex", flexShrink: 0 }}>
+                    <Icon name="search" size={13} />
+                  </span>
+                  <input
+                    type="text"
+                    value={mobileSearch.value}
+                    onChange={(e) => mobileSearch.onChange(e.target.value)}
+                    placeholder={mobileSearch.placeholder}
                     style={{
-                      position: "relative",
-                      display: "flex",
-                      alignItems: "center",
-                      padding: isMobile ? "0 9px" : "0 13px",
-                      fontFamily: FH,
-                      fontWeight: 800,
-                      fontSize: isMobile ? 10.5 : 11.5,
-                      letterSpacing: "0.05em",
-                      textTransform: "uppercase",
-                      textDecoration: "none",
-                      whiteSpace: "nowrap",
-                      color: on ? "#1A1A1A" : "#8C7E6A",
+                      flex: 1,
+                      border: "none",
+                      outline: "none",
+                      background: "transparent",
+                      fontSize: 12,
+                      color: "#1A1A1A",
+                      fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                      minWidth: 0,
                     }}
-                  >
-                    {tab.label}
-                    {on && (
-                      <span
-                        style={{
-                          position: "absolute",
-                          left: isMobile ? 6 : 10,
-                          right: isMobile ? 6 : 10,
-                          // The scroll container clips anything past its edge,
-                          // so the active underline sits at 0 (not -3).
-                          bottom: 0,
-                          height: 3,
-                          background: "#3366CC",
-                        }}
-                      />
-                    )}
-                  </a>
-                );
-              })}
-            </nav>
+                  />
+                </div>
+              </div>
+            ) : (
+              <div style={{ flex: 1, minWidth: 0 }} />
+            )
+          ) : (
+            <>
+              {/* The doors — every department wearing its mini ID badge.
+                  cfc-hscroll: on narrow screens the strip scrolls horizontally
+                  instead of silently clipping doors. */}
+              <nav
+                className="cfc-hscroll"
+                style={{ display: "flex", alignItems: "stretch", marginLeft: 12, minWidth: 0 }}
+              >
+                {doors.map((d) => {
+                  const on = door?.key === d.key;
+                  const headHref = d.tabs[0]?.href ?? d.match[0];
+                  return (
+                    <a
+                      key={d.key}
+                      href={headHref}
+                      style={{
+                        position: "relative",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 7,
+                        padding: "0 11px",
+                        fontFamily: FH,
+                        fontWeight: 800,
+                        fontSize: 11.5,
+                        letterSpacing: "0.05em",
+                        textTransform: "uppercase",
+                        textDecoration: "none",
+                        whiteSpace: "nowrap",
+                        color: on ? "#1A1A1A" : "#8C7E6A",
+                      }}
+                    >
+                      <DoorBadge key={d.badgeSrc ?? "none"} src={d.badgeSrc} field={d.badgeField} />
+                      {d.word}
+                      {on && (
+                        <span
+                          style={{
+                            position: "absolute",
+                            left: 8,
+                            right: 8,
+                            bottom: 0,
+                            height: 3,
+                            background: "#F5C230",
+                          }}
+                        />
+                      )}
+                    </a>
+                  );
+                })}
+              </nav>
 
-            <div style={{ flex: 1, minWidth: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }} />
 
-            {!isMobile && (
               <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 14px" }}>
                 <span style={{ color: "#1A1A1A", fontWeight: 700, fontSize: 12, fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
                   {teamName}
@@ -395,28 +445,74 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
                 </button>
                 {teamAvatar}
               </div>
-            )}
-          </>
+            </>
+          )}
+
+          {isMobile && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 10px" }}>
+              {onMenuClick && (
+                <button
+                  type="button"
+                  onClick={onMenuClick}
+                  aria-label="Open menu"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#1A1A1A", padding: 0, display: "flex", alignItems: "center" }}
+                >
+                  <Icon name="menu" size={18} />
+                </button>
+              )}
+              {teamAvatar}
+            </div>
+          )}
+        </div>
+
+        {/* Responsibility tabs (Office + workrooms) for the active door. */}
+        {showTabsRow && (
+          <nav
+            className="cfc-hscroll"
+            style={{ display: "flex", alignItems: "stretch", background: "#EFE7D2", padding: isMobile ? "0 8px" : "0 12px" }}
+          >
+            {tabs.map((tab, i) => {
+              const on = i === tabIdx;
+              return (
+                <a
+                  key={tab.href}
+                  href={tab.href}
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: isMobile ? "8px 9px" : "8px 13px",
+                    fontFamily: FH,
+                    fontWeight: 800,
+                    fontSize: isMobile ? 10.5 : 11,
+                    letterSpacing: "0.05em",
+                    textTransform: "uppercase",
+                    textDecoration: "none",
+                    whiteSpace: "nowrap",
+                    color: on ? "#1A1A1A" : "#8C7E6A",
+                  }}
+                >
+                  {tab.label}
+                  {on && (
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: isMobile ? 6 : 10,
+                        right: isMobile ? 6 : 10,
+                        bottom: 0,
+                        height: 3,
+                        background: "#3366CC",
+                      }}
+                    />
+                  )}
+                </a>
+              );
+            })}
+          </nav>
         )}
 
-        {isMobile && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "0 10px" }}>
-            {onMenuClick && (
-              <button
-                type="button"
-                onClick={onMenuClick}
-                aria-label="Open menu"
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#1A1A1A", padding: 0, display: "flex", alignItems: "center" }}
-              >
-                <Icon name="menu" size={18} />
-              </button>
-            )}
-            {teamAvatar}
-          </div>
-        )}
-
-        {/* The navigator — grouped jump to any door/responsibility. */}
-        {navOpen && (
+        {/* Mobile directory — every door with all its workrooms, always. */}
+        {isMobile && navOpen && (
           <>
             <div
               onClick={() => setNavOpen(false)}
@@ -427,12 +523,12 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
               style={{
                 position: "absolute",
                 top: "calc(100% + 3px)",
-                left: isMobile ? 8 : 12,
+                left: 8,
                 zIndex: 41,
                 background: "#F5F0E6",
                 border: "3px solid #1A1A1A",
                 boxShadow: "6px 6px 0 #1A1A1A",
-                width: 230,
+                width: 250,
                 maxHeight: "80vh",
                 overflowY: "auto",
               }}
@@ -472,32 +568,33 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
                         color: "#1A1A1A",
                       }}
                     >
+                      <DoorBadge key={d.badgeSrc ?? "none"} src={d.badgeSrc} field={d.badgeField} />
                       {d.word}
                     </a>
-                    {onDoor &&
-                      d.tabs.map((tab, i) => {
-                        const onTab = i === tabIdx;
-                        return (
-                          <a
-                            key={tab.href}
-                            href={tab.href}
-                            style={{
-                              display: "block",
-                              padding: "5px 12px 5px 24px",
-                              marginLeft: onTab ? 19 : 0,
-                              paddingLeft: onTab ? 12 : 24,
-                              borderLeft: onTab ? "3px solid #3366CC" : "none",
-                              fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
-                              fontSize: 12,
-                              fontWeight: onTab ? 700 : 600,
-                              textDecoration: "none",
-                              color: onTab ? "#1A1A1A" : "#8C7E6A",
-                            }}
-                          >
-                            {tab.label}
-                          </a>
-                        );
-                      })}
+                    {d.tabs.map((tab, i) => {
+                      const onTab = onDoor && i === tabIdx;
+                      // Sub-rows indent to where the door label starts (badge
+                      // 20 + gap 8 + padding 12 = 40).
+                      return (
+                        <a
+                          key={tab.href}
+                          href={tab.href}
+                          style={{
+                            display: "block",
+                            padding: onTab ? "5px 12px 5px 9px" : "5px 12px 5px 40px",
+                            marginLeft: onTab ? 28 : 0,
+                            borderLeft: onTab ? "3px solid #3366CC" : "none",
+                            fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                            fontSize: 12,
+                            fontWeight: onTab ? 700 : 600,
+                            textDecoration: "none",
+                            color: onTab ? "#1A1A1A" : "#8C7E6A",
+                          }}
+                        >
+                          {tab.label}
+                        </a>
+                      );
+                    })}
                   </div>
                 );
               })}

@@ -32,6 +32,14 @@ export function teamCrestSrc(fullName: string): string | null {
   return `/teams/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
 }
 
+/** Team-specific GM headshot under public/avatars/gm/, keyed by nickname slug —
+ * or null when the team name is unknown/placeholder. */
+export function gmAvatarSrc(fullName: string): string | null {
+  const name = (fullName ?? "").trim();
+  if (!name || name === "—") return null;
+  return `/avatars/gm/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
+}
+
 export function teamNickname(fullName: string): string {
   const name = (fullName ?? "").trim();
   if (!name) return name;
