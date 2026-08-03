@@ -19,10 +19,6 @@ type Props = {
   onReroute: (key: string, newToTeamId: string) => void;
   onAddFromTeam: (teamId: string) => void;
   threeTeam?: boolean;
-  // Desktop, once the deal has assets: the dashed add-buttons are misleading
-  // (the roster panel is the add surface), so they're replaced with one muted
-  // hint line. Mobile keeps them — they're the roster-sheet triggers.
-  addsLocked?: boolean;
 };
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
@@ -172,7 +168,7 @@ function DealRow({ asset, bg, textColor, metaText, teams, myTeamId, onRemove, on
   );
 }
 
-export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute, onAddFromTeam, threeTeam, addsLocked }: Props) {
+export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute, onAddFromTeam, threeTeam }: Props) {
   // Stable, memo-friendly handler for popover: bound at row level via props.
   const handleRemove = useCallback((key: string) => onRemove(key), [onRemove]);
   const handleReroute = useCallback((key: string, newToTeamId: string) => onReroute(key, newToTeamId), [onReroute]);
@@ -239,7 +235,6 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
   const otherTeam = teams.find(t => t.id !== myTeamId);
   const mySends = assets.filter(a => a.fromTeamId === myTeamId);
   const myReceives = assets.filter(a => a.toTeamId === myTeamId);
-  const locked = !!addsLocked && assets.length > 0;
 
   return (
     <div style={{ background: "#FEFCF9", border: "2.5px solid #1A1A1A", boxShadow: "4px 4px 0 #1A1A1A", fontFamily: F, color: "#1A1A1A" }}>
@@ -259,9 +254,7 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
               twoTeamMode={true}
             />
           ))}
-          {!locked && (
-            <div onClick={() => onAddFromTeam(myTeamId)} style={{ border: "1.5px dashed #8C7E6A", padding: "8px", textAlign: "center", fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: F }}>+ Add from your roster</div>
-          )}
+          <div onClick={() => onAddFromTeam(myTeamId)} style={{ border: "1.5px dashed #8C7E6A", padding: "8px", textAlign: "center", fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: F }}>+ Add from your roster</div>
         </div>
         <div style={{ padding: "12px 16px" }}>
           <div style={{ fontFamily: FM, fontSize: 9, letterSpacing: "0.14em", fontWeight: 700, color: "#8C7E6A", marginBottom: 8 }}>RECEIVE</div>
@@ -278,18 +271,11 @@ export default function DealCard({ myTeamId, teams, assets, onRemove, onReroute,
               twoTeamMode={true}
             />
           ))}
-          {!locked && (
-            <div onClick={() => onAddFromTeam(otherTeam?.id ?? "")} style={{ border: "1.5px dashed #8C7E6A", padding: "8px", textAlign: "center", fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: F }}>
-              {otherTeam ? "+ Add from their roster" : "+ Pick a trading partner"}
-            </div>
-          )}
+          <div onClick={() => onAddFromTeam(otherTeam?.id ?? "")} style={{ border: "1.5px dashed #8C7E6A", padding: "8px", textAlign: "center", fontSize: 11, color: "#8C7E6A", cursor: "pointer", fontFamily: F }}>
+            {otherTeam ? "+ Add from their roster" : "+ Pick a trading partner"}
+          </div>
         </div>
       </div>
-      {locked && (
-        <div style={{ borderTop: "1.5px solid #C8C3B8", padding: "7px 16px", textAlign: "center", fontFamily: FM, fontSize: 9, color: "#8C7E6A", letterSpacing: "0.04em" }}>
-          Tap players in the roster panel to add or remove pieces
-        </div>
-      )}
     </div>
   );
 }
