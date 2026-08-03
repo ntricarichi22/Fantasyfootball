@@ -132,8 +132,9 @@ export default function TeamPickerModal({
           boxShadow: "6px 6px 0 #1A1A1A",
           width: "min(420px, 94vw)",
           // PERSISTENT size — the list area scrolls/empties inside it; the
-          // modal must not shrink-wrap as search results filter down.
-          height: "min(72vh, 620px)",
+          // modal must not shrink-wrap as search results filter down. Sized so
+          // the full 11-team list fits WITHOUT scrolling on desktop viewports.
+          height: "min(88vh, 780px)",
           display: "flex",
           flexDirection: "column",
           overflow: "hidden",
@@ -227,7 +228,7 @@ export default function TeamPickerModal({
                 key={t.id}
                 onClick={() => onSelect(t.id)}
                 style={{
-                  padding: "14px 18px",
+                  padding: "8px 18px",
                   cursor: "pointer",
                   borderBottom: i < candidates.length - 1 ? "1px solid #C8C3B8" : "none",
                   display: "flex",

@@ -256,6 +256,32 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     setDealAssets(prev => prev.filter(a => a.key !== key));
   }, []);
 
+  // Deal-card removal (the ×). In a 2-team deal, pulling the partner's LAST
+  // piece hangs up the whole call: the partner comes off, our senders revert
+  // to TBD recipients, the roster panel resets to our own tab, and the receive
+  // column goes back to "+ Pick a trading partner". Roster-panel taps keep the
+  // plain removal — there the user is already browsing the partner's roster
+  // and yanking the tab away mid-browse would be hostile.
+  const removeDealAssetFromCard = useCallback((key: string) => {
+    const removed = dealAssets.find(a => a.key === key);
+    const next = dealAssets.filter(a => a.key !== key);
+    if (
+      !threeTeam &&
+      removed &&
+      removed.fromTeamId !== myTeamId &&
+      !next.some(a => a.fromTeamId === removed.fromTeamId)
+    ) {
+      const partnerId = removed.fromTeamId;
+      setDealAssets(next.map(a => (a.toTeamId === partnerId ? { ...a, toTeamId: "", toTeamName: "" } : a)));
+      setTeams(prev => prev.filter(t => t.id === myTeamId));
+      setActiveTab(myTeamId);
+      setRosterSearch("");
+      setSheetOpen(null);
+      return;
+    }
+    setDealAssets(next);
+  }, [dealAssets, threeTeam, myTeamId]);
+
   // Reroute: change toTeamId on the asset, keep fromTeamId as-is
   const rerouteDealAsset = useCallback((key: string, newToTeamId: string) => {
     setDealAssets(prev => prev.map(a => {
@@ -445,6 +471,11 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       fromTeamId: teamId, toTeamId: myTeamId,
       fromTeamName: teamName, toTeamName: myName,
     }]);
+    // Land the roster panel on the partner's tab so hitting Done drops the
+    // user straight onto their roster to add more pieces (mobile: the sheet).
+    setActiveTab(teamId);
+    setRosterSearch("");
+    setSheetOpen(teamId);
   }, [myTeamId, myTeamName, otherTeams, allTeamsList]);
 
   const handleAddTeam = useCallback((newTeamId: string) => {
@@ -654,7 +685,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
             <span style={{ fontFamily: FH, fontWeight: 800, fontSize: 14, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teams.map(t => teamNick(t.name)).join(" × ")}</span>
             <div onClick={openSwapPicker} style={{ fontFamily: FM, fontSize: 8, fontWeight: 700, color: "#3366CC", cursor: "pointer", border: "1.5px solid #3366CC", padding: "4px 8px", letterSpacing: "0.04em", textTransform: "uppercase", flexShrink: 0 }}>Change team</div>
           </div>
-          <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={false} />
+          <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAssetFromCard} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={false} />
           <AIAdvisor
             grade={advisorGrade}
             gradeColor={advisorGradeColor}
@@ -718,7 +749,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       <div style={{ flex: 1, display: "grid", gridTemplateColumns: "58% 42%", minHeight: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", flexDirection: "column", borderRight: "2px solid #1A1A1A", overflow: "hidden" }}>
           <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
-            <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAsset} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={threeTeam} />
+            <DealCard myTeamId={myTeamId} teams={teams} assets={dealAssets} onRemove={removeDealAssetFromCard} onReroute={rerouteDealAsset} onAddFromTeam={handleAddFromTeam} threeTeam={threeTeam} />
             <AIAdvisor
               grade={advisorGrade}
               gradeColor={advisorGradeColor}
