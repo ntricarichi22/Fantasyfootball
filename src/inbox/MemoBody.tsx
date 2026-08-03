@@ -253,7 +253,6 @@ export default function MemoBody({ memoId }: { memoId: string }) {
     return (
       <div style={{ minHeight: "100vh", background: "#F5F0E6" }}>
         <UnifiedTopbar />
-        <div style={{ height: 3, background: "#E8503A" }} />
         <div
           style={{
             padding: "60px 20px",
@@ -273,7 +272,6 @@ export default function MemoBody({ memoId }: { memoId: string }) {
     return (
       <div style={{ minHeight: "100vh", background: "#F5F0E6" }}>
         <UnifiedTopbar />
-        <div style={{ height: 3, background: "#E8503A" }} />
         <div style={{ padding: 40, textAlign: "center" }}>
           <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 22, marginBottom: 12 }}>
             {error || "Memo not found"}
@@ -384,7 +382,6 @@ export default function MemoBody({ memoId }: { memoId: string }) {
       )}
 
       <UnifiedTopbar />
-      <div style={{ height: 3, background: "#E8503A" }} />
 
       <div style={{ display: "flex", alignItems: "stretch" }}>
         <div style={{ flex: 1, minWidth: 0 }}>

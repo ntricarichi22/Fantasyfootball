@@ -273,7 +273,6 @@ export default function SetStrategyPage() {
     <div style={{ minHeight: "100vh", background: CREAM }}>
       <style>{CSS}</style>
       <UnifiedTopbar />
-      <div style={{ height: 3, background: RED }} />
 
       <div className="ss-wrap" style={{ maxWidth: 1100, margin: "0 auto", padding: "20px 20px 60px" }}>
         <DirectorTwoBox avatarSrc="/avatars/strategy.png" label="Strategy Director" message={TWO_BOX_MSG} />
