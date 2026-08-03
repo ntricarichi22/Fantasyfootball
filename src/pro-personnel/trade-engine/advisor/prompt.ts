@@ -33,6 +33,12 @@ export type PromptInputs = {
   shapeMismatch: string | null;
   cfcYear: number;
   behaviorSummary: string;
+  // Canonical grounding lines (shared/director-prose): the needs read for each
+  // side (so the LLM can't infer "stacked" from a pile of bodies) and the
+  // deal-piece value ranking (so it can't invert which asset is worth more).
+  myNeedsLine?: string | null;
+  otherNeedsLine?: string | null;
+  dealRankingLine?: string | null;
 };
 
 export const SYSTEM_PROMPT = `You are a sharp dynasty fantasy football trade advisor for the Cleveland Football Club, a 12-team Superflex league. You're advising one specific GM on a trade THEY are proposing — they're actively trying to get a deal done, not browsing.
@@ -139,6 +145,7 @@ export function buildBuilderUserPrompt(
     otherTeamName, otherTeamPersonality, otherProfile, otherRoster, otherTeamMode,
     dealAssets, myTeamId,
     cfcYear, behaviorSummary, partnerRead, partnerAngle,
+    myNeedsLine, otherNeedsLine, dealRankingLine,
   } = inputs;
 
   const sections: string[] = [];
@@ -147,9 +154,11 @@ export function buildBuilderUserPrompt(
 
   sections.push("YOUR STRATEGY:");
   sections.push(translateStrategy(myProfile, myTeamName, true));
+  if (myNeedsLine) sections.push(myNeedsLine);
 
   sections.push(`\n${otherTeamName.toUpperCase()}'S STRATEGY:`);
   sections.push(translateStrategy(otherProfile, otherTeamName, false));
+  if (otherNeedsLine) sections.push(otherNeedsLine);
 
   if (otherTeamMode !== "unknown") {
     const modeLabel =
@@ -175,6 +184,7 @@ export function buildBuilderUserPrompt(
       : `${otherTeamName} SENDS ${a.name} → YOU`;
     sections.push(`  ${direction}`);
   }
+  if (dealRankingLine) sections.push(`\n${dealRankingLine}`);
 
   // Engine reasoning for why this fits the PARTNER — the heart of the "why
   // they'd do it" pitch. Drawn from their storyline + the goal this deal closes.
@@ -213,6 +223,7 @@ export function buildUserPrompt(inputs: PromptInputs & { priorTake?: string }): 
     dealAssets, myTeamId, otherTeamId,
     gap, suggestions, warnings, shapeMismatch,
     cfcYear, behaviorSummary, priorTake,
+    myNeedsLine, otherNeedsLine, dealRankingLine,
   } = inputs;
 
   const sections: string[] = [];
@@ -221,9 +232,11 @@ export function buildUserPrompt(inputs: PromptInputs & { priorTake?: string }): 
 
   sections.push("YOUR STRATEGY:");
   sections.push(translateStrategy(myProfile, myTeamName, true));
+  if (myNeedsLine) sections.push(myNeedsLine);
 
   sections.push(`\n${otherTeamName.toUpperCase()}'S STRATEGY:`);
   sections.push(translateStrategy(otherProfile, otherTeamName, false));
+  if (otherNeedsLine) sections.push(otherNeedsLine);
 
   if (otherTeamMode !== "unknown") {
     const modeLabel =
@@ -253,6 +266,7 @@ export function buildUserPrompt(inputs: PromptInputs & { priorTake?: string }): 
       sections.push(`  ${direction}`);
     }
   }
+  if (dealRankingLine) sections.push(`\n${dealRankingLine}`);
 
   sections.push(`\nGAP ANALYSIS (your prose MUST agree with this read):`);
   sections.push(translateGap(gap, myTeamName, otherTeamName));

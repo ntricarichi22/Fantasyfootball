@@ -144,6 +144,75 @@ export function translateStrategy(profile: StrategyLike | null, teamName: string
   return lines.join(" ");
 }
 
+// ─── Roster needs → natural language ─────────────────────────────────────
+//
+// The canonical needs read (computeNeeds) translated for the LLM. Without
+// this the model infers need from roster QUANTITY — four RB bodies read as
+// "stacked at RB" even when the canonical read says RB is the team's weakest
+// unit. Structural type so this module stays dependency-free; the engine's
+// TeamNeeds satisfies it as-is.
+
+export type NeedLevelLike = "low" | "med" | "high";
+export type TeamNeedsLike = {
+  qb: { level: NeedLevelLike };
+  rb: { level: NeedLevelLike };
+  passCatcher: { level: NeedLevelLike };
+};
+
+export function describeNeeds(needs: TeamNeedsLike, teamName: string, isMe: boolean): string {
+  const subject = isMe ? "YOUR" : `${teamName.toUpperCase()}'S`;
+  const entries: Array<[string, NeedLevelLike]> = [
+    ["QB", needs.qb.level],
+    ["RB", needs.rb.level],
+    ["pass catcher", needs.passCatcher.level],
+  ];
+  const high = entries.filter(([, l]) => l === "high").map(([b]) => b);
+  const med = entries.filter(([, l]) => l === "med").map(([b]) => b);
+  const low = entries.filter(([, l]) => l === "low").map(([b]) => b);
+  const parts: string[] = [];
+  if (high.length) parts.push(`${high.join(" and ")} ${high.length === 1 ? "is a BIG need (their weakest unit in the league-wide read)" : "are BIG needs"}`);
+  if (med.length) parts.push(`${med.join(" and ")} ${med.length === 1 ? "is a moderate need" : "are moderate needs"}`);
+  if (low.length) parts.push(`${low.join(" and ")} ${low.length === 1 ? "is in good shape" : "are in good shape"}`);
+  return (
+    `${subject} ROSTER NEEDS (canonical scouting read — your prose must NOT contradict it; ` +
+    `a pile of bodies at a position does NOT mean the need is met, quality is what counts): ` +
+    parts.join("; ") + "."
+  );
+}
+
+// ─── Deal-piece ranking → natural language ────────────────────────────────
+//
+// Orders the pieces of a deal by OUR board's value and states the order in
+// plain language, no numbers. Without this the LLM only sees the overall
+// verdict and has to guess WHICH asset drives it — and its real-world priors
+// can invert the board (e.g. calling an 80-value piece "noticeably better"
+// than a 154-value piece). The ranking pins the facts; the voice rules still
+// keep raw numbers out of the prompt.
+
+export function rankDealPieces(
+  pieces: Array<{ name: string; value: number; direction: "send" | "receive" }>,
+): string {
+  if (pieces.length < 2) return "";
+  const sorted = [...pieces].sort((a, b) => b.value - a.value);
+  const max = sorted[0].value || 1;
+  const label = (v: number, i: number): string => {
+    if (i === 0) return "the most valuable piece in this deal";
+    const r = v / max;
+    if (r >= 0.85) return "right there with the top piece";
+    if (r >= 0.55) return "a clear tier below the top piece";
+    if (r >= 0.3) return "a supporting piece";
+    return "a light sweetener";
+  };
+  const lines = sorted.map(
+    (p, i) => `  ${i + 1}. ${p.name} (${p.direction === "send" ? "going out" : "coming back"}) — ${label(p.value, i)}`,
+  );
+  return (
+    `HOW THE PIECES IN THIS DEAL RANK ON OUR BOARD, most valuable first. ` +
+    `Your prose MUST respect this order — NEVER describe a lower-ranked piece as more valuable than a higher-ranked one:\n` +
+    lines.join("\n")
+  );
+}
+
 // ─── Roster summary for prompts — compact, prioritized ────────────────────
 
 export function summarizeRoster(roster: RosterAssetLike[], teamName: string, isMine: boolean): string {

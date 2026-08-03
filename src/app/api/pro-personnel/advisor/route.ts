@@ -15,7 +15,10 @@ import type { Gap } from "@/pro-personnel/engine/core/types";
 import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas";
 import { priceDeal } from "@/pro-personnel/engine/pricing";
 import type { EngineOfferAsset, Scoreboard } from "@/pro-personnel/engine/types";
-import { buildValuationContext, valueAsset, type AssetRef, type ValuationContext } from "@/shared/asset-values";
+import { buildValuationContext, valueAsset, isAging, type AssetRef, type ValuationContext } from "@/shared/asset-values";
+import { getLeagueData, type LeagueData } from "@/shared/league-data";
+import { computeNeeds, buildScrubSets, bucketOf } from "@/shared/team-profiles";
+import { describeNeeds, rankDealPieces } from "@/shared/director-prose";
 import { getPersonality } from "@/pro-personnel/trade-engine/advisor/personality";
 import {
   SYSTEM_PROMPT,
@@ -142,6 +145,9 @@ function toSuggestion(assets: RosterAsset[], direction: "send" | "receive", base
   };
 }
 
+type Scrubs = ReturnType<typeof buildScrubSets>;
+type PlayersDict = LeagueData["players"];
+
 type BalanceParams = {
   ours: Scoreboard;
   theirs: Scoreboard;
@@ -152,7 +158,26 @@ type BalanceParams = {
   partnerPersona: PersonaKey;
   rosters: Record<string, RosterAsset[]>;
   dealKeys: Set<string>;
+  // Canonical quality filters — null when league data failed to load.
+  scrubs: Scrubs | null;
+  players: PlayersDict | null;
 };
+
+// Candidate quality gates for the one-tap balancing suggestions. The scrub
+// bar (league-relative QB35/RB40/PC75 floor) applies to BOTH directions —
+// a dead-weight body is never a makeweight. Aging non-studs are additionally
+// excluded from the RECEIVE side only: taking back a declining vet is the
+// opposite of what the suggestion is for, but sending one out is legitimate.
+function passesQualityGate(a: RosterAsset, direction: "send" | "receive", p: BalanceParams): boolean {
+  if (a.type !== "player") return true;
+  const bucket = bucketOf(p.players?.get(a.key)?.position ?? a.position);
+  if (p.scrubs && bucket && p.scrubs.get(bucket)?.has(a.key)) return false;
+  if (direction === "receive") {
+    const info = p.players?.get(a.key);
+    if (info && isAging(info.position, info.age) && !a.isStud) return false;
+  }
+  return true;
+}
 
 function buildBalancingSuggestions(p: BalanceParams): Suggestion[] {
   const ourBand = bandFor(p.myPersona);
@@ -165,7 +190,7 @@ function buildBalancingSuggestions(p: BalanceParams): Suggestion[] {
   if (p.theirs.sendValue > 0 && p.theirs.ratio < theirBand.min) {
     const need = (theirBand.min + 0.02) * p.theirs.sendValue - p.theirs.receiveValue;
     const cands: BalanceCand[] = (p.rosters[p.myTeamId] ?? [])
-      .filter(a => !p.dealKeys.has(a.key) && a.tier !== "untouchable")
+      .filter(a => !p.dealKeys.has(a.key) && a.tier !== "untouchable" && passesQualityGate(a, "send", p))
       .map(a => ({ a, vBase: base(a.key), vOwn: minePersp(a.key) }))
       .filter(c => c.vBase > 0)
       .sort((x, y) => x.vBase - y.vBase);
@@ -185,7 +210,7 @@ function buildBalancingSuggestions(p: BalanceParams): Suggestion[] {
     const need = (ourBand.min + 0.02) * p.ours.sendValue - p.ours.receiveValue;
     const stretchFloor = Math.max(HARD_FLOOR, theirBand.min - PARTNER_STRETCH);
     const cands: BalanceCand[] = (p.rosters[p.otherTeamId] ?? [])
-      .filter(a => !p.dealKeys.has(a.key) && a.tier !== "untouchable")
+      .filter(a => !p.dealKeys.has(a.key) && a.tier !== "untouchable" && passesQualityGate(a, "receive", p))
       .map(a => ({ a, vBase: base(a.key), vOwn: theirsPersp(a.key) }))
       .filter(c => c.vBase > 0)
       .sort((x, y) => x.vBase - y.vBase);
@@ -311,7 +336,25 @@ export async function POST(request: NextRequest) {
   // at neutral base; mirrored for their seat) → personaAwareGrade on OUR
   // scoreboard with the engine-normalized persona. A deal seeded from the
   // cycler grades IDENTICALLY here.
-  const ctx = await buildValuationContext();
+  const [ctx, leagueData] = await Promise.all([buildValuationContext(), getLeagueData()]);
+
+  // Canonical grounding (needs read + scrub/aging gates). All TTL-cached
+  // upstream; if the league pipeline errored we degrade gracefully — the
+  // prose just loses its grounding lines and suggestions lose the gates.
+  let myNeedsLine: string | null = null;
+  let otherNeedsLine: string | null = null;
+  let scrubs: ReturnType<typeof buildScrubSets> | null = null;
+  let playersDict: LeagueData["players"] | null = null;
+  if (!("error" in leagueData)) {
+    const needsMap = computeNeeds(leagueData);
+    const myNeeds = needsMap.get(my_team_id);
+    const otherNeeds = needsMap.get(otherTeamId);
+    if (myNeeds) myNeedsLine = describeNeeds(myNeeds, myTeamName, true);
+    if (otherNeeds) otherNeedsLine = describeNeeds(otherNeeds, otherTeamName, false);
+    scrubs = buildScrubSets(leagueData);
+    playersDict = leagueData.players;
+  }
+
   const engineAssets: EngineOfferAsset[] = dealAssets
     .filter(a => a.fromTeamId === my_team_id || a.toTeamId === my_team_id)
     .map(a => ({
@@ -343,7 +386,20 @@ export async function POST(request: NextRequest) {
     myTeamId: my_team_id, otherTeamId,
     myPersona: enginePersona, partnerPersona: partnerEnginePersona,
     rosters, dealKeys: new Set(dealAssets.map(a => a.key)),
+    scrubs, players: playersDict,
   });
+
+  // Deal-piece value ranking (neutral base, our board) — grounds the prose so
+  // it can never invert which asset is worth more.
+  const dealRankingLine = rankDealPieces(
+    dealAssets
+      .filter(a => a.fromTeamId === my_team_id || a.toTeamId === my_team_id)
+      .map(a => ({
+        name: a.name,
+        value: valueAsset(refFor(a.key), ctx),
+        direction: a.fromTeamId === my_team_id ? ("send" as const) : ("receive" as const),
+      })),
+  );
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
   const otherTeamMode = inferTeamMode(otherRoster);
@@ -361,6 +417,7 @@ export async function POST(request: NextRequest) {
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
         cfcYear, behaviorSummary, partnerRead: partner_read, partnerAngle: partner_angle,
+        myNeedsLine, otherNeedsLine, dealRankingLine,
       })
     : buildUserPrompt({
         myTeamName, myProfile, myRoster,
@@ -368,6 +425,7 @@ export async function POST(request: NextRequest) {
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
         cfcYear, behaviorSummary,
+        myNeedsLine, otherNeedsLine, dealRankingLine,
         ...(priorTake ? { priorTake } : {}),
       });
 
