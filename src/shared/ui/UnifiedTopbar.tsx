@@ -16,7 +16,7 @@ import type { GmPersona } from "@/research-strategy/api/types";
 //
 //   Row 1 — every door (Inbox + each director), each wearing a shrunken copy
 //           of its home-screen employee badge. Identical on every page, Home
-//           included; the door you're inside gets the gold bar.
+//           included; the door you're inside gets the black bar.
 //   Row 2 — the active door's responsibilities (Office + workrooms), blue tab.
 //
 // Desktop has no dropdown: every door is one click away in the bar, and the
@@ -163,8 +163,8 @@ function DoorBadge({ src, field }: { src: string | null; field: string }) {
     <span
       aria-hidden="true"
       style={{
-        width: 20,
-        height: 22,
+        width: 30,
+        height: 33,
         background: field,
         border: `2px solid ${NAVY}`,
         borderRadius: 3,
@@ -328,12 +328,13 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
 
   return (
     <>
-      <div style={{ background: "#F5F0E6", borderBottom: "3px solid #1A1A1A", position: "relative" }}>
+      <div style={{ background: "#F5F0E6", position: "relative" }}>
         <div
           style={{
             display: "flex",
             alignItems: "stretch",
-            borderBottom: showTabsRow ? "2px solid #1A1A1A" : "none",
+            // 1.5× the original bar height so the badges get real presence.
+            minHeight: isMobile ? undefined : 66,
           }}
         >
           {brandBlock}
@@ -418,7 +419,7 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
                             right: 8,
                             bottom: 0,
                             height: 3,
-                            background: "#F5C230",
+                            background: "#1A1A1A",
                           }}
                         />
                       )}
@@ -574,15 +575,15 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
                     {d.tabs.map((tab, i) => {
                       const onTab = onDoor && i === tabIdx;
                       // Sub-rows indent to where the door label starts (badge
-                      // 20 + gap 8 + padding 12 = 40).
+                      // 30 + gap 8 + padding 12 = 50).
                       return (
                         <a
                           key={tab.href}
                           href={tab.href}
                           style={{
                             display: "block",
-                            padding: onTab ? "5px 12px 5px 9px" : "5px 12px 5px 40px",
-                            marginLeft: onTab ? 28 : 0,
+                            padding: onTab ? "5px 12px 5px 9px" : "5px 12px 5px 50px",
+                            marginLeft: onTab ? 38 : 0,
                             borderLeft: onTab ? "3px solid #3366CC" : "none",
                             fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
                             fontSize: 12,

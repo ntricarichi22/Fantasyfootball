@@ -480,7 +480,6 @@ export default function InboxPage() {
       )}
 
       <UnifiedTopbar />
-      <div style={{ height: 3, background: "#E8503A" }} />
 
       <div style={{ minHeight: "calc(100vh - 200px)" }}>
         <div
