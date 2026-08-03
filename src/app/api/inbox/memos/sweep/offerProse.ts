@@ -90,10 +90,17 @@ export async function generateOfferProse(params: {
   receiveAssets: Asset[]; // what WE get
   verdict: string; // canonical engine grade label, e.g. "I'd push for more here"
   fallback: string;
+  // Canonical grounding lines (shared/director-prose), computed by the sweep.
+  myNeedsLine?: string | null;
+  myDirectionLine?: string | null;
+  otherNeedsLine?: string | null;
+  otherDirectionLine?: string | null;
+  dealRankingLine?: string | null;
 }): Promise<string> {
   const {
     client, leagueId, teamId, ourName, partnerName, partnerTeamId,
     sendAssets, receiveAssets, verdict, fallback,
+    myNeedsLine, myDirectionLine, otherNeedsLine, otherDirectionLine, dealRankingLine,
   } = params;
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -129,7 +136,12 @@ export async function generateOfferProse(params: {
     `We would SEND: ${assetLine(sendAssets)}.`,
     `We would RECEIVE: ${assetLine(receiveAssets)}.`,
     `OUR STRATEGY: ${translateStrategy(ourStrategy, ourName, true)}`,
+    myDirectionLine ?? "",
+    myNeedsLine ?? "",
     `THEIR STRATEGY: ${translateStrategy(theirStrategy, partnerName, false)}`,
+    otherDirectionLine ?? "",
+    otherNeedsLine ?? "",
+    dealRankingLine ? `\n${dealRankingLine}` : "",
     sendAtt ? `Our flags on the player(s) we'd move: ${sendAtt}.` : "",
     `Our valuation verdict (already decided by the front office — your read MUST agree with it, never contradict it): "${verdict}".`,
     "",
@@ -146,6 +158,7 @@ export async function generateOfferProse(params: {
     `${VOICE_RULES.noNumbers(`"noticeably more," "in the same ballpark," "a light return."`)} ` +
     `${VOICE_RULES.noRawDbTerms} ` +
     `${VOICE_RULES.noSycophancy} ` +
+    `${VOICE_RULES.translatorOnly} ` +
     "2-3 sentences, conversational, no markdown.";
 
   const text = await callAnthropic(system, user, apiKey);

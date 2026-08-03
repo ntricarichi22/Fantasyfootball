@@ -43,6 +43,10 @@ export const VOICE_RULES = {
     `Never speak in raw database terms. Don't say "core at WR" or "marked as untouchable" or "buying at the position" — translate to natural GM language. Say "Moore's important to your WR room" not "you've marked Moore as core."`,
   noSycophancy:
     `Never say "you're right," "absolutely," "great question," "I agree," or any sycophantic filler. Just give the read.`,
+  // The load-bearing rule: the front office has already done ALL the analysis.
+  // The model's job is voice, not judgment — it must never originate a fact.
+  translatorOnly:
+    `You are a TRANSLATOR, not an analyst. Every factual claim you make — about a team's direction, needs, roster strength, or which asset is worth more — must come from the context you are given. The front office's reads in that context are ground truth: never contradict them, and never state a "fact" the context doesn't contain. If the context doesn't say it, you don't know it.`,
 };
 
 // ─── Structural input types ───────────────────────────────────────────────

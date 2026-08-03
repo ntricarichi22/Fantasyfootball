@@ -26,7 +26,7 @@ import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives } from "@/shared/team-narratives";
 import { buildValuationContext } from "@/shared/asset-values";
-import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
+import { DIRECTOR_PROSE_MODEL, VOICE_RULES, describeNeeds, describeDirection } from "@/shared/director-prose";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import { construct, builderRequestForTarget, type EngineContext, type EngineOffer } from "@/pro-personnel/engine";
@@ -89,6 +89,9 @@ type TargetPayload = {
   fence: FenceStatus;
   untouchable: boolean;
   partnerName: string;
+  // Canonical grounding lines for the prose (shared/director-prose).
+  partnerDirectionLine: string | null;
+  partnerNeedsLine: string | null;
 };
 
 async function buildTargetPayload(teamId: string, target: RosteredName): Promise<TargetPayload | { error: string }> {
@@ -164,11 +167,16 @@ async function buildTargetPayload(teamId: string, target: RosteredName): Promise
     partnerAngle: { storylineHeadline: null, goalKind: null, goalEvidence: null },
   });
 
+  const partnerDossier = dossiers.find((d) => d.rosterId === target.teamId) ?? null;
+  const partnerNeeds = needs.get(target.teamId) ?? null;
+
   return {
     offers: slate.offers.map(mapOffer),
     fence,
     untouchable,
     partnerName: target.teamName,
+    partnerDirectionLine: partnerDossier ? describeDirection(partnerDossier, target.teamName, false) : null,
+    partnerNeedsLine: partnerNeeds ? describeNeeds(partnerNeeds, target.teamName, false) : null,
   };
 }
 
@@ -182,7 +190,8 @@ Hard rules:
 3. Explicitly say you put together packages for him to react to, and that if he wants to tweak one he should hit EDIT on the card.
 4. If fence status says the player is sacred or untouchable to them, be straight: they don't want to move him, so these are blow-away asks.
 5. NEVER mention point values, ratios, or percentages. Package counts are fine ("three packages").
-6. Output ONLY the prose — no JSON, no markdown.`;
+6. Output ONLY the prose — no JSON, no markdown.
+7. ${VOICE_RULES.translatorOnly}`;
 
 const SYSTEM_NO_OFFERS = `You are the Pro Personnel Director of a 12-team Superflex dynasty fantasy football franchise, talking with your GM in your office. He asked what it would take to acquire a specific player from another team. You made the calls and NOTHING workable came back — no package cleared our own floor and their realistic asking range at the same time.
 
@@ -190,7 +199,8 @@ Hard rules:
 1. 2-3 sentences, spoken like a person. "We" and "us".
 2. Be straight that you couldn't line up a deal worth doing, and give the honest reason from the context you're given (they're not moving him / it would gut our lineup / the price is past what he's worth to us).
 3. NEVER mention point values, ratios, or percentages.
-4. Output ONLY the prose — no JSON, no markdown.`;
+4. Output ONLY the prose — no JSON, no markdown.
+5. ${VOICE_RULES.translatorOnly}`;
 
 type OfferShape = { send: string[]; read: string };
 
@@ -305,7 +315,7 @@ export async function POST(req: Request) {
       });
     }
 
-    const payload = await ttlMemo(`office-target:v2:${teamId}:${match.playerId}`, 60_000, () =>
+    const payload = await ttlMemo(`office-target:v3:${teamId}:${match.playerId}`, 60_000, () =>
       buildTargetPayload(teamId, match),
     );
     if ("error" in payload) return NextResponse.json({ error: payload.error }, { status: 500 });
@@ -315,9 +325,14 @@ export async function POST(req: Request) {
       read: String(o.partnerRead ?? "likely"),
     }));
 
+    const groundingLines =
+      (payload.partnerDirectionLine ? `${payload.partnerDirectionLine}\n` : "") +
+      (payload.partnerNeedsLine ? `${payload.partnerNeedsLine}\n` : "");
+
     if (shapes.length === 0) {
       const user =
         `TARGET: ${match.name} (${match.position}), rostered by ${match.teamName}.\n` +
+        groundingLines +
         `FENCE STATUS: ${fenceLine(payload.fence, payload.untouchable)}\n` +
         `RESULT: no package survived (our floor + their realistic range never overlapped).\n\nWrite your reply.`;
       const prose =
@@ -328,6 +343,7 @@ export async function POST(req: Request) {
 
     const user =
       `TARGET: ${match.name} (${match.position}), rostered by ${match.teamName}.\n` +
+      groundingLines +
       `FENCE STATUS: ${fenceLine(payload.fence, payload.untouchable)}\n` +
       `THE PACKAGES YOU BUILT (these render as cards in the drawer; "needs selling" = they'll want convincing):\n` +
       shapes

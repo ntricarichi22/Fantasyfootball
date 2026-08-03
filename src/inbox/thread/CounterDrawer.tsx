@@ -261,7 +261,9 @@ export default function CounterDrawer({
   useEffect(() => {
     if (!feed) return;
     if (readTimer.current) window.clearTimeout(readTimer.current);
-    const names = (assets: OfferAsset[]) => assets.map((a) => ({ name: extractName(a.label) }));
+    // Names + engine values (from the ai-counter feed) — the read endpoint
+    // ranks the pieces so its prose can never invert which asset is worth more.
+    const names = (assets: OfferAsset[]) => assets.map((a) => ({ name: extractName(a.label), value: a.value ?? 0 }));
     readTimer.current = window.setTimeout(() => {
       readAbort.current?.abort();
       const ac = new AbortController();

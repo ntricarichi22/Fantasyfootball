@@ -12,7 +12,7 @@
 // fallback when no API key / timeout.
 
 import { NextRequest, NextResponse } from "next/server";
-import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
+import { DIRECTOR_PROSE_MODEL, VOICE_RULES } from "@/shared/director-prose";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
@@ -38,7 +38,8 @@ Hard rules:
 2. Acknowledge his call in a few words, then sell the direction fresh and set up the plays.
 3. Reference plays by their EXACT labels (they render as buttons right under your message). Name the ONE you'd start with and the reason — that's your recommendation, own it.
 4. NEVER mention point values, ratios, or percentages. Deal counts are fine ("four live deals").
-5. "We" and "us". 2-4 sentences total. Output ONLY the prose — no JSON, no markdown.`;
+5. "We" and "us". 2-4 sentences total. Output ONLY the prose — no JSON, no markdown.
+6. ${VOICE_RULES.translatorOnly}`;
 
 function fallback(goals: BeatGoal[], source?: string): string {
   const live = goals.filter(g => g.count > 0);

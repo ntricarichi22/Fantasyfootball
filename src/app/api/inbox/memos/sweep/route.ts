@@ -26,7 +26,10 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getLeagueData } from "@/shared/league-data";
-import { buildValuationContext } from "@/shared/asset-values";
+import { buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
+import { computeNeeds, buildTeamProfiles } from "@/shared/team-profiles";
+import { buildTeamDossiers } from "@/shared/team-dossier";
+import { describeNeeds, describeDirection, rankDealPieces } from "@/shared/director-prose";
 import { priceDeal } from "@/pro-personnel/engine/pricing";
 import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
 import { normalizePersona } from "@/pro-personnel/engine/core/personas";
@@ -150,6 +153,28 @@ export async function POST(req: Request) {
     const ctx = await buildValuationContext();
     const ourPersona = normalizePersona(personaRes.data?.gm_persona);
 
+    // Canonical grounding for the LLM prose — needs read + dossier direction
+    // for both seats, same ingredients (and same do-not-contradict rails) as
+    // the trade-builder advisor. The model is a translator; these are the facts.
+    const needsMap = computeNeeds(data);
+    const dossiers = buildTeamDossiers(buildTeamProfiles(data), data);
+    const needsLineFor = (id: string, isMe: boolean) => {
+      const n = needsMap.get(id);
+      return n ? describeNeeds(n, teamName(id), isMe) : null;
+    };
+    const directionLineFor = (id: string, isMe: boolean) => {
+      const d = dossiers.find((x) => x.rosterId === id);
+      return d ? describeDirection(d, teamName(id), isMe) : null;
+    };
+    const myNeedsLine = needsLineFor(teamId, true);
+    const myDirectionLine = directionLineFor(teamId, true);
+    const baseValueOf = (a: OfferAsset): number => {
+      const isPick = a.key.startsWith("pick:") || a.type === "pick";
+      const key = a.key.startsWith("player:") ? a.key.slice(7) : a.key;
+      const ref: AssetRef = isPick ? { type: "pick", key: a.key } : { type: "player", sleeperPlayerId: key };
+      return valueAsset(ref, ctx);
+    };
+
     const rows: Record<string, unknown>[] = [];
     const now = new Date().toISOString();
 
@@ -208,6 +233,11 @@ export async function POST(req: Request) {
         verdict_color: verdictColor,
       };
 
+      const dealRankingLine = rankDealPieces([
+        ...sendAssets.map((a) => ({ name: a.label || a.key, value: baseValueOf(a), direction: "send" as const })),
+        ...receiveAssets.map((a) => ({ name: a.label || a.key, value: baseValueOf(a), direction: "receive" as const })),
+      ]);
+
       const makeProse = () =>
         generateOfferProse({
           client,
@@ -220,6 +250,11 @@ export async function POST(req: Request) {
           receiveAssets,
           verdict,
           fallback: fallbackProse,
+          myNeedsLine,
+          myDirectionLine,
+          otherNeedsLine: needsLineFor(offer.from_team_id, false),
+          otherDirectionLine: directionLineFor(offer.from_team_id, false),
+          dealRankingLine,
         });
 
       // ── Email 1: the offer lands ─────────────────────────────────────────

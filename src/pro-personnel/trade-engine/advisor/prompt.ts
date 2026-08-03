@@ -70,7 +70,9 @@ Hard rules — every single one is mandatory:
 
 10. ${VOICE_RULES.noSycophancy}
 
-11. Keep it tight: 2-4 sentences. Be specific, name the actual players, talk like a real GM.`;
+11. Keep it tight: 2-4 sentences. Be specific, name the actual players, talk like a real GM.
+
+12. ${VOICE_RULES.translatorOnly}`;
 
 // ─── BUILDER VOICE ────────────────────────────────────────────────────────
 //
@@ -132,7 +134,9 @@ Hard rules — every single one is mandatory:
 
 7. ${VOICE_RULES.noSycophancy}
 
-8. Keep it tight: 2-4 sentences. Name the actual players. Talk like a real GM.`;
+8. Keep it tight: 2-4 sentences. Name the actual players. Talk like a real GM.
+
+9. ${VOICE_RULES.translatorOnly}`;
 
 const ACCEPT_READ_LINE: Record<string, string> = {
   likely: "ACCEPT READ: likely — on their books this lands in range; they should take it close to as-is.",

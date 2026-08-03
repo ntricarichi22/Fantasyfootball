@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { counterProse, type CounterPartner } from "@/inbox/thread/counterMath";
-import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
+import { DIRECTOR_PROSE_MODEL, VOICE_RULES, rankDealPieces } from "@/shared/director-prose";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -13,7 +13,7 @@ export const maxDuration = 30;
 // gets a usable line.
 
 
-type AssetLite = { name?: string };
+type AssetLite = { name?: string; value?: number };
 type PartnerLite = {
   name?: string;
   persona?: string;
@@ -75,7 +75,8 @@ const SYSTEM =
   "their biggest hole, and how their GM persona negotiates — against where this counter sits, and advise how to play it. " +
   "Say why they'll react the way they will; if it's aggressive, name what they'd likely want back to say yes; flag a " +
   "relationship risk only if there genuinely is one. Talk like a trusted advisor to one person — \"I'd…\", \"they'll…\", " +
-  "\"you're…\". 2 to 4 sentences, plain prose. Output ONLY the read: no preamble, no reasoning, no headers, no bullet points.";
+  "\"you're…\". 2 to 4 sentences, plain prose. Output ONLY the read: no preamble, no reasoning, no headers, no bullet points. " +
+  VOICE_RULES.translatorOnly;
 
 async function callAnthropic(user: string, apiKey: string): Promise<string | null> {
   try {
@@ -126,13 +127,23 @@ export async function POST(request: NextRequest) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey) {
+    // Rank the counter's pieces by the engine values the drawer sent, so the
+    // prose can never invert which asset is worth more. Names-only bodies
+    // (all values 0) produce no ranking line and degrade gracefully.
+    const counterPieces = [
+      ...(body.counter?.send ?? []).map((a) => ({ name: a.name ?? "", value: a.value ?? 0, direction: "send" as const })),
+      ...(body.counter?.receive ?? []).map((a) => ({ name: a.name ?? "", value: a.value ?? 0, direction: "receive" as const })),
+    ].filter((p) => p.name);
+    const rankingLine = counterPieces.some((p) => p.value > 0) ? rankDealPieces(counterPieces) : "";
+
     const user = [
       `PARTNER: ${partner.name ?? "the other team"} — GM persona: ${personaLabel}.`,
-      `Their read: ${partner.verdict ?? ""} Window: ${partner.window ?? "unknown"}. Chasing: ${partner.wants ?? "unknown"}. Shedding: ${partner.sells ?? "unknown"}. Stance: ${partner.tradeStance ?? "unknown"}.${partner.topNeed ? ` Biggest hole: ${partner.topNeed}.` : ""}${partner.coreLabel ? ` ${partner.coreLabel}.` : ""}`,
+      `Their read (canonical front-office facts — do NOT contradict them): ${partner.verdict ?? ""} Window: ${partner.window ?? "unknown"}. Chasing: ${partner.wants ?? "unknown"}. Shedding: ${partner.sells ?? "unknown"}. Stance: ${partner.tradeStance ?? "unknown"}.${partner.topNeed ? ` Biggest hole: ${partner.topNeed}.` : ""}${partner.coreLabel ? ` ${partner.coreLabel}.` : ""}`,
       `How they opened: they offered us ${names(body.offer?.receive)} for our ${names(body.offer?.send)} — ${tone}.`,
       `The counter I'm shaping now: we send ${names(body.counter?.send)}; we receive ${names(body.counter?.receive)}. Against their persona this sits ${posture}.`,
+      rankingLine,
       `Give me your read on this counter.`,
-    ].join("\n");
+    ].filter(Boolean).join("\n");
     const read = await callAnthropic(user, apiKey);
     if (read) return NextResponse.json({ read, source: "llm" });
   }

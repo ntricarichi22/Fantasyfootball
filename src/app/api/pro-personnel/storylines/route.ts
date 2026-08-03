@@ -26,7 +26,7 @@ import { buildTeamNarratives, ACQUIRE_GOAL_KINDS, type Thesis, type Goal } from 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-import { DIRECTOR_PROSE_MODEL } from "@/shared/director-prose";
+import { DIRECTOR_PROSE_MODEL, VOICE_RULES } from "@/shared/director-prose";
 
 const BUCKET_LABEL: Record<string, string> = {
   QB: "QB",
@@ -114,7 +114,9 @@ Hard rules:
 2. "We" and "us" — you work for this franchise. Talk like a real scout. No filler.
 3. Output ONLY valid JSON, no markdown fences, matching exactly: {"opening": string, "args": {<thesisId>: string, ...}}.
 4. "opening": 2-3 sentences greeting the GM and framing the situation. If there are two storylines, say there are genuinely two ways to go and that you'll make the case for each. If one, state the path with conviction.
-5. "args": for EACH storyline id given, 1-2 sentences SELLING that direction — the strongest honest case for it, grounded in the goals/evidence provided. A storyline marked source=intent is the GM's OWN stated plan — frame it as "your plan" and show him you've built on it. A storyline marked source=engine is what the roster evidence says — frame it as the roster making its own case. Never wishy-washy.`;
+5. "args": for EACH storyline id given, 1-2 sentences SELLING that direction — the strongest honest case for it, grounded in the goals/evidence provided. A storyline marked source=intent is the GM's OWN stated plan — frame it as "your plan" and show him you've built on it. A storyline marked source=engine is what the roster evidence says — frame it as the roster making its own case. Never wishy-washy.
+
+6. ${VOICE_RULES.translatorOnly}`;
 
 // The LLM prose is cached per team so repeat door-opens are instant, and the
 // call is hard-capped at a few seconds — past that the deterministic fallback
