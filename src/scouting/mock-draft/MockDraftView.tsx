@@ -37,7 +37,9 @@ type TradeMode = "up" | "back";
 type TUTarget = { overall: number; pick: string; team: string; partnerId: string; value: number };
 type TUPickAsset = { overall: number; pick: string; value: number };
 type TUPlayerAsset = { id: string; name: string; pos: string; nflTeam: string | null; value: number };
-type TUContext = { fromPick: TUPickAsset; targets: TUTarget[]; picks: TUPickAsset[]; players: TUPlayerAsset[] };
+// fromPick is null when we have no unmade pick left to move (the route's
+// no-myPick fallback) — the builder must render its empty state, not deref it.
+type TUContext = { fromPick: TUPickAsset | null; targets: TUTarget[]; picks: TUPickAsset[]; players: TUPlayerAsset[] };
 // The war-room director card: a verdict line, a few stat chips, and labeled
 // prose sections — the trade-modal treatment, applied to the live read.
 type DChip = { k: string; v: string };
@@ -65,6 +67,44 @@ const SIM_SECONDS = 10;
 // How long the "pick is in" announcement holds the clock card before the next
 // team's clock starts.
 const ANNOUNCE_MS = 2000;
+
+// The countdown fill. The interval only ticks whole seconds, so a naive
+// width-per-tick render leaves the bar ~1s of width short when the pick lands
+// and then visibly animates the refill rightward on the next clock. Instead:
+// snap (no transition) to the remaining fraction, then — while the clock is
+// running — drain to empty over exactly the remaining seconds. Re-anchoring on
+// every tick keeps the CSS animation and the interval agreeing, so the bar is
+// full the instant a clock starts, empty the instant the pick is announced,
+// and a pause freezes it at the current fraction.
+function ClockFill({ seconds, simSeconds, running }: { seconds: number; simSeconds: number; running: boolean }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [drain, setDrain] = useState(false);
+  useEffect(() => {
+    setDrain(false);
+    if (!running || seconds <= 0) return;
+    // Brief delay so the snap commits before the drain target starts the
+    // transition. A timeout (not rAF) — rAF starves in backgrounded tabs,
+    // which would freeze the bar at the anchor.
+    const t = setTimeout(() => {
+      // Force a style flush at the anchored width so the transition provably
+      // starts from it, not from a stale computed value.
+      void barRef.current?.offsetWidth;
+      setDrain(true);
+    }, 20);
+    return () => clearTimeout(t);
+  }, [running, seconds, simSeconds]);
+  return (
+    <div
+      ref={barRef}
+      style={{
+        height: "100%",
+        background: CRED,
+        width: drain ? "0%" : `${Math.max(0, Math.min(100, (seconds / simSeconds) * 100))}%`,
+        transition: drain ? `width ${seconds}s linear` : "none",
+      }}
+    />
+  );
+}
 
 // Display names match the lobby's setup modal; engine keys are unchanged.
 const SCENARIOS: { key: Scenario; label: string }[] = [
@@ -216,6 +256,10 @@ export function MockDraftView() {
       remaining -= 1;
       if (remaining <= 0) {
         clearInterval(id);
+        // Zero the clock too, so any surface that renders it during the
+        // announce hold (or the one frame before the next pick's reset)
+        // shows an empty bar, not a leftover sliver.
+        setSeconds(0);
         setAnnounce({ idx: revealed });
       } else { setSeconds(remaining); }
     }, 1000);
@@ -507,7 +551,7 @@ export function MockDraftView() {
               <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: CRED, animation: "cfcBlink 1s steps(2) infinite" }}>{isMine(b) ? "YOU'RE UP" : "ON CLOCK"}</span>
               {!isMine(b) && (
                 <div style={{ position: "absolute", left: 2, right: 2, bottom: 2, height: 3, borderRadius: 2, overflow: "hidden", background: "rgba(0,0,0,0.45)" }}>
-                  <div style={{ height: "100%", background: CRED, width: `${Math.max(0, (seconds / simSeconds) * 100)}%`, transition: "width 1s linear" }} />
+                  <ClockFill seconds={seconds} simSeconds={simSeconds} running={phase === "running" && !busy} />
                 </div>
               )}
             </>
@@ -867,7 +911,7 @@ export function MockDraftView() {
                   </div>
                   {!yourTurn && !announce && (
                     <div style={{ height: 5, background: "rgba(0,0,0,0.4)", borderRadius: 3, marginTop: 9, overflow: "hidden" }}>
-                      <div style={{ height: "100%", background: CRED, width: `${Math.max(0, (seconds / simSeconds) * 100)}%`, transition: "width 1s linear" }} />
+                      <ClockFill seconds={seconds} simSeconds={simSeconds} running={phase === "running" && !busy} />
                     </div>
                   )}
                   <button onClick={() => openTrade(yourTurn ? "back" : "up")} style={{ display: "block", width: "100%", marginTop: 9, fontFamily: ANTON, fontSize: 13, letterSpacing: 1.5, color: BINK, background: GOLD, border: `2px solid ${BINK}`, borderRadius: 3, padding: "10px 0", cursor: "pointer", animation: tradeUpNudge && !yourTurn ? "tuPulse 1.6s ease-in-out infinite" : "none" }}>{yourTurn ? "TRADE BACK" : "TRADE UP"}</button>
@@ -1187,7 +1231,7 @@ export function MockDraftView() {
             ) : buildOpen ? (() => {
               // ── BUILD IT MYSELF: pick a target, stack the package, make the call.
               const bt = buildCtx?.targets.find((t) => t.overall === buildTarget) ?? null;
-              const pkgTotal = (buildCtx?.fromPick.value ?? 0)
+              const pkgTotal = (buildCtx?.fromPick?.value ?? 0)
                 + (buildCtx?.picks.filter((p) => buildGive.has(`pick:${p.overall}`)).reduce((s, p) => s + p.value, 0) ?? 0)
                 + (buildCtx?.players.filter((p) => buildGive.has(`player:${p.id}`)).reduce((s, p) => s + p.value, 0) ?? 0);
               return (
@@ -1202,8 +1246,12 @@ export function MockDraftView() {
                   </div>
                   {buildLoading ? (
                     <div style={{ padding: 44, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: META }}>PULLING THE FILES…</div>
-                  ) : !buildCtx || buildCtx.targets.length === 0 ? (
-                    <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>Nobody ahead of us has a pick left to chase right now.</div>
+                  ) : !buildCtx || !buildCtx.fromPick || buildCtx.targets.length === 0 ? (
+                    <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>
+                      {buildCtx && !buildCtx.fromPick
+                        ? "We're out of picks to move — nothing left to build a jump around."
+                        : "Nobody ahead of us has a pick left to chase right now."}
+                    </div>
                   ) : (
                     <>
                       <div style={{ padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, background: PLACARD }}>
