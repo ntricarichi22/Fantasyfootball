@@ -30,16 +30,19 @@ type TBAsset = { kind: "pick" | "player"; label: string; sublabel: string; value
 type TradeOverride = { overall: number; rosterId: string };
 // One trade offer (up or back) — the swapped picks plus a re-mocked board so the
 // client can read survival odds at the new slot.
-type TBOffer = { partner: string; partnerId: string; fromPick: string; toPick: string; give: TBAsset[]; get: TBAsset[]; givePlayers?: string[]; net: number; rationale: string; overrides: TradeOverride[]; board: BoardPick[] };
+type TBOffer = { partner: string; partnerId: string; fromPick: string; toPick: string; give: TBAsset[]; get: TBAsset[]; givePlayers?: string[]; giveFutures?: string[]; net: number; rationale: string; overrides: TradeOverride[]; board: BoardPick[] };
 type TradeMode = "up" | "back";
-// Build-it-myself raw materials (trade-up "context" mode): the picks ahead we
-// can chase plus our tradeable picks and players, all valued from our seat.
-type TUTarget = { overall: number; pick: string; team: string; partnerId: string; value: number };
-type TUPickAsset = { overall: number; pick: string; value: number };
-type TUPlayerAsset = { id: string; name: string; pos: string; nflTeam: string | null; value: number };
-// fromPick is null when we have no unmade pick left to move (the route's
-// no-myPick fallback) — the builder must render its empty state, not deref it.
-type TUContext = { fromPick: TUPickAsset | null; targets: TUTarget[]; picks: TUPickAsset[]; players: TUPlayerAsset[] };
+// Build-it-myself raw materials (trade-up "context" mode): the on-clock target
+// plus our full tradeable book — players and picks, current AND future. No
+// values anywhere in this shape: the modal never shows math.
+type TUTarget = { overall: number; pick: string; team: string; partnerId: string };
+type TUPlayer = { id: string; name: string; pos: string; nflTeam: string | null };
+type TUPick = { key: string; label: string; kind: "current" | "future"; via: string | null };
+type TUContext = { target: TUTarget | null; players: TUPlayer[]; picks: TUPick[] };
+// A rejection comes back as the partner's counter: a quote plus up to two
+// tappable paths to yes, each a set of add/remove moves on the package.
+type TUCounterMove = { op: "add" | "remove"; key: string; label: string };
+type TUCounter = { quote: string; options: Array<{ moves: TUCounterMove[] }> };
 // The war-room director card: a verdict line, a few stat chips, and labeled
 // prose sections — the trade-modal treatment, applied to the live read.
 type DChip = { k: string; v: string };
@@ -180,6 +183,9 @@ export function MockDraftView() {
   const [tradeOverrides, setTradeOverrides] = useState<TradeOverride[]>([]);
   // Roster players we've traded away in the sim — excluded from Our Roster.
   const [tradedAway, setTradedAway] = useState<string[]>([]);
+  // Future-pick keys we've dealt away in the sim — excluded from later builds
+  // (current picks self-track through tradeOverrides; futures aren't on the board).
+  const [tradedFutures, setTradedFutures] = useState<string[]>([]);
   // The one trade modal — up (while simming) or back (on the clock), plus incoming later.
   const [tradeOpen, setTradeOpen] = useState(false);
   const [tradeMode, setTradeMode] = useState<TradeMode>("up");
@@ -190,14 +196,14 @@ export function MockDraftView() {
   // drives the red alarm skin + Reject/Accept labels.
   const [tradeInbound, setTradeInbound] = useState(false);
   // Build-it-myself (trade up only): modal sub-view, the raw assets the server
-  // hands us, what we've put on the table, and the partner's last answer.
+  // hands us, what we've put on the table, and the partner's last counter.
   const [buildOpen, setBuildOpen] = useState(false);
   const [buildCtx, setBuildCtx] = useState<TUContext | null>(null);
   const [buildLoading, setBuildLoading] = useState(false);
-  const [buildTarget, setBuildTarget] = useState<number | null>(null);
   const [buildGive, setBuildGive] = useState<Set<string>>(new Set());
+  const [buildSearch, setBuildSearch] = useState("");
   const [buildBusy, setBuildBusy] = useState(false);
-  const [buildRejected, setBuildRejected] = useState<null | "close" | "far">(null);
+  const [buildCounter, setBuildCounter] = useState<TUCounter | null>(null);
 
   const rounds = useMemo(() => Array.from(new Set(board.map((b) => b.round))).sort(), [board]);
   const onClock = revealed < board.length ? board[revealed] : null;
@@ -311,7 +317,7 @@ export function MockDraftView() {
   // rebuild the live board from this exact moment.
   function tradeBody(revAt = revealed) {
     const forcedPicks = board.slice(0, revAt).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
-    return { teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides, tradedAway, targetOverall: board[revAt]?.overall };
+    return { teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides, tradedAway, tradedPicks: tradedFutures, targetOverall: board[revAt]?.overall };
   }
   function openTrade(mode: TradeMode) {
     const route = mode === "up" ? "trade-up" : "trade-back";
@@ -321,40 +327,46 @@ export function MockDraftView() {
       .then((r) => r.json()).then((j: { offers?: TBOffer[] }) => { setTradeOffers(j.offers ?? []); setTradeIdx(0); })
       .catch(() => setTradeOffers([])).finally(() => setTradeLoading(false));
   }
-  function closeTrade() { setTradeOpen(false); setTradeInbound(false); setTradeOffers([]); setBuildOpen(false); setBuildRejected(null); if (!isComplete) setPhase("running"); }
+  function closeTrade() { setTradeOpen(false); setTradeInbound(false); setTradeOffers([]); setBuildOpen(false); setBuildCounter(null); setBuildSearch(""); if (!isComplete) setPhase("running"); }
 
-  // ── build-it-myself (trade up): you assemble the package; the partner only
-  // says yes if it clears their acceptance band — the same canonical check the
-  // auto-generated offers pass. No counters, just yes or no. ─────────────────────
+  // ── build-it-myself (trade up): the whole book on the table for the on-clock
+  // pick — no values shown. The partner says yes only if the package clears
+  // their acceptance band (the same canonical check the auto offers pass); a
+  // no comes back as their counter with tappable paths to yes. ─────────────────
   function openBuilder() {
-    setBuildOpen(true); setBuildRejected(null); setBuildGive(new Set()); setBuildCtx(null); setBuildLoading(true);
+    setBuildOpen(true); setBuildCounter(null); setBuildGive(new Set()); setBuildSearch(""); setBuildCtx(null); setBuildLoading(true);
     fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...tradeBody(), mode: "context" }) })
       .then((r) => r.json())
-      .then((j: TUContext) => {
-        setBuildCtx(Array.isArray(j?.targets) ? j : null);
-        const onClockTarget = j?.targets?.find((t) => t.overall === onClock?.overall);
-        setBuildTarget(onClockTarget ? onClockTarget.overall : j?.targets?.[0]?.overall ?? null);
-      })
+      .then((j: TUContext) => setBuildCtx(j && Array.isArray(j.players) && Array.isArray(j.picks) ? j : null))
       .catch(() => setBuildCtx(null))
       .finally(() => setBuildLoading(false));
   }
   function toggleGive(key: string) {
     setBuildGive((prev) => { const next = new Set(prev); if (next.has(key)) next.delete(key); else next.add(key); return next; });
-    setBuildRejected(null);
+    setBuildCounter(null);
+  }
+  // One tap applies a counter option's moves to the package.
+  function applyCounter(opt: { moves: TUCounterMove[] }) {
+    setBuildGive((prev) => {
+      const next = new Set(prev);
+      for (const m of opt.moves) { if (m.op === "add") next.add(m.key); else next.delete(m.key); }
+      return next;
+    });
+    setBuildCounter(null);
   }
   function proposeBuild() {
-    if (!buildCtx || buildTarget == null || buildBusy) return;
-    setBuildBusy(true); setBuildRejected(null);
-    const give = [...buildGive].map((k) => (k.startsWith("pick:") ? { kind: "pick" as const, overall: Number(k.slice(5)) } : { kind: "player" as const, playerId: k.slice(7) }));
-    fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...tradeBody(), mode: "propose", targetOverall: buildTarget, give }) })
+    if (buildGive.size === 0 || buildBusy) return;
+    setBuildBusy(true); setBuildCounter(null);
+    const give = [...buildGive].map((k) => (k.startsWith("player:") ? { kind: "player" as const, playerId: k.slice("player:".length) } : { kind: "pick" as const, key: k }));
+    fetch(`/api/scouting/mock-draft/trade-up`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...tradeBody(), mode: "propose", give }) })
       .then((r) => r.json())
-      .then((j: { accepted?: boolean; offer?: TBOffer; hint?: string }) => {
+      .then((j: { accepted?: boolean; offer?: TBOffer; quote?: string; options?: Array<{ moves: TUCounterMove[] }> }) => {
         // Accepted: flip to the standard offer card so the director weighs in
         // and MAKE THE CALL applies it through the normal accept path.
         if (j.accepted && j.offer) { setBuildOpen(false); setTradeOffers([j.offer]); setTradeIdx(0); }
-        else setBuildRejected(j.hint === "close" ? "close" : "far");
+        else setBuildCounter({ quote: j.quote ?? "They passed on that one.", options: j.options ?? [] });
       })
-      .catch(() => setBuildRejected("far"))
+      .catch(() => setBuildCounter({ quote: "The line went dead — try again.", options: [] }))
       .finally(() => setBuildBusy(false));
   }
 
@@ -393,7 +405,8 @@ export function MockDraftView() {
     const nextOverrides = [...owner.entries()].map(([overall, rosterId]) => ({ overall, rosterId }));
     const forcedPicks = board.slice(0, rev).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
     const nextTradedAway = [...new Set([...tradedAway, ...(offer.givePlayers ?? [])])];
-    setTradeOverrides(nextOverrides); setTradedAway(nextTradedAway); setTradeOpen(false); setTradeOffers([]); setBusy(true);
+    const nextTradedFutures = [...new Set([...tradedFutures, ...(offer.giveFutures ?? [])])];
+    setTradeOverrides(nextOverrides); setTradedAway(nextTradedAway); setTradedFutures(nextTradedFutures); setTradeOpen(false); setTradeOffers([]); setBusy(true);
     fetch(`/api/scouting/mock-draft`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ teamId, scenario, seed: seedRef.current, forcedPicks, tradeOverrides: nextOverrides, tradedAway: nextTradedAway }) })
       .then((r) => r.json()).then((j: Payload) => { applyPayload(j); setPhase("running"); })
       .catch(() => setError("Trade failed.")).finally(() => setBusy(false));
@@ -1229,90 +1242,112 @@ export function MockDraftView() {
             {tradeLoading ? (
               <div style={{ padding: 44, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: META }}>WORKING THE PHONES…</div>
             ) : buildOpen ? (() => {
-              // ── BUILD IT MYSELF: pick a target, stack the package, make the call.
-              const bt = buildCtx?.targets.find((t) => t.overall === buildTarget) ?? null;
-              const pkgTotal = (buildCtx?.fromPick?.value ?? 0)
-                + (buildCtx?.picks.filter((p) => buildGive.has(`pick:${p.overall}`)).reduce((s, p) => s + p.value, 0) ?? 0)
-                + (buildCtx?.players.filter((p) => buildGive.has(`player:${p.id}`)).reduce((s, p) => s + p.value, 0) ?? 0);
+              // ── BUILD IT MYSELF: search, then the whole book (QB → RB → PC →
+              // picks), multi-select, propose. No values anywhere — a rejection
+              // renders the partner's counter with tappable paths to yes.
+              const tgt = buildCtx?.target ?? null;
+              const nick = tgt ? teamNickname(tgt.team) : "";
+              const q = buildSearch.trim().toLowerCase();
+              type BuildRow = { key: string; label: string; sub: string };
+              const playerRow = (p: TUPlayer): BuildRow => ({ key: `player:${p.id}`, label: p.name, sub: `${p.pos}${p.nflTeam ? ` · ${p.nflTeam}` : ""}` });
+              const pickRow = (p: TUPick): BuildRow => ({ key: p.key, label: p.label, sub: p.kind === "current" ? "this draft" : p.via ? `future · via ${p.via}` : "future" });
+              const allSections: Array<{ label: string; rows: BuildRow[] }> = buildCtx ? [
+                { label: "QUARTERBACKS", rows: buildCtx.players.filter((p) => p.pos === "QB").map(playerRow) },
+                { label: "RUNNING BACKS", rows: buildCtx.players.filter((p) => p.pos === "RB").map(playerRow) },
+                { label: "PASS CATCHERS", rows: buildCtx.players.filter((p) => p.pos === "WR" || p.pos === "TE").map(playerRow) },
+                { label: "OTHERS", rows: buildCtx.players.filter((p) => !["QB", "RB", "WR", "TE"].includes(p.pos)).map(playerRow) },
+                { label: "DRAFT PICKS", rows: buildCtx.picks.map(pickRow) },
+              ] : [];
+              const rowByKey = new Map(allSections.flatMap((s) => s.rows).map((r) => [r.key, r]));
+              const sections = allSections
+                .map((s) => ({ ...s, rows: s.rows.filter((r) => !q || r.label.toLowerCase().includes(q)) }))
+                .filter((s) => s.rows.length > 0);
+              const onTable = [...buildGive].map((k) => rowByKey.get(k)).filter((r): r is BuildRow => !!r);
+              const chipLabel = (opt: { moves: TUCounterMove[] }) => {
+                const adds = opt.moves.filter((m) => m.op === "add");
+                const removes = opt.moves.filter((m) => m.op === "remove");
+                if (adds.length === 1 && removes.length === 1) return `SWAP IN ${adds[0].label}`;
+                return `ADD ${adds.map((m) => m.label).join(" + ")}`;
+              };
+              const row = (r: BuildRow, on: boolean) => (
+                <button key={r.key} onClick={() => toggleGive(r.key)} style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", width: "100%", background: on ? GREEN : "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "7px 10px", cursor: "pointer" }}>
+                  <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 12.5, color: on ? SCREAM : GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.label}</span>
+                  <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: on ? SCREAM : "#8a7d63", flexShrink: 0 }}>{r.sub}</span>
+                  <span style={{ fontFamily: ANTON, fontSize: 11, color: on ? SCREAM : BINK, border: `1.5px solid ${on ? SCREAM : BINK}`, borderRadius: 3, padding: "0 6px", flexShrink: 0 }}>{on ? "✓" : "+"}</span>
+                </button>
+              );
               return (
                 <>
                   <div style={{ background: GREEN, padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img src="/avatars/scouting.png" alt="" style={{ width: 30, height: 30, borderRadius: "50%", border: `2px solid ${BINK}`, objectFit: "cover", flexShrink: 0 }} />
-                      <span style={{ fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM }}>BUILD THE DEAL</span>
+                      <span style={{ minWidth: 0 }}>
+                        <span style={{ display: "block", fontFamily: ANTON, fontSize: 15, letterSpacing: 0.6, color: SCREAM, lineHeight: 1.1 }}>BUILD THE DEAL</span>
+                        {tgt && <span style={{ display: "block", fontFamily: OSWALD, fontWeight: 600, fontSize: 9, letterSpacing: 1, color: GOLD, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>FOR {tgt.pick} · {nick.toUpperCase()}</span>}
+                      </span>
                     </span>
                     <span onClick={closeTrade} style={{ cursor: "pointer", color: SCREAM, fontFamily: ANTON, fontSize: 18, lineHeight: 1 }}>×</span>
                   </div>
                   {buildLoading ? (
                     <div style={{ padding: 44, textAlign: "center", fontFamily: OSWALD, fontWeight: 700, fontSize: 12, letterSpacing: 2, color: META }}>PULLING THE FILES…</div>
-                  ) : !buildCtx || !buildCtx.fromPick || buildCtx.targets.length === 0 ? (
-                    <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>
-                      {buildCtx && !buildCtx.fromPick
-                        ? "We're out of picks to move — nothing left to build a jump around."
-                        : "Nobody ahead of us has a pick left to chase right now."}
-                    </div>
+                  ) : !buildCtx || !tgt ? (
+                    <div style={{ padding: 24, textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 13, color: META }}>That pick&rsquo;s already off the board.</div>
                   ) : (
                     <>
-                      <div style={{ padding: "11px 14px", borderBottom: `2.5px solid ${BINK}`, background: PLACARD }}>
-                        <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META, marginBottom: 7 }}>THE PICK WE WANT</div>
-                        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2 }}>
-                          {buildCtx.targets.map((t) => {
-                            const on = buildTarget === t.overall;
-                            return (
-                              <button key={t.overall} onClick={() => { setBuildTarget(t.overall); setBuildRejected(null); }} style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 1, background: on ? GOLD : "#EDE3CD", border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: on ? `2px 2px 0 ${BINK}` : "none", padding: "5px 10px", cursor: "pointer" }}>
-                                <span style={{ fontFamily: ANTON, fontSize: 14, color: BINK }}>{t.pick}</span>
-                                <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 8.5, color: META, whiteSpace: "nowrap" }}>{teamNickname(t.team)}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div style={{ padding: "11px 14px", borderBottom: `2.5px solid ${BINK}` }}>
-                        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 7 }}>
-                          <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 1.5, color: META }}>YOU SEND</span>
-                          <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, color: GSUB, whiteSpace: "nowrap" }}>PACKAGE {Math.round(pkgTotal)}{bt ? ` · THEIR PICK ${bt.value}` : ""}</span>
-                        </div>
-                        <div style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", marginBottom: 6, display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
-                          <span style={{ fontFamily: ANTON, fontWeight: 700, fontSize: 15, color: GREEN }}>{buildCtx.fromPick.pick}</span>
-                          <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9.5, color: "#8a7d63", whiteSpace: "nowrap", flexShrink: 0 }}>our pick · in every deal · {buildCtx.fromPick.value}</span>
-                        </div>
-                        {buildCtx.picks.length > 0 && (
-                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-                            {buildCtx.picks.map((p) => {
-                              const on = buildGive.has(`pick:${p.overall}`);
-                              return (
-                                <button key={p.overall} onClick={() => toggleGive(`pick:${p.overall}`)} style={{ display: "flex", alignItems: "baseline", gap: 6, background: on ? GREEN : "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "5px 9px", cursor: "pointer" }}>
-                                  <span style={{ fontFamily: ANTON, fontSize: 13, color: on ? SCREAM : GREEN }}>{p.pick}</span>
-                                  <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: on ? SCREAM : "#8a7d63" }}>{p.value}</span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                        <div className="mdScroll" style={{ maxHeight: 170, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
-                          {buildCtx.players.map((p) => {
-                            const key = `player:${p.id}`;
-                            const on = buildGive.has(key);
-                            return (
-                              <button key={p.id} onClick={() => toggleGive(key)} style={{ display: "flex", alignItems: "center", gap: 8, textAlign: "left", background: on ? GREEN : "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", cursor: "pointer", flexShrink: 0 }}>
-                                <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 12.5, color: on ? SCREAM : GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
-                                <span style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 9, color: on ? SCREAM : "#8a7d63", flexShrink: 0 }}>{p.pos}{p.nflTeam ? ` · ${p.nflTeam}` : ""}</span>
-                                <span style={{ fontFamily: ANTON, fontSize: 12, color: on ? GOLD : GSUB, flexShrink: 0 }}>{p.value}</span>
-                                <span style={{ fontFamily: ANTON, fontSize: 11, color: on ? SCREAM : BINK, border: `1.5px solid ${on ? SCREAM : BINK}`, borderRadius: 3, padding: "0 6px", flexShrink: 0 }}>{on ? "✓" : "+"}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      {buildRejected && (
-                        <div style={{ margin: "11px 14px 0", padding: "9px 11px", background: "rgba(201,68,46,.12)", border: `1.5px solid ${ARED}`, borderRadius: 4, fontFamily: OSWALD, fontWeight: 600, fontSize: 12, lineHeight: 1.45, color: ARED }}>
-                          {bt ? `The ${teamNickname(bt.team)} passed. ` : "They passed. "}{buildRejected === "close" ? "But they're still listening — sweeten it a touch." : "That package isn't close to what it costs to move up."}
+                      {buildCounter && (
+                        <div style={{ margin: "12px 14px 0", padding: "11px 12px", background: "rgba(201,68,46,.1)", border: `1.5px solid ${ARED}`, borderRadius: 4 }}>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: ARED, marginBottom: 5 }}>☎ THE {nick.toUpperCase()} COUNTER</div>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 600, fontSize: 12, lineHeight: 1.5, color: BINK }}>&ldquo;{buildCounter.quote}&rdquo;</div>
+                          {buildCounter.options.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginTop: 9 }}>
+                              {buildCounter.options.map((opt, oi) => (
+                                <span key={oi} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                  {oi > 0 && <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, color: "#8a7d63" }}>or</span>}
+                                  <button onClick={() => applyCounter(opt)} style={{ display: "flex", alignItems: "center", gap: 6, background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "6px 10px", cursor: "pointer" }}>
+                                    <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 11, color: GREEN }}>{chipLabel(opt)}</span>
+                                    <span style={{ fontFamily: ANTON, fontSize: 10, color: BINK, border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "0 5px" }}>+</span>
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, padding: "12px 14px" }}>
-                        <button onClick={() => { setBuildOpen(false); setBuildRejected(null); }} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: BINK, background: "#f2e8d0", border: `2px solid ${BINK}`, borderRadius: 4, padding: 11, cursor: "pointer" }}>BACK</button>
-                        <button onClick={proposeBuild} disabled={buildBusy || buildTarget == null} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: 11, cursor: buildBusy ? "default" : "pointer", opacity: buildBusy ? 0.6 : 1 }}>{buildBusy ? "CALLING…" : "SEND THE OFFER"}</button>
+                      {buildCounter && onTable.length > 0 && (
+                        <div style={{ padding: "10px 14px 0" }}>
+                          <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: "#8a7d63", marginBottom: 4 }}>ON THE TABLE</div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{onTable.map((r) => row(r, true))}</div>
+                        </div>
+                      )}
+                      <div style={{ padding: "10px 14px 0" }}>
+                        <div style={{ background: "#EDE3CD", border: `1.5px solid ${BINK}`, borderRadius: 3, padding: "7px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ color: "#8a7d63", fontSize: 12, lineHeight: 1 }}>⌕</span>
+                          <input
+                            type="text"
+                            value={buildSearch}
+                            onChange={(e) => setBuildSearch(e.target.value)}
+                            placeholder="Search our roster…"
+                            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", fontFamily: OSWALD, fontWeight: 600, fontSize: 12, color: BINK }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ padding: "4px 14px 8px" }}>
+                        {sections.map((s) => (
+                          <div key={s.label}>
+                            <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 8, letterSpacing: 1.5, color: "#8a7d63", margin: "8px 0 4px" }}>{s.label}</div>
+                            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{s.rows.map((r) => row(r, buildGive.has(r.key)))}</div>
+                          </div>
+                        ))}
+                        {sections.length === 0 && (
+                          <div style={{ padding: "16px 0", textAlign: "center", fontFamily: OSWALD, fontWeight: 600, fontSize: 12, color: META }}>Nothing matches that search.</div>
+                        )}
+                      </div>
+                      <div style={{ position: "sticky", bottom: 0, background: "#f2e8d0", borderTop: `2.5px solid ${BINK}`, display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 10, padding: "12px 14px" }}>
+                        <button onClick={() => { setBuildOpen(false); setBuildCounter(null); }} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: BINK, background: "#f2e8d0", border: `2px solid ${BINK}`, borderRadius: 4, padding: 11, cursor: "pointer" }}>BACK</button>
+                        <button onClick={proposeBuild} disabled={buildBusy || buildGive.size === 0} style={{ fontFamily: ANTON, fontSize: 13, letterSpacing: 1, color: SCREAM, background: GREEN, border: `2px solid ${BINK}`, borderRadius: 4, boxShadow: `2px 2px 0 ${BINK}`, padding: 11, cursor: buildBusy || buildGive.size === 0 ? "default" : "pointer", opacity: buildBusy || buildGive.size === 0 ? 0.6 : 1 }}>
+                          {buildBusy ? "CALLING…" : buildCounter ? "PROPOSE AGAIN" : buildGive.size === 0 ? "PROPOSE" : `PROPOSE · ${buildGive.size} ${buildGive.size === 1 ? "PIECE" : "PIECES"}`}
+                        </button>
                       </div>
                     </>
                   )}
@@ -1353,7 +1388,7 @@ export function MockDraftView() {
               const vColor = tradeMode === "up" && !worthIt ? "#F5C230" : GREEN;
               const prose = tradeMode === "up"
                 ? (moveUp
-                    ? `${moveUp.name} won't get back to us — he'll be gone before ${standPat[0]?.pick ?? offer.fromPick}. Jumping the ${nick} locks him up, and he's ${worthIt ? "a clear cut above" : "not far enough ahead of"} ${standPat[0]?.name ?? "what we'd otherwise land"} — the guy we'd likely get if we sit. ${worthIt ? "The gap is worth the extra pick." : "The drop-off's too small to give up a second bite — I'd hold."}`
+                    ? `${moveUp.name} won't get back to us — he'll be gone before ${standPat[0]?.pick || offer.fromPick || "our next pick"}. Jumping the ${nick} locks him up, and he's ${worthIt ? "a clear cut above" : "not far enough ahead of"} ${standPat[0]?.name ?? "what we'd otherwise land"} — the guy we'd likely get if we sit. ${worthIt ? "The gap is worth the extra pick." : "The drop-off's too small to give up a second bite — I'd hold."}`
                     : `Jumping the ${nick} puts us in front of the run.`)
                 : `The ${nick} want to jump up to ${offer.fromPick}. Sliding back to ${offer.toPick} turns one pick into ${offer.get.length === 2 ? "two" : offer.get.length === 3 ? "three" : offer.get.length}${offer.net > 0 ? " and nets us draft value" : ""}. The tier we actually want is still on the board when we're back up, so we cash in the extra capital.`;
               return (
@@ -1387,7 +1422,7 @@ export function MockDraftView() {
                       <span style={{ width: 19, height: 19, borderRadius: "50%", background: BINK, color: PLACARD, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>{tradeMode === "up" ? "↑" : "↓"}</span>{tradeMode === "up" ? "TRADE-UP OPPORTUNITY" : "TRADE-BACK OPPORTUNITY"}
                     </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                      <span style={{ fontFamily: ANTON, fontSize: 14, color: BINK }}>{offer.fromPick} → {offer.toPick}</span>
+                      <span style={{ fontFamily: ANTON, fontSize: 14, color: BINK }}>{offer.fromPick ? `${offer.fromPick} → ${offer.toPick}` : `→ ${offer.toPick}`}</span>
                       {tradeOffers.length > 1 && (
                         <span style={{ display: "flex", alignItems: "center", gap: 6, fontFamily: OSWALD, fontWeight: 700, fontSize: 10, color: BINK }}>
                           <span onClick={() => setTradeIdx((i) => (i - 1 + tradeOffers.length) % tradeOffers.length)} style={{ cursor: "pointer", fontSize: 15 }}>‹</span>
