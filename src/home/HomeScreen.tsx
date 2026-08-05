@@ -158,32 +158,6 @@ export function HomeScreen() {
   const crestSrc = teamCrestSrc(teamName) ?? `/teams/${nicknameSlug}.png`
   const gmName = gmNameFor(teamName) ?? gmNameForSlug(nicknameSlug) ?? "General Manager"
 
-  // The torn "FRONT OFFICE" hero strip that sits under the team banner.
-  const frontOfficeHero = (small: boolean) => {
-    const d = small ? 4 : 6 // 3D extrude depth
-    const shadow = Array.from({ length: d }, (_, i) => `${i + 1}px ${i + 1}px 0 #0E2A4E`).join(",")
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: small ? 12 : 20, flexShrink: 0, marginTop: small ? 10 : 22, marginBottom: small ? 4 : 12 }}>
-        <span
-          style={{
-            fontFamily: "'Bowlby One SC', system-ui, sans-serif",
-            fontSize: small ? 19 : 30,
-            letterSpacing: "0.02em",
-            textTransform: "uppercase",
-            color: "#E2B23C",
-            WebkitTextStroke: `${small ? 1 : 1.5}px #0E2A4E`,
-            textShadow: shadow,
-            lineHeight: 1,
-            whiteSpace: "nowrap",
-          }}
-        >
-          Front Office
-        </span>
-        <div style={{ flex: 1, height: small ? 3 : 4, background: "#0E2A4E" }} />
-      </div>
-    )
-  }
-
   const gmCard = (
     <GMPersonCard
       name={gmName}
@@ -254,9 +228,8 @@ export function HomeScreen() {
         <UnifiedTopbar />
         <div style={{ flex: 1, minHeight: 0, overflowY: "auto", WebkitOverflowScrolling: "touch", padding: "12px 12px 96px" }}>
           <div style={{ maxWidth: 430, width: "100%", margin: "0 auto" }}>
-            <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} compact />
-            {frontOfficeHero(true)}
-            <div style={{ height: 460, marginTop: 6 }}>
+            <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} compact />
+            <div style={{ height: 460, marginTop: 12 }}>
               {activeDirector ? (
                 <DirectorPersonCard director={activeDirector} teamName={teamName} crestSrc={crestSrc} />
               ) : (
@@ -327,11 +300,9 @@ export function HomeScreen() {
           flexDirection: "column",
         }}
       >
-        <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} seasons={gmStats.tenure} rings={gmStats.championships} titleYears={gmStats.titleYears} />
+        <TeamMasthead teamName={teamName} crestSrc={crestSrc} theme={theme} />
 
-        {frontOfficeHero(false)}
-
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-start" }}>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", justifyContent: "flex-start", marginTop: 18 }}>
           <div
             style={{
               display: "grid",

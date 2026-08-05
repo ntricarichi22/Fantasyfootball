@@ -5,7 +5,6 @@ import type { TeamTheme } from "./teamTheme"
 
 const INK = "#1A1A1A"
 const PAPER = "#F5F0E6"
-const MUTED = "#8C7E6A"
 
 export type TeamMastheadProps = {
   teamName: string
@@ -13,10 +12,6 @@ export type TeamMastheadProps = {
   crestSrc?: string
   /** band drives the letterhead rules + monogram; text/accent kept for API compat */
   theme: TeamTheme
-  seasons: number
-  rings: number
-  /** Years this team won the title, e.g. [2021, 2022] */
-  titleYears?: number[]
   /** Slim variant for mobile */
   compact?: boolean
 }
@@ -30,17 +25,15 @@ function monogram(teamName: string): string {
 
 /**
  * Team letterhead: a cream sheet of front-office stationery on the desk —
- * crest, wordmark, tenure line, and a double rule in the team's identity
- * color. Deliberately the quietest object on the page; the ID badges below
- * carry the loud vintage energy.
+ * crest, wordmark, the FRONT OFFICE department line, and a double rule in
+ * the team's identity color. Deliberately the quietest object on the page;
+ * the ID badges below carry the loud vintage energy. (Tenure/rings live on
+ * the GM badge, so they don't repeat here.)
  */
 export function TeamMasthead({
   teamName,
   crestSrc,
   theme,
-  seasons,
-  rings,
-  titleYears = [],
   compact = false,
 }: TeamMastheadProps) {
   const [logoFailed, setLogoFailed] = useState(false)
@@ -74,24 +67,19 @@ export function TeamMasthead({
     return () => window.removeEventListener("resize", fit)
   }, [teamName, maxFs, minFs])
 
-  const years = titleYears.map((y) => `'${String(y).slice(2)}`).join(" ")
-  const stats =
-    `${seasons} SEASON${seasons === 1 ? "" : "S"} · ${rings} RING${rings === 1 ? "" : "S"}` +
-    (years ? ` · ${years}` : "")
-
-  const statsLine = (
+  const deptLine = (
     <span
       style={{
         fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-        fontSize: compact ? 9 : 10.5,
+        fontSize: compact ? 10 : 11.5,
         fontWeight: 700,
-        letterSpacing: "0.12em",
-        color: MUTED,
+        letterSpacing: "0.18em",
+        color: theme.band,
         whiteSpace: "nowrap",
         flexShrink: 0,
       }}
     >
-      {stats}
+      FRONT OFFICE
     </span>
   )
 
@@ -146,9 +134,8 @@ export function TeamMasthead({
             {teamName.toUpperCase()}
           </span>
         </div>
-        {!compact && statsLine}
+        {deptLine}
       </div>
-      {compact && <div style={{ marginTop: 5 }}>{statsLine}</div>}
 
       {/* the double rule in the team's identity color */}
       <div style={{ marginTop: compact ? 7 : 10, borderTop: `3px solid ${theme.band}` }} />
