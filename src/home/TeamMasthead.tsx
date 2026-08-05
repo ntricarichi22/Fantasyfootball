@@ -63,25 +63,12 @@ export function TeamMasthead({
       setFs(size)
     }
     fit()
+    // Syne is a webfont — refit once it lands so the first paint's fallback
+    // metrics can't leave the wordmark clipped on slow connections.
+    document.fonts?.ready?.then(fit)
     window.addEventListener("resize", fit)
     return () => window.removeEventListener("resize", fit)
   }, [teamName, maxFs, minFs])
-
-  const deptLine = (
-    <span
-      style={{
-        fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
-        fontSize: compact ? 10 : 11.5,
-        fontWeight: 700,
-        letterSpacing: "0.18em",
-        color: theme.band,
-        whiteSpace: "nowrap",
-        flexShrink: 0,
-      }}
-    >
-      FRONT OFFICE
-    </span>
-  )
 
   return (
     <div
@@ -134,7 +121,6 @@ export function TeamMasthead({
             {teamName.toUpperCase()}
           </span>
         </div>
-        {deptLine}
       </div>
 
       {/* the double rule in the team's identity color */}

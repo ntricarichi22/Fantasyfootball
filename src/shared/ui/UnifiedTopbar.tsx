@@ -537,6 +537,29 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
   const tabs = door?.tabs ?? [];
   const showTabsRow = tabs.length > 0;
 
+  // Home is the front office itself — the four big ID badges are the doors,
+  // so the mini badge-door strip would be pure duplication there. The bar
+  // wears a plain bold wordmark instead.
+  const isHome = path === "/";
+  const frontOfficeWordmark = (
+    <span
+      style={{
+        display: "flex",
+        alignItems: "center",
+        fontFamily: FH,
+        fontWeight: 900,
+        fontSize: isMobile ? 13 : 16,
+        letterSpacing: "0.14em",
+        textTransform: "uppercase",
+        color: "#1A1A1A",
+        whiteSpace: "nowrap",
+        marginLeft: isMobile ? 10 : 16,
+      }}
+    >
+      Front Office
+    </span>
+  );
+
   return (
     <>
       <div style={{ background: "#F5F0E6", position: "relative" }}>
@@ -551,7 +574,12 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
           {brandBlock}
 
           {isMobile ? (
-            mobileSearch ? (
+            isHome && !mobileSearch ? (
+              <>
+                {frontOfficeWordmark}
+                <div style={{ flex: 1, minWidth: 0 }} />
+              </>
+            ) : mobileSearch ? (
               <div style={{ flex: 1, minWidth: 0, padding: "6px 6px 6px 0", display: "flex", alignItems: "center" }}>
                 <div
                   style={{
@@ -588,6 +616,27 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
             ) : (
               <div style={{ flex: 1, minWidth: 0 }} />
             )
+          ) : isHome ? (
+            <>
+              {frontOfficeWordmark}
+              <div style={{ flex: 1, minWidth: 0 }} />
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 14px" }}>
+                <span style={{ color: "#1A1A1A", fontWeight: 700, fontSize: 12, fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
+                  {teamName}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = historianHref;
+                  }}
+                  aria-label="Historian"
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#1A1A1A", padding: 0, display: "flex", alignItems: "center" }}
+                >
+                  <Icon name="search" size={17} />
+                </button>
+                {teamAvatar}
+              </div>
+            </>
           ) : (
             <>
               {/* The doors — every department wearing its mini ID badge.
