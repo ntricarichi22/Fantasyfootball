@@ -23,3 +23,9 @@ export function gmNameFor(teamName: string): string | undefined {
   const slug = teamNickname(teamName).toLowerCase().replace(/\s+/g, "-")
   return GM_NAMES[slug]
 }
+
+/** Owner name straight from a nickname slug — for callers that hold a team's
+ * ORIGINAL slug (identity baseSlug), which survives in-app renames. */
+export function gmNameForSlug(slug: string): string | undefined {
+  return GM_NAMES[slug]
+}

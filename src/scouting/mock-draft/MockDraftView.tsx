@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
-import { teamNickname } from "@/shared/league-data/nicknames";
+import { teamNickname, teamCrestSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 
 type Scenario = "standard" | "qb-run" | "rb-run" | "wr-run" | "chalk";
@@ -124,7 +124,8 @@ const SPEEDS: { label: string; seconds: number }[] = [
 const LOBBY_ROUTE = "/scouting/draft-room";
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
-const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
+const logoFor = (teamName: string) =>
+  teamCrestSrc(teamName) ?? `/teams/${slugify(teamNickname(teamName))}.png`;
 const listPhrase = (a: string[]) => (a.length <= 1 ? a[0] ?? "" : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`);
 const posTeam = (p: { pos: string | null; nflTeam: string | null }) => `${p.pos ?? ""}${p.nflTeam ? ` · ${p.nflTeam}` : ""}`;
 // Pretty lineup-slot labels for the roster tab.

@@ -3,14 +3,15 @@
 import { useEffect, useRef, useState } from "react"
 import type { TeamTheme } from "./teamTheme"
 
-const INK = "#13131A"
-const BRASS = "#B08D57"
+const INK = "#1A1A1A"
+const PAPER = "#F5F0E6"
+const MUTED = "#8C7E6A"
 
 export type TeamMastheadProps = {
   teamName: string
   /** Per-team logo, e.g. "/teams/virginia-founders.png" (optional / may 404) */
   crestSrc?: string
-  /** band = torn strip color, accent = page color, text = wordmark color */
+  /** band drives the letterhead rules + monogram; text/accent kept for API compat */
   theme: TeamTheme
   seasons: number
   rings: number
@@ -28,10 +29,10 @@ function monogram(teamName: string): string {
 }
 
 /**
- * Team identity banner: a torn navy strip ripped across the team's page
- * color, with the crest bursting through it and the wordmark on the strip.
- * Topps/80s energy via the ragged feTurbulence tear edges. Colors come
- * from the per-team theme. The wordmark auto-shrinks to always fit.
+ * Team letterhead: a cream sheet of front-office stationery on the desk —
+ * crest, wordmark, tenure line, and a double rule in the team's identity
+ * color. Deliberately the quietest object on the page; the ID badges below
+ * carry the loud vintage energy.
  */
 export function TeamMasthead({
   teamName,
@@ -43,23 +44,11 @@ export function TeamMasthead({
   compact = false,
 }: TeamMastheadProps) {
   const [logoFailed, setLogoFailed] = useState(false)
-  const imgRef = useRef<HTMLImageElement>(null)
   const showLogo = !!crestSrc && !logoFailed
 
-  useEffect(() => {
-    const img = imgRef.current
-    if (img && img.complete && img.naturalWidth === 0) setLogoFailed(true)
-  }, [])
-
-  // sizing
-  const bandH = compact ? 56 : 146
-  const crestH = compact ? 76 : 184
-  const crestLeft = compact ? 6 : 24
-  const maxFs = compact ? 22 : 54
-  const minFs = compact ? 13 : 24
-  const stripTop = compact ? 7 : 18
-  const stripH = bandH - stripTop * 2
-  const wordLeft = crestLeft + crestH * 0.86 + (compact ? 8 : 22)
+  const maxFs = compact ? 17 : 24
+  const minFs = compact ? 12 : 14
+  const crestH = compact ? 26 : 34
 
   // auto-fit the wordmark to the available width
   const boxRef = useRef<HTMLDivElement>(null)
@@ -73,7 +62,7 @@ export function TeamMasthead({
       let size = maxFs
       el.style.fontSize = `${size}px`
       let guard = 0
-      while (el.scrollWidth > box.clientWidth && size > minFs && guard < 120) {
+      while (el.scrollWidth > box.clientWidth && size > minFs && guard < 60) {
         size -= 1
         el.style.fontSize = `${size}px`
         guard++
@@ -83,163 +72,87 @@ export function TeamMasthead({
     fit()
     window.addEventListener("resize", fit)
     return () => window.removeEventListener("resize", fit)
-  }, [teamName, maxFs, minFs, wordLeft])
+  }, [teamName, maxFs, minFs])
 
+  const years = titleYears.map((y) => `'${String(y).slice(2)}`).join(" ")
   const stats =
     `${seasons} SEASON${seasons === 1 ? "" : "S"} · ${rings} RING${rings === 1 ? "" : "S"}` +
-    (titleYears.length ? ` · ${titleYears.join(", ")}` : "")
+    (years ? ` · ${years}` : "")
 
-  const crest = (
-    <div
+  const statsLine = (
+    <span
       style={{
-        width: crestH * 0.95,
-        height: crestH,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        filter: "drop-shadow(3px 4px 0 rgba(0,0,0,0.4))",
+        fontFamily: "var(--font-mono, 'JetBrains Mono', monospace)",
+        fontSize: compact ? 9 : 10.5,
+        fontWeight: 700,
+        letterSpacing: "0.12em",
+        color: MUTED,
+        whiteSpace: "nowrap",
+        flexShrink: 0,
       }}
     >
-      {showLogo ? (
-        <img
-          ref={imgRef}
-          src={crestSrc}
-          alt={`${teamName} logo`}
-          onError={() => setLogoFailed(true)}
-          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-        />
-      ) : (
-        <div
-          style={{
-            width: crestH * 0.82,
-            height: crestH * 0.82,
-            borderRadius: "50%",
-            background: theme.band,
-            border: `4px solid ${BRASS}`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <span style={{ fontFamily: "Impact, system-ui, sans-serif", fontSize: crestH * 0.3, color: theme.accent }}>
-            {monogram(teamName)}
-          </span>
-        </div>
-      )}
-    </div>
+      {stats}
+    </span>
   )
 
   return (
-    <div style={{ position: "relative", width: "100%", height: bandH, flexShrink: 0 }}>
-      {/* Band: page color + torn navy strip, clipped to the band rect */}
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          background: theme.accent,
-          border: `3px solid ${INK}`,
-          borderRadius: 3,
-          overflow: "hidden",
-          boxSizing: "border-box",
-          boxShadow: `4px 4px 0 ${INK}`,
-        }}
-      >
-        {/* zubaz texture on the page */}
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            background: `repeating-linear-gradient(118deg, rgba(0,0,0,0.06) 0 14px, transparent 14px 30px)`,
-          }}
-        />
-        {/* torn navy strip */}
-        <svg
-          width="100%"
-          height={bandH}
-          viewBox={`0 0 1000 ${bandH}`}
-          preserveAspectRatio="none"
-          style={{ position: "absolute", inset: 0, display: "block" }}
-        >
-          <defs>
-            <filter id="mh-tear" x="-3%" y="-40%" width="106%" height="180%">
-              <feTurbulence type="fractalNoise" baseFrequency="0.02 0.06" numOctaves="3" seed="6" result="n" />
-              <feDisplacementMap in="SourceGraphic" in2="n" scale={compact ? 7 : 12} />
-            </filter>
-          </defs>
-          <rect x="-20" y={stripTop} width="1040" height={stripH} fill={theme.band} filter="url(#mh-tear)" />
-          <rect
-            x="-20"
-            y={stripTop}
-            width="1040"
-            height={stripH}
-            fill="none"
-            stroke="#FEFCF9"
-            strokeWidth={compact ? 2.5 : 4}
-            filter="url(#mh-tear)"
+    <div
+      style={{
+        background: PAPER,
+        boxShadow: "3px 3px 0 rgba(26,26,26,0.22)",
+        padding: compact ? "10px 12px 8px" : "13px 18px 11px",
+        flexShrink: 0,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: compact ? 8 : 12 }}>
+        {showLogo ? (
+          <img
+            src={crestSrc}
+            alt={`${teamName} logo`}
+            onError={() => setLogoFailed(true)}
+            style={{ width: crestH, height: crestH, objectFit: "contain", display: "block", flexShrink: 0 }}
           />
-        </svg>
+        ) : (
+          <span
+            style={{
+              fontFamily: "Syne, sans-serif",
+              fontWeight: 900,
+              fontSize: compact ? 11 : 13,
+              color: theme.band,
+              border: `2.5px solid ${theme.band}`,
+              padding: "2px 5px",
+              flexShrink: 0,
+            }}
+          >
+            {monogram(teamName)}
+          </span>
+        )}
+        {/* The fit box wraps ONLY the wordmark, so clientWidth is exactly the
+            space the name may use — the crest and stats never skew the fit. */}
+        <div ref={boxRef} style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
+          <span
+            ref={nameRef}
+            style={{
+              fontFamily: "Syne, sans-serif",
+              fontWeight: 900,
+              fontSize: fs,
+              letterSpacing: "0.01em",
+              lineHeight: 1,
+              color: INK,
+              whiteSpace: "nowrap",
+              display: "inline-block",
+            }}
+          >
+            {teamName.toUpperCase()}
+          </span>
+        </div>
+        {!compact && statsLine}
       </div>
+      {compact && <div style={{ marginTop: 5 }}>{statsLine}</div>}
 
-      {/* Crest bursting through the strip */}
-      <div
-        style={{
-          position: "absolute",
-          left: crestLeft,
-          top: (bandH - crestH) / 2,
-          height: crestH,
-          zIndex: 3,
-        }}
-      >
-        {crest}
-      </div>
-
-      {/* Wordmark + stats, vertically centered on the strip */}
-      <div
-        ref={boxRef}
-        style={{
-          position: "absolute",
-          left: wordLeft,
-          right: compact ? 10 : 28,
-          top: 0,
-          bottom: 0,
-          zIndex: 4,
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          textAlign: "center",
-        }}
-      >
-        <span
-          ref={nameRef}
-          style={{
-            display: "inline-block",
-            whiteSpace: "nowrap",
-            fontFamily: "Impact, 'Arial Black', sans-serif",
-            fontSize: fs,
-            lineHeight: 0.92,
-            letterSpacing: "0.01em",
-            color: theme.text,
-            textShadow: `3px 3px 0 ${INK}`,
-          }}
-        >
-          {teamName.toUpperCase()}
-        </span>
-        <span
-          style={{
-            fontFamily: "'JetBrains Mono', monospace",
-            fontSize: compact ? 9 : 13,
-            fontWeight: 700,
-            letterSpacing: "0.14em",
-            color: theme.text,
-            opacity: 0.92,
-            marginTop: compact ? 2 : 7,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {stats}
-        </span>
-      </div>
+      {/* the double rule in the team's identity color */}
+      <div style={{ marginTop: compact ? 7 : 10, borderTop: `3px solid ${theme.band}` }} />
+      <div style={{ marginTop: 2, borderTop: `1px solid ${theme.band}` }} />
     </div>
   )
 }

@@ -5,11 +5,11 @@ import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar"
 import { GMPersonCard } from "./GMPersonCard"
 import { DirectorPersonCard } from "./DirectorPersonCard"
 import { TeamMasthead } from "./TeamMasthead"
-import { teamTheme } from "./teamTheme"
+import { teamTheme, themeFromColor } from "./teamTheme"
 import { DIRECTORS } from "./directors"
-import { gmNameFor } from "./gmNames"
+import { gmNameFor, gmNameForSlug } from "./gmNames"
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam"
-import { teamNickname, gmAvatarSrc } from "@/shared/league-data/nicknames"
+import { teamNickname, gmAvatarSrc, teamCrestSrc } from "@/shared/league-data/nicknames"
 import { Icon } from "@/shared/ui/Icon"
 import PersonaPicker from "@/inbox/persona/PersonaPicker"
 import type { GmPersona } from "@/research-strategy/api/types"
@@ -134,10 +134,29 @@ export function HomeScreen() {
     return () => window.removeEventListener("resize", check)
   }, [])
 
-  const nicknameSlug = slugify(teamNickname(teamName))
-  const theme = teamTheme(nicknameSlug)
-  const crestSrc = `/teams/${nicknameSlug}.png`
-  const gmName = gmNameFor(teamName) ?? "General Manager"
+  // Identity gives the ORIGINAL (Sleeper-name) slug — rename-proof keys for
+  // GM names/avatars — and the team color (hand-picked palette, or the
+  // dominant color of an uploaded custom logo) that drives the masthead band.
+  const [baseSlug, setBaseSlug] = useState<string>("")
+  const [teamColor, setTeamColor] = useState<string | null>(null)
+  useEffect(() => {
+    if (!rosterId) return
+    fetch("/api/team-identity")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const mine = (j?.teams ?? []).find(
+          (t: { rosterId?: string }) => String(t.rosterId) === rosterId
+        )
+        if (mine?.baseSlug) setBaseSlug(mine.baseSlug)
+        if (mine?.color) setTeamColor(mine.color)
+      })
+      .catch(() => {})
+  }, [rosterId])
+
+  const nicknameSlug = baseSlug || slugify(teamNickname(teamName))
+  const theme = teamColor ? themeFromColor(teamColor) : teamTheme(nicknameSlug)
+  const crestSrc = teamCrestSrc(teamName) ?? `/teams/${nicknameSlug}.png`
+  const gmName = gmNameFor(teamName) ?? gmNameForSlug(nicknameSlug) ?? "General Manager"
 
   // The torn "FRONT OFFICE" hero strip that sits under the team banner.
   const frontOfficeHero = (small: boolean) => {

@@ -9,6 +9,7 @@ import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { DIRECTORS } from "@/home/directors";
 import { NAVY, AMBER, RED } from "@/home/BadgeShell";
 import PersonaPicker from "@/inbox/persona/PersonaPicker";
+import { dominantLogoColor } from "@/shared/ui/dominantColor";
 import type { GmPersona } from "@/research-strategy/api/types";
 
 // One bar for the whole app, driven by the same DIRECTORS source-of-truth the
@@ -206,14 +207,18 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
   const tabIdx = door ? activeTabIndex(door, path) : 0;
 
   const [navOpen, setNavOpen] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // The crest button opens a small menu; each entry gets its own modal.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [personaOpen, setPersonaOpen] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
+  const [logoOpen, setLogoOpen] = useState(false);
   const [persona, setPersona] = useState<GmPersona>("straight_shooter");
   // The save endpoint upserts the whole row, so we must POST the complete
   // profile with only gm_persona changed.
   const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
-    if (!settingsOpen || !rosterId) return;
+    if (!personaOpen || !rosterId) return;
     fetch(`/api/research-strategy/strategy?teamId=${encodeURIComponent(rosterId)}`)
       .then((r) => r.json())
       .then((j) => {
@@ -223,7 +228,130 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
         }
       })
       .catch(() => {});
-  }, [settingsOpen, rosterId]);
+  }, [personaOpen, rosterId]);
+
+  // ── Team name modal state ──
+  const [nameInput, setNameInput] = useState("");
+  const [nameBusy, setNameBusy] = useState(false);
+  const [nameError, setNameError] = useState("");
+
+  const saveTeamName = async () => {
+    if (nameBusy) return;
+    setNameBusy(true);
+    setNameError("");
+    try {
+      const res = await fetch("/api/team-identity", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ teamName: nameInput }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setNameError(typeof json?.error === "string" ? json.error : "Couldn't save the name.");
+        setNameBusy(false);
+        return;
+      }
+      // Cookies were refreshed by the API — reload so every surface repaints.
+      window.location.reload();
+    } catch {
+      setNameError("Couldn't save the name.");
+      setNameBusy(false);
+    }
+  };
+
+  // ── Logo modal state ──
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoPreview, setLogoPreview] = useState("");
+  // Dominant color pulled from the picked image — becomes the team's card
+  // color league-wide, replacing the original hand-picked palette entry.
+  const [logoColor, setLogoColor] = useState<string | null>(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const [hasCustomLogo, setHasCustomLogo] = useState(false);
+
+  useEffect(() => {
+    if (!logoOpen || !rosterId) return;
+    fetch("/api/team-identity")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        const mine = (j?.teams ?? []).find(
+          (t: { rosterId?: string }) => String(t.rosterId) === rosterId
+        );
+        setHasCustomLogo(!!mine?.hasCustomLogo);
+      })
+      .catch(() => {});
+  }, [logoOpen, rosterId]);
+
+  // Object URLs leak unless revoked when replaced or when the modal closes.
+  useEffect(() => {
+    if (!logoOpen && logoPreview) {
+      URL.revokeObjectURL(logoPreview);
+      setLogoPreview("");
+      setLogoFile(null);
+      setLogoError("");
+    }
+  }, [logoOpen, logoPreview]);
+
+  const pickLogoFile = (file: File | null) => {
+    setLogoError("");
+    setLogoColor(null);
+    if (logoPreview) URL.revokeObjectURL(logoPreview);
+    if (!file) {
+      setLogoFile(null);
+      setLogoPreview("");
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setLogoFile(null);
+      setLogoPreview("");
+      setLogoError("Logo must be under 2MB.");
+      return;
+    }
+    setLogoFile(file);
+    setLogoPreview(URL.createObjectURL(file));
+    dominantLogoColor(file).then(setLogoColor);
+  };
+
+  const saveLogo = async () => {
+    if (logoBusy || !logoFile) return;
+    setLogoBusy(true);
+    setLogoError("");
+    try {
+      const form = new FormData();
+      form.append("file", logoFile);
+      if (logoColor) form.append("color", logoColor);
+      const res = await fetch("/api/team-identity/logo", { method: "POST", body: form });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setLogoError(typeof json?.error === "string" ? json.error : "Upload failed.");
+        setLogoBusy(false);
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setLogoError("Upload failed.");
+      setLogoBusy(false);
+    }
+  };
+
+  const removeLogo = async () => {
+    if (logoBusy) return;
+    setLogoBusy(true);
+    setLogoError("");
+    try {
+      const res = await fetch("/api/team-identity/logo", { method: "DELETE" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setLogoError(typeof json?.error === "string" ? json.error : "Couldn't remove the logo.");
+        setLogoBusy(false);
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setLogoError("Couldn't remove the logo.");
+      setLogoBusy(false);
+    }
+  };
 
   const savePersona = async (next: GmPersona) => {
     setPersona(next);
@@ -287,40 +415,123 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
   );
 
   const showCrest = !!crestSrc && !crestFailed;
+  const menuItems: Array<{ label: string; open: () => void }> = [
+    { label: "Change Persona", open: () => setPersonaOpen(true) },
+    {
+      label: "Change Team Name",
+      open: () => {
+        setNameInput(teamName === "—" ? "" : teamName);
+        setNameError("");
+        setNameOpen(true);
+      },
+    },
+    { label: "Change Logo", open: () => setLogoOpen(true) },
+  ];
   const teamAvatar = (
-    <button
-      type="button"
-      onClick={() => setSettingsOpen(true)}
-      aria-label="Settings"
-      style={{
-        width: isMobile ? 26 : 28,
-        height: isMobile ? 26 : 28,
-        background: showCrest ? "#FEFCF9" : "#3366CC",
-        border: "2px solid #1A1A1A",
-        color: "#FEFCF9",
-        fontFamily: FH,
-        fontWeight: 900,
-        fontSize: isMobile ? 10 : 11,
-        cursor: "pointer",
-        padding: 0,
-        flexShrink: 0,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        overflow: "hidden",
-      }}
-    >
-      {showCrest ? (
-        <img
-          src={crestSrc}
-          alt={teamName}
-          onError={() => setCrestFailed(true)}
-          style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-        />
-      ) : (
-        initials
+    <span style={{ position: "relative", display: "flex", flexShrink: 0 }}>
+      <button
+        type="button"
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-label="Team settings"
+        aria-expanded={menuOpen}
+        style={{
+          width: isMobile ? 26 : 28,
+          height: isMobile ? 26 : 28,
+          background: showCrest ? "#FEFCF9" : "#3366CC",
+          border: "2px solid #1A1A1A",
+          color: "#FEFCF9",
+          fontFamily: FH,
+          fontWeight: 900,
+          fontSize: isMobile ? 10 : 11,
+          cursor: "pointer",
+          padding: 0,
+          flexShrink: 0,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          overflow: "hidden",
+        }}
+      >
+        {showCrest ? (
+          <img
+            src={crestSrc}
+            alt={teamName}
+            onError={() => setCrestFailed(true)}
+            style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+          />
+        ) : (
+          initials
+        )}
+      </button>
+
+      {menuOpen && (
+        <>
+          <div
+            onClick={() => setMenuOpen(false)}
+            style={{ position: "fixed", inset: 0, zIndex: 60 }}
+            aria-hidden="true"
+          />
+          <div
+            style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              right: 0,
+              zIndex: 61,
+              background: "#F5F0E6",
+              border: "3px solid #1A1A1A",
+              boxShadow: "6px 6px 0 #1A1A1A",
+              width: 218,
+            }}
+          >
+            <div
+              style={{
+                padding: "7px 12px",
+                fontFamily: FM,
+                fontSize: 10,
+                fontWeight: 700,
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+                color: "#8C7E6A",
+                borderBottom: "2px solid #1A1A1A",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {teamName === "—" ? "Team Settings" : teamName}
+            </div>
+            {menuItems.map((item) => (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  item.open();
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "10px 12px",
+                  background: "none",
+                  border: "none",
+                  borderBottom: "1.5px solid #D8CDB4",
+                  cursor: "pointer",
+                  fontFamily: FH,
+                  fontWeight: 800,
+                  fontSize: 12,
+                  letterSpacing: "0.05em",
+                  textTransform: "uppercase",
+                  color: "#1A1A1A",
+                }}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </>
       )}
-    </button>
+    </span>
   );
 
   const tabs = door?.tabs ?? [];
@@ -604,60 +815,231 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
         )}
       </div>
 
-      {/* Settings modal */}
-      {settingsOpen && (
-        <div
-          onClick={() => setSettingsOpen(false)}
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(26,26,26,0.6)",
-            zIndex: 100,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 20,
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: "#F5F0E6",
-              border: "3px solid #1A1A1A",
-              boxShadow: "6px 6px 0 #1A1A1A",
-              padding: 24,
-              maxWidth: 720,
-              width: "100%",
-              maxHeight: "90vh",
-              overflowY: "auto",
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div
-                style={{
-                  fontFamily: FH,
-                  fontWeight: 900,
-                  fontSize: 18,
-                  letterSpacing: "0.04em",
-                  textTransform: "uppercase",
-                  color: "#1A1A1A",
-                }}
-              >
-                Settings
-              </div>
-              <button
-                type="button"
-                onClick={() => setSettingsOpen(false)}
-                aria-label="Close"
-                style={{ background: "none", border: "none", cursor: "pointer", color: "#1A1A1A", padding: 0, display: "flex", alignItems: "center" }}
-              >
-                <Icon name="x" size={20} />
-              </button>
-            </div>
-            <PersonaPicker value={persona} onChange={savePersona} />
+      {/* Persona modal */}
+      {personaOpen && (
+        <SettingsModal title="Persona" maxWidth={720} onClose={() => setPersonaOpen(false)}>
+          <PersonaPicker value={persona} onChange={savePersona} />
+        </SettingsModal>
+      )}
+
+      {/* Team name modal */}
+      {nameOpen && (
+        <SettingsModal title="Team Name" maxWidth={440} onClose={() => !nameBusy && setNameOpen(false)}>
+          <div style={{ fontFamily: FM, fontSize: 10, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase", color: "#8C7E6A", marginBottom: 6 }}>
+            League-wide — everyone sees the new name
           </div>
-        </div>
+          <input
+            type="text"
+            value={nameInput}
+            maxLength={30}
+            autoFocus
+            onChange={(e) => setNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") saveTeamName();
+            }}
+            style={{
+              width: "100%",
+              boxSizing: "border-box",
+              background: "#FEFCF9",
+              border: "2px solid #1A1A1A",
+              padding: "10px 12px",
+              fontFamily: FH,
+              fontWeight: 800,
+              fontSize: 16,
+              color: "#1A1A1A",
+              outline: "none",
+            }}
+          />
+          {nameError && (
+            <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#E8503A", fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
+              {nameError}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
+            <ModalButton primary disabled={nameBusy} onClick={saveTeamName}>
+              {nameBusy ? "Saving…" : "Save Name"}
+            </ModalButton>
+            <ModalButton disabled={nameBusy} onClick={() => setNameOpen(false)}>
+              Cancel
+            </ModalButton>
+          </div>
+        </SettingsModal>
+      )}
+
+      {/* Logo modal */}
+      {logoOpen && (
+        <SettingsModal title="Team Logo" maxWidth={440} onClose={() => !logoBusy && setLogoOpen(false)}>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+            <div
+              style={{
+                width: 84,
+                height: 84,
+                background: "#FEFCF9",
+                border: "2px solid #1A1A1A",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                overflow: "hidden",
+                flexShrink: 0,
+              }}
+            >
+              {logoPreview ? (
+                <img src={logoPreview} alt="New logo preview" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+              ) : showCrest ? (
+                <img src={crestSrc ?? ""} alt={teamName} style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+              ) : (
+                <span style={{ fontFamily: FH, fontWeight: 900, fontSize: 22, color: "#8C7E6A" }}>{initials}</span>
+              )}
+            </div>
+            <div style={{ fontFamily: FM, fontSize: 10, fontWeight: 700, letterSpacing: "0.12em", textTransform: "uppercase", color: "#8C7E6A", lineHeight: 1.7 }}>
+              {logoPreview ? "New logo — save to make it official" : hasCustomLogo ? "Current custom logo" : "Current crest"}
+              <br />
+              PNG, JPEG or WebP · under 2MB
+              {logoColor && (
+                <span style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                  Team color
+                  <span
+                    style={{
+                      width: 14,
+                      height: 14,
+                      background: logoColor,
+                      border: "1.5px solid #1A1A1A",
+                      display: "inline-block",
+                    }}
+                  />
+                </span>
+              )}
+            </div>
+          </div>
+          <input
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            onChange={(e) => pickLogoFile(e.target.files?.[0] ?? null)}
+            style={{ fontFamily: "var(--font-body, 'DM Sans', sans-serif)", fontSize: 12, color: "#1A1A1A", marginBottom: 4, maxWidth: "100%" }}
+          />
+          {logoError && (
+            <div style={{ marginTop: 8, fontSize: 12, fontWeight: 700, color: "#E8503A", fontFamily: "var(--font-body, 'DM Sans', sans-serif)" }}>
+              {logoError}
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
+            <ModalButton primary disabled={logoBusy || !logoFile} onClick={saveLogo}>
+              {logoBusy ? "Working…" : "Save Logo"}
+            </ModalButton>
+            {hasCustomLogo && (
+              <ModalButton disabled={logoBusy} onClick={removeLogo}>
+                Restore Original Crest
+              </ModalButton>
+            )}
+            <ModalButton disabled={logoBusy} onClick={() => setLogoOpen(false)}>
+              Cancel
+            </ModalButton>
+          </div>
+        </SettingsModal>
       )}
     </>
+  );
+}
+
+/* ── Modal chrome shared by the crest-menu settings ─────────────────────── */
+
+function SettingsModal({
+  title,
+  maxWidth,
+  onClose,
+  children,
+}: {
+  title: string;
+  maxWidth: number;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(26,26,26,0.6)",
+        zIndex: 100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: "#F5F0E6",
+          border: "3px solid #1A1A1A",
+          boxShadow: "6px 6px 0 #1A1A1A",
+          padding: 24,
+          maxWidth,
+          width: "100%",
+          maxHeight: "90vh",
+          overflowY: "auto",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div
+            style={{
+              fontFamily: FH,
+              fontWeight: 900,
+              fontSize: 18,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              color: "#1A1A1A",
+            }}
+          >
+            {title}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#1A1A1A", padding: 0, display: "flex", alignItems: "center" }}
+          >
+            <Icon name="x" size={20} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ModalButton({
+  primary = false,
+  disabled = false,
+  onClick,
+  children,
+}: {
+  primary?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        background: primary ? "#1A1A1A" : "transparent",
+        color: primary ? "#F5C230" : "#1A1A1A",
+        border: "2px solid #1A1A1A",
+        padding: "9px 16px",
+        fontFamily: FH,
+        fontWeight: 800,
+        fontSize: 12,
+        letterSpacing: "0.05em",
+        textTransform: "uppercase",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      {children}
+    </button>
   );
 }

@@ -24,20 +24,23 @@ export function teamInitials(fullName: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-/** Team crest under public/teams/, keyed by nickname slug — or null when the
- * team name is unknown/placeholder so callers can fall back to initials. */
+/** Team crest, keyed by nickname slug — or null when the team name is
+ * unknown/placeholder so callers can fall back to initials. Served through
+ * /api/team-crest so custom uploaded logos and in-app renames resolve; the
+ * route redirects to the original /teams/ art when no custom logo is set. */
 export function teamCrestSrc(fullName: string): string | null {
   const name = (fullName ?? "").trim();
   if (!name || name === "—") return null;
-  return `/teams/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
+  return `/api/team-crest/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
 }
 
-/** Team-specific GM headshot under public/avatars/gm/, keyed by nickname slug —
- * or null when the team name is unknown/placeholder. */
+/** Team-specific GM headshot, keyed by nickname slug — or null when the team
+ * name is unknown/placeholder. Served through /api/gm-avatar so a renamed
+ * team still resolves to its original art under public/avatars/gm/. */
 export function gmAvatarSrc(fullName: string): string | null {
   const name = (fullName ?? "").trim();
   if (!name || name === "—") return null;
-  return `/avatars/gm/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
+  return `/api/gm-avatar/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
 }
 
 export function teamNickname(fullName: string): string {

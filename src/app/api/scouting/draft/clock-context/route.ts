@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getLeagueId } from "@/infrastructure/config";
+import { getTeamNameOverrides } from "@/shared/league-data/teamIdentity";
 import {
   buildDraftState,
   formatPickKey,
@@ -130,7 +131,10 @@ export async function GET() {
       roster?.owner_id != null
         ? users?.find((u) => u.user_id === String(roster.owner_id))
         : undefined;
+    // In-app renames (team_email_map) win over the Sleeper name.
+    const nameOverrides = await getTeamNameOverrides();
     onClockTeamName =
+      nameOverrides.get(String(onClockRosterId)) ||
       user?.metadata?.team_name ||
       user?.display_name ||
       `Roster ${onClockRosterId}`;

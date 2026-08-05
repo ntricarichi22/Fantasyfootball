@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
-import { teamNickname } from "@/shared/league-data/nicknames";
+import { teamNickname, teamCrestSrc } from "@/shared/league-data/nicknames";
+import { fetchRosterNameMap } from "@/shared/league-data/clientTeamIdentity";
 import { gradeForRatio, ratioOf, offerRead } from "@/inbox/thread/counterMath";
 import {
   ActionBar,
@@ -83,8 +84,6 @@ type TradeThread = {
 /*  Constants & helpers                                                 */
 /* ------------------------------------------------------------------ */
 
-const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
-
 const DIRECTOR_NAMES: Record<Memo["director_role"], string> = {
   scouting: "Scouting Director",
   personnel: "Personnel Director",
@@ -129,27 +128,13 @@ function assetSummary(assets: OfferAsset[]): string {
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 
-// House logo art — same resolution the Draft Lobby and Mock Draft use.
-const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
+// House logo art — the canonical crest resolver (custom logos + renames).
+const logoFor = (teamName: string) =>
+  teamCrestSrc(teamName) ?? `/teams/${slugify(teamNickname(teamName))}.png`;
 
+// Identity-aware names (in-app renames included), Sleeper as fallback.
 async function fetchRosterNames(): Promise<Record<string, string>> {
-  if (!LEAGUE_ID_ENV) return {};
-  try {
-    const [r, u] = await Promise.all([
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/rosters`),
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/users`),
-    ]);
-    if (!r.ok || !u.ok) return {};
-    const rosters = await r.json();
-    const users = await u.json();
-    const uMap: Record<string, string> = {};
-    for (const x of users) uMap[x.user_id] = x.metadata?.team_name || x.display_name || x.user_id;
-    const m: Record<string, string> = {};
-    for (const x of rosters) m[String(x.roster_id)] = uMap[x.owner_id] || `Team ${x.roster_id}`;
-    return m;
-  } catch {
-    return {};
-  }
+  return fetchRosterNameMap();
 }
 
 /* ------------------------------------------------------------------ */

@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { fetchRosterNameMap } from "@/shared/league-data/clientTeamIdentity";
 import AcceptModal from "@/inbox/thread/AcceptModal";
 import RejectModal from "@/inbox/thread/RejectModal";
 import CounterDrawer from "@/inbox/thread/CounterDrawer";
@@ -64,7 +65,6 @@ type TimelineItem =
 /*  Constants / helpers                                                 */
 /* ------------------------------------------------------------------ */
 
-const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
@@ -102,27 +102,9 @@ function captionTs(dateStr: string): string {
 // SAID), not as a standalone timeline entry. Same pairing rule the inbox uses.
 const ATTACH_WINDOW_MS = 2 * 60 * 1000;
 
+// Identity-aware names (in-app renames included), Sleeper as fallback.
 async function fetchRosterNames(): Promise<Record<string, string>> {
-  if (!LEAGUE_ID_ENV) return {};
-  try {
-    const [rr, ur] = await Promise.all([
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/rosters`),
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/users`),
-    ]);
-    if (!rr.ok || !ur.ok) return {};
-    const rosters = await rr.json();
-    const users = await ur.json();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const uMap: Record<string, string> = {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const u of users) uMap[u.user_id] = u.metadata?.team_name || u.display_name || u.user_id;
-    const m: Record<string, string> = {};
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of rosters) m[String(r.roster_id)] = uMap[r.owner_id] || `Team ${r.roster_id}`;
-    return m;
-  } catch {
-    return {};
-  }
+  return fetchRosterNameMap();
 }
 
 /* ------------------------------------------------------------------ */

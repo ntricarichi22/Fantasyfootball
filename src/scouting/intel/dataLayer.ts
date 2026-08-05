@@ -1,4 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { getTeamNameOverrides } from "@/shared/league-data/teamIdentity";
 import type {
   Position,
   MarketStance,
@@ -154,6 +155,10 @@ export async function loadLeagueData(
     if (rid && !teamNameByRosterId.get(rid) && row.teamName) {
       teamNameByRosterId.set(rid, row.teamName);
     }
+  }
+  // In-app renames (team_email_map) win over every Sleeper-derived name.
+  for (const [rid, name] of await getTeamNameOverrides()) {
+    teamNameByRosterId.set(rid, name);
   }
 
   const pickSlotsByRosterId = new Map<string, number[]>();

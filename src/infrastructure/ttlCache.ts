@@ -12,6 +12,12 @@ type Entry = { value: Promise<unknown>; expires: number };
 
 const store = new Map<string, Entry>();
 
+/** Drop a memoized entry so the next caller reloads immediately — for writes
+ * that must be visible right away (e.g. a team rename busting identity). */
+export function ttlInvalidate(key: string): void {
+  store.delete(key);
+}
+
 export function ttlMemo<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const hit = store.get(key);

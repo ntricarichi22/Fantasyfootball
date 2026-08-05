@@ -28,3 +28,19 @@ const TEAM_THEMES: Record<string, TeamTheme> = {
 export function teamTheme(slug: string): TeamTheme {
   return TEAM_THEMES[slug] ?? DEFAULT_THEME
 }
+
+/** Theme derived from a team's identity color (hand-picked palette entry, or
+ * the dominant color of an uploaded logo): the color becomes the masthead
+ * band, wordmark ink flips light/dark for contrast, page stays house gold. */
+export function themeFromColor(color: string | null): TeamTheme {
+  const m = color ? /^#([0-9a-f]{6})$/i.exec(color) : null
+  if (!m) return DEFAULT_THEME
+  const n = parseInt(m[1], 16)
+  const lum =
+    (0.2126 * ((n >> 16) & 255) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255
+  return {
+    band: color!,
+    text: lum > 0.62 ? "#13131A" : "#FEFCF9",
+    accent: DEFAULT_THEME.accent,
+  }
+}

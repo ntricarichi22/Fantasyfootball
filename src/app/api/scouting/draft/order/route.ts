@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getLeagueId } from "@/infrastructure/config";
+import { getTeamNameOverrides } from "@/shared/league-data/teamIdentity";
 import {
   buildDraftState,
   formatPickKey,
@@ -100,7 +101,11 @@ export async function GET() {
     return NextResponse.json({ data: [] });
   }
 
+  // In-app renames (team_email_map) win over the Sleeper name.
+  const nameOverrides = await getTeamNameOverrides();
   const teamNameForRoster = (rosterId: number): string => {
+    const override = nameOverrides.get(String(rosterId));
+    if (override) return override;
     const roster = rosters.find((r) => r.roster_id === rosterId);
     const user =
       roster?.owner_id != null

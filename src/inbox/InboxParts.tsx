@@ -2,7 +2,7 @@
 
 import { Fragment, useRef, useState } from "react";
 import { Icon } from "@/shared/ui/Icon";
-import { teamColorFor } from "@/shared/league-data/teamColors";
+import { teamColorForName } from "@/shared/league-data/clientTeamIdentity";
 import { gmNameFor } from "@/home/gmNames";
 import DirectorNote from "@/inbox/thread/DirectorNote";
 
@@ -171,8 +171,8 @@ export function NegotiationTile({
 
   if (!version) return null;
 
-  const frameColor = teamColorFor(tile.counterpart);
-  const myColor = teamColorFor(tile.myTeam);
+  const frameColor = teamColorForName(tile.counterpart);
+  const myColor = teamColorForName(tile.myTeam);
   const gmName = gmNameFor(tile.counterpart);
 
   const ledgerLabel: React.CSSProperties = {

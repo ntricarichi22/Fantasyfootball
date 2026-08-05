@@ -75,6 +75,18 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
       }
 
       try {
+        // In-app renames (team identity) — non-fatal extra; empty map on error.
+        const identityPromise: Promise<Record<string, string>> = fetch("/api/team-identity")
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            const map: Record<string, string> = {};
+            for (const t of j?.teams ?? []) {
+              if (t?.rosterId && t?.teamName) map[String(t.rosterId)] = String(t.teamName);
+            }
+            return map;
+          })
+          .catch(() => ({}));
+
         const [leagueRes, rosterRes, userRes, tradedRes, draftsRes] = await Promise.all([
           fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
           fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
@@ -92,13 +104,17 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
         const userJson: SleeperUser[] = await userRes.json();
         const tradedJson: TradedPick[] = await tradedRes.json();
         const draftsJson: SleeperDraft[] = await draftsRes.json();
+        const nameOverrides = await identityPromise;
 
         let detectedCommissionerRosterId = "";
         const mappedTeams: Team[] = rosterJson.map((roster) => {
           const user = roster.owner_id
             ? userJson.find((u) => u.user_id === roster.owner_id)
             : undefined;
+          // Display names prefer in-app renames; commissioner detection below
+          // stays on the raw Sleeper names, which renames never touch.
           const preferredName =
+            nameOverrides[String(roster.roster_id)] ||
             user?.metadata?.team_name ||
             user?.display_name ||
             `Roster ${roster.roster_id}`;

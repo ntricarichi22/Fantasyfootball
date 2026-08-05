@@ -22,6 +22,7 @@ import {
   type SleeperRoster,
   type SleeperUser,
 } from "./sleeper";
+import { getTeamNameOverrides } from "./teamIdentity";
 import {
   POSITIONS,
   type Position,
@@ -97,14 +98,22 @@ function buildPlayerDict(players: Record<string, SleeperPlayer>): Map<string, Pl
   return dict;
 }
 
-function buildTeamNames(rosters: SleeperRoster[], users: SleeperUser[]): Map<string, string> {
+function buildTeamNames(
+  rosters: SleeperRoster[],
+  users: SleeperUser[],
+  overrides: Map<string, string>
+): Map<string, string> {
   const userById = new Map<string, SleeperUser>();
   for (const u of users) userById.set(u.user_id, u);
   const names = new Map<string, string>();
   for (const r of rosters) {
     const rid = toStr(r.roster_id);
     const u = r.owner_id ? userById.get(r.owner_id) : undefined;
-    names.set(rid, u?.metadata?.team_name || u?.display_name || `Team ${rid}`);
+    // In-app renames (team_email_map) win over the Sleeper name.
+    names.set(
+      rid,
+      overrides.get(rid) || u?.metadata?.team_name || u?.display_name || `Team ${rid}`
+    );
   }
   return names;
 }
@@ -309,12 +318,13 @@ export async function getPlayerDictionary(): Promise<Map<string, PlayerInfo>> {
 
 export async function getRosters(): Promise<RosteredTeam[]> {
   const leagueId = getSleeperLeagueId();
-  const [rosters, users, dict] = await Promise.all([
+  const [rosters, users, dict, nameOverrides] = await Promise.all([
     fetchRosters(leagueId),
     fetchUsers(leagueId),
     getPlayerDictionary(),
+    getTeamNameOverrides(),
   ]);
-  return buildTeams(rosters, buildTeamNames(rosters, users), dict);
+  return buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict);
 }
 
 export async function getPickOwnership(): Promise<Map<string, OwnedPick[]>> {
@@ -498,7 +508,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   const leagueId = getSleeperLeagueId();
   if (!leagueId) return { error: "NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set" };
 
-  const [players, rosters, users, traded, league, values, strat, spent, drafted, drafts] = await Promise.all([
+  const [players, rosters, users, traded, league, values, strat, spent, drafted, drafts, nameOverrides] = await Promise.all([
     fetchPlayers(),
     fetchRosters(leagueId),
     fetchUsers(leagueId),
@@ -509,12 +519,13 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     fetchSpentPickNumbers(),
     fetchDraftedPlayers(getCFCYear()),
     fetchDrafts(leagueId),
+    getTeamNameOverrides(),
   ]);
 
   if (!rosters.length) return { error: "Sleeper rosters unavailable" };
 
   const dict = buildPlayerDict(players);
-  const teams = buildTeams(rosters, buildTeamNames(rosters, users), dict, drafted);
+  const teams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict, drafted);
   const ownership = buildPickOwnership(rosters, traded, spent, drafts);
 
   const settings: LeagueSettings = {

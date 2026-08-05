@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
-import { teamNickname } from "@/shared/league-data/nicknames";
+import { teamNickname, teamCrestSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 
 type Phase = "pre-day-one" | "between" | "complete";
@@ -34,7 +34,8 @@ const SPEEDS: { label: string; seconds: number }[] = [
 ];
 
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
-const logoFor = (teamName: string) => `/teams/${slugify(teamNickname(teamName))}.png`;
+const logoFor = (teamName: string) =>
+  teamCrestSrc(teamName) ?? `/teams/${slugify(teamNickname(teamName))}.png`;
 
 // Page shell.
 const CANVAS = "#F5F0E6";
