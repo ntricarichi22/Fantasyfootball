@@ -40,6 +40,8 @@ function LoginForm() {
   const [logoFailed, setLogoFailed] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
+  const [resetSending, setResetSending] = useState(false);
+  const [resetSent, setResetSent] = useState(false);
 
   const handleEmailSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -163,6 +165,32 @@ function LoginForm() {
     } catch {
       setFormError("Something went wrong. Please try again.");
       setSubmitting(false);
+    }
+  };
+
+  const handleForgotPassword = async () => {
+    const trimmed = email.trim().toLowerCase();
+    if (!trimmed || resetSending) return;
+    if (!supabase) {
+      setFormError("Something went wrong. Please try again.");
+      return;
+    }
+    setResetSending(true);
+    setFormError("");
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmed, {
+        redirectTo: `${window.location.origin}/reset`,
+      });
+      if (error) {
+        setFormError("Couldn't send a reset link. Please try again.");
+        setResetSending(false);
+        return;
+      }
+      setResetSent(true);
+      setResetSending(false);
+    } catch {
+      setFormError("Couldn't send a reset link. Please try again.");
+      setResetSending(false);
     }
   };
 
@@ -388,6 +416,8 @@ function LoginForm() {
                   setStep("email");
                   setPassword("");
                   setFormError("");
+                  setResetSent(false);
+                  setResetSending(false);
                 }}
                 style={{
                   background: "transparent",
@@ -451,12 +481,51 @@ function LoginForm() {
                 {submitting ? "Signing in…" : "Sign In"}
               </button>
 
+              {resetSent ? (
+                <div
+                  style={{
+                    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                    fontSize: 12,
+                    color: "#4a8fd3",
+                    textAlign: "center",
+                    marginTop: 16,
+                    lineHeight: 1.5,
+                  }}
+                >
+                  Reset link sent to {email.trim().toLowerCase()}.
+                  <br />
+                  Check your inbox (and spam folder).
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleForgotPassword}
+                  disabled={resetSending}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    color: "#888",
+                    fontFamily: "var(--font-body, 'DM Sans', sans-serif)",
+                    fontSize: 12,
+                    cursor: resetSending ? "default" : "pointer",
+                    marginTop: 16,
+                    width: "100%",
+                    textAlign: "center",
+                    textDecoration: "underline",
+                  }}
+                >
+                  {resetSending ? "Sending…" : "Forgot password?"}
+                </button>
+              )}
+
               <button
                 type="button"
                 onClick={() => {
                   setStep("email");
                   setPassword("");
                   setFormError("");
+                  setResetSent(false);
+                  setResetSending(false);
                 }}
                 style={{
                   background: "transparent",
