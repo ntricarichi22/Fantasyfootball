@@ -4,7 +4,7 @@
  "howto": "How to use this: pick an option on each card (your picks save as you go), add a note where you want something different, then tell Claude \"decisions are in\". Filter to Undecided to see what's left.",
  "cleanups_lede": "Pure engineering consolidation with no product choice inside it. Each group is one approve/hold call; every item still lands as its own commit with a before/after check.",
  "db_lede": "Tiered from code, docs, migrations and the July schema snapshot committed under public/. The docs claim several tables were dropped in May; the July snapshot still lists two of them, so nothing is dropped without the live dependency check listed below. Archive dump first, soft-rename for two weeks, then drop.",
- "footer": "Sources: 9-area code sweep, 5 adversarial verification passes (65 of 70 divergence claims held), 3 table inventories. Items marked Verified were traced through the code by a second reviewer; Reported items came from the sweep and are still being re-checked. Live Sleeper check (Sept 12): the 2026 CFC league is 1328902558617473024; its draft is complete with 36 picks in Sleeper; the id in the repo's docs (1183585976810295296) is the 2025 league.",
+ "footer": "Sources: 9-area code sweep (all nine areas complete), 5 adversarial verification passes (65 of 70 divergence claims held), 3 table inventories. Items marked Verified were traced through the code by a second reviewer; Reported items came from the sweep and are still being re-checked. Live Sleeper check (Sept 12): the 2026 CFC league is 1328902558617473024; its draft is complete with 36 picks in Sleeper; the id in the repo's docs (1183585976810295296) is the 2025 league.",
  "areas": [
   {
    "key": "rosters",
@@ -921,6 +921,306 @@
      "detail": ""
     }
    ]
+  },
+  {
+   "id": "D-32",
+   "area": "rosters",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Four different definitions of \"available prospect\"",
+   "symptom": "A player can appear on the Big Board but not in the mock-draft pool, or still be draftable on the live board after being taken in the app, because each surface builds its own pool with different filters and caps.",
+   "cause": "Big Board, draft fit / mock draft, the intel layer and the live draft room each assemble the prospect pool independently.",
+   "evidence": [
+    "src/scouting/api.ts:346",
+    "src/scouting/api.ts:375",
+    "src/scouting/draft-fit/fit.ts:52"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One pool builder in the shared feed, used by every board",
+     "detail": "Rookies plus unrostered valued players, minus anyone drafted in the app or in Sleeper; paging in the UI instead of hard caps.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep separate pools per surface",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-33",
+   "area": "rosters",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Next year's rookie list is a 39-name list typed into an admin route",
+   "symptom": "The prospect table only changes when someone edits a hardcoded list in code and re-runs the admin route. Players who leave the league or were drafted stay on the board until then.",
+   "cause": "rookie_prospects is generated from a constant in the populate-rookies route and never pruned.",
+   "evidence": [
+    "src/app/api/scouting/draft/rookie-prospects/route.ts:27",
+    "src/app/api/admin/populate-rookies/route.ts:349",
+    "src/scouting/draft-room/hooks/useDraftBoard.ts:71",
+    "src/app/api/admin/populate-rookies/route.ts:32",
+    "src/app/api/admin/populate-rookies/route.ts:336"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Derive each season's class from Sleeper (rookie flag, years of experience); the admin route only patches bios and headshots",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the hand-maintained list, updated every spring",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-34",
+   "area": "engine",
+   "severity": "high",
+   "status": "verified",
+   "title": "The Draft Room judges teams with a different engine than the rest of the app",
+   "symptom": "The draft room can call a team rebuilding with a need at RB while the trade builder and dossiers call the same team contending with a need at WR. The draft room's engine is handed age = null for every player, so its contend/rebuild read ignores age, and the Assistant GM is told the team's average age is null. Four needs engines, three age thresholds and three lineup builders exist.",
+   "cause": "The draft room uses the legacy profile/starter-level modules instead of the shared team-profiles and dossier layer.",
+   "evidence": [
+    "src/pro-personnel/trade-engine/profile.ts:99",
+    "src/pro-personnel/trade-engine/profile.ts:41",
+    "src/pro-personnel/trade-engine/profile.ts:74",
+    "src/scouting/draft-room/DraftRoom.tsx:546",
+    "src/scouting/draft-room/DraftRoom.tsx:568"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One profiler: the shared team-profiles and dossier feed the draft room and the Assistant GM",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the draft room's own engine",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-35",
+   "area": "identity",
+   "severity": "high",
+   "status": "verified",
+   "title": "Changing your persona, or finishing onboarding, resets strategy settings you didn't touch",
+   "symptom": "Pick a new persona in an office and columns you never opened (position markets, buy intents) go back to their defaults. Three different editors each overwrite the whole strategy row from a stale local copy.",
+   "cause": "Partial saves replace the row instead of merging; three read-modify-write editors.",
+   "evidence": [
+    "src/research-strategy/api/service.ts:126",
+    "src/research-strategy/api/service.ts:357",
+    "src/app/api/onboarding/player-attachment/route.ts:92",
+    "src/home/HomeScreen.tsx:99",
+    "src/home/HomeScreen.tsx:119"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One save path that merges only the fields the editor changed",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-36",
+   "area": "engine",
+   "severity": "medium",
+   "status": "verified",
+   "title": "A partner's negotiation personality comes from two unrelated sources",
+   "symptom": "The math uses the persona each GM chose in onboarding; the advisor's voice uses a hand-written dictionary keyed by team name. A renamed team, or any team not in the dictionary, negotiates in the default voice.",
+   "cause": "gm_persona on the strategy row versus TEAM_PERSONALITIES keyed by display name.",
+   "evidence": [
+    "src/pro-personnel/trade-engine/advisor/personality.ts:23",
+    "src/pro-personnel/trade-engine/advisor/personality.ts:81",
+    "src/app/api/pro-personnel/advisor/route.ts:398"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One source: the chosen persona drives math and voice; per-team flavour text keyed by roster id",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the curated dictionary for voice, keyed by roster id instead of name",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-37",
+   "area": "values",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Value sources are pulled with hardcoded scoring assumptions",
+   "symptom": "The FantasyCalc request is pinned to 0.5 PPR, two QBs and 12 teams; the league's real scoring settings in Sleeper are never read, and the CFC scoring factor assumes a different baseline. If the assumption is wrong, every value in the app is scaled to the wrong league.",
+   "cause": "Hardcoded query parameters in the value source fetchers.",
+   "evidence": [
+    "src/infrastructure/values/sources/fantasycalc.ts:13",
+    "src/infrastructure/identity/rosterBackfill.ts:16",
+    "src/app/api/internal/refresh-values/route.ts:106"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Read Sleeper's scoring settings once and pick each source's nearest preset; document the baseline",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the hardcoded settings",
+     "detail": "Confirm in the note that 0.5 PPR superflex is the right baseline."
+    }
+   ]
+  },
+  {
+   "id": "D-38",
+   "area": "engine",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Two AI surfaces use a different model and skip the director voice rules",
+   "symptom": "The Historian and the draft-room Assistant GM run on one model with no shared voice rules; every director office runs on another with the voice rules. The same league facts get narrated two ways.",
+   "cause": "Three model constants across eight call sites; two bypass the shared prose layer.",
+   "evidence": [
+    "src/app/api/llm/ask/route.ts",
+    "src/app/api/llm/draft-assistant/route.ts",
+    "src/shared/director-prose/index.ts"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One model setting and the shared voice rules for all eight call sites",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the split on purpose",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-39",
+   "area": "identity",
+   "severity": "medium",
+   "status": "verified",
+   "title": "The home badge and the inbox badge count \"open trades\" differently",
+   "symptom": "The home tile counts open threads; the inbox badge counts unread offers from the last seven days; thread status is derived by a third routine. The two numbers disagree routinely.",
+   "cause": "Three definitions of \"needs my attention\" over two tables.",
+   "evidence": [
+    "src/app/api/home/trade-count/route.ts",
+    "src/app/api/inbox/unread-count/route.ts",
+    "src/app/api/inbox/threads/status/route.ts"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One definition served by one route",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-40",
+   "area": "picks",
+   "severity": "medium",
+   "status": "verified",
+   "title": "The draft room's \"shop this pick / trade up\" button opens a page that doesn't exist",
+   "symptom": "Tapping it goes to /trade-builder, which 404s. The real builder lives at /pro-personnel/trade-builder and only understands a seed handed over in session storage, not the pick parameters the button sends.",
+   "cause": "A stale route and a fourth pick-parameter vocabulary.",
+   "evidence": [
+    "src/scouting/draft-room/chrome/ClockBar.tsx:919",
+    "src/app/pro-personnel/trade-builder/page.tsx"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Wire it to the builder through the existing seed mechanism",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Remove the button",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-41",
+   "area": "identity",
+   "severity": "low",
+   "status": "verified",
+   "title": "The Owner's Box / Team HQ tile links to a page that doesn't exist",
+   "symptom": "The home tile and the mobile nav both go to /team-hq, which 404s. The tile's season record reads \"\u2014\".",
+   "cause": "No /team-hq page in the app.",
+   "evidence": [
+    "src/components/HomeScreen.tsx:348",
+    "src/scouting/draft-room/mobile/MobileDraftRoom.tsx:69"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Remove the tile and the nav entry until the page exists",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Build the page",
+     "detail": "Say in the note what it should hold."
+    }
+   ]
+  },
+  {
+   "id": "D-42",
+   "area": "identity",
+   "severity": "low",
+   "status": "verified",
+   "title": "Director chats and Historian conversations live only in the browser",
+   "symptom": "Trade offers and memos persist on the server; director office chats persist for 30 minutes in the tab, and Historian conversations live in that browser's local storage only. Switch devices and they're gone.",
+   "cause": "Four different browser-storage policies, no server record.",
+   "evidence": [
+    "src/shared/director-chat/index.tsx:636",
+    "src/historian/types.ts:69"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Keep browser-only",
+     "detail": "Matches the offseason-tool design; nothing to build.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Persist chats server-side",
+     "detail": ""
+    }
+   ]
   }
  ],
  "cleanup_blocks": [
@@ -930,7 +1230,9 @@
    "bullets": [
     "Delete useMyRoster (no importers) and the scouting intel data layer if its routes are confirmed dead.",
     "Point the targets route, the trade-chart rebuild (own Sleeper client, own player dictionary, own age parser), the draft-room hook, onboarding, and the draft log/order/clock-context routes at the shared feed via one snapshot API for client components.",
-    "One Sleeper HTTP client, one position filter, one \"missing player\" rule, documented once."
+    "One Sleeper HTTP client, one position filter, one \"missing player\" rule, documented once.",
+    "Roster positions read from the Sleeper league with one fallback (three sources today; the client path skips the fallback).",
+    "Eleven separate downloads of the Sleeper player dictionary with five cache windows, and four age computations, collapse to the shared feed's."
    ]
   },
   {
@@ -940,7 +1242,11 @@
     "One parsePickKey (moved into shared so shared never imports from a department; the engine re-exports it). Today: four full parsers plus five ad-hoc ones.",
     "One formatPickLabel. Today: twelve label formats for the same pick.",
     "One getCFCYear. Today: five verbatim copies. Commit the draft_log cfc_year column's definition alongside it.",
-    "One reader for the pick ladder (three readers filter the same rows differently). Name the 0-based draft_log pick_index versus the 1-based overall pick explicitly."
+    "One reader for the pick ladder (three readers filter the same rows differently). Name the 0-based draft_log pick_index versus the 1-based overall pick explicitly.",
+    "Team count derived from Sleeper once (resolved seven ways today, four hardcoded to 12).",
+    "Draft calendar uses the CFC year, not the calendar year.",
+    "One pick-clock cadence table (two encodings disagree by up to 30 minutes).",
+    "The advisor prompt stops asserting that round 1 is complete as a fact."
    ]
   },
   {
@@ -950,7 +1256,10 @@
     "Direct value-table readers (inbox insider, nfl-team-context, pick-values, intel) go through valueAsset / getValues.",
     "trades/create stores its base snapshot via valueAsset instead of its own future-pick rule (the two columns it writes today disagree and nothing reads them).",
     "Stud flag keyed by Sleeper id everywhere, not by display name.",
-    "One wants_more vocabulary. Onboarding stores \"picks\"; the Trade Door and director prose test for \"draft_picks\", so the wants bonus is inert today."
+    "One wants_more vocabulary. Onboarding stores \"picks\"; the Trade Door and director prose test for \"draft_picks\", so the wants bonus is inert today.",
+    "cfc_assets.position derived from the Sleeper dictionary in the cron (today a second position source drives value multipliers).",
+    "Inbox resolves player names by id at render instead of the name snapshot stored on the offer.",
+    "Five relative-time formatters become one."
    ]
   },
   {
@@ -970,7 +1279,10 @@
     "GM names and negotiation personalities keyed by the rename-proof base slug, not the display name (a rename drops the inbox GM name and the Founders' negotiation profile today).",
     "Home screen uses a neutral placeholder instead of \"Virginia Founders\" before the cookie loads.",
     "One \"Team N\" fallback label (today: Team N, Roster N, Unknown Team, Demo Team). draft_log team names resolved at read time, not stored from the client.",
-    "Supabase client imported only from infrastructure (six inline createClient copies today)."
+    "Supabase client imported only from infrastructure (six inline createClient copies today).",
+    "GM career record anchored through the franchise map, not the current league id (it empties on every season rollover today).",
+    "One row per email in the auth-to-team join, enforced.",
+    "Big Board writes and logo upload get the same cookie-identity rule as D-28."
    ]
   },
   {
@@ -979,7 +1291,8 @@
    "bullets": [
     "Routes with no caller anywhere: /api/league/{profiles,needs,dossiers}, /api/pro-personnel/debug/* (7), /api/scouting/intel/* (5), /api/scouting/memos/* (3), /api/scouting/draft-sim and /round1, /api/llm/health.",
     "Modules with no importers: historian/leagueHistorySync.ts, infrastructure/league/leagueRankings.ts, components/research-strategy/pickDisplay.ts, the apply_pc_atomic.py codemod (targets files that no longer exist), scripts/build-studio-*.mjs (hardcoded, stale team map).",
-    "Admin ingest routes stay (secret-gated, manual). If you'd rather keep the debug routes behind ADMIN_SECRET instead of deleting them, say so in the note."
+    "Admin ingest routes stay (secret-gated, manual). If you'd rather keep the debug routes behind ADMIN_SECRET instead of deleting them, say so in the note.",
+    "Thirteen modules with zero importers in total (the sweep's DEAD-01 list) go with the routes above."
    ]
   }
  ],
