@@ -63,7 +63,18 @@ copy. Actual RTO remains unknown until a complete timed drill passes.
 
 ### Preconditions
 
-No safe hosted target currently exists: both observed projects are production-class, and neither has an isolated branch. The minimum remaining operator decision is approval of a disposable destination that is not either existing project, authorization to restore the selected physical backup into it, a named owner, a deletion/reset deadline no later than seven days, and acceptance of any explicitly quoted temporary compute/restore/egress cost. No project should be provisioned or billed from this repository task.
+No safe hosted target currently exists: both observed projects are production-class,
+and neither has an isolated branch. The source is Micro (1 GB RAM, 2 CPU), 8 GB gp3,
+in `us-east-1`; Supabase's displayed 1.5x sizing rule makes the proposed isolated clone
+12 GB. The dashboard quote was `$10.18/month` (`$9.68` compute plus `$0.50` disk), or
+approximately `$0.34` for 24 hours. That is an estimate, not a guaranteed cap and does
+not include possible restore, egress, Storage, tax, or other charges.
+
+The minimum remaining operator decision is explicit approval of one new disposable
+destination that is not either existing project, its quoted cost, authorization to
+restore the selected physical backup into it, a named owner, side-effect isolation,
+and deletion/reset within 24 hours. No clone has been approved, provisioned, restored,
+or billed from this repository task.
 
 Before handling credentials, complete `docs/templates/RESTORE-DRILL-RECORD.md` and run:
 
@@ -72,7 +83,7 @@ PRODUCTION_PROJECT_REF=owkxkpkdffhcordlxqte \
 RECOVERY_TARGET_PROJECT_REF=approved-disposable-ref \
 RECOVERY_PROTECTED_PROJECT_REFS=owkxkpkdffhcordlxqte,other-protected-ref \
 RECOVERY_TARGET_APPROVAL=approval-reference \
-RECOVERY_TARGET_DELETE_AFTER=2026-09-19T00:00:00Z \
+RECOVERY_TARGET_DELETE_AFTER=2026-09-13T00:00:00Z \
 RECOVERY_SIDE_EFFECTS_DISABLED=YES \
 RECOVERY_STORAGE_PLAN_CONFIRMED=YES \
   ./scripts/recovery/preflight-drill.sh

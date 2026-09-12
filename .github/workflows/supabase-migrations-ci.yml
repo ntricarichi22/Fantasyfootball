@@ -9,6 +9,8 @@ on:
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-staged-security-rollout.bash"
+      - "scripts/test-migration-validator.bash"
+      - "scripts/lib/mailpit.mjs"
       - "package.json"
       - "package-lock.json"
       - "middleware.ts"
@@ -20,6 +22,7 @@ on:
       - "src/shared/director-prose/**"
       - "tests/security-*"
       - "tests/ai-*"
+      - "tests/mailpit-*"
       - ".github/workflows/supabase-*.yml"
   push:
     branches: [main]
@@ -30,6 +33,8 @@ on:
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-staged-security-rollout.bash"
+      - "scripts/test-migration-validator.bash"
+      - "scripts/lib/mailpit.mjs"
       - "package.json"
       - "package-lock.json"
       - "middleware.ts"
@@ -41,6 +46,7 @@ on:
       - "src/shared/director-prose/**"
       - "tests/security-*"
       - "tests/ai-*"
+      - "tests/mailpit-*"
       - ".github/workflows/supabase-*.yml"
   workflow_dispatch:
 
@@ -71,6 +77,11 @@ jobs:
 
       - name: Install locked test dependencies
         run: npm ci --ignore-scripts
+
+      - name: Test migration validator and Mailpit adapter
+        run: |
+          ./scripts/test-migration-validator.bash
+          node --test tests/mailpit-parser.test.mjs
 
       - name: Install pinned Supabase CLI
         uses: supabase/setup-cli@v1

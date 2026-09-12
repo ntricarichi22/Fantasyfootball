@@ -5,7 +5,7 @@
 - Disposable target reference:
 - Target owner and billing approval:
 - Target created/available at:
-- Mandatory deletion/reset deadline (maximum seven days):
+- Mandatory deletion/reset deadline (maximum 24 hours):
 - Side effects disabled and verified by:
 - Selected physical recovery point:
 - Observed backup list timestamp/type/span (not contractual retention):

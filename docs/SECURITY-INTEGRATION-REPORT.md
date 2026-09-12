@@ -89,7 +89,8 @@ View dependency chains were captured and confirm many views transitively reach R
 For an existing production database whose reviewed history is exactly `001`-`011` (see `SECURITY-ROLLOUT.md` for the auto-deploy compatibility sequence):
 apply, after staging review, `012_security_multitenancy_foundation.sql`, then
 `013_ai_usage_limits.sql`, `014_security_monitoring_audit.sql`, and finally
-`015_live_api_least_privilege.sql`, then `016_durable_league_invitations.sql`. Never repair or baseline production history
+`015_live_api_least_privilege.sql`, `016_durable_league_invitations.sql`, and
+`017_lintable_actual_draft_rebuild.sql`. Never repair or baseline production history
 automatically. Follow the compatibility sequence in `SECURITY-ROLLOUT.md`; do not
 approve database revocation before the exact compatible app SHA is ready. Configure
 `AUTH_SESSION_SECRET`, `AUDIT_HASH_KEY`, verified per-model AI prices, and assign the
@@ -124,9 +125,12 @@ The next CI revision extends that proven harness. It first isolates migrations
 `012`–`017`, starts baseline `000` plus deployed history `001`–`011`, and exercises a
 mapped confirmed user's real login/finalization, signed compatibility cookie, own and
 foreign reads, tampered/forged cookie denial, and AI failure before accounting exists.
-It then restores all six pending migration files with explicit presence checks, resets
-through `017`, and runs the normal database and HTTP suites. The normal phase now
-follows the real synthetic confirmation link captured from local Inbucket back through
+It then restores all six pending migration files with explicit presence checks,
+applies them incrementally to the same database, and verifies the existing Auth user,
+mapping, draft state, compatibility cookie, membership, and consumed invitation survive.
+Only after that upgrade proof does it separately reset through `017` for clean-bootstrap
+lint, pgTAP, concurrency, and normal HTTP suites. The normal phase now
+follows the real synthetic confirmation link captured from local Mailpit back through
 the fixture application, and adds unauthenticated, forged, tampered, and validly signed
 cross-league denial. This extension requires a new CI run; it is not yet a pass.
 
@@ -160,7 +164,7 @@ This validates reviewed backfill cardinality, not a migration or environment set
    protection, effective minimum length/email limits, CAPTCHA, privileged MFA, and
    edge controls. No live setting was changed.
 6. Designate and approve a truly disposable restore target, quoted temporary cost,
-   side-effect isolation, Storage-object recovery source, and seven-day cleanup. Both
+   side-effect isolation, Storage-object recovery source, and cleanup within 24 hours. Both
    currently observed projects are production-class and forbidden as targets.
 7. Email alerts remain disabled pending a verified Resend sender, provider credential,
    private recipient, and nonproduction delivery test.

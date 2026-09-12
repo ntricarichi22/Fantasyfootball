@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
+import { extractMailpitVerificationUrl, selectMailpitMessage } from "./lib/mailpit.mjs";
 
 const base = process.env.APP_BASE_URL;
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -10,10 +12,11 @@ const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const databaseUrl = process.env.LOCAL_DATABASE_URL;
 const phase = process.env.SMOKE_PHASE ?? "current";
 const inbucketUrl = process.env.INBUCKET_URL;
+const stateFile = process.env.SMOKE_STATE_FILE;
 for (const [name, value] of Object.entries({ base, supabaseUrl, anonKey, serviceKey, databaseUrl })) {
   if (!value) throw new Error(`Missing disposable smoke configuration: ${name}`);
 }
-assert.ok(["legacy", "current"].includes(phase), "SMOKE_PHASE must be legacy or current");
+assert.ok(["legacy", "upgrade", "current"].includes(phase), "SMOKE_PHASE must be legacy or current");
 const admin = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const auth = createClient(supabaseUrl, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const pool = new pg.Pool({ connectionString: databaseUrl });
@@ -59,28 +62,27 @@ function signSession(userId, leagueId, rosterId, role = "member") {
   return `cfc_session=${payload}.${signature}`;
 }
 async function confirmationLink(email) {
-  assert.ok(inbucketUrl, "disposable Inbucket URL is required");
-  const mailbox = email.split("@")[0];
+  assert.ok(inbucketUrl, "disposable Mailpit URL is required");
   for (let attempt = 0; attempt < 30; attempt++) {
-    const messagesResponse = await fetch(`${inbucketUrl}/api/v1/mailbox/${encodeURIComponent(mailbox)}`);
+    const messagesResponse = await fetch(`${inbucketUrl}/api/v1/messages`);
     if (messagesResponse.ok) {
-      const messages = await messagesResponse.json();
-      const message = Array.isArray(messages) ? messages.find((item) => /confirm/i.test(item.subject ?? "")) ?? messages[0] : null;
-      if (message?.id) {
-        const detailResponse = await fetch(`${inbucketUrl}/api/v1/mailbox/${encodeURIComponent(mailbox)}/${message.id}`);
-        const detail = await detailResponse.json();
-        const content = `${detail.body?.html ?? ""}\n${detail.body?.text ?? ""}`.replaceAll("&amp;", "&");
-        const link = content.match(/https?:\/\/[^\s"'<>]+\/auth\/v1\/verify\?[^\s"'<>]+/)?.[0];
-        if (link) {
-          assert.equal(new URL(link).origin, new URL(supabaseUrl).origin,
-            "confirmation verification must stay on the disposable Supabase origin");
-          return link;
+      const message = selectMailpitMessage(await messagesResponse.json(), email);
+      const id = message?.ID ?? message?.id;
+      if (id) {
+        const detailResponse = await fetch(`${inbucketUrl}/api/v1/message/${encodeURIComponent(id)}`);
+        if (detailResponse.ok) {
+          const link = extractMailpitVerificationUrl(await detailResponse.json());
+          if (link) {
+            assert.equal(new URL(link).origin, new URL(supabaseUrl).origin,
+              "confirmation verification must stay on the disposable Supabase origin");
+            return link;
+          }
         }
       }
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error("Synthetic confirmation email did not reach local Inbucket");
+  throw new Error("Synthetic confirmation email did not reach local Mailpit");
 }
 
 async function run() {
@@ -101,6 +103,8 @@ try {
     const legacyFinalize = await finalize(legacyLogin.body.accessToken);
     assert.equal(legacyFinalize.response.status, 200, "schema-011 exact missing-membership compatibility finalizes");
     const legacyCookie = appCookie(legacyFinalize.response);
+    assert.ok(stateFile, "staged rollout state file is required");
+    await writeFile(stateFile, JSON.stringify({ cookie: legacyCookie, userId: legacyUser.id }), { mode: 0o600 });
     assert.equal((await app("/api/inbox/threads?teamId=1", { headers: { cookie: legacyCookie } })).response.status,
       200, "schema-011 compatibility session can read its own resource");
     assert.equal((await app("/api/inbox/threads?teamId=2", { headers: { cookie: legacyCookie } })).response.status,
@@ -111,6 +115,37 @@ try {
       401, "schema-011 protected read rejects a tampered signed cookie");
     assert.ok(legacyUser.id);
     console.log("Disposable schema-011 compatibility smoke checks passed.");
+    return;
+  }
+
+  if (phase === "upgrade") {
+    const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 100 });
+    assert.ifError(listed.error);
+    const member = listed.data.users.find((user) => user.email === emails.member);
+    assert.ok(member, "schema-011 Auth fixture survives incremental migration");
+    const preserved = await pool.query(`SELECT
+      (SELECT count(*)::int FROM public.team_email_map WHERE email=$1 AND roster_id='1') AS mapping_count,
+      (SELECT count(*)::int FROM public.draft_state WHERE league_id=$2) AS draft_count,
+      (SELECT count(*)::int FROM public.league_memberships WHERE user_id=$3 AND league_id=$2 AND roster_id='1' AND role='member') AS membership_count,
+      (SELECT count(*)::int FROM public.league_invitations WHERE accepted_by=$3 AND league_id=$2 AND roster_id='1') AS invitation_count`,
+      [emails.member, league, member.id]);
+    assert.deepEqual(preserved.rows[0], { mapping_count: 1, draft_count: 1, membership_count: 1, invitation_count: 1 },
+      "incremental 012-017 migration preserves fixtures and backfills membership/invitation state");
+    assert.ok(stateFile, "staged rollout state file is required");
+    const legacyState = JSON.parse(await readFile(stateFile, "utf8"));
+    assert.equal(legacyState.userId, member.id);
+    assert.equal((await app("/api/inbox/threads?teamId=1", { headers: { cookie: legacyState.cookie } })).response.status,
+      200, "schema-011 compatibility cookie remains valid after membership backfill");
+    const upgradedLogin = await login(emails.member);
+    assert.equal(upgradedLogin.response.status, 200);
+    const upgradedFinal = await finalize(upgradedLogin.body.accessToken);
+    assert.equal(upgradedFinal.response.status, 200);
+    const upgradedCookie = appCookie(upgradedFinal.response);
+    assert.equal((await app("/api/inbox/threads?teamId=1", { headers: { cookie: upgradedCookie } })).response.status, 200);
+    assert.equal((await app("/api/inbox/threads?teamId=2", { headers: { cookie: upgradedCookie } })).response.status, 403);
+    assert.equal((await app("/api/ai/quota", { headers: { cookie: upgradedCookie } })).response.status, 200,
+      "AI accounting becomes available after incremental migration 013");
+    console.log("Disposable incremental schema-011 to schema-017 smoke checks passed.");
     return;
   }
 
