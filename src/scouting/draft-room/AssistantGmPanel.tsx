@@ -12,7 +12,7 @@ import type {
   AvailablePlayer,
   DraftLogEntry,
 } from "@/scouting/draft-room/types";
-import type { TeamProfile } from "@/pro-personnel/trade-engine/profile";
+import type { TeamProfile } from "@/pro-personnel/trade-engine/profileTypes";
 import { BriefingCard } from "./BriefingCard";
 import {
   ChatInputBar,

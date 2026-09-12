@@ -1,3 +1,5 @@
+import { formatTeamLabel } from "@/shared/league-data/picks";
+
 export interface DraftPick {
   season?: string;
   round?: number;
@@ -103,8 +105,7 @@ export const formatDraftPickLabel = (
   const originalOwner = pick.original_roster_id ?? pick.roster_id;
   const rosterNames = options?.originalTeamNames;
   const name = originalOwner != null ? rosterNames?.[originalOwner] : undefined;
-  const fallbackName =
-    originalOwner != null ? `Roster ${originalOwner}` : "Unknown Team";
+  const fallbackName = formatTeamLabel(originalOwner);
   const shouldShowSlot =
     options?.draftOrderAvailable &&
     pick.season === (options?.slotSeason ?? PICK_SLOT_SEASON);
@@ -481,7 +482,7 @@ export const logDraftPickDistribution = <
 
   rosters.forEach((roster) => {
     const row: Record<string, string | number> = {
-      Team: teamNames?.[roster.roster_id] ?? `Roster ${roster.roster_id}`,
+      Team: teamNames?.[roster.roster_id] ?? formatTeamLabel(roster.roster_id),
     };
 
     (roster.draft_picks ?? []).forEach((pick) => {

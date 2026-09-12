@@ -19,10 +19,13 @@ import { ttlInvalidate, ttlMemo } from "@/infrastructure/ttlCache";
 import { teamNickname, teamNameParts } from "./nicknames";
 import { TEAM_COLORS } from "./teamColors";
 import { fetchRosters, fetchUsers, getSleeperLeagueId } from "./sleeper";
+import { configuredBaseSlugs, resolveBaseSlug } from "./baseIdentity";
 
 export const TEAM_LOGO_BUCKET = "team-logos";
 
 const CACHE_KEY = "team-identity:all";
+const stableBaseSlugByRoster = new Map<string, string>();
+const configuredSlugs = configuredBaseSlugs(process.env.CFC_BASE_SLUGS_BY_ROSTER);
 
 export type TeamIdentity = {
   rosterId: string;
@@ -109,7 +112,10 @@ async function loadIdentities(): Promise<TeamIdentity[]> {
   const identities: TeamIdentity[] = [];
   const build = (rid: string, sleeperName: string) => {
     const teamName = dbName.get(rid) || sleeperName;
-    const baseSlug = nicknameSlug(sleeperName);
+    const sleeperAvailable = rosters.length > 0;
+    const baseSlug = resolveBaseSlug(rid, configuredSlugs, stableBaseSlugByRoster,
+      sleeperAvailable ? nicknameSlug(sleeperName) : null, nicknameSlug(teamName));
+    stableBaseSlugByRoster.set(rid, baseSlug);
     const logo = logos.get(rid);
     const customLogoUrl = logo ? publicLogoUrl(logo) : null;
     identities.push({
@@ -132,8 +138,8 @@ async function loadIdentities(): Promise<TeamIdentity[]> {
       build(rid, u?.metadata?.team_name || u?.display_name || `Team ${rid}`);
     }
   } else {
-    // Sleeper unreachable — degrade to DB names alone. baseSlug falls back to
-    // the display-name slug, so original art resolves only for unrenamed teams.
+    // Sleeper unreachable — retain the last roster-keyed base slug in this
+    // process; a cold process still degrades to the DB display slug.
     for (const [rid, name] of dbName) build(rid, name);
   }
   return identities;

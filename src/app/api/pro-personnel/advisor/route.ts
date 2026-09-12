@@ -23,6 +23,7 @@ import { computeNeeds, buildScrubSets, bucketOf, buildTeamProfiles } from "@/sha
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { describeNeeds, rankDealPieces, describeDirection } from "@/shared/director-prose";
 import { getPersonality } from "@/pro-personnel/trade-engine/advisor/personality";
+import { getTeamIdentities } from "@/shared/league-data/teamIdentity";
 import {
   SYSTEM_PROMPT,
   buildUserPrompt,
@@ -396,10 +397,8 @@ export async function POST(request: NextRequest) {
   );
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
-  const stablePersonalityName = leagueData && "teams" in leagueData
-    ? leagueData.teams.find(team => team.rosterId === otherTeamId)?.baseTeamName
-    : undefined;
-  const personality = getPersonality(stablePersonalityName ?? otherTeamName);
+  const stableIdentity = (await getTeamIdentities()).find(team => team.rosterId === otherTeamId);
+  const personality = getPersonality(stableIdentity?.baseSlug);
   const cfcYear = getCFCYear();
 
   // ── PROMPT ASSEMBLY ────────────────────────────────────────────────────
@@ -412,7 +411,8 @@ export async function POST(request: NextRequest) {
         otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster,
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
-        cfcYear, behaviorSummary, partnerRead: partner_read, partnerAngle: partner_angle,
+        cfcYear, draftStatus: leagueData && "draftStatus" in leagueData ? leagueData.draftStatus : undefined,
+        behaviorSummary, partnerRead: partner_read, partnerAngle: partner_angle,
         myNeedsLine, otherNeedsLine, dealRankingLine, myDirectionLine, otherDirectionLine,
       })
     : buildUserPrompt({
@@ -420,7 +420,8 @@ export async function POST(request: NextRequest) {
         otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster,
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
-        cfcYear, behaviorSummary,
+        cfcYear, draftStatus: leagueData && "draftStatus" in leagueData ? leagueData.draftStatus : undefined,
+        behaviorSummary,
         myNeedsLine, otherNeedsLine, dealRankingLine, myDirectionLine, otherDirectionLine,
         ...(priorTake ? { priorTake } : {}),
       });

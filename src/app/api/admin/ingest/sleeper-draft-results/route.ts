@@ -1,6 +1,7 @@
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { pickSlotFromOverall, runtimeTeamCount } from "@/shared/league-data/picks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ type SleeperDraft = {
   type?: string | null;
   start_time?: number | null;
   created?: number | null;
+  settings?: { teams?: number | null } | null;
 };
 
 type SleeperPick = {
@@ -77,8 +79,6 @@ function toIsoFromMetadata(metadata: Record<string, unknown> | null | undefined)
 
 export async function POST(req: Request) {
   if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  const url = new URL(req.url);
-
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supabaseResult.error}`, 500);
   if (!supabaseResult.client) return jsonError("Supabase admin client is null", 500);
@@ -137,6 +137,9 @@ export async function POST(req: Request) {
     }
 
     const draftId = String(selectedDraft.draft_id);
+    const leaguePayload = await fetchSleeperJson(`https://api.sleeper.app/v1/league/${sourceLeagueId}`) as { total_rosters?: number };
+    const teamCount = runtimeTeamCount(Number(selectedDraft.settings?.teams), Number(leaguePayload?.total_rosters));
+    if (!teamCount) throw new Error(`No authoritative team count for Sleeper draft ${draftId}`);
     const picksPayload = await fetchSleeperJson(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
     if (!Array.isArray(picksPayload)) {
       throw new Error(`Unexpected picks payload for draft ${draftId}`);
@@ -148,7 +151,7 @@ export async function POST(req: Request) {
         const round = pick.round != null ? Number(pick.round) : null;
         if (pickNumber === null || !Number.isInteger(pickNumber)) return null;
 
-        const pickInRound = Number.isInteger(round) ? ((pickNumber - 1) % 12) + 1 : null;
+        const pickInRound = Number.isInteger(round) ? pickSlotFromOverall(pickNumber, teamCount) : null;
 
         return {
           season_year: seasonYear,

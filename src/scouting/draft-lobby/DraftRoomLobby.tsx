@@ -5,6 +5,7 @@ import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamNickname, teamCrestSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
+import { getCFCYear } from "@/shared/league-data/picks";
 
 type Phase = "pre-day-one" | "between" | "complete";
 type Calendar = {
@@ -57,10 +58,9 @@ function heroFor(cal: Calendar): { eyebrow: string; title: string; sub: string; 
   return { eyebrow: `${cal.season} season`, title: "Draft Complete", sub: "Day One + Day Two", mockLabel: null, secondLabel: "Review Results", secondDesc: "Full league board, Day One + Day Two" };
 }
 
-function countdown(iso: string | null): string | null {
+function countdown(iso: string | null, now: number): string | null {
   if (!iso) return null;
   const target = new Date(iso).getTime();
-  const now = Date.now();
   if (!Number.isFinite(target) || target <= now) return null;
   const mins = Math.floor((target - now) / 60000);
   const d = Math.floor(mins / 1440);
@@ -71,6 +71,14 @@ function countdown(iso: string | null): string | null {
 export function DraftRoomLobby() {
   const isMobile = useIsMobile() === true;
   const [cal, setCal] = useState<Calendar | null>(null);
+  const [now, setNow] = useState(0);
+
+  useEffect(() => {
+    const update = () => setNow(Date.now());
+    update();
+    const timer = window.setInterval(update, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // Mock-setup modal: scenario, clock speed, and which seats you drive.
   const [setupOpen, setSetupOpen] = useState(false);
@@ -86,7 +94,7 @@ export function DraftRoomLobby() {
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("calendar"))))
       .then((j: Calendar) => setCal(j))
       .catch(() =>
-        setCal({ phase: "between", dayOneComplete: true, dayTwoComplete: false, season: new Date().getFullYear(), teamCount: 12, upcomingDraftAt: null, teams: [] })
+        setCal({ phase: "between", dayOneComplete: false, dayTwoComplete: false, season: getCFCYear(), teamCount: 0, upcomingDraftAt: null, teams: [] })
       );
   }, []);
 
@@ -112,9 +120,9 @@ export function DraftRoomLobby() {
   }
 
   const hero = cal ? heroFor(cal) : null;
-  const live = countdown(cal?.upcomingDraftAt ?? null);
+  const live = countdown(cal?.upcomingDraftAt ?? null, now);
   // The war room goes hot once the scheduled start has passed (and the draft isn't over).
-  const draftLive = !!cal?.upcomingDraftAt && new Date(cal.upcomingDraftAt).getTime() <= Date.now() && cal.phase !== "complete";
+  const draftLive = !!cal?.upcomingDraftAt && now > 0 && new Date(cal.upcomingDraftAt).getTime() <= now && cal.phase !== "complete";
 
   // The bill headline stacks one word per line; size to the longest word.
   // Mobile shrinks the whole poster so the door plates are visible without

@@ -40,3 +40,9 @@ This supports the reviewed single-league backfill cardinality. It does not prove
 ## PR153 integration boundary
 
 The combined PR153 lineage is recorded in its audit checklist. Security owns 012–017 and PR153 owns 018–020; later cleanup must start at 021 or higher. No destructive cleanup is authorized by this PR. Any combined head must retrigger both security CI and PR153 functional tests.
+
+`CFC_BASE_SLUGS_BY_ROSTER` is a private JSON object mapping each verified stable
+roster ID to its immutable original asset/personality slug. Validate all current
+memberships have exactly one mapping before rollout. It is display/personality
+identity only and never grants authorization; signed current membership remains
+the sole authority. Do not place account emails in this value.

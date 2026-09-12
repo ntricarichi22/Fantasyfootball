@@ -102,7 +102,7 @@ Same architecture as before. Different surfaces.
 ## Trade Engine Architecture — Non-Negotiables
 
 ### Single Source of Truth
-- All gap math, grading, liquidity classification, post-trade warnings, and shape mismatch detection lives in `src/pro-personnel/trade-engine/core/`.
+- All gap math, grading, liquidity classification, post-trade warnings, and shape mismatch detection lives in `src/pro-personnel/engine/core/`.
 - Builder (`src/pro-personnel/trade-engine/advisor/`) and Studio (`src/pro-personnel/trade-engine/studio/`) **both** call core/. They do not reimplement these primitives.
 
 ### Canonical Functions

@@ -143,7 +143,7 @@ All chips use white (#FEFCF9) text. All chips are the same fixed width (62px). T
 | RECV_ONLY | "Add your pieces" | Yellow |
 | SEND_ONLY | "Pick your targets" | Yellow |
 
-**Builder:** uses `personaAwareGrade` so the chip respects the partner's accept band. Inside partner's band → green ("In the range"). Outside band → falls back to neutral grading. Example: a +12% deal grades green with a Closer (band goes to +15%) but yellow with a Straight Shooter (band caps at +10%).
+**Builder:** uses `personaAwareGrade` so the chip respects the partner's accept band. Inside partner's band → green ("In the range"). Outside band → falls back to neutral grading. Example: a +4% deal grades green with a Closer (band goes to +5%) but yellow with a Straight Shooter (band caps at +10%).
 
 ---
 

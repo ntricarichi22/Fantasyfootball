@@ -437,7 +437,7 @@ export function MobileClockBar() {
     : isYourPick
       ? "You're on the clock"
       : (context?.onClockTeamName ||
-        (selection.rosterId ? `Roster ${selection.rosterId}` : "Loading…"));
+        (selection.rosterId ? `Team ${selection.rosterId}` : "Loading…"));
 
   const round = context?.round ?? 0;
   const pick = context?.pick ?? 0;

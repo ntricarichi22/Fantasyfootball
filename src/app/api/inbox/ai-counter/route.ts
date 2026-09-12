@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
-import { getLeagueData } from "@/shared/league-data";
+import { formatPickLabel, getLeagueData } from "@/shared/league-data";
 import { fetchPlayers } from "@/shared/league-data/sleeper";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { buildScrubSets, bucketOf, computeNeeds } from "@/shared/team-profiles";
@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
     for (const pk of data.pickOwnership.get(teamId) ?? []) {
       const value = valueAsset({ type: "pick", key: pk.key }, ctx, { perspective: us });
-      assets.push({ key: pk.key, label: `${pk.season} Round ${pk.round} Pick`, type: "pick", value });
+      assets.push({ key: pk.key, label: formatPickLabel(pk), type: "pick", value });
     }
     return assets;
   }

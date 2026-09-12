@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveOwnablePickShape, deriveSpentPickNumbers, formatPickBigText, formatPickKey, formatPickLabel, getCFCYear, isPickSpentInSeason, parsePickKey } from "../src/shared/league-data/picks.ts";
 import { FIXED_PICK_LADDER, FIXED_PICK_LADDER_VERSION, fixedPickValue } from "../src/shared/asset-values/fixedPickLadder.ts";
+import { resolveDraftLogNames } from "../src/app/api/scouting/draft/log/resolveNames.ts";
+import { configuredBaseSlugs, resolveBaseSlug } from "../src/shared/league-data/baseIdentity.ts";
+import { formatTeamLabel, pickSlotFromOverall, runtimeTeamCount } from "../src/shared/league-data/picks.ts";
+import { getPersonality } from "../src/pro-personnel/trade-engine/advisor/personality.ts";
 
 test("pick identity never contains a mutable draft slot", () => {
   assert.equal(formatPickKey(2027, 2, "7"), "pick:2027-2-7");
@@ -64,4 +68,28 @@ test("accepted overlay moves players and picks once without mutating the Sleeper
   assert.equal(result.ownership.get("1")?.[0].key, pick.key);
   assert.equal(result.ownership.get("1")?.[0].currentRosterId, "1");
   assert.deepEqual(teams[0].playerIds, ["p1"]);
+});
+
+test("draft log resolves current names by stable IDs and treats client labels as fallback", () => {
+  const row = { roster_id: "7", player_id: "p1", team_name: "Misleading Team", player_name: "Wrong Player" };
+  assert.deepEqual(resolveDraftLogNames(row, [{ rosterId: "7", teamName: "Renamed Team" }], new Map([["p1", { name: "Corrected Player" }]])), {
+    ...row, team_name: "Renamed Team", player_name: "Corrected Player",
+  });
+  assert.equal(resolveDraftLogNames(row, [], new Map()).team_name, "Misleading Team");
+});
+
+test("runtime league size and Team N fallback are not fixed to twelve", () => {
+  assert.equal(runtimeTeamCount(10, 12), 10);
+  assert.equal(runtimeTeamCount(0, 14), 14);
+  assert.equal(formatTeamLabel(7), "Team 7");
+  assert.equal(formatTeamLabel(null), "Team ?");
+  assert.equal(pickSlotFromOverall(11, 10), 1);
+});
+
+test("private roster mapping keeps base identity through source rename and outage", () => {
+  const configured = configuredBaseSlugs('{"7":"founders"}');
+  assert.equal(resolveBaseSlug("7", configured, new Map(), "upstream-renamed", "app-renamed"), "founders");
+  assert.equal(resolveBaseSlug("7", configured, new Map(), null, "app-renamed"), "founders");
+  assert.match(getPersonality("founders").identity, /Active dealer/);
+  assert.equal(getPersonality("renamed-display").identity, "Standard operator. No strong tendencies one way or the other.");
 });

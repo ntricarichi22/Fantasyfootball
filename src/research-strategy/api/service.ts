@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { getLeagueData, invalidateLeagueData } from "@/shared/league-data";
+import { getLeagueData, getPickValues, invalidateLeagueData } from "@/shared/league-data";
 
 import {
   GM_PERSONA_VALUES,
@@ -211,29 +211,10 @@ const getAttachmentModifier = (attachment: string | undefined | null): number =>
 };
 
 export async function readTeamTradeChartAnchors(): Promise<TeamTradeChartAnchors> {
-  const client = getClientOrThrow();
-
-  const { data, error } = await client
-    .from("cfc_trade_values_current")
-    .select("display_name,cfc_value,sleeper_player_id")
-    .eq("asset_type", "pick_template")
-    .in("display_name", ["1.06", "2.06", "3.06"])
-    .is("sleeper_player_id", null);
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  const byDisplayName = new Map<string, number>();
-  (data ?? []).forEach((row) => {
-    if (typeof row.display_name === "string" && typeof row.cfc_value === "number") {
-      byDisplayName.set(row.display_name, row.cfc_value);
-    }
-  });
-
-  const first = byDisplayName.get("1.06");
-  const second = byDisplayName.get("2.06");
-  const third = byDisplayName.get("3.06");
+  const ladder = await getPickValues();
+  const first = ladder.get("1.06");
+  const second = ladder.get("2.06");
+  const third = ladder.get("3.06");
 
   return {
     first: typeof first === "number" && first > 0 ? roundTo(first, 2) : 0,

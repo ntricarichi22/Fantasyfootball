@@ -3,7 +3,8 @@ import { getLeagueId } from "@/infrastructure/config";
 import { INITIAL_PICK_SECONDS, normalizeDraftStateRow } from "@/scouting/draft-room/draftState";
 import { getSupabaseAdminClient } from "@/app/api/active-teams/shared";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
-import { invalidateLeagueData } from "@/shared/league-data";
+import { getLeagueData, invalidateLeagueData } from "@/shared/league-data";
+import { resolveDraftLogNames } from "./resolveNames";
 
 type DraftLogPayload = {
   pickIndex?: number | string | null;
@@ -45,9 +46,8 @@ const normalizeDraftLogPayload = (payload: DraftLogPayload) => {
   if (
     pickIndex === null ||
     !payload.pickNumber ||
-    !payload.teamName ||
-    !payload.playerId ||
-    !payload.playerName
+    !payload.rosterId ||
+    !payload.playerId
   ) {
     return null;
   }
@@ -116,7 +116,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: queryError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ data: data ?? [] });
+  const league = await getLeagueData();
+  const resolved = "error" in league ? (data ?? []) : (data ?? []).map(row =>
+    resolveDraftLogNames(row, league.teams, league.players));
+  return NextResponse.json({ data: resolved });
 }
 
 export async function POST(request: NextRequest) {
@@ -136,6 +139,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
   if (!LEAGUE_ID) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+
+  const league = await getLeagueData();
+  if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
+  const authoritativeNames = resolveDraftLogNames(normalized, league.teams, league.players);
+  if (!league.teams.some(team => team.rosterId === String(normalized.roster_id)) || !league.players.has(normalized.player_id)) {
+    return NextResponse.json({ error: "Unknown roster or player" }, { status: 400 });
+  }
 
   const draftState = await fetchDraftState(client);
   if (draftState?.status === "paused") {
@@ -197,6 +207,8 @@ export async function POST(request: NextRequest) {
     {
       league_id: LEAGUE_ID,
       ...normalized,
+      team_name: authoritativeNames.team_name,
+      player_name: authoritativeNames.player_name,
       submitted_at: submittedAt,
       is_announced: isAnnounced,
       announced_at: announcedAt,

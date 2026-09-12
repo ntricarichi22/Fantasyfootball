@@ -53,7 +53,7 @@ import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { useNflTeamContext } from "@/scouting/draft-room/hooks/useNflTeamContext";
 import { useRookieProspects } from "@/scouting/draft-room/hooks/useRookieProspects";
 import { useSleeperData } from "@/infrastructure/sleeper/useSleeperData";
-import { type PositionKey } from "@/pro-personnel/trade-engine/profile";
+import { type PositionKey } from "@/pro-personnel/trade-engine/profileTypes";
 import type { StarterAsset } from "@/pro-personnel/trade-engine/starterLevel";
 import { buildScoutingGrades, type ScoutingGradeSet } from "@/scouting/draft-room/grades";
 import { HomeScreen } from "@/components/HomeScreen";
@@ -199,7 +199,7 @@ handleStartClockRequest,
     const numericId = Number(onClockRosterId);
     const byRosterId = rosterNames[numericId];
     const byTeamList = teams.find((team) => toId(team.id) === onClockRosterId)?.name;
-    return byRosterId || byTeamList || `Roster ${onClockRosterId}`;
+    return byRosterId || byTeamList || `Team ${onClockRosterId}`;
   }, [onClockRosterId, rosterNames, teams]);
 
   useEffect(() => {
@@ -504,7 +504,7 @@ handleStartClockRequest,
     [draftedPlayerIds, rosteredPlayerIds]
   );
 
-  const teamCount = useMemo(() => rosters.length || teams.length || 12, [rosters.length, teams.length]);
+  const teamCount = teamCountForDraft;
 
   const tradeProfiles = teamProfiles;
 

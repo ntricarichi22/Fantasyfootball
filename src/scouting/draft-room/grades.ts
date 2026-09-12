@@ -1,4 +1,4 @@
-import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profile";
+import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profileTypes";
 import type {
   AvailablePlayer,
   DraftBoardFilter,

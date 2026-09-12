@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { formatPickKey, type DraftState } from "@/infrastructure/picks";
 import type { LeagueSnapshot } from "@/shared/league-data";
 import type { League, Roster, SleeperPlayer, Team } from "@/scouting/draft-room/types";
-import type { TeamProfile as DraftRoomTeamProfile, PositionKey } from "@/pro-personnel/trade-engine/profile";
+import type { TeamProfile as DraftRoomTeamProfile, PositionKey } from "@/pro-personnel/trade-engine/profileTypes";
 
 type Params = { leagueId: string; leagueIdError: string; setErrorMessage: (msg: string) => void };
 

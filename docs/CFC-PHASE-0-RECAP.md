@@ -1,5 +1,7 @@
 # CFC Front Office — Phase 0 Recap
 
+> Historical snapshot: retained as Phase 0 provenance; current paths and persona bands live in `CFC-APP-STATUS.md`.
+
 **Status:** Complete
 **Merged to main:** May 18, 2026
 **Deployed:** Live in production

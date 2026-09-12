@@ -715,7 +715,7 @@ export default function ClockBar() {
   if (isPickIn) {
     const submittedTeamName =
       context?.onClockTeamName ||
-      (context?.onClockRosterId ? `Roster ${context.onClockRosterId}` : "Loading…");
+      (context?.onClockRosterId ? `Team ${context.onClockRosterId}` : "Loading…");
 
     return (
       <div
@@ -926,7 +926,7 @@ export default function ClockBar() {
   const franchiseName = isPending
     ? "Draft Room"
     : (isYourPick ? selection.teamName : context?.onClockTeamName) ||
-      (selection.rosterId ? `Roster ${selection.rosterId}` : "Loading…");
+      (selection.rosterId ? `Team ${selection.rosterId}` : "Loading…");
 
   const round = context?.round ?? 0;
   const pick = context?.pick ?? 0;

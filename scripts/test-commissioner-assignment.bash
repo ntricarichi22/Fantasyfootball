@@ -18,12 +18,22 @@ psql "$db" -v ON_ERROR_STOP=1 -v league_id="$league_id" -v user_id="$user_id" -v
 [[ "$(psql "$db" -Atc "SELECT role FROM public.league_memberships WHERE user_id='$user_id'")" == commissioner ]]
 [[ "$(psql "$db" -Atc "SELECT count(*) FROM public.security_audit_log WHERE actor_user_id='$actor_id' AND action='assign_commissioner' AND outcome='success'")" == 1 ]]
 
-psql "$db" -v ON_ERROR_STOP=1 -c "UPDATE public.league_memberships SET role='member' WHERE user_id='$user_id'; DELETE FROM public.security_audit_log WHERE actor_user_id='$actor_id';" >/dev/null
+psql "$db" -v ON_ERROR_STOP=1 -c "UPDATE public.league_memberships SET role='member' WHERE user_id='$user_id'" >/dev/null
+audit_sql="SELECT count(*) FROM public.security_audit_log WHERE actor_user_id='$actor_id' AND action='assign_commissioner'"
+audit_baseline="$(psql "$db" -Atc "$audit_sql")"
+# The update occurs before the audit insert in the real operator script. An
+# invalid actor makes that insert fail and must roll the role change back while
+# retaining the append-only audit baseline.
+if psql "$db" -v ON_ERROR_STOP=1 -v league_id="$league_id" -v user_id="$user_id" -v actor_user_id="not-a-uuid" -f "$script" >/dev/null 2>&1; then
+  echo "invalid-actor commissioner assignment unexpectedly succeeded" >&2; exit 1
+fi
+[[ "$(psql "$db" -Atc "SELECT role FROM public.league_memberships WHERE user_id='$user_id'")" == member ]]
+[[ "$(psql "$db" -Atc "$audit_sql")" == "$audit_baseline" ]]
 if psql "$db" -v ON_ERROR_STOP=1 -v league_id="$league_id" -v user_id="92000000-0000-0000-0000-000000000009" -v actor_user_id="$actor_id" -f "$script" >/dev/null 2>&1; then
   echo "zero-match commissioner assignment unexpectedly succeeded" >&2; exit 1
 fi
 [[ "$(psql "$db" -Atc "SELECT role FROM public.league_memberships WHERE user_id='$user_id'")" == member ]]
-[[ "$(psql "$db" -Atc "SELECT count(*) FROM public.security_audit_log WHERE actor_user_id='$actor_id' AND action='assign_commissioner'")" == 0 ]]
+[[ "$(psql "$db" -Atc "$audit_sql")" == "$audit_baseline" ]]
 
 # The exact user+league selector cannot yield multiple rows: prove the backing
 # primary key rejects that state rather than manufacturing an impossible table.

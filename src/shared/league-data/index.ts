@@ -17,7 +17,7 @@ export {
 export { applyPendingTradeOverlays } from "./overlays";
 export type { PendingTradeOverlay } from "./overlays";
 
-export { formatPickKey, parsePickKey, formatPickLabel, getCFCYear } from "./picks";
+export { formatPickKey, parsePickKey, formatPickLabel, formatTeamLabel, getCFCYear, pickSlotFromOverall, runtimeTeamCount } from "./picks";
 
 export { getPlayoffHistory } from "./season-records";
 export type { SeasonRecord, PlayoffHistory } from "./season-records";

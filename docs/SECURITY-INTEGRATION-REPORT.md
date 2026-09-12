@@ -195,3 +195,13 @@ This validates reviewed backfill cardinality, not a migration or environment set
 ## PR150 source-of-truth dependency note
 
 PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. PR153 now owns 018–020, so any later cleanup starts at 021 or higher. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered dispatch, audit hooks, recovery tooling, and the guarded production workflow.
+
+## Latest combined-run continuation
+
+Run `34709436855` applied migrations 012–020 and passed constrained 018 and
+D-16 fixtures. Commissioner promotion and its audit assertion also passed; the
+harness then incorrectly attempted to delete from append-only `security_audit_log`.
+The revised fixture never deletes audit history: it records the baseline, forces
+the real operator script to fail at its audit insert after the role update, and
+asserts transaction rollback plus an unchanged audit count. Upgrade Auth, reset,
+40 pgTAP, concurrency and current HTTP remain pending on the next published SHA.

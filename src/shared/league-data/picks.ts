@@ -52,6 +52,19 @@ export function getCFCYear(now = new Date()): number {
   return now.getMonth() >= 2 ? now.getFullYear() : now.getFullYear() - 1;
 }
 
+export function runtimeTeamCount(...candidates: Array<number | null | undefined>): number {
+  return candidates.find(value => Number.isInteger(value) && Number(value) > 0) ?? 0;
+}
+
+export const formatTeamLabel = (rosterId: string | number | null | undefined): string =>
+  `Team ${rosterId == null || rosterId === "" ? "?" : rosterId}`;
+
+export function pickSlotFromOverall(overall: number, teamCount: number): number | null {
+  return Number.isInteger(overall) && overall > 0 && Number.isInteger(teamCount) && teamCount > 0
+    ? ((overall - 1) % teamCount) + 1
+    : null;
+}
+
 export function deriveOwnablePickShape(
   cfcYear: number,
   firstUndraftedSeason: number,

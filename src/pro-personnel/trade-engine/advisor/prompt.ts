@@ -14,6 +14,8 @@ import {
 } from "./context";
 import { VOICE_RULES } from "@/shared/director-prose";
 import type { StrategyProfile } from "./engine";
+import { draftTradeContext } from "./draftContext";
+export { draftTradeContext } from "./draftContext";
 
 export type PromptInputs = {
   myTeamName: string;
@@ -31,6 +33,7 @@ export type PromptInputs = {
   warnings: PostTradeWarning[];
   shapeMismatch: string | null;
   cfcYear: number;
+  draftStatus?: { complete: boolean; dayOneComplete: boolean };
   behaviorSummary: string;
   // Canonical grounding lines (shared/director-prose): the needs read for each
   // side (so the LLM can't infer "stacked" from a pile of bodies), the
@@ -151,14 +154,14 @@ export function buildBuilderUserPrompt(
     myTeamName, myProfile, myRoster,
     otherTeamName, otherTeamPersonality, otherProfile, otherRoster,
     dealAssets, myTeamId,
-    cfcYear, behaviorSummary, partnerRead, partnerAngle,
+    cfcYear, draftStatus, behaviorSummary, partnerRead, partnerAngle,
     myNeedsLine, otherNeedsLine, dealRankingLine,
     myDirectionLine, otherDirectionLine,
   } = inputs;
 
   const sections: string[] = [];
 
-  sections.push(`CURRENT CONTEXT: ${new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}. CFC Year: ${cfcYear}. The ${cfcYear} first-round rookie draft is COMPLETE — only ${cfcYear} rounds 2-3 and ${cfcYear + 1}+ picks are tradeable.`);
+  sections.push(`CURRENT CONTEXT: ${new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}. CFC Year: ${cfcYear}. ${draftTradeContext(cfcYear, draftStatus)}`);
 
   sections.push("YOUR STRATEGY:");
   sections.push(translateStrategy(myProfile, myTeamName, true));
@@ -224,14 +227,14 @@ export function buildUserPrompt(inputs: PromptInputs & { priorTake?: string }): 
     otherTeamName, otherTeamPersonality, otherProfile, otherRoster,
     dealAssets, myTeamId, otherTeamId,
     gap, suggestions, warnings, shapeMismatch,
-    cfcYear, behaviorSummary, priorTake,
+    cfcYear, draftStatus, behaviorSummary, priorTake,
     myNeedsLine, otherNeedsLine, dealRankingLine,
     myDirectionLine, otherDirectionLine,
   } = inputs;
 
   const sections: string[] = [];
 
-  sections.push(`CURRENT CONTEXT: ${new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}. CFC Year: ${cfcYear}. The ${cfcYear} first-round rookie draft is COMPLETE — only ${cfcYear} rounds 2-3 and ${cfcYear + 1}+ picks are tradeable.`);
+  sections.push(`CURRENT CONTEXT: ${new Date().toLocaleDateString("en-US", { month: "long", year: "numeric" })}. CFC Year: ${cfcYear}. ${draftTradeContext(cfcYear, draftStatus)}`);
 
   sections.push("YOUR STRATEGY:");
   sections.push(translateStrategy(myProfile, myTeamName, true));

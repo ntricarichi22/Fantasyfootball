@@ -4,7 +4,7 @@ import {
   computeCoreTeamStrength,
   type StarterAsset,
 } from "@/pro-personnel/trade-engine/starterLevel";
-import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profile";
+import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profileTypes";
 
 type Props = {
   ownerProfile: TeamProfile | null;
