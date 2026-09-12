@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
-import { appSessionFromRequest, sessionCanActForRoster } from "@/infrastructure/auth/session";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
@@ -51,9 +51,9 @@ export async function POST(request: NextRequest) {
   if (!league_id) {
     return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   }
-  const session = await appSessionFromRequest(request);
+  const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-  if (!sessionCanActForRoster(session, league_id, team_id))
+  if (!currentSessionCanActForRoster(session, league_id, team_id))
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();

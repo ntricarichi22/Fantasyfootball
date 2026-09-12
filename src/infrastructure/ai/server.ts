@@ -2,9 +2,10 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { aiConfig, estimateMicros, monthStart, priceFor, resetAt } from "./config";
-import { appSessionFromRequest } from "@/infrastructure/auth/session";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { recordSecurityEvent } from "@/infrastructure/security/audit";
 import { sendSecurityAlert } from "@/infrastructure/security/alerts";
+import { resolveAiBillingUserId } from "./billingIdentity";
 
 type Usage = { input_tokens?: number; output_tokens?: number };
 type Reservation = { reservation_id: string; used_micros: number; remaining_micros: number };
@@ -14,13 +15,14 @@ export class AiLimitError extends Error {
 }
 
 export async function authenticatedAiUser(request: Request): Promise<string> {
-  const session = await appSessionFromRequest(request);
+  const { session } = await currentAppSessionFromRequest(request);
   if (!session) throw new AiLimitError("Authentication required", 401);
   return session.userId;
 }
 
 export async function reserveAi(request: Request, params: { feature: string; model: string; maxInputTokens: number; maxOutputTokens: number; maxCalls?: number; background?: boolean }) {
-  const userId = params.background ? process.env.AI_BACKGROUND_USER_ID : await authenticatedAiUser(request);
+  const authenticatedUserId = params.background ? "" : await authenticatedAiUser(request);
+  const userId = resolveAiBillingUserId(authenticatedUserId, Boolean(params.background), process.env.AI_BACKGROUND_USER_ID);
   if (!userId) throw new AiLimitError("Background AI is disabled: AI_BACKGROUND_USER_ID is not configured");
   const cfg = aiConfig();
   const price = priceFor(params.model);

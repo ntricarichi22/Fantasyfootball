@@ -43,30 +43,11 @@ CREATE UNIQUE INDEX draft_log_player_unique
 -- both no-RLS tables and accidentally permissive policies without changing data.
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
-REVOKE ALL ON TABLE
-  public.active_teams,
-  public.cfc_big_board_rankings,
-  public.cfc_big_board_stars,
-  public.cfc_big_board_tiers,
-  public.cfc_director_memos,
-  public.cfc_studio_offer_feedback,
-  public.cfc_team_manual_value_overrides,
-  public.cfc_team_player_attachment,
-  public.cfc_team_player_value_overrides,
-  public.cfc_team_strategy_profiles,
-  public.cfc_trade_passes,
-  public.team_email_map,
-  public.trade_messages,
-  public.trade_offers,
-  public.trade_threads,
-  public.watchlist
-FROM anon, authenticated;
 
 -- Draft room clients use Supabase Auth + Realtime directly. Replace the verified
 -- public-true policies with league-membership policies and least privileges.
 DROP POLICY IF EXISTS "Allow all access to draft_log" ON public.draft_log;
 DROP POLICY IF EXISTS "Allow all access to draft_state" ON public.draft_state;
-DROP POLICY IF EXISTS "Allow all access to rookie_prospects" ON public.rookie_prospects;
 DROP POLICY IF EXISTS "allow all (temp)" ON public.trade_messages;
 DROP POLICY IF EXISTS msgs_insert_all ON public.trade_messages;
 DROP POLICY IF EXISTS msgs_select_all ON public.trade_messages;
@@ -75,8 +56,6 @@ ALTER TABLE public.draft_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.draft_log FORCE ROW LEVEL SECURITY;
 ALTER TABLE public.draft_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.draft_state FORCE ROW LEVEL SECURITY;
-ALTER TABLE public.rookie_prospects ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.rookie_prospects FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS draft_log_league_member ON public.draft_log;
 CREATE POLICY draft_log_league_member ON public.draft_log
@@ -94,34 +73,24 @@ CREATE POLICY draft_state_league_member ON public.draft_state
     WHERE m.user_id = (SELECT auth.uid()) AND m.league_id = draft_state.league_id
   ));
 
-DROP POLICY IF EXISTS rookie_prospects_authenticated_read ON public.rookie_prospects;
-CREATE POLICY rookie_prospects_authenticated_read ON public.rookie_prospects
-  FOR SELECT TO authenticated USING (true);
+-- This reference table is not part of the recovered clean baseline. Harden it
+-- only when present (it is confirmed present in production).
+DO $$ BEGIN
+  IF to_regclass('public.rookie_prospects') IS NOT NULL THEN
+    EXECUTE 'DROP POLICY IF EXISTS "Allow all access to rookie_prospects" ON public.rookie_prospects';
+    EXECUTE 'ALTER TABLE public.rookie_prospects ENABLE ROW LEVEL SECURITY';
+    EXECUTE 'ALTER TABLE public.rookie_prospects FORCE ROW LEVEL SECURITY';
+    EXECUTE 'DROP POLICY IF EXISTS rookie_prospects_authenticated_read ON public.rookie_prospects';
+    EXECUTE 'CREATE POLICY rookie_prospects_authenticated_read ON public.rookie_prospects FOR SELECT TO authenticated USING (true)';
+    EXECUTE 'GRANT SELECT ON public.rookie_prospects TO authenticated';
+  END IF;
+END $$;
 
-REVOKE ALL ON public.draft_log, public.draft_state, public.rookie_prospects FROM anon, authenticated;
+REVOKE ALL ON public.draft_log, public.draft_state FROM anon, authenticated;
 GRANT SELECT ON public.draft_log, public.draft_state TO authenticated;
-GRANT SELECT ON public.rookie_prospects TO authenticated;
 GRANT SELECT ON public.league_memberships TO authenticated;
 
--- The 29 confirmed postgres-owned views are security-definer under the current
--- defaults. Deny direct API access pending definition/dependency review.
-REVOKE ALL ON TABLE
-  public.cfc_trade_values_current, public.ff_draft_picks_startup_v,
-  public.slp_best_championship_performers, public.slp_best_conference_final_performers,
-  public.slp_best_playoff_players, public.slp_biggest_playoff_bench_mistakes,
-  public.slp_championship_starters, public.slp_lineup_shape_performance,
-  public.slp_lineup_shapes, public.slp_most_common_championship_players,
-  public.slp_most_traded_players, public.slp_player_career_totals,
-  public.slp_player_franchise_profile, public.slp_player_playoff_summary,
-  public.slp_player_profile_summary, public.slp_player_season_totals,
-  public.slp_player_start_summary, public.slp_player_transaction_summary,
-  public.slp_players_catalog_normalized_v, public.slp_players_most_teams,
-  public.slp_playoff_team_performance, public.slp_playoff_true_games,
-  public.slp_roster_team_names, public.slp_starter_game_log,
-  public.slp_team_championship_history, public.slp_team_game_log,
-  public.slp_team_season_summary, public.slp_weekly_high_scores,
-  public.slp_worst_championship_bench_mistakes
-FROM authenticated;
+-- The global revoke above also closes every confirmed postgres-owned view.
 
 -- Only the confirmed application function inventory is changed; do not alter
 -- extension/test functions that a disposable stack may install in public.

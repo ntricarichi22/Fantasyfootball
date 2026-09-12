@@ -44,6 +44,13 @@ CREATE INDEX IF NOT EXISTS slp_mirror_draft_results_source_league_id_idx
 CREATE INDEX IF NOT EXISTS slp_mirror_draft_results_roster_id_idx
   ON public.slp_mirror_draft_results (roster_id);
 
+-- Actual-results rows record who selected the player. Original/current ownership
+-- belongs to traded-pick history, not this table's rebuilt actual-results feed.
+ALTER TABLE public.ff_master_draft_picks
+  ALTER COLUMN original_franchise_id DROP NOT NULL;
+ALTER TABLE public.ff_master_draft_picks
+  DROP CONSTRAINT IF EXISTS uq_ff_master_draft_picks;
+
 -- 2) Rebuild helper (actual results only)
 --    Keeps existing Flea + MFL actual rows from ff_master_draft_picks,
 --    replaces Sleeper rows from slp_mirror_draft_results + canonical maps.
@@ -65,11 +72,11 @@ BEGIN
       ('ff_master_draft_picks', 'original_franchise_id'),
       ('ff_master_draft_picks', 'current_franchise_id'),
       ('ff_master_draft_picks', 'source_platform'),
-      ('ff_source_franchise_map', 'source_platform'),
+      ('ff_source_franchise_map', 'platform'),
       ('ff_source_franchise_map', 'source_league_id'),
-      ('ff_source_franchise_map', 'source_franchise_id'),
+      ('ff_source_franchise_map', 'source_roster_id'),
       ('ff_source_franchise_map', 'franchise_id'),
-      ('ff_source_player_map', 'source_platform'),
+      ('ff_source_player_map', 'platform'),
       ('ff_source_player_map', 'source_player_id'),
       ('ff_source_player_map', 'player_id')
     ) AS t(table_name, column_name)
@@ -100,8 +107,8 @@ BEGIN
       pick_number,
       selected_by_franchise_id,
       selected_player_id,
-      selected_by_franchise_id AS original_franchise_id,
-      selected_by_franchise_id AS current_franchise_id,
+      NULL::uuid AS original_franchise_id,
+      NULL::uuid AS current_franchise_id,
       source_platform
     FROM public.ff_master_draft_picks
     WHERE LOWER(source_platform) IN ('flea', 'fleaflicker', 'mfl')
@@ -113,16 +120,16 @@ BEGIN
       sdr.pick_number,
       sfm.franchise_id AS selected_by_franchise_id,
       spm.player_id AS selected_player_id,
-      sfm.franchise_id AS original_franchise_id,
-      sfm.franchise_id AS current_franchise_id,
+      NULL::uuid AS original_franchise_id,
+      NULL::uuid AS current_franchise_id,
       'sleeper'::text AS source_platform
     FROM public.slp_mirror_draft_results sdr
     JOIN public.ff_source_franchise_map sfm
-      ON LOWER(sfm.source_platform) = 'sleeper'
+      ON LOWER(sfm.platform) = 'sleeper'
      AND sfm.source_league_id = sdr.source_league_id
-     AND sfm.source_franchise_id = sdr.roster_id
+     AND sfm.source_roster_id = sdr.roster_id
     JOIN public.ff_source_player_map spm
-      ON LOWER(spm.source_platform) = 'sleeper'
+      ON LOWER(spm.platform) = 'sleeper'
      AND spm.source_player_id = sdr.source_player_id
     WHERE sdr.pick_number IS NOT NULL
   )

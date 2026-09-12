@@ -8,7 +8,7 @@ import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
 import { normalizePersona } from "@/pro-personnel/engine/core/personas";
 import type { Gap } from "@/pro-personnel/engine/core/types";
 import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
-import { appSessionFromRequest, sessionCanActForRoster } from "@/infrastructure/auth/session";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
@@ -169,9 +169,9 @@ export async function POST(request: NextRequest) {
 
   const league_id = LEAGUE_ID;
   if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  const session = await appSessionFromRequest(request);
+  const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-  if (!sessionCanActForRoster(session, league_id, from_team_id) || from_team_id === to_team_id)
+  if (!currentSessionCanActForRoster(session, league_id, from_team_id) || from_team_id === to_team_id)
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();

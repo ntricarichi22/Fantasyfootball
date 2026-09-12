@@ -52,6 +52,6 @@ test("provider retries cannot bypass accounting", async () => {
 
 test("AI identity is bound to the signed application session, not a bearer user id", async () => {
   const server = await readFile("src/infrastructure/ai/server.ts", "utf8");
-  assert.match(server, /appSessionFromRequest\(request\)/);
+  assert.match(server, /currentAppSessionFromRequest\(request\)/);
   assert.doesNotMatch(server, /auth\.getUser|authorization/);
 });

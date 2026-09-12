@@ -23,10 +23,7 @@ export function shouldAlert(event: SecurityEvent, trusted: boolean, env: Record<
   if (!trusted) return false;
   if (event.eventType === "application_error") return event.severity === "error" || event.severity === "critical";
   if (event.eventType === "ai_quota_blocked" || event.eventType === "ai_quota_warning") return true;
-  if (event.eventType === "authentication_failure") {
-    const count = Number(event.summary?.occurrence_count ?? 1);
-    return count >= boundedInteger(env.SECURITY_ALERT_LOGIN_FAILURE_THRESHOLD, 10, 2, 1000);
-  }
+  if (event.eventType === "authentication_failure") return true;
   if (event.eventType === "ai_usage") {
     const threshold = Number(env.SECURITY_ALERT_AI_REQUEST_MICROS);
     return Number.isSafeInteger(threshold) && threshold > 0 && Number(event.summary?.actual_micros) >= threshold;

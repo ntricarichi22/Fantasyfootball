@@ -38,9 +38,9 @@ test("member scope rejects cross-team and cross-league access", async () => {
   assert.equal(isSessionIdentityAllowed(session, "league-b", "team-a"), false);
 });
 
-test("commissioners can act for another team only inside their league", () => {
+test("commissioners cannot impersonate another team", () => {
   const session: AppSession = { ...member, role: "commissioner", expiresAt: 9_999 };
-  assert.equal(isSessionIdentityAllowed(session, "league-a", "team-b"), true);
+  assert.equal(isSessionIdentityAllowed(session, "league-a", "team-b"), false);
   assert.equal(isSessionIdentityAllowed(session, "league-b", "team-b"), false);
 });
 

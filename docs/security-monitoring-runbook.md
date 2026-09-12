@@ -15,13 +15,13 @@ Source review found Next.js server routes, Supabase Auth, service-role server ac
    committed. Claims in `security_alert_deliveries` deduplicate across instances and
    cap attempts per hour. Payloads contain bounded event metadata only—not email
    addresses, prompts, bodies, exception messages, or stacks.
-5. Verify in staging that significant server request errors and authoritative AI
-   quota/accounting signals deliver once per window. Failed-login email is **not an
-   active trusted signal yet**: client telemetry must never trigger owner email, and
-   the server-side verified-auth-failure integration remains a review gate.
+5. Verify in staging that significant server request errors, authoritative AI
+   quota/accounting signals, and server-observed password rejections deliver once per
+   fingerprint/source per window. The legacy browser telemetry endpoint is inert and
+   cannot trigger owner email.
 
 No provider credential or verified sender is configured by this change, and no email
-was sent. Until those private settings and the trusted-auth hook are staged, email
+was sent. Until those private settings are staged, email
 alerts remain inactive.
 
 ## Integration contracts

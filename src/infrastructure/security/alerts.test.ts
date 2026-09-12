@@ -8,10 +8,7 @@ const quotaEvent = { eventType: "ai_quota_blocked" as const, severity: "warning"
 test("only trusted, eligible signals alert", () => {
   assert.equal(shouldAlert(quotaEvent, false), false);
   assert.equal(shouldAlert(quotaEvent, true), true);
-  assert.equal(shouldAlert({ ...quotaEvent, eventType: "authentication_failure", summary: { occurrence_count: 9 } }, true,
-    { SECURITY_ALERT_LOGIN_FAILURE_THRESHOLD: "10" }), false);
-  assert.equal(shouldAlert({ ...quotaEvent, eventType: "authentication_failure", summary: { occurrence_count: 10 } }, true,
-    { SECURITY_ALERT_LOGIN_FAILURE_THRESHOLD: "10" }), true);
+  assert.equal(shouldAlert({ ...quotaEvent, eventType: "authentication_failure" }, true), true);
 });
 
 test("delivery is claimed before one bounded redacted email", async () => {

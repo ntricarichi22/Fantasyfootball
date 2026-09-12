@@ -95,7 +95,7 @@ export const isSessionIdentityAllowed = (
   requestedLeagueId?: string | null,
   requestedRosterId?: string | null,
 ) => (!requestedLeagueId || requestedLeagueId === session.leagueId) &&
-  (!requestedRosterId || requestedRosterId === session.rosterId || session.role !== "member");
+  (!requestedRosterId || requestedRosterId === session.rosterId);
 
 const cookieValue = (request: Request, name: string) => {
   const raw = request.headers.get("cookie") ?? "";
@@ -113,7 +113,7 @@ export const appSessionFromRequest = (request: Request) =>
   verifyAppSession(cookieValue(request, SESSION_COOKIE));
 
 export const sessionCanActForRoster = (session: AppSession, leagueId: string, rosterId: string) =>
-  session.leagueId === leagueId && (session.rosterId === rosterId || session.role !== "member");
+  session.leagueId === leagueId && session.rosterId === rosterId;
 
 export const sessionCanAccessTeamPair = (
   session: AppSession,
@@ -121,7 +121,7 @@ export const sessionCanAccessTeamPair = (
   teamA: string,
   teamB: string,
 ) => session.leagueId === leagueId &&
-  (session.role !== "member" || session.rosterId === teamA || session.rosterId === teamB);
+  (session.rosterId === teamA || session.rosterId === teamB);
 
 export const isMissingDatabaseRelation = (
   error: { code?: string; message?: string } | null | undefined,

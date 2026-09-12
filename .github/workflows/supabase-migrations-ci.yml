@@ -39,27 +39,15 @@ jobs:
           version: 2.45.5
 
       - name: Start isolated local Supabase stack and apply migrations
-        run: supabase start
+        run: |
+          cp supabase/baseline/pre001_clean_database.sql \
+            supabase/migrations/000_ci_pre001_clean_database.sql
+          supabase start
 
       - name: Rebuild the disposable database from migration history
-        run: supabase db reset --local
-
-      - name: Lint the migrated database
-        run: supabase db lint --local --level error
-
-      - name: Run database tests when present
-        shell: bash
-        run: |
-          if find supabase/tests/database -type f -name '*.sql' -print -quit 2>/dev/null | grep -q .; then
-            supabase test db
-          else
-            echo "No database tests are currently checked in."
-          fi
-
-      - name: Test atomic AI reservations against PostgreSQL
+        run: ./scripts/test-supabase-clean-db.bash
         env:
           LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-        run: node scripts/test-ai-db-concurrency.mjs
 
       - name: Stop disposable stack
         if: always()

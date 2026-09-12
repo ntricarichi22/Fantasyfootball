@@ -52,7 +52,7 @@ function attachmentLine(atts: AttachmentRow[], assets: Asset[]): string {
 
 async function callAnthropic(request: Request, system: string, user: string, apiKey: string): Promise<string | null> {
   try {
-    const res = await meteredAnthropicFetch(request, { feature: "memo-sweep", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 220, background: true }, {
+    const res = await meteredAnthropicFetch(request, { feature: "memo-sweep", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 220 }, {
       method: "POST",
       headers: {
         "x-api-key": apiKey,

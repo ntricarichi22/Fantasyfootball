@@ -1,6 +1,6 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
-import { appSessionFromRequest } from "./session";
+import { currentAppSessionFromRequest } from "./currentSession";
 
 const safeEqual = (left: string, right: string) => {
   const a = Buffer.from(left);
@@ -16,6 +16,6 @@ export async function isAdminRequest(request: Request) {
     (value): value is string => Boolean(value),
   );
   if (bearer && configured.some((secret) => safeEqual(bearer, secret))) return true;
-  const session = await appSessionFromRequest(request);
+  const { session } = await currentAppSessionFromRequest(request);
   return session?.role === "admin";
 }

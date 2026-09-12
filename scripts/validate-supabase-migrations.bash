@@ -31,3 +31,12 @@ if rg -n '^(<<<<<<<|=======|>>>>>>>)' supabase/migrations; then
 fi
 
 printf 'Validated %d uniquely ordered migration files.\n' "${#files[@]}"
+
+[[ -s supabase/baseline/pre001_clean_database.sql ]] || {
+  echo "Missing CI-only pre-001 baseline." >&2
+  exit 1
+}
+[[ ! -e supabase/migrations/000_ci_pre001_clean_database.sql ]] || {
+  echo "Generated CI baseline must not be committed as a production migration." >&2
+  exit 1
+}

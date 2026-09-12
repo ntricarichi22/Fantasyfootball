@@ -16,6 +16,13 @@ The hosted checkout fetched and verified these exact remote tips before integrat
 This report replaces the earlier fetch-blocker report. No production write, deploy,
 workflow run, account change, secret rotation, restore, or notification occurred.
 
+PR 152 was fetched from `refs/pull/152/head` at
+`a89e44bde031f4817921af5d78214ddd15665e2d`. Contrary to its reported ancestry, the
+published commit has parent `88f9218` and therefore does **not** descend from
+`e27ffb6`; it is a squash-style snapshot. Its tree delta against verified `e27ffb6`
+contains the six scoped authorization/AI/auth-event fixes. Only that incremental
+delta was applied here, preserving the later rollout, database-test and alert commits.
+
 ## Verified live observations (catalog/dashboard, supplied by coordinator)
 
 These observations were collected read-only from project `owkxkpkdffhcordlxqte` on
@@ -89,9 +96,9 @@ approve database revocation before the exact compatible app SHA is ready. Config
 owner's membership `commissioner` role before rollout. Confirm email and redirect
 settings first. Existing users must sign in again.
 
-## Clean-database blocker (not hidden or bypassed)
+## Clean-database baseline and pending CI proof
 
-Credential-free CI still cannot truthfully run `001`-`015` on an empty database.
+Earlier credential-free CI could not truthfully run `001`-`015` on an empty database.
 `001` alters `trade_offers` and `trade_messages`, while `002` requires the value-upload
 schema; later migrations require draft and strategy tables. Full Git history contains
 no reviewed creation DDL for those prerequisites. The checked-in CSV is a partial,
@@ -109,27 +116,24 @@ and `004` expects `source_platform`/`source_franchise_id`, while today's franchi
 map exposes `platform`/`source_team_id`. The requested upload staging and master draft
 table/functions are absent today as well.
 
-Still indispensable is saved, dated SQL or an equivalent schema-only dump establishing:
-(a) `trade_offers` and `trade_messages` immediately before `001`, including the
-`offer_id`/legacy identity, constraints and indexes; (b) `cfc_value_upload_staging`,
-the table form of `cfc_trade_values_current`, calculation columns, and
-`cfc_apply_value_upload` immediately before `002`; (c) `ff_master_draft_picks`, both
-source-map shapes, and `ff_rebuild_master_draft_picks_actual_results` immediately
-before `004`; and (d) initial `draft_log`/`draft_state` plus the unversioned changes
-that introduced generated `cfc_year`, and the initial strategy profile including
-columns missing from ordinal positions 6/7 and the unversioned `picks_sell_move`.
-Run the single read-only `scripts/catalog/pre001-baseline-catalog.sql` only to compare
-current state; absent current objects cannot answer this historical question. Current
-catalog output plus repository/saved-SQL history must be reviewed to reconstruct—not
-guess—those states. For post-`001` objects, the baseline
-review must logically remove changes introduced by `001`-`011` before committing a
-`000` clean baseline. Then run `supabase start`, `supabase db reset --local`, DB lint,
-RLS role tests, and concurrent AI reservation tests. CI intentionally remains red
-until that reviewed baseline exists; no skip or automatic history repair was added.
+Saved SQL source has now been recovered for the original trade tables (including
+`offer_id`), canonical value staging/tables/view/functions, and master draft/player/
+franchise/map definitions. Draft and strategy prerequisites are reconstructed by
+reversing only changes stated in checked-in migrations 005-008 and 011 from the
+verified current catalog; unversioned `picks_sell_move` is conservatively retained.
+The sources had no visible execution/creation timestamps, so they are not described
+as an executed snapshot. Their selected non-destructive definitions, plus live catalog
+shapes reversed only through checked-in migrations, now form the CI-only baseline;
+see `PRE001-BASELINE-PROVENANCE.md`. It is temporarily staged as version `000` only in
+the disposable runner and can never enter linked production history. CI must still
+prove reset, lint, RLS tests and concurrent AI reservations; no prior failed run is a
+pass and no migration is skipped.
 
 ## Remaining operational gates
 
-1. Obtain/review the remaining pre-001 definitions above and complete disposable DB tests. SQL RLS tests and a real parallel PostgreSQL AI reservation test are now wired into CI but have not executed successfully while baseline migration application fails.
+1. Publish the baseline commit and require a new disposable CI pass. SQL RLS tests
+   and a real parallel PostgreSQL AI reservation test are wired in but are not passes
+   until GitHub executes them successfully.
 2. Inspect view definitions/dependencies and Realtime publications before selectively
    reopening any direct client access affected by migration `015`.
 3. Enable secure password change/current-password verification and leaked-password protection after plan/UX review; verify minimum length, email-send limits, CAPTCHA and privileged MFA. The custom prepare flow still leaks allowlist/account state and needs durable edge throttling before a public multi-league launch.
@@ -140,11 +144,18 @@ until that reviewed baseline exists; no skip or automatic history repair was add
    email hook now covers significant server errors and authoritative AI usage/quota
    signals with database-backed deduplication and a pilot-wide hourly cap. Delivery is
    **not active**: configure a verified sender, provider credential, and the approved
-   recipient only in private server settings. Failed-login email additionally awaits
-   a trusted server-auth signal; browser assertions must not trigger it.
+   recipient only in private server settings. Server-observed password rejection is
+   trusted; the former browser assertion endpoint is inert and cannot trigger alerts.
 7. Run unauthenticated, forged-cookie, cross-user/team/league and commissioner tests
    against a deployed nonproduction instance. Source/unit checks are not endpoint
    exploitation evidence and production was not probed.
+8. Director memos remain an enforced single-league compatibility surface because the
+   confirmed table has no `league_id`. Every memo body/UUID/status path must require
+   current membership, configured-league equality, and own-roster filtering. Add and
+   unambiguously backfill a league column before any second league is enabled.
+9. Supabase Auth provides the shared password-attempt limits for the new server login
+   path. IP forwarding remains off and no independent durable application/WAF limiter
+   was verified; review those controls before broader signup exposure.
 
 ## PR150 source-of-truth dependency note
 

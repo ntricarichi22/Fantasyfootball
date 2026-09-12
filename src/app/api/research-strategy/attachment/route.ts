@@ -3,7 +3,7 @@ import { LEAGUE_ID } from "@/infrastructure/config";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { rebuildTeamTradeValueForPlayer } from "@/research-strategy/api/service";
 import { rebuildPickValuesForTeam } from "@/research-strategy/api/pickService";
-import { appSessionFromRequest, sessionCanActForRoster } from "@/infrastructure/auth/session";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +29,9 @@ export async function GET(request: NextRequest) {
     if (!teamId) {
       return NextResponse.json({ error: "teamId is required" }, { status: 400 });
     }
-    const session = await appSessionFromRequest(request);
+    const { session } = await currentAppSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-    if (!sessionCanActForRoster(session, leagueId, teamId))
+    if (!currentSessionCanActForRoster(session, leagueId, teamId))
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const { client, error: clientError } = getSupabaseAdminClient();
@@ -87,9 +87,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    const session = await appSessionFromRequest(request);
+    const { session } = await currentAppSessionFromRequest(request);
     if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-    if (!sessionCanActForRoster(session, leagueId, teamId))
+    if (!currentSessionCanActForRoster(session, leagueId, teamId))
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const validValues = ["untouchable", "core_piece", "listening", "moveable"];

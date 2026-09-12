@@ -23,6 +23,8 @@ old application rollback must not depend on anonymous database writes.
    when a price or model identifier is unverified. Keep user/pilot ceilings at
    `5000000` and `60000000` respectively. Configure `AI_BACKGROUND_USER_ID` only when
    scheduled prose is desired and deliberately charged to that account.
+   Keep email alerts disabled until a verified Resend sender, private provider key,
+   and approved private recipient setting are present. No destination belongs in Git.
 4. Verify the current production `draft_state` contains exactly one distinct league.
    Migrations `012` and `015` intentionally abort otherwise rather than guessing the
    membership or historical draft-log league.
@@ -39,9 +41,10 @@ old application rollback must not depend on anonymous database writes.
 1. Merge only the exact SHA that passed application **and disposable database** checks.
 2. Vercel may deploy that SHA first. At schema `011`, login finalization detects only
    the missing `league_memberships` relation, issues a signed member session from the
-   existing invitation map, and skips membership/audit persistence. Other database
-   failures remain fail-closed. Non-AI features remain available; AI fails closed
-   until accounting exists.
+   existing invitation map, and skips membership/audit persistence. Protected routes
+   still revalidate the Auth user, accept only that exact absent relation, and downgrade
+   the compatibility session to `member`; other database errors fail closed. Non-AI
+   features remain available; AI fails closed until accounting exists.
 3. The reviewer verifies the tested SHA and dry-run history shows remote `001`–`011`
    and local pending `012`–`015`, with no repair, baseline, drop, or unexpected SQL.
 4. Approve the serialized database job. `012` creates/backfills memberships; `013`
