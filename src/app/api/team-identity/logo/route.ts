@@ -31,7 +31,7 @@ async function logoObjectsFor(
 
 export async function POST(request: NextRequest) {
   try {
-    const rosterId = rosterIdFromCookies(request);
+    const rosterId = await rosterIdFromCookies(request);
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const form = await request.formData().catch(() => null);
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const rosterId = rosterIdFromCookies(request);
+    const rosterId = await rosterIdFromCookies(request);
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const { client, error: clientError } = getSupabaseAdminClient();

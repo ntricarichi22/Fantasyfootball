@@ -1,3 +1,4 @@
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 
 export const runtime = "nodejs";
@@ -265,12 +266,13 @@ function buildChatMessages(body: AssistantRequest): {
 }
 
 async function callAnthropic(
+  request: Request,
   apiKey: string,
   system: string,
   messages: ChatMessage[],
   maxTokens: number
 ): Promise<string> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await meteredAnthropicFetch(request, { feature: "draft-assistant", model: MODEL, maxInputTokens: 12000, maxOutputTokens: maxTokens }, {
     method: "POST",
     headers: {
       "x-api-key": apiKey,
@@ -379,15 +381,13 @@ export async function POST(request: NextRequest) {
   try {
     if (body.mode === "briefing") {
       const { system, messages } = buildBriefingMessages(body);
-      const text = await callAnthropic(apiKey, system, messages, 600);
+      const text = await callAnthropic(request, apiKey, system, messages, 600);
       return NextResponse.json({ ok: true, text });
     }
 
     if (body.mode === "recommendation") {
       const { system, messages } = buildRecommendationMessages(body);
-      console.log("[draft-assistant] recommendation system prompt length", system.length);
-      const text = await callAnthropic(apiKey, system, messages, 500);
-      console.log("[draft-assistant] recommendation raw response", text);
+      const text = await callAnthropic(request, apiKey, system, messages, 500);
       const parsed = tryParseRecommendation(text);
       if (!parsed) {
         return NextResponse.json(
@@ -400,8 +400,7 @@ export async function POST(request: NextRequest) {
 
     if (body.mode === "chat") {
       const { system, messages } = buildChatMessages(body);
-      console.log("[draft-assistant] chat system prompt length", system.length);
-      const text = await callAnthropic(apiKey, system, messages, 1200);
+      const text = await callAnthropic(request, apiKey, system, messages, 1200);
       return NextResponse.json({ ok: true, text });
     }
 

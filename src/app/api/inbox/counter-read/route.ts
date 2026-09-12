@@ -1,3 +1,4 @@
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { counterProse, type CounterPartner } from "@/inbox/thread/counterMath";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES, rankDealPieces } from "@/shared/director-prose";
@@ -78,9 +79,9 @@ const SYSTEM =
   "\"you're…\". 2 to 4 sentences, plain prose. Output ONLY the read: no preamble, no reasoning, no headers, no bullet points. " +
   VOICE_RULES.translatorOnly;
 
-async function callAnthropic(user: string, apiKey: string): Promise<string | null> {
+async function callAnthropic(request: Request, user: string, apiKey: string): Promise<string | null> {
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await meteredAnthropicFetch(request, { feature: "counter-read", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 320 }, {
       method: "POST",
       headers: {
         "x-api-key": apiKey,
@@ -144,7 +145,7 @@ export async function POST(request: NextRequest) {
       rankingLine,
       `Give me your read on this counter.`,
     ].filter(Boolean).join("\n");
-    const read = await callAnthropic(user, apiKey);
+    const read = await callAnthropic(request, user, apiKey);
     if (read) return NextResponse.json({ read, source: "llm" });
   }
 

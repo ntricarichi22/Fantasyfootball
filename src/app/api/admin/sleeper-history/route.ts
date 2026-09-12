@@ -1,3 +1,4 @@
+import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 
@@ -45,14 +46,9 @@ async function fetchJsonWithRetry(url: string, timeoutMs = 20_000, retries = 2) 
 }
 
 export async function GET(req: Request) {
+  if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   const startedAt = Date.now();
   const url = new URL(req.url);
-
-  // Admin guard
-  const secret = url.searchParams.get("secret");
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (!adminSecret) return jsonError("Missing ADMIN_SECRET env var", 500);
-  if (secret !== adminSecret) return jsonError("Unauthorized", 401);
 
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supabaseResult.error}`, 500);
@@ -284,7 +280,7 @@ previousLeagueId =
 
   const nextUrl =
     nextLeagueId
-      ? `${origin}/api/admin/sleeper-history?secret=${encodeURIComponent(adminSecret)}&league_id=${encodeURIComponent(
+      ? `${origin}/api/admin/sleeper-history?league_id=${encodeURIComponent(
           nextLeagueId
         )}&mode=${encodeURIComponent(mode)}&max_weeks=${encodeURIComponent(String(maxWeeks))}&budget_ms=${encodeURIComponent(
           String(budgetMs)

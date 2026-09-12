@@ -11,6 +11,7 @@
 // already holds), so this route is fast — no league pipeline. Deterministic
 // fallback when no API key / timeout.
 
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES } from "@/shared/director-prose";
 
@@ -68,7 +69,7 @@ export async function POST(req: NextRequest) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey && goals.length > 0) {
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await meteredAnthropicFetch(req, { feature: "door-beat", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 300 }, {
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         signal: AbortSignal.timeout(LLM_TIMEOUT_MS),

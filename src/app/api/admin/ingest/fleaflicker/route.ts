@@ -1,3 +1,4 @@
+import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import crypto from "node:crypto";
@@ -493,14 +494,9 @@ async function runFleaJob(
 }
 
 export async function GET(req: NextRequest) {
+  if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   try {
     const url = new URL(req.url);
-    const token = url.searchParams.get("token");
-    const adminSecret = process.env.ADMIN_SECRET;
-
-    if (!adminSecret || token !== adminSecret) {
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-    }
 
     const seasonYear = Number(url.searchParams.get("seasonYear"));
     const sourceLeagueId = url.searchParams.get("sourceLeagueId");

@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { LEAGUE_ID } from "@/infrastructure/config";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { memoOwnerFilter } from "./memoAuthorization";
 
 const VALID_STATUSES = ["unread", "read", "archived", "trashed"] as const;
 type MemoStatus = (typeof VALID_STATUSES)[number];
@@ -9,6 +12,10 @@ type MemoStatus = (typeof VALID_STATUSES)[number];
  * GET /api/inbox/memos?id=X            -> single memo detail (marks as read on first open)
  */
 export async function GET(req: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!LEAGUE_ID || session.leagueId !== LEAGUE_ID)
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
   const { client: supabase, error: clientError } = getSupabaseAdminClient();
   if (clientError || !supabase) {
     return NextResponse.json({ error: clientError ?? "Supabase unavailable" }, { status: 500 });
@@ -18,14 +25,17 @@ export async function GET(req: NextRequest) {
   const teamId = url.searchParams.get("teamId");
   const includeTrashed = url.searchParams.get("includeTrashed") === "1";
   const includeArchived = url.searchParams.get("includeArchived") === "1";
+  if (teamId && teamId !== session.rosterId)
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
 
   // --- Single memo detail ---
   if (id) {
-    const { data, error } = await supabase
+    const ownedMemo = supabase
       .from("cfc_director_memos")
       .select("*")
       .eq("id", id)
-      .single();
+      .eq(...memoOwnerFilter(session.rosterId));
+    const { data, error } = await ownedMemo.single();
 
     if (error || !data) {
       return NextResponse.json({ error: "Memo not found" }, { status: 404 });
@@ -36,7 +46,8 @@ export async function GET(req: NextRequest) {
       await supabase
         .from("cfc_director_memos")
         .update({ status: "read", updated_at: new Date().toISOString() })
-        .eq("id", id);
+        .eq("id", id)
+        .eq(...memoOwnerFilter(session.rosterId));
       data.status = "read";
     }
 
@@ -44,14 +55,10 @@ export async function GET(req: NextRequest) {
   }
 
   // --- List ---
-  if (!teamId) {
-    return NextResponse.json({ error: "teamId required" }, { status: 400 });
-  }
-
   let query = supabase
     .from("cfc_director_memos")
     .select("*")
-    .eq("team_id", teamId)
+    .eq(...memoOwnerFilter(session.rosterId))
     .order("created_at", { ascending: false });
 
   if (!includeTrashed) query = query.neq("status", "trashed");
@@ -71,6 +78,10 @@ export async function GET(req: NextRequest) {
  * Updates one or many memos in a single call (for the multi-select action bar).
  */
 export async function POST(req: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!LEAGUE_ID || session.leagueId !== LEAGUE_ID)
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
   const { client: supabase, error: clientError } = getSupabaseAdminClient();
   if (clientError || !supabase) {
     return NextResponse.json({ error: clientError ?? "Supabase unavailable" }, { status: 500 });
@@ -96,7 +107,8 @@ export async function POST(req: NextRequest) {
   const { error } = await supabase
     .from("cfc_director_memos")
     .update({ status, updated_at: new Date().toISOString() })
-    .in("id", targetIds);
+    .in("id", targetIds)
+    .eq(...memoOwnerFilter(session.rosterId));
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
