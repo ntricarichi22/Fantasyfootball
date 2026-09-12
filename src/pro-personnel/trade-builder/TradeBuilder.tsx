@@ -1,5 +1,6 @@
 "use client";
 
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
@@ -160,7 +161,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     openingFiredRef.current = true;
     let cancelled = false;
     setAdvisorLoading(true);
-    fetch("/api/pro-personnel/advisor", {
+    authenticatedAiFetch("/api/pro-personnel/advisor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -227,7 +228,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     setAdvisorLoading(true);
     advisorTimer.current = setTimeout(async () => {
       try {
-        const res = await fetch("/api/pro-personnel/advisor", {
+        const res = await authenticatedAiFetch("/api/pro-personnel/advisor", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

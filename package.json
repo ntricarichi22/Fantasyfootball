@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:ai": "node --experimental-strip-types --test tests/ai-limits.test.mjs"
   },
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",

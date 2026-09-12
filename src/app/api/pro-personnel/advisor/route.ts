@@ -1,3 +1,4 @@
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
@@ -426,7 +427,7 @@ export async function POST(request: NextRequest) {
   let prose = "";
   if (apiKey && gap.verdict !== "EMPTY" && !body.skip_prose) {
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await meteredAnthropicFetch(request, { feature: "personnel-advisor", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 8000, maxOutputTokens: 350 }, {
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         body: JSON.stringify({
