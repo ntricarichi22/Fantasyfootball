@@ -160,3 +160,27 @@ Routes with no client/cron/script caller: `/api/league/{profiles,needs,dossiers}
 
 - The engine's internal partner-acceptance model keeps using the partner's own adjusted values (their untouchables); only *display* follows the viewer rule.
 - Admin ingest routes and their Sleeper mirror tables stay so Sleeper history can be re-pulled; Flea/MFL raw payloads survive only in the archive dump.
+
+---
+
+## Decisions applied (2026-09-12)
+
+All 55 cards on the decision sheet are decided; the full record is in `2026-09-decisions.json`. Every card took the recommended option except:
+
+- **D-13 → B**: before Sleeper publishes the current-year order, price current-year picks by the owner's projected finish (the same rule already used for future-year picks). Never a roster-index guess.
+- **D-16 → keep the fixed ladder**: the 1.01–3.12 prices are a hand-set CFC value system by design. No source refresh. Commit the ladder as a versioned seed; the trade-chart page must degrade, not error, when an anchor row is missing.
+- **D-18 → one table, +20 / +10 / 0 / −10** (untouchable / core / listening / moveable) for players and picks alike.
+- **D-29 → commissioner keyed to the owner's account email** (`ntricarichi@gmail.com`) via a flag on the `team_email_map` row.
+- **D-31 → one identity, three fields** (full name, location, nickname) sourced from Sleeper with a multi-word-nickname exception list; colors, GM names and negotiation personalities keyed by roster id. **Keep the in-app rename** as an override; the league intends to detach from Sleeper later.
+- **D-37 → B**: keep the hardcoded source scoring settings; document them at the fetch sites.
+
+Implementation order (each step one commit; lint + typecheck + before/after diffs of read-only routes against live data before every push):
+
+1. Shared feed: `getDraftStatus()` (Sleeper draft status + pick list + draft_log), spent picks and ownable seasons (D-09, D-15), projected-finish pricing for unslotted current-year picks (D-13), slot-free pick identity with a one-time key migration (D-12), one `parsePickKey` / `formatPickLabel` / `getCFCYear` (C-02), `LeagueSnapshot` + `GET /api/league/snapshot`, cache invalidation on writes (D-06, D-21).
+2. Draft status surfaces: calendar phase, Review Results board, mock-draft redirect (D-10); draft room onto `pickOwnership` and the shared roster/profile feeds (D-04, D-11, D-34); trade-up button wired to the builder (D-40); remove the demo fallback (D-05).
+3. Roster consumers onto the feed (D-01, D-02, D-32, C-01); onboarding pages through the full roster and rebuilds values on save (D-07, D-19); pending-trade graft on accept (D-03).
+4. Values: viewer-perspective everywhere including picks (D-08, D-14); one modifier table (D-18); remove the draft-room backfill (D-17); versioned ladder seed (D-16); percentile scouting grades (D-20); value plumbing block (C-03).
+5. Engine: one pricing lens + persona-aware grade on every surface, computed live (D-22, D-23, D-26); Studio and mock-draft trades through `construct` adapters (D-24, D-25); schedule the memo sweep (D-27); one persona source keyed by roster id (D-36); one LLM model setting + shared voice rules (D-38); engine dead code and docs (C-04).
+6. Identity and access: cookie-resolved team on every write and private read (D-28); commissioner flag (D-29); one stored-team reader (D-30); identity model per D-31; strategy save path merges (D-35); one open-trades definition (D-39); remove the Team HQ tile (D-41); identity plumbing block (C-05).
+7. Dead code removal (C-06); rookie class derived from Sleeper (D-33).
+8. Database (separate PR, after the live inventory): tiers DB-01..DB-07 as decided, archive dump → soft-rename → drop; baseline migration capturing the undocumented live DDL.
