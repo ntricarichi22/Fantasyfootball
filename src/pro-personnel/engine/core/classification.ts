@@ -15,37 +15,17 @@
 // only picks of those rounds were current-year.
 
 import type { RosterAsset, StrategyProfile, TeamMode } from "./types";
+import { getCFCYear, parsePickKey as parseSharedPickKey } from "@/shared/league-data";
 
 // ─── Pick parsing ──────────────────────────────────────────────────────
 
 export function parsePickKey(
   key: string,
 ): { year: number; round: number; slot: number } | null {
-  if (!key.startsWith("pick:")) return null;
-  const body = key.slice(5);
-  const parts = body.split("-");
-  if (parts.length !== 3 && parts.length !== 4) return null;
-  const year = parseInt(parts[0], 10);
-  const round = parseInt(parts[1], 10);
-  if (Number.isNaN(year) || Number.isNaN(round)) return null;
-
-  // 4-part keys carry slot at parts[2]. 3-part keys (future picks) have
-  // no slot info — draft order isn't set yet — so we return 0 as a
-  // placeholder. Callers that care about slot should also check whether
-  // pickYear > currentYear before using it.
-  let slot = 0;
-  if (parts.length === 4) {
-    const parsedSlot = parseInt(parts[2], 10);
-    if (Number.isNaN(parsedSlot)) return null;
-    slot = parsedSlot;
-  }
-  return { year, round, slot };
+  const parsed = parseSharedPickKey(key);
+  return parsed ? { year: parsed.season, round: parsed.round, slot: 0 } : null;
 }
-
-export function getCFCYear(): number {
-  const n = new Date();
-  return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
-}
+export { getCFCYear };
 
 // ─── Starter-level classification ──────────────────────────────────────
 //

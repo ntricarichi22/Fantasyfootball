@@ -24,9 +24,9 @@ export function yearDiscount(yearsOut: number): number {
 // only with a genuinely big return, no hard "never trade" wall needed.
 export const AVAILABILITY_PCT: Record<AttachmentLevel, number> = {
   untouchable: 20,
-  core_piece: 5,
+  core_piece: 10,
   listening: 0,
-  moveable: -5,
+  moveable: -10,
 };
 
 // Draft class strength — how good the incoming rookie class is (picks only).

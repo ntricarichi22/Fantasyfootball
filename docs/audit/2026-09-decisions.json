@@ -1,0 +1,336 @@
+{
+ "recorded_at": "2026-09-12",
+ "source": "decision sheet artifact fec3c06f-8418-4c1e-99c4-26b4832d8608, collection decisions",
+ "decisions": [
+  {
+   "id": "C-01",
+   "choice": "approve",
+   "label": "Approve as a block",
+   "resolution": null
+  },
+  {
+   "id": "C-02",
+   "choice": "approve",
+   "label": "Approve as a block",
+   "resolution": null
+  },
+  {
+   "id": "C-03",
+   "choice": "approve",
+   "label": "Approve as a block",
+   "resolution": null
+  },
+  {
+   "id": "C-04",
+   "choice": "approve",
+   "label": "Approve as a block",
+   "resolution": null
+  },
+  {
+   "id": "C-05",
+   "choice": "approve",
+   "label": "Approve as a block",
+   "resolution": null
+  },
+  {
+   "id": "C-06",
+   "choice": "approve",
+   "label": "Approve as a block",
+   "resolution": null
+  },
+  {
+   "id": "D-01",
+   "choice": "A",
+   "label": "Read rosters from the shared live feed; keep the value table for numbers only",
+   "resolution": null
+  },
+  {
+   "id": "D-02",
+   "choice": "A",
+   "label": "Show every rostered player",
+   "resolution": null
+  },
+  {
+   "id": "D-03",
+   "choice": "A",
+   "label": "Record accepted trades as pending and apply them everywhere immediately",
+   "resolution": null
+  },
+  {
+   "id": "D-04",
+   "choice": "A",
+   "label": "Draft room reads rosters from the shared feed",
+   "resolution": null
+  },
+  {
+   "id": "D-05",
+   "choice": "A",
+   "label": "Show a clear \"Sleeper unavailable\" state; remove the demo fallback from the live room",
+   "resolution": null
+  },
+  {
+   "id": "D-06",
+   "choice": "A",
+   "label": "One policy: 5-minute Sleeper cache in the shared feed, cleared explicitly after any app write",
+   "resolution": null
+  },
+  {
+   "id": "D-07",
+   "choice": "A",
+   "label": "Page through the whole roster",
+   "resolution": null
+  },
+  {
+   "id": "D-08",
+   "choice": "A",
+   "label": "Apply your viewer rule here too",
+   "resolution": null
+  },
+  {
+   "id": "D-09",
+   "choice": "A",
+   "label": "Spent = this season's app picks plus the Sleeper draft's picks; a completed Sleeper draft spends the whole season",
+   "resolution": null
+  },
+  {
+   "id": "D-10",
+   "choice": "A",
+   "label": "Phase from the shared draft status; build a read-only results board; mock-draft URL redirects when complete",
+   "resolution": null
+  },
+  {
+   "id": "D-11",
+   "choice": "A",
+   "label": "One pipeline: the draft room reads pickOwnership from the shared feed",
+   "resolution": null
+  },
+  {
+   "id": "D-12",
+   "choice": "A",
+   "label": "Slot-free identity (year, round, original team) for every season; slot carried as data; migrate stored keys once",
+   "resolution": null
+  },
+  {
+   "id": "D-13",
+   "choice": "B",
+   "label": "Price by projected finish, the same rule used for future-year picks",
+   "resolution": "Option B: current-year picks priced by the owner's projected finish until Sleeper publishes the order; the future-pick projected-finish rule is preserved and extended."
+  },
+  {
+   "id": "D-14",
+   "choice": "A",
+   "label": "Apply the viewer rule to picks exactly as to players, everywhere",
+   "resolution": null
+  },
+  {
+   "id": "D-15",
+   "choice": "A",
+   "label": "Derive the pick year from the CFC year, and seasons/rounds from Sleeper's drafts and traded picks",
+   "resolution": null
+  },
+  {
+   "id": "D-16",
+   "choice": "C",
+   "label": "Leave as is",
+   "resolution": "Keep the fixed CFC pick ladder (no source refresh). Commit it as a versioned seed; trade-chart page must not error when an anchor row is missing."
+  },
+  {
+   "id": "D-17",
+   "choice": "A",
+   "label": "Remove the backfill; the draft room reads the same value feed as everything else",
+   "resolution": null
+  },
+  {
+   "id": "D-18",
+   "choice": "B",
+   "label": "One table for both, on the pick scale (+20 / +5 / 0 / -5)",
+   "resolution": "One modifier table for players and picks: untouchable +20, core_piece +10, listening 0, moveable -10."
+  },
+  {
+   "id": "D-19",
+   "choice": "A",
+   "label": "Rebuild on onboarding save, same as Set Availability",
+   "resolution": null
+  },
+  {
+   "id": "D-20",
+   "choice": "A",
+   "label": "Grade by percentile of league values",
+   "resolution": null
+  },
+  {
+   "id": "D-21",
+   "choice": "A",
+   "label": "Clear the caches whenever a value, tag or override is saved",
+   "resolution": null
+  },
+  {
+   "id": "D-22",
+   "choice": "A",
+   "label": "One function everywhere: price from the viewer's seat, grade with the viewer's persona, computed live",
+   "resolution": null
+  },
+  {
+   "id": "D-23",
+   "choice": "A",
+   "label": "The drawer uses the same pricing lens and persona-aware grade as everything else",
+   "resolution": null
+  },
+  {
+   "id": "D-24",
+   "choice": "A",
+   "label": "Route Studio through the main engine via the existing adapter; keep Studio's shape rules as adapter settings",
+   "resolution": null
+  },
+  {
+   "id": "D-25",
+   "choice": "A",
+   "label": "Route through the engine's scouting adapter and grade with the persona-aware function; keep the board-rank read as prose",
+   "resolution": null
+  },
+  {
+   "id": "D-26",
+   "choice": "A",
+   "label": "Regrade at render time with the same function as the thread page",
+   "resolution": null
+  },
+  {
+   "id": "D-27",
+   "choice": "A",
+   "label": "Schedule the sweep in the Vercel cron, gated by CRON_SECRET, once it grades live",
+   "resolution": null
+  },
+  {
+   "id": "D-28",
+   "choice": "A",
+   "label": "Resolve the team from the auth cookie on every write and every private read; explicit commissioner allowance for commissioner actions",
+   "resolution": null
+  },
+  {
+   "id": "D-29",
+   "choice": "A",
+   "label": "Store the commissioner as a flag on the team record (or an env var), read from one place",
+   "resolution": "Commissioner powers keyed to the owner's account email (ntricarichi@gmail.com) via a flag on the team_email_map row; survives team renames."
+  },
+  {
+   "id": "D-30",
+   "choice": "A",
+   "label": "Every component uses the one shared reader (cookie first)",
+   "resolution": null
+  },
+  {
+   "id": "D-31",
+   "choice": "A",
+   "label": "One name resolver and one nickname function everywhere; topbar and home refresh from the identity route; Historian keeps its warehouse names",
+   "resolution": "One team identity with full name, location and nickname, sourced from Sleeper with an exception list for multi-word nicknames; colors, GM names and personalities keyed by roster id. Keep the in-app rename as an override (league plans to detach from Sleeper later)."
+  },
+  {
+   "id": "D-32",
+   "choice": "A",
+   "label": "One pool builder in the shared feed, used by every board",
+   "resolution": null
+  },
+  {
+   "id": "D-33",
+   "choice": "A",
+   "label": "Derive each season's class from Sleeper (rookie flag, years of experience); the admin route only patches bios and headshots",
+   "resolution": null
+  },
+  {
+   "id": "D-34",
+   "choice": "A",
+   "label": "One profiler: the shared team-profiles and dossier feed the draft room and the Assistant GM",
+   "resolution": null
+  },
+  {
+   "id": "D-35",
+   "choice": "A",
+   "label": "One save path that merges only the fields the editor changed",
+   "resolution": null
+  },
+  {
+   "id": "D-36",
+   "choice": "A",
+   "label": "One source: the chosen persona drives math and voice; per-team flavour text keyed by roster id",
+   "resolution": null
+  },
+  {
+   "id": "D-37",
+   "choice": "B",
+   "label": "Keep the hardcoded settings",
+   "resolution": "Keep the hardcoded source scoring settings (0.5 PPR, superflex, 12 teams); document them where the sources are fetched."
+  },
+  {
+   "id": "D-38",
+   "choice": "A",
+   "label": "One model setting and the shared voice rules for all eight call sites",
+   "resolution": null
+  },
+  {
+   "id": "D-39",
+   "choice": "A",
+   "label": "One definition served by one route",
+   "resolution": null
+  },
+  {
+   "id": "D-40",
+   "choice": "A",
+   "label": "Wire it to the builder through the existing seed mechanism",
+   "resolution": null
+  },
+  {
+   "id": "D-41",
+   "choice": "A",
+   "label": "Remove the tile and the nav entry until the page exists",
+   "resolution": null
+  },
+  {
+   "id": "D-42",
+   "choice": "A",
+   "label": "Keep browser-only",
+   "resolution": null
+  },
+  {
+   "id": "DB-01",
+   "choice": "A",
+   "label": "Archive dump, soft-rename two weeks, then drop",
+   "resolution": null
+  },
+  {
+   "id": "DB-02",
+   "choice": "A",
+   "label": "Archive and drop all of them; retire the admin routes that depend on them",
+   "resolution": null
+  },
+  {
+   "id": "DB-03",
+   "choice": "A",
+   "label": "Keep until the live check shows how llm_* is built; then archive and drop whatever nothing depends on",
+   "resolution": null
+  },
+  {
+   "id": "DB-04",
+   "choice": "A",
+   "label": "Keep",
+   "resolution": null
+  },
+  {
+   "id": "DB-05",
+   "choice": "A",
+   "label": "Archive and drop each one the live check shows has zero dependents",
+   "resolution": null
+  },
+  {
+   "id": "DB-06",
+   "choice": "A",
+   "label": "Keep, and harden the rebuild function (drop the temp table, guard the truncate, verify columns)",
+   "resolution": null
+  },
+  {
+   "id": "DB-07",
+   "choice": "A",
+   "label": "Keep, and capture their real DDL into a baseline migration so the schema is versioned",
+   "resolution": null
+  }
+ ]
+}

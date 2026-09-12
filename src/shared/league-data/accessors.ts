@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { ttlMemo } from "@/infrastructure/ttlCache";
+import { ttlInvalidate, ttlMemo } from "@/infrastructure/ttlCache";
 import {
   withComputedDraftPicks,
   deriveDraftOrderForSeason,
@@ -15,6 +15,7 @@ import {
   fetchTradedPicks,
   fetchDrafts,
   fetchLeague,
+  fetchDraftPicks,
   getSleeperLeagueId,
   playerName,
   playerAge,
@@ -41,17 +42,16 @@ import {
   type PickLadder,
   type ResultsSource,
   type LeagueData,
+  type DraftStatus,
+  type DraftResultPick,
+  type LeagueSnapshot,
 } from "./types";
+import { formatPickKey, getCFCYear } from "./picks";
 
 const FANTASY = new Set<Position>(POSITIONS);
 const DEFAULT_ROSTER_POSITIONS = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX"];
 
 const toStr = (v: unknown): string => (v == null ? "" : String(v));
-
-function getCFCYear(): number {
-  const n = new Date();
-  return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
-}
 
 function stance(v: unknown): MarketStance {
   const s = typeof v === "string" ? v.toLowerCase() : "";
@@ -188,19 +188,65 @@ function resultsAreEmpty(results: Map<string, SeasonResult>): boolean {
 
 // Picks already used in the draft are no longer ownable assets (they became
 // players). Reading the draft log lets ownership return only live picks.
-async function fetchSpentPickNumbers(leagueId: string): Promise<Set<string>> {
-  const spent = new Set<string>();
+async function fetchAppDraftPicks(leagueId: string, season: number): Promise<DraftResultPick[]> {
+  const picks: DraftResultPick[] = [];
   const admin = getSupabaseAdminClient();
-  if (!admin.client) return spent;
+  if (!admin.client) return picks;
   const { data } = await admin.client
     .from("draft_log")
-    .select("pick_number, submitted_at")
+    .select("pick_number, roster_id, player_id, submitted_at, cfc_year")
     .eq("league_id", leagueId)
+    .eq("cfc_year", season)
     .not("submitted_at", "is", null);
-  for (const row of (data ?? []) as Array<{ pick_number: string | null }>) {
-    if (row.pick_number) spent.add(String(row.pick_number));
+  for (const row of (data ?? []) as Array<{ pick_number: string | null; roster_id: string | null; player_id: string | null }>) {
+    const match = String(row.pick_number ?? "").match(/^(\d+)\.(\d+)$/);
+    if (!match || !row.roster_id || !row.player_id) continue;
+    const round = Number(match[1]);
+    const slot = Number(match[2]);
+    picks.push({ source: "app", pickNumber: (round - 1) * 12 + slot, round, slot, rosterId: String(row.roster_id), playerId: String(row.player_id) });
   }
-  return spent;
+  return picks;
+}
+
+export async function getDraftStatus(): Promise<DraftStatus> {
+  return ttlMemo("league-data:draft-status", 300_000, async () => {
+    const leagueId = getSleeperLeagueId();
+    const season = getCFCYear();
+    const drafts = await fetchDrafts(leagueId) as SleeperDraft[];
+    const draft = drafts.find(d => String(d.season) === String(season) && d.type === "rookie")
+      ?? drafts.find(d => String(d.season) === String(season));
+    const [appPicks, sleeperRows] = await Promise.all([
+      fetchAppDraftPicks(leagueId, season),
+      draft?.draft_id ? fetchDraftPicks(String(draft.draft_id)) : Promise.resolve([]),
+    ]);
+    const sleeperPicks: DraftResultPick[] = sleeperRows.flatMap(row => {
+      const pickNumber = Number(row.pick_no);
+      const round = Number(row.round);
+      const rosterId = String(row.roster_id ?? "");
+      const playerId = String(row.player_id ?? "");
+      if (!pickNumber || !round || !rosterId || !playerId) return [];
+      return [{ source: "sleeper" as const, pickNumber, round, slot: ((pickNumber - 1) % 12) + 1, rosterId, playerId }];
+    });
+    const merged = new Map<number, DraftResultPick>();
+    for (const pick of sleeperPicks) merged.set(pick.pickNumber, pick);
+    for (const pick of appPicks) merged.set(pick.pickNumber, pick);
+    const picks = [...merged.values()].sort((a, b) => a.pickNumber - b.pickNumber);
+    const sleeperStatus = draft?.status ? String(draft.status) : null;
+    const complete = sleeperStatus === "complete";
+    const dayOneComplete = picks.filter(p => p.round === 1).length >= 12;
+    const dayTwoComplete = complete || (picks.filter(p => p.round === 2).length >= 12 && picks.filter(p => p.round === 3).length >= 12);
+    return {
+      season,
+      draftId: draft?.draft_id ? String(draft.draft_id) : null,
+      sleeperStatus,
+      dayOneComplete,
+      dayTwoComplete,
+      complete: complete || (dayOneComplete && dayTwoComplete),
+      picks,
+      spentPickNumbers: new Set(picks.map(p => p.pickNumber)),
+      firstUndraftedSeason: complete || (dayOneComplete && dayTwoComplete) ? season + 1 : season,
+    };
+  });
 }
 
 // Players already drafted in the current-year rookie draft but not yet
@@ -235,7 +281,7 @@ async function fetchDraftedPlayers(cfcYear: number, leagueId: string): Promise<A
 function buildPickOwnership(
   rosters: SleeperRoster[],
   traded: unknown[],
-  spent: Set<string>,
+  draftStatus: DraftStatus,
   drafts: unknown[] = []
 ): { map: Map<string, OwnedPick[]>; teamCount: number; tradedPickCount: number; currentYearPickCount: number } {
   const cfcYear = getCFCYear();
@@ -259,7 +305,7 @@ function buildPickOwnership(
   const withPicks = withComputedDraftPicks(rawRosters, traded as TradedPick[], {
     teamCountOverride: teamCount,
     rosterOwnerMap,
-    seasons: [String(cfcYear), String(cfcYear + 1), String(cfcYear + 2)],
+    seasons: [0, 1, 2].map(offset => String(draftStatus.firstUndraftedSeason + offset)),
     draftOrder,
     draftOrderAvailable: derived.available,
   });
@@ -283,13 +329,13 @@ function buildPickOwnership(
         slot = typeof rawSlot === "number" ? rawSlot : null;
         if (slot != null) {
           // skip picks already made in the draft
-          const display = `${round}.${String(slot).padStart(2, "0")}`;
-          if (spent.has(display)) continue;
+          const overall = (round - 1) * teamCount + slot;
+          if (draftStatus.spentPickNumbers.has(overall)) continue;
         }
-        key = `pick:${season}-${round}-${rawSlot || "tbd"}-${origRid}`;
+        key = formatPickKey(season, round, origRid);
         currentYearPickCount++;
       } else {
-        key = `pick:${season}-${round}-${origRid}`;
+        key = formatPickKey(season, round, origRid);
       }
       const overall = kind === "current" && slot != null ? (round - 1) * teamCount + slot : null;
 
@@ -331,13 +377,13 @@ export async function getRosters(): Promise<RosteredTeam[]> {
 
 export async function getPickOwnership(): Promise<Map<string, OwnedPick[]>> {
   const leagueId = getSleeperLeagueId();
-  const [rosters, traded, spent, drafts] = await Promise.all([
+  const [rosters, traded, draftStatus, drafts] = await Promise.all([
     fetchRosters(leagueId),
     fetchTradedPicks(leagueId),
-    fetchSpentPickNumbers(leagueId),
+    getDraftStatus(),
     fetchDrafts(leagueId),
   ]);
-  return buildPickOwnership(rosters, traded, spent, drafts).map;
+  return buildPickOwnership(rosters, traded, draftStatus, drafts).map;
 }
 
 // Canonical slot ladder from the pick_template rows (display_name -> cfc_value).
@@ -510,7 +556,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   const leagueId = getSleeperLeagueId();
   if (!leagueId) return { error: "NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set" };
 
-  const [players, rosters, users, traded, league, values, strat, spent, drafted, drafts, nameOverrides] = await Promise.all([
+  const [players, rosters, users, traded, league, values, strat, draftStatus, drafted, drafts, nameOverrides] = await Promise.all([
     fetchPlayers(),
     fetchRosters(leagueId),
     fetchUsers(leagueId),
@@ -518,7 +564,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     fetchLeague(leagueId),
     getValues(),
     getStrategyProfiles(),
-    fetchSpentPickNumbers(leagueId),
+    getDraftStatus(),
     fetchDraftedPlayers(getCFCYear(), leagueId),
     fetchDrafts(leagueId),
     getTeamNameOverrides(),
@@ -528,7 +574,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
 
   const dict = buildPlayerDict(players);
   const teams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict, drafted);
-  const ownership = buildPickOwnership(rosters, traded, spent, drafts);
+  const ownership = buildPickOwnership(rosters, traded, draftStatus, drafts);
 
   const settings: LeagueSettings = {
     rosterPositions:
@@ -566,6 +612,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     teams,
     values,
     pickOwnership: ownership.map,
+    draftStatus,
     strategy: strat.strategy,
     attachments: strat.attachments,
     results,
@@ -583,5 +630,22 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
       resultsSource,
       previousLeagueId: settings.previousLeagueId,
     },
+  };
+}
+
+export function invalidateLeagueData(): void {
+  ttlInvalidate("league-data:bundle");
+  ttlInvalidate("league-data:draft-status");
+  ttlInvalidate("asset-values:context");
+}
+
+export function toLeagueSnapshot(data: LeagueData): LeagueSnapshot {
+  return {
+    leagueId: data.leagueId,
+    cfcYear: data.cfcYear,
+    teamCount: data.teamCount,
+    teams: data.teams,
+    pickOwnership: Object.fromEntries(data.pickOwnership),
+    draftStatus: { ...data.draftStatus, spentPickNumbers: [...data.draftStatus.spentPickNumbers] },
   };
 }

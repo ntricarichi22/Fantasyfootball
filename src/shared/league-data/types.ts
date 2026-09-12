@@ -45,6 +45,27 @@ export type OwnedPick = {
   originalRosterId: string;
 };
 
+export type DraftResultPick = {
+  source: "app" | "sleeper";
+  pickNumber: number;
+  round: number;
+  slot: number;
+  rosterId: string;
+  playerId: string;
+};
+
+export type DraftStatus = {
+  season: number;
+  draftId: string | null;
+  sleeperStatus: string | null;
+  dayOneComplete: boolean;
+  dayTwoComplete: boolean;
+  complete: boolean;
+  picks: DraftResultPick[];
+  spentPickNumbers: Set<number>;
+  firstUndraftedSeason: number;
+};
+
 // ── Per-position trade intent ──────────────────────────────────────────────
 // The signal the brain consumes, replacing the old global wantsMore array.
 // Intent is tied to each position's market stance, so "young QB" vs "stud PC"
@@ -140,6 +161,7 @@ export type LeagueData = {
   teams: RosteredTeam[];
   values: ValueMaps;
   pickOwnership: Map<string, OwnedPick[]>;
+  draftStatus: DraftStatus;
   strategy: Map<string, StrategyProfile>;
   attachments: Map<string, Map<string, AttachmentLevel>>;
   results: Map<string, SeasonResult>;
@@ -157,4 +179,13 @@ export type LeagueData = {
     resultsSource: ResultsSource;
     previousLeagueId: string | null;
   };
+};
+
+export type LeagueSnapshot = {
+  leagueId: string;
+  cfcYear: number;
+  teamCount: number;
+  teams: RosteredTeam[];
+  pickOwnership: Record<string, OwnedPick[]>;
+  draftStatus: Omit<DraftStatus, "spentPickNumbers"> & { spentPickNumbers: number[] };
 };

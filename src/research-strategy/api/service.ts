@@ -59,8 +59,7 @@ const SLEEPER_PLAYERS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 // Modifier configuration — single source of truth for all team-level adjustments.
 // All modifiers stack additively. No global cap; ranges are bounded by design.
-//   max positive stack: studs (+5) + youth_young (+5) + untouchable (+10) = +20%
-//   max negative stack: youth_old (-5) + moveable (-5) = -10%
+// Availability is shared with pick valuation: +20 / +10 / 0 / -10.
 const STUDS_VALUE_THRESHOLD = 250; // base value above this triggers studs modifier
 const STUDS_MODIFIER_PCT = 0.05;
 
@@ -69,10 +68,10 @@ const YOUTH_OLD_MODIFIER_PCT = -0.05;
 
 // Attachment modifiers — per-player tags from cfc_team_player_attachment
 const ATTACHMENT_MODIFIERS: Record<AttachmentLevel, number> = {
-  untouchable: 0.10,
-  core_piece: 0.05,
+  untouchable: 0.20,
+  core_piece: 0.10,
   listening: 0.00,
-  moveable: -0.05,
+  moveable: -0.10,
 };
 
 const roundTo = (value: number, precision: number) => {

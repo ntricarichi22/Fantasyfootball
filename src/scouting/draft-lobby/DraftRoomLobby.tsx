@@ -213,12 +213,10 @@ export function DraftRoomLobby() {
     if (hero.mockLabel) plates.push(plate({ num: "02", title: hero.mockLabel, desc: "Practice the run — pick your seats, speed, and scenario", mode: "live", onClick: () => setSetupOpen(true) }));
     if (hero.secondLabel) {
       const num = hero.mockLabel ? "03" : "02";
-      // Between days, Day One results are live on the war-room board. The
-      // complete-phase "Review Results" waits on the review feature.
       plates.push(plate(
         cal.phase === "between"
           ? { num, title: hero.secondLabel, desc: hero.secondDesc, mode: "live", href: "/scouting/draft-room/live", cta: "VIEW ›" }
-          : { num, title: hero.secondLabel, desc: hero.secondDesc, mode: "teaser" }
+          : { num, title: hero.secondLabel, desc: hero.secondDesc, mode: "live", href: "/scouting/draft-room/results", cta: "VIEW ›" }
       ));
     }
     plates.push(plate({ num: String(plates.length + 1).padStart(2, "0"), title: "View Past Draft Results", desc: "The archive — every season, every round", mode: "teaser" }));

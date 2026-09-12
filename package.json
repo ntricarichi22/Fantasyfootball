@@ -14,6 +14,7 @@
     "test:authorization": "node --experimental-strip-types --test tests/security-authorization.test.ts",
     "test:handler-boundaries": "node --experimental-strip-types --test tests/security-handler-boundaries.test.ts",
     "test:integration-security": "node --experimental-strip-types --test tests/security-integration.test.mjs",
+    "test:league": "node --experimental-strip-types --test tests/league-pick-identity.test.ts",
     "recovery:check": "bash -n scripts/recovery/*.sh"
   },
   "dependencies": {

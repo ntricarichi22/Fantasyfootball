@@ -14,18 +14,12 @@
 // Returns: { ok: true } or { error }
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { isValidPersona } from "@/pro-personnel/trade-engine/studio/persona";
 import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-function admin() {
-  return createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
-}
 
 export async function POST(req: Request) {
   try {
@@ -42,9 +36,15 @@ export async function POST(req: Request) {
     if (!partnerTeamId) return NextResponse.json({ error: "partner_team_id required" }, { status: 400 });
     if (!isValidPersona(persona)) return NextResponse.json({ error: "invalid persona" }, { status: 400 });
 
-    const supabase = admin();
+    const leagueId = getLeagueId();
+    const { session } = await currentAppSessionFromRequest(req);
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    if (!currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+    const { client: supabase, error: clientError } = getSupabaseAdminClient();
+    if (!supabase) return NextResponse.json({ error: clientError }, { status: 500 });
     const { error } = await supabase.from("cfc_studio_offer_feedback").insert({
-      league_id: getLeagueId(),
+      league_id: leagueId,
       team_id: teamId,
       partner_team_id: partnerTeamId,
       persona,

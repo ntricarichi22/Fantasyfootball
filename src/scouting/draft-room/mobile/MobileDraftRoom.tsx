@@ -66,7 +66,6 @@ type Props = {
 
 const NAV_ITEMS = [
   { href: "/scouting/draft-room/live", label: "Draft Room" },
-  { href: "/team-hq", label: "Team HQ" },
   { href: "/inbox", label: "Trade Center" },
   { href: "/historian", label: "Historian" },
 ];

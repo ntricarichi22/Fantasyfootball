@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { rebuildTeamTradeValueForPlayer } from "@/research-strategy/api/service";
 import { rebuildPickValuesForTeam } from "@/research-strategy/api/pickService";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { invalidateLeagueData } from "@/shared/league-data";
 
 export const dynamic = "force-dynamic";
 
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Re-apply the tier modifier so the change shows up immediately
-    // (untouchable +10%, core +5%, listening 0%, moveable -5%). Picks and
+    // (untouchable +20%, core +10%, listening 0%, moveable -10%). Picks and
     // players store in the same table but rebuild through different routines:
     // a pick key triggers the pick rebuild; anything else is a player.
     if (sleeperPlayerId.startsWith("pick:")) {
@@ -131,6 +132,7 @@ export async function POST(request: NextRequest) {
     } else {
       await rebuildTeamTradeValueForPlayer(leagueId, teamId, sleeperPlayerId);
     }
+    invalidateLeagueData();
 
     return NextResponse.json({ ok: true });
   } catch (error) {
