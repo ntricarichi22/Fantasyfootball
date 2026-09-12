@@ -1,0 +1,1242 @@
+{
+ "title": "Front Office Decision Sheet",
+ "intro": "Every place the audit found two screens that can show different data for the same fact, plus the database cleanup calls. Each item names what you'd see, why it happens, and the options. Pick one per item; the recommended option is marked. Nothing changes in the code until you're done.",
+ "howto": "How to use this: pick an option on each card (your picks save as you go), add a note where you want something different, then tell Claude \"decisions are in\". Filter to Undecided to see what's left.",
+ "cleanups_lede": "Pure engineering consolidation with no product choice inside it. Each group is one approve/hold call; every item still lands as its own commit with a before/after check.",
+ "db_lede": "Tiered from code, docs, migrations and the July schema snapshot committed under public/. The docs claim several tables were dropped in May; the July snapshot still lists two of them, so nothing is dropped without the live dependency check listed below. Archive dump first, soft-rename for two weeks, then drop.",
+ "footer": "Sources: 9-area code sweep, 5 adversarial verification passes (65 of 70 divergence claims held), 3 table inventories. Items marked Verified were traced through the code by a second reviewer; Reported items came from the sweep and are still being re-checked. Live Sleeper check (Sept 12): the 2026 CFC league is 1328902558617473024; its draft is complete with 36 picks in Sleeper; the id in the repo's docs (1183585976810295296) is the 2025 league.",
+ "areas": [
+  {
+   "key": "rosters",
+   "eyebrow": "Rosters",
+   "title": "Who owns whom",
+   "lede": "Seven different roster loaders exist. The shared feed (getLeagueData) is the canonical one you approved; these are the places that still read something else."
+  },
+  {
+   "key": "picks",
+   "eyebrow": "Draft picks",
+   "title": "Pick ownership and draft status",
+   "lede": "Your 2.06 / 2.07 example is one symptom of a bigger split: the live draft room and everything else compute pick ownership with two separate pipelines, and neither knows when the Sleeper draft has finished."
+  },
+  {
+   "key": "values",
+   "eyebrow": "Values",
+   "title": "Player and pick values",
+   "lede": "Your rule: a viewer sees their own adjusted number for their own players and the league base value for everyone else's. These are the places that don't follow it, plus the pipeline gaps behind the numbers."
+  },
+  {
+   "key": "engine",
+   "eyebrow": "Trade engine",
+   "title": "One engine, one grade",
+   "lede": "Adapters per surface are fine; the calculation behind them has to be one system. Today the same offer can be graded four different ways."
+  },
+  {
+   "key": "identity",
+   "eyebrow": "Identity",
+   "title": "Team identity and access",
+   "lede": "Which team you are, what your team is called, and who is allowed to change what."
+  }
+ ],
+ "items": [
+  {
+   "id": "D-01",
+   "area": "rosters",
+   "severity": "high",
+   "status": "verified",
+   "title": "The trade block's roster only updates on the nightly rebuild",
+   "symptom": "After a trade goes through in Sleeper, your Set Availability page still lists the player you sent, and the other GM's page doesn't show him yet. Mock draft, Big Board and the trade engine already show the new rosters. Both trade blocks stay wrong until 8:00 UTC or until someone saves a strategy or attachment.",
+   "cause": "Set Availability reads its roster list from the per-team value table, which is rebuilt only by the daily cron or a settings save. Every other surface reads live Sleeper.",
+   "evidence": [
+    "src/research-strategy/api/service.ts:664",
+    "src/app/api/internal/refresh-values/route.ts:471",
+    "vercel.json:5"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Read rosters from the shared live feed; keep the value table for numbers only",
+     "detail": "Set Availability lists exactly what Sleeper says you own (plus in-app draft picks), then decorates each row with your stored value. Same roster everywhere.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the table as the roster, but rebuild it on every page load",
+     "detail": "Slower page; other screens still disagree between loads."
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-02",
+   "area": "rosters",
+   "severity": "high",
+   "status": "verified",
+   "title": "Trade Builder, Studio and Trade Door hide players who have no value row",
+   "symptom": "A player you just acquired is missing from your roster panel in the Trade Builder, Trade Studio and Trade Door until the nightly rebuild, so nobody can put him in a deal. Any player the value pipeline never priced is missing permanently.",
+   "cause": "The targets route intersects the live Sleeper roster with the per-team value table and drops anyone whose value is zero or absent.",
+   "evidence": [
+    "src/app/api/pro-personnel/targets/route.ts:135",
+    "src/research-strategy/api/service.ts:453"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Show every rostered player",
+     "detail": "Fall back to the league base value, then to zero with an \"unpriced\" tag, so the panel matches the roster and the engine.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep hiding unpriced players",
+     "detail": "Panels stay smaller than the real roster."
+    }
+   ]
+  },
+  {
+   "id": "D-03",
+   "area": "rosters",
+   "severity": "high",
+   "status": "verified",
+   "title": "Accepting a trade in the inbox doesn't move anyone",
+   "symptom": "The accept modal says both rosters update immediately. Nothing does: every screen keeps the pre-trade rosters until the commissioner processes the trade in Sleeper, and the trade block stays wrong another day after that. The engine keeps offering assets that have notionally changed hands.",
+   "cause": "The status route flips the offer and thread status only. There is no Sleeper write and no pending-trade record the roster feed could apply.",
+   "evidence": [
+    "src/app/api/inbox/threads/status/route.ts:93",
+    "src/inbox/thread/AcceptModal.tsx:53"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Record accepted trades as pending and apply them everywhere immediately",
+     "detail": "Sleeper stays the system of record. An accepted deal is grafted onto rosters and picks the same way in-app draft picks are today, and clears itself once Sleeper catches up. Modal copy fixed to match.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Fix the copy only",
+     "detail": "\"Accepted. Rosters update once the commissioner processes it in Sleeper.\" No roster change until then."
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-04",
+   "area": "rosters",
+   "severity": "medium",
+   "status": "verified",
+   "title": "The live draft room's roster panel ignores picks made in the app",
+   "symptom": "Mid-draft, the player you just took shows on the mock-draft roster tab but not on the live draft room's roster and lineup panel until Sleeper processes the pick, hours or days later.",
+   "cause": "The draft room builds its roster from the browser's raw Sleeper call. The shared feed grafts in-app draft picks on; the draft room never does.",
+   "evidence": [
+    "src/scouting/draft-room/DraftRoom.tsx:478",
+    "src/shared/league-data/accessors.ts:139"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Draft room reads rosters from the shared feed",
+     "detail": "Same graft, same roster as the mock draft.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-05",
+   "area": "rosters",
+   "severity": "medium",
+   "status": "verified",
+   "title": "During a Sleeper outage the draft room shows fake demo rosters with no warning",
+   "symptom": "Twelve plausible but fictional rosters appear in the live draft room. The error banner exists in code but is never rendered. Every other screen shows an error or empty state.",
+   "cause": "The client hook falls back to hardcoded DEMO_ROSTERS on any failed Sleeper call.",
+   "evidence": [
+    "src/infrastructure/sleeper/useSleeperData.ts:181",
+    "src/scouting/draft-room/DraftRoom.tsx:85"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Show a clear \"Sleeper unavailable\" state; remove the demo fallback from the live room",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep demo data but render a visible banner",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-06",
+   "area": "rosters",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Every screen caches Sleeper differently, from 0 seconds to 24 hours",
+   "symptom": "Two screens opened seconds apart can show different rosters: one is on a 5-minute cache, one on a 60-second memo on top of that, one uncached, one on the browser's default cache. A new NFL signing can resolve in the draft room but not in the trade builder for a day.",
+   "cause": "Seven independent roster loaders each set their own cache window.",
+   "evidence": [
+    "src/shared/league-data/sleeper.ts:47",
+    "src/app/api/pro-personnel/targets/route.ts:85",
+    "src/infrastructure/sleeper/api.ts:12"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One policy: 5-minute Sleeper cache in the shared feed, cleared explicitly after any app write",
+     "detail": "Every surface reads the feed, so they can only ever disagree by the same 5 minutes, and never after you save something.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "No caching anywhere",
+     "detail": "Every request hits Sleeper; slower pages and rate-limit risk."
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-07",
+   "area": "rosters",
+   "severity": "low",
+   "status": "verified",
+   "title": "Onboarding only reviews 25 players",
+   "symptom": "A GM with 30 fantasy players finishes onboarding having tagged only 25. The rest silently default to \"listening\" and the GM never saw them.",
+   "cause": "A hard slice(0, 25) in the onboarding attachment step.",
+   "evidence": [
+    "src/onboarding/OnboardingAttachment.tsx:133"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Page through the whole roster",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep 25",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-08",
+   "area": "rosters",
+   "severity": "low",
+   "status": "verified",
+   "title": "The draft-room Assistant GM sees base values, not your adjusted ones",
+   "symptom": "A player your trade block prices at 288 (untouchable) is quoted to the Assistant GM at 240, so its buy/sell advice can contradict the Personnel director on the same player.",
+   "cause": "The draft room loads league-wide base values via /api/player-values. A code comment says this was deliberate.",
+   "evidence": [
+    "src/scouting/draft-room/DraftRoom.tsx:660",
+    "src/app/api/llm/draft-assistant/route.ts:222"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Apply your viewer rule here too",
+     "detail": "Your adjusted values for your players, base for everyone else's.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep base values in the draft room on purpose",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-09",
+   "area": "picks",
+   "severity": "high",
+   "status": "verified",
+   "title": "Picks already used in the Sleeper draft still show as owned (your 2.06 / 2.07)",
+   "symptom": "Trade Builder and Set Availability still list your 2026 second- and third-round picks even though Sleeper's 2026 draft (league 1328902558617473024) is marked complete with all 36 picks recorded: Mike Washington went at 2.07 and Ted Hurst at 3.03, and both are on the Virginia Founders roster in Sleeper today.",
+   "cause": "A pick counts as spent only if it appears in the app's own draft_log. The app never reads Sleeper's draft or its pick list, so picks used there stay 'ownable'. A second bug in the same query: it has no season filter, so after the CFC year rolls over, last year's used 2.06 would hide next year's 2.06 for whoever owns it. Sleeper also keeps listing completed-season traded picks, so the feed must treat a complete draft as spending the whole season.",
+   "evidence": [
+    "src/shared/league-data/accessors.ts:191",
+    "src/shared/league-data/accessors.ts:284"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Spent = this season's app picks plus the Sleeper draft's picks; a completed Sleeper draft spends the whole season",
+     "detail": "Reads Sleeper's draft status and pick list once, in the shared feed. Fixes both bugs.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Only add the season filter; keep ignoring Sleeper's draft",
+     "detail": "Your 2.06 / 2.07 would still show."
+    }
+   ]
+  },
+  {
+   "id": "D-10",
+   "area": "picks",
+   "severity": "high",
+   "status": "verified",
+   "title": "The scouting lobby still offers Mock Day Two, and Review Results is a placeholder",
+   "symptom": "The lobby's phase is stuck at \"between days\", so Mock Day Two stays live after the draft. The complete-phase \"Review Results\" plate was never built; it renders as a teaser. The mock-draft page is also reachable by URL regardless of phase.",
+   "cause": "The calendar route derives the phase only from round 2 and 3 rows in draft_log, which Day Two in Sleeper never wrote.",
+   "evidence": [
+    "src/app/api/scouting/draft-calendar/route.ts:64",
+    "src/scouting/draft-lobby/DraftRoomLobby.tsx:219"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Phase from the shared draft status; build a read-only results board; mock-draft URL redirects when complete",
+     "detail": "The results board merges Day One (app) and Day Two (Sleeper) on the existing draft-room board. No new archive feature.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Fix the phase only; leave Review Results as a teaser",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-11",
+   "area": "picks",
+   "severity": "high",
+   "status": "verified",
+   "title": "Two pick pipelines: the Draft Room and the Trade Builder can disagree on slot and inventory",
+   "symptom": "The draft-room ticker can show a team at 1.04 while the Trade Builder prices the same pick as the 1.09. The home-screen \"Draft picks\" count (this season, used picks included) differs from the Trade Builder's (three seasons, used picks excluded). In January and February the two pipelines even use different seasons.",
+   "cause": "The draft room builds its own pick model (hardcoded 2026, no spent-pick exclusion, uses the league's draft_order as a fallback) while everything else uses pickOwnership (CFC year, spent-pick exclusion, no draft_order fallback). The key formats can't even be joined.",
+   "evidence": [
+    "src/infrastructure/picks/index.ts:223",
+    "src/shared/league-data/accessors.ts:233",
+    "src/scouting/draft-room/DraftRoom.tsx:210"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One pipeline: the draft room reads pickOwnership from the shared feed",
+     "detail": "One key format; the draft_order fallback and season logic move into the shared builder so both benefit.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep both pipelines, sync the season and the fallback logic",
+     "detail": "Two builders to keep in step forever."
+    }
+   ]
+  },
+  {
+   "id": "D-12",
+   "area": "picks",
+   "severity": "high",
+   "status": "verified",
+   "title": "A pick's identity changes when its slot changes, silently resetting your settings on it",
+   "symptom": "You tag your 2026 2nd \"untouchable\" before the order is published. The commissioner publishes the order, the pick becomes 2.12, and its attachment, class strength and adjusted price all reset; a pending offer containing it no longer matches anything.",
+   "cause": "Current-year pick keys embed the slot. Three tables and stored offers use that key as the identifier; only one of them cleans up after a slot change, and the code comments admit it.",
+   "evidence": [
+    "src/shared/league-data/accessors.ts:287",
+    "src/research-strategy/api/pickService.ts:139"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Slot-free identity (year, round, original team) for every season; slot carried as data; migrate stored keys once",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the slot in the key; add a step that rewrites every stored row whenever a slot changes",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-13",
+   "area": "picks",
+   "severity": "high",
+   "status": "verified",
+   "title": "Before the order is published, picks get a made-up slot and price",
+   "symptom": "Until Sleeper publishes the draft order, the team listed first in Sleeper's roster array is priced as if it holds the 1.01 and the twelfth as the 1.12. If Sleeper reorders the array, prices and keys change.",
+   "cause": "The pick builder always assigns a slot (roster index fallback). The \"slot unknown\" branch the code comments promise is unreachable.",
+   "evidence": [
+    "src/infrastructure/picks/index.ts:362",
+    "src/shared/league-data/accessors.ts:229"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Mark the slot unknown and price at the round midpoint until the order exists",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Price by projected finish, the same rule used for future-year picks",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-14",
+   "area": "picks",
+   "severity": "high",
+   "status": "verified",
+   "title": "Your adjusted pick prices are honoured by the advisor but ignored by the Studio",
+   "symptom": "You mark your 2027 1st untouchable with a stacked class; Set Availability shows it at base times 1.30. The Trade Studio still builds offers that ship it at base and calls them balanced; the advisor then grades the same package as a loss.",
+   "cause": "valueAsset returns your adjusted pick value only when asked with a perspective. Studio, the targets route and the engine's fill pool don't pass one for picks.",
+   "evidence": [
+    "src/pro-personnel/engine/studio/offers.ts:177",
+    "src/pro-personnel/engine/pricing.ts:62"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Apply the viewer rule to picks exactly as to players, everywhere",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Price picks at base everywhere, including the advisor",
+     "detail": "Your pick attachments and class strength would stop affecting any price."
+    }
+   ]
+  },
+  {
+   "id": "D-15",
+   "area": "picks",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Season and round limits are hardcoded, and the value sources are pinned to 2026",
+   "symptom": "Nothing visible yet. In March 2027 the nightly value refresh will find no \"2026 1.01\" in any source, wipe the source layer and rebuild from nothing. A 2029 pick or a round-4 pick traded on Sleeper would exist there and nowhere in the app.",
+   "cause": "PICK_YEAR = \"2026\" in all three value sources and the backfill; DEFAULT_PICK_SEASONS and DEFAULT_ROUNDS constants; the ownership horizon fixed at CFC year plus 2.",
+   "evidence": [
+    "src/infrastructure/values/sources/fantasycalc.ts:15",
+    "src/infrastructure/picks/index.ts:28",
+    "src/app/api/internal/refresh-values/route.ts:369"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Derive the pick year from the CFC year, and seasons/rounds from Sleeper's drafts and traded picks",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the constants; bump them by hand every March",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-16",
+   "area": "values",
+   "severity": "high",
+   "status": "verified",
+   "title": "The pick value ladder is never refreshed",
+   "symptom": "Player values move nightly; the 1.01 through 3.12 prices are whatever was last loaded by hand. Over a season the player-for-pick exchange rate quietly rots, and the same deal grades differently before and after someone reloads the ladder.",
+   "cause": "No code anywhere writes pick_template rows. The cron writes players only and uses each source's 1.01 as a denominator, then discards the rest of the pick curve.",
+   "evidence": [
+    "src/app/api/internal/refresh-values/route.ts:349",
+    "src/shared/league-data/accessors.ts:349"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Extend the nightly refresh to rebuild the ladder from the same sources, on the same $300 anchor",
+     "detail": "The sources already publish pick values; today they're thrown away.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the ladder manual, but add a small admin upload so it's a deliberate step",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-17",
+   "area": "values",
+   "severity": "medium",
+   "status": "verified",
+   "title": "The draft room's self-healing value path is either dead or writing wrong numbers",
+   "symptom": "When a rostered player has no value, the draft room tries to backfill him on load. That path writes to a staging table the docs say was dropped and calls a function that inserts into what is now a view, using a $1000 anchor instead of $300. Either it fails silently on every draft-room load, or it writes values 3.3 times too high.",
+   "cause": "/api/player-values calls rosterBackfill, which stages rows and calls the cfc_apply_value_upload function.",
+   "evidence": [
+    "src/infrastructure/identity/rosterBackfill.ts:353",
+    "supabase/migrations/003_fix_cfc_value_column.sql:151"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Remove the backfill; the draft room reads the same value feed as everything else",
+     "detail": "Unpriced players show as unpriced until the nightly cron, which owns the pipeline.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep it, after a live check proves it works, and fix the anchor",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-18",
+   "area": "values",
+   "severity": "medium",
+   "status": "verified",
+   "title": "\"Untouchable\" is worth +10% on a player and +20% on a pick",
+   "symptom": "Tag Ja'Marr Chase and your 2027 1st both untouchable: the player goes up 10%, the pick 20%, side by side under one legend on Set Availability.",
+   "cause": "Two modifier tables for one vocabulary. The pick one claims \"same scale for players and picks\" in a comment.",
+   "evidence": [
+    "src/research-strategy/api/service.ts:72",
+    "src/shared/asset-values/modifiers.ts:26"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One table for both, on the player scale (+10 / +5 / 0 / -5)",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "One table for both, on the pick scale (+20 / +5 / 0 / -5)",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Keep them different on purpose",
+     "detail": "Put the numbers you want in the note."
+    }
+   ]
+  },
+  {
+   "id": "D-19",
+   "area": "values",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Tags set during onboarding don't change values until the cron",
+   "symptom": "A new GM marks six players untouchable in onboarding. Set Availability shows the chips, but the prices ignore them until 8:00 UTC.",
+   "cause": "The onboarding attachment route saves the tags without the value rebuild that the Set Availability route triggers.",
+   "evidence": [
+    "src/app/api/onboarding/player-attachment/route.ts:91",
+    "src/app/api/research-strategy/attachment/route.ts:121"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Rebuild on onboarding save, same as Set Availability",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-20",
+   "area": "values",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Scouting-card letter grades are graded on the wrong scale",
+   "symptom": "On a prospect's scouting card the situation grade is A+ / \"Top 5\" for almost every landing spot, while the Draft Fit panel on the same screen says he's an immediate upgrade.",
+   "cause": "valueTier uses 80/65/50/35/20 thresholds against $300-scale team values, so every starter clears the top band.",
+   "evidence": [
+    "src/scouting/draft-room/grades.ts:179",
+    "src/app/api/scouting/draft/nfl-team-context/route.ts:30"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Grade by percentile of league values",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-21",
+   "area": "values",
+   "severity": "low",
+   "status": "verified",
+   "title": "Value edits take up to a minute to reach the Builder",
+   "symptom": "Set a $450 override, open the Trade Builder: the chip prices him at the old value for up to 60 seconds while Set Availability already shows $450.",
+   "cause": "The valuation context and the league bundle are memoized for 60 seconds with no invalidation on write.",
+   "evidence": [
+    "src/shared/asset-values/valuation.ts:80",
+    "src/shared/league-data/accessors.ts:499"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Clear the caches whenever a value, tag or override is saved",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-22",
+   "area": "engine",
+   "severity": "high",
+   "status": "verified",
+   "title": "One offer, four different grades",
+   "symptom": "The inbox tile, the memo card, the thread page rail and the stored grade can all disagree about the same offer. A Closer recipient can see green \"We should take this deal\" on the memo and yellow \"I'd push for more here\" on the thread page.",
+   "cause": "Four computations with different inputs: sender-seat values stored at creation, a recipient-seat read in the memo sweep, neutral per-asset stamps summed without any persona on the thread page, and the tile graded off the sender's numbers. The stored grade_label is rendered nowhere.",
+   "evidence": [
+    "src/app/api/pro-personnel/trades/create/route.ts:213",
+    "src/app/api/inbox/memos/sweep/route.ts:194",
+    "src/inbox/thread/ThreadPage.tsx:719",
+    "src/inbox/InboxPage.tsx:299"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One function everywhere: price from the viewer's seat, grade with the viewer's persona, computed live",
+     "detail": "Stored values stay as the sender's snapshot for history only.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Treat the grade stored at creation as canonical and show it everywhere",
+     "detail": "Frozen forever; ignores the recipient's own values and persona."
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-23",
+   "area": "engine",
+   "severity": "high",
+   "status": "verified",
+   "title": "The counter drawer prices both sides from your seat, then the sent counter is regraded another way",
+   "symptom": "The chip you drag the slider to is not the grade the system records when you send the counter.",
+   "cause": "The counter route values every asset on both rosters from your perspective and grades without a persona; the create route re-prices the partner's side at base and grades with your persona band.",
+   "evidence": [
+    "src/app/api/inbox/ai-counter/route.ts:148",
+    "src/inbox/thread/counterMath.ts:173"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "The drawer uses the same pricing lens and persona-aware grade as everything else",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the drawer as a \"what it's worth to us\" view, labelled as such",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-24",
+   "area": "engine",
+   "severity": "high",
+   "status": "verified",
+   "title": "Trade Studio runs a second engine that ignores persona bands",
+   "symptom": "The Studio surfaces a package to a Hustler at your ratio 0.98 and calls it fine; open the same package in the Builder and it reads \"needs selling\". The adapter that was written to route Studio through the main engine is never called.",
+   "cause": "The Studio generator filters on a hardcoded [0.80, 1.05] band and \"partner at least even\"; the main engine gates on the locked persona band table.",
+   "evidence": [
+    "src/pro-personnel/engine/studio/offers.ts:46",
+    "src/pro-personnel/engine/adapters.ts:84"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Route Studio through the main engine via the existing adapter; keep Studio's shape rules as adapter settings",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the separate engine but make it read the persona band table",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-25",
+   "area": "engine",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Mock-draft trade cards ignore the value gap and the persona",
+   "symptom": "A trade-back that nets +3 points of capital gets the same full-green \"We should take this deal\" as one netting +180. A Hustler partner is modelled exactly like a Closer.",
+   "cause": "The card hardcodes the verdict text and colour from a board-rank heuristic; both routes read the persona band and then discard it.",
+   "evidence": [
+    "src/scouting/mock-draft/MockDraftView.tsx:1385",
+    "src/app/api/scouting/mock-draft/trade-up/route.ts:199"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Route through the engine's scouting adapter and grade with the persona-aware function; keep the board-rank read as prose",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the heuristics but grade the card with the persona-aware function",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-26",
+   "area": "engine",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Inbox memo verdicts freeze at the moment they're minted",
+   "symptom": "A Monday memo keeps saying \"take this deal\" after Tuesday's value rebuild turned it into an overpay. The 36-hour reminder memo can show the opposite verdict two rows above it.",
+   "cause": "Verdict and colour are written into the memo payload and rendered verbatim forever.",
+   "evidence": [
+    "src/app/api/inbox/memos/sweep/route.ts:209",
+    "src/inbox/MemoBody.tsx:506"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Regrade at render time with the same function as the thread page",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep it frozen, but show \"graded on <date>\"",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-27",
+   "area": "engine",
+   "severity": "high",
+   "status": "verified",
+   "title": "Director memos are never generated",
+   "symptom": "The only code that writes director memos is the memo sweep route. Nothing in the repo or the Vercel cron calls it, and it has no secret check, so unless something outside the repo hits that URL, no memo has been minted since it was built.",
+   "cause": "/api/inbox/memos/sweep has no caller and isn't scheduled.",
+   "evidence": [
+    "src/app/api/inbox/memos/sweep/route.ts",
+    "vercel.json:2"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Schedule the sweep in the Vercel cron, gated by CRON_SECRET, once it grades live",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Something outside the repo already calls it; tell me what",
+     "detail": ""
+    },
+    {
+     "key": "C",
+     "label": "Drop the memo feature and its table",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-28",
+   "area": "identity",
+   "severity": "high",
+   "status": "verified",
+   "title": "Any signed-in GM can read or overwrite another team's data",
+   "symptom": "The API trusts whatever team id the browser sends. A GM can open another team's negotiation board, overwrite their strategy profile and trade values, or delete draft picks by sending the commissioner's roster id in the request body.",
+   "cause": "The middleware exempts every /api route from the login check; only three routes read the team from the auth cookie; the draft-log delete compares against a roster id supplied by the caller.",
+   "evidence": [
+    "middleware.ts:8",
+    "src/app/api/research-strategy/strategy/route.ts:38",
+    "src/app/api/scouting/draft/log/route.ts:303"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Resolve the team from the auth cookie on every write and every private read; explicit commissioner allowance for commissioner actions",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is (trusted league)",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-29",
+   "area": "identity",
+   "severity": "high",
+   "status": "verified",
+   "title": "Commissioner powers come from the literal Sleeper name \"Virginia Founders\"",
+   "symptom": "If the Founders rename their team inside Sleeper, commissioner mode disappears from the draft room. If another owner sets their Sleeper display name to \"Virginia Founders\", they get it.",
+   "cause": "Commissioner detection string-matches raw Sleeper names, duplicated in three places.",
+   "evidence": [
+    "src/infrastructure/commissioner.ts:1",
+    "src/infrastructure/sleeper/useSleeperData.ts:114"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Store the commissioner as a flag on the team record (or an env var), read from one place",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep the name match",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-30",
+   "area": "identity",
+   "severity": "high",
+   "status": "verified",
+   "title": "On mobile, the draft-room clock bar never knows it's your pick",
+   "symptom": "When you're on the clock, desktop shows the yellow \"You're on the clock\" bar; the mobile bar shows the neutral blue bar with your own team named as if it were an opponent.",
+   "cause": "The mobile clock bar reads only sessionStorage, which the draft room deletes on mount because no session id is ever created on the live route. Six different \"which team am I\" readers exist; the rule says one.",
+   "evidence": [
+    "src/scouting/draft-room/mobile/MobileClockBar.tsx:12",
+    "src/scouting/draft-room/DraftRoom.tsx:860"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "Every component uses the one shared reader (cookie first)",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "D-31",
+   "area": "identity",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Team names come from four places that are never reconciled",
+   "symptom": "A rename made directly in Supabase shows everywhere except the owner's own masthead and topbar (a cookie snapshot from login). Routes that read the team table without the Sleeper fallback show \"Team 12\" for a roster the dossiers and ticker name correctly. Three nickname algorithms give \"Matzos Balls\", \"Matzo Balls\" and \"Balls\" for one team in one session. The Historian uses its own franchise names.",
+   "cause": "Login-time cookie snapshot; raw team_email_map reads in four routes; three nickname functions; a separate warehouse name table.",
+   "evidence": [
+    "src/shared/league-data/teamIdentity.ts:107",
+    "src/app/api/pro-personnel/targets/route.ts:90",
+    "src/shared/util/teamNick.ts:8",
+    "src/inbox/thread/CounterDrawer.tsx:101"
+   ],
+   "options": [
+    {
+     "key": "A",
+     "label": "One name resolver and one nickname function everywhere; topbar and home refresh from the identity route; Historian keeps its warehouse names",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Same, and also push renames into the Historian's franchise table",
+     "detail": "Touches the warehouse."
+    },
+    {
+     "key": "C",
+     "label": "Leave as is",
+     "detail": ""
+    }
+   ]
+  }
+ ],
+ "cleanup_blocks": [
+  {
+   "id": "C-01",
+   "title": "Roster and player loaders onto the shared feed",
+   "bullets": [
+    "Delete useMyRoster (no importers) and the scouting intel data layer if its routes are confirmed dead.",
+    "Point the targets route, the trade-chart rebuild (own Sleeper client, own player dictionary, own age parser), the draft-room hook, onboarding, and the draft log/order/clock-context routes at the shared feed via one snapshot API for client components.",
+    "One Sleeper HTTP client, one position filter, one \"missing player\" rule, documented once."
+   ]
+  },
+  {
+   "id": "C-02",
+   "title": "Pick and year utilities",
+   "bullets": [
+    "One parsePickKey (moved into shared so shared never imports from a department; the engine re-exports it). Today: four full parsers plus five ad-hoc ones.",
+    "One formatPickLabel. Today: twelve label formats for the same pick.",
+    "One getCFCYear. Today: five verbatim copies. Commit the draft_log cfc_year column's definition alongside it.",
+    "One reader for the pick ladder (three readers filter the same rows differently). Name the 0-based draft_log pick_index versus the 1-based overall pick explicitly."
+   ]
+  },
+  {
+   "id": "C-03",
+   "title": "Value plumbing",
+   "bullets": [
+    "Direct value-table readers (inbox insider, nfl-team-context, pick-values, intel) go through valueAsset / getValues.",
+    "trades/create stores its base snapshot via valueAsset instead of its own future-pick rule (the two columns it writes today disagree and nothing reads them).",
+    "Stud flag keyed by Sleeper id everywhere, not by display name.",
+    "One wants_more vocabulary. Onboarding stores \"picks\"; the Trade Door and director prose test for \"draft_picks\", so the wants bonus is inert today."
+   ]
+  },
+  {
+   "id": "C-04",
+   "title": "Engine dead code and stale docs",
+   "bullets": [
+    "Delete the legacy pick pricer and its TGIF table (unreachable), the unused advisor context module, and the drifted band fields in the old studio persona file (re-export the locked table instead).",
+    "Fix the Studio pass-feedback score that inverts your ratio to guess the partner's (write-only column, but wrong training data).",
+    "Docs: CFC-APP-STATUS.md is a second copy of CFC-PREFERENCES.md with different persona bands; three docs state three different Closer bands; CLAUDE.md points at src/lib paths that no longer exist. Regenerate from code."
+   ]
+  },
+  {
+   "id": "C-05",
+   "title": "Identity plumbing",
+   "bullets": [
+    "readStoredTeam everywhere (draft room, mobile clock bar, onboarding); one SELECTED_TEAM_CACHE_KEY constant instead of four.",
+    "GM names and negotiation personalities keyed by the rename-proof base slug, not the display name (a rename drops the inbox GM name and the Founders' negotiation profile today).",
+    "Home screen uses a neutral placeholder instead of \"Virginia Founders\" before the cookie loads.",
+    "One \"Team N\" fallback label (today: Team N, Roster N, Unknown Team, Demo Team). draft_log team names resolved at read time, not stored from the client.",
+    "Supabase client imported only from infrastructure (six inline createClient copies today)."
+   ]
+  },
+  {
+   "id": "C-06",
+   "title": "Dead routes and modules",
+   "bullets": [
+    "Routes with no caller anywhere: /api/league/{profiles,needs,dossiers}, /api/pro-personnel/debug/* (7), /api/scouting/intel/* (5), /api/scouting/memos/* (3), /api/scouting/draft-sim and /round1, /api/llm/health.",
+    "Modules with no importers: historian/leagueHistorySync.ts, infrastructure/league/leagueRankings.ts, components/research-strategy/pickDisplay.ts, the apply_pc_atomic.py codemod (targets files that no longer exist), scripts/build-studio-*.mjs (hardcoded, stale team map).",
+    "Admin ingest routes stay (secret-gated, manual). If you'd rather keep the debug routes behind ADMIN_SECRET instead of deleting them, say so in the note."
+   ]
+  }
+ ],
+ "db_rows": [
+  {
+   "id": "DB-01",
+   "severity": "medium",
+   "status": "verified",
+   "title": "Dead-code tables written only by the orphaned historian sync",
+   "tables": [
+    "league_seasons",
+    "league_users",
+    "league_teams",
+    "league_roster_snapshots",
+    "league_roster_players",
+    "league_drafts",
+    "league_draft_picks",
+    "league_matchups",
+    "league_matchup_teams",
+    "league_transactions",
+    "league_transaction_assets",
+    "league_traded_picks",
+    "league_playoff_bracket_games",
+    "league_final_standings",
+    "league_champions"
+   ],
+   "why": "Their only writer is a module nothing imports; nothing reads them. They may hold the only normalized copy of some Sleeper seasons, so dump before dropping.",
+   "options": [
+    {
+     "key": "A",
+     "label": "Archive dump, soft-rename two weeks, then drop",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "DB-02",
+   "severity": "high",
+   "status": "verified",
+   "title": "Raw API payload caches",
+   "tables": [
+    "slp_raw_global",
+    "slp_raw_smoke",
+    "slp_raw_players_catalog",
+    "flea_raw_global",
+    "flea_raw_smoke",
+    "flea_raw_fetchtrades",
+    "mfl_raw_global",
+    "mfl_raw_smoke"
+   ],
+   "why": "You chose archive-then-drop. One nuance: the two slp_raw tables are live inputs to five admin builder routes, so dropping them disables those routes until Sleeper is re-pulled. Fleaflicker and MFL raw payloads may not be re-downloadable, so the dump becomes the archive of record.",
+   "options": [
+    {
+     "key": "A",
+     "label": "Archive and drop all of them; retire the admin routes that depend on them",
+     "detail": "Your stated decision, applied fully.",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Archive and drop the Fleaflicker and MFL caches only; keep the Sleeper caches for repeatable rebuilds",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "DB-03",
+   "severity": "high",
+   "status": "reported",
+   "title": "Sleeper mirror and build tables",
+   "tables": [
+    "slp_leagues_mirror",
+    "slp_transactions_mirror",
+    "slp_transaction_items",
+    "slp_lineups_weekly",
+    "slp_lineup_stats",
+    "slp_starters_enriched",
+    "slp_player_weekly_game_log",
+    "slp_player_weekly_presence",
+    "slp_player_playoff_game_log",
+    "slp_playoff_true_games",
+    "slp_weekly_high_scores",
+    "slp_mirror_draft_results"
+   ],
+   "why": "Nothing in the app reads these. Several have no writer in the repo either. They are almost certainly the feed for the ETL that builds the Historian's llm_* tables, and that ETL lives outside this repo. slp_mirror_draft_results is also the input to the master draft-pick rebuild.",
+   "options": [
+    {
+     "key": "A",
+     "label": "Keep until the live check shows how llm_* is built; then archive and drop whatever nothing depends on",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Archive and drop now",
+     "detail": "Risk: the Historian can no longer be rebuilt."
+    }
+   ]
+  },
+  {
+   "id": "DB-04",
+   "severity": "medium",
+   "status": "reported",
+   "title": "Fleaflicker and MFL mirror tables",
+   "tables": [
+    "flea_mirror_teams",
+    "flea_mirror_player_listing_nodes",
+    "flea_mirror_player_scores_weekly",
+    "flea_mirror_roster_players_weekly",
+    "mfl_mirror_players",
+    "mfl_mirror_rosters_current",
+    "mfl_mirror_lineup_entries"
+   ],
+   "why": "Read by the ingest routes as seed lists, written by nothing in the repo. Besides llm_*, they are the only structured record of the Fleaflicker and MFL years.",
+   "options": [
+    {
+     "key": "A",
+     "label": "Keep",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Archive and drop with the raw caches",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "DB-05",
+   "severity": "medium",
+   "status": "reported",
+   "title": "Orphans and leftovers",
+   "tables": [
+    "watchlist",
+    "cfc_team_roster_players",
+    "cfc_team_value_preferences",
+    "cfc_team_asset_values_current",
+    "definitive_values",
+    "tgif_pick_anchors",
+    "player_values",
+    "trade_values_debug_patch",
+    "trade values raw upload",
+    "unmatched players",
+    "trades",
+    "cfc_manual_player_mappings",
+    "cfc_team_manual_value_overrides",
+    "audit_draft_pick_player_fix_backup_20260325",
+    "audit_draft_pick_player_fix_staging",
+    "trade_studio_feedback",
+    "cfc_value_upload_staging"
+   ],
+   "why": "None are read by the app. The docs say several were dropped in May 2026, but the July schema snapshot still lists cfc_team_value_preferences and definitive_values, so the docs can't be trusted on this. The audit_* pair is a March 2026 repair backup worth keeping in the dump.",
+   "options": [
+    {
+     "key": "A",
+     "label": "Archive and drop each one the live check shows has zero dependents",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep all",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "DB-06",
+   "severity": "high",
+   "status": "verified",
+   "title": "Canonical history and its rebuild function",
+   "tables": [
+    "ff_master_draft_picks",
+    "ff_master_transactions",
+    "ff_master_transaction_items",
+    "ff_source_franchise_map",
+    "ff_source_player_map",
+    "llm_seasons",
+    "llm_franchises",
+    "llm_players",
+    "llm_season_weeks",
+    "llm_season_records",
+    "llm_team_games",
+    "llm_player_games",
+    "llm_draft_picks",
+    "llm_transactions"
+   ],
+   "why": "Keep, all of it. Two things to fix while here: the master draft-pick rebuild function creates a temp table it never drops (a second run on the same connection fails), and it truncates ff_master_draft_picks then re-inserts the Fleaflicker/MFL rows from itself, so a run while those rows are missing would destroy them. The docs also name different column names for ff_source_franchise_map than the function requires.",
+   "options": [
+    {
+     "key": "A",
+     "label": "Keep, and harden the rebuild function (drop the temp table, guard the truncate, verify columns)",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep as is",
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "id": "DB-07",
+   "severity": "low",
+   "status": "verified",
+   "title": "Live tables with no migration on file",
+   "tables": [
+    "cfc_big_board_rankings",
+    "cfc_big_board_tiers",
+    "cfc_big_board_stars",
+    "cfc_director_memos",
+    "cfc_trade_passes",
+    "cfc_team_draft_class_strength",
+    "cfc_studio_offer_feedback",
+    "active_teams",
+    "rookie_prospects",
+    "cfc_trade_values_current (view)",
+    "cfc_rebuild_value_layers (function)"
+   ],
+   "why": "These run the app today but their definitions exist only in the live database (the director-memos migration file is empty). Every view and function in the system is unversioned.",
+   "options": [
+    {
+     "key": "A",
+     "label": "Keep, and capture their real DDL into a baseline migration so the schema is versioned",
+     "detail": "",
+     "recommended": true
+    },
+    {
+     "key": "B",
+     "label": "Keep, no migration",
+     "detail": ""
+    }
+   ]
+  }
+ ],
+ "live_checks": [
+  "Row counts and on-disk size for every slp_, flea_, mfl_, league_, llm_ and ff_ table.",
+  "Dependency sweep (views, materialized views, foreign keys, triggers, policies) for every drop candidate.",
+  "How llm_* is populated: a SQL function, pg_cron job, edge function, or an external job. This decides whether the mirrors can go.",
+  "Is cfc_trade_values_current a view or a table, and does it have an insert rule? Decides whether the draft-room backfill ever worked.",
+  "Does cfc_value_upload_staging still exist? What is the pick_template rows' asset_key format?",
+  "Is draft_log.cfc_year a generated column, and what boundary does it use?",
+  "Do LLM_DATABASE_URL and NEXT_PUBLIC_SUPABASE_URL point at the same database?",
+  "Column names on ff_source_franchise_map versus what the rebuild function requires; current contents of ff_master_draft_picks by platform and year.",
+  "Which of the two cfc_apply_value_upload definitions is live; existence of the docs-dropped tables."
+ ],
+ "access_needed": [
+  "Environment variables on the cloud environment: NEXT_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SLEEPER_LEAGUE_ID, and LLM_DATABASE_URL if the Historian uses its own connection string.",
+  "Network allowlist on the cloud environment: api.sleeper.app and your Supabase project host. The sandbox currently blocks Sleeper, so no live before/after test can run until this is set.",
+  "Both take effect in a new session; the current one keeps the old settings."
+ ]
+}
