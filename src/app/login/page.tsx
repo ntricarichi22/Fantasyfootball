@@ -43,6 +43,13 @@ function LoginForm() {
   const [resetSending, setResetSending] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
+  const reportAuthFailure = (identifier: string, reason: string) => {
+    void fetch("/api/security/auth-failure", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identifier, reason }), keepalive: true,
+    }).catch(() => undefined);
+  };
+
   const handleEmailSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmed = email.trim().toLowerCase();
@@ -121,6 +128,13 @@ function LoginForm() {
         return;
       }
 
+      if (signupJson?.confirmationRequired) {
+        setFormError("Check your email to verify the account, then return here to sign in.");
+        setStep("existing-password");
+        setSubmitting(false);
+        return;
+      }
+
       // Sign in with the newly-created credentials
       if (!supabase) throw new Error("client_unavailable");
       const { error: signInError } = await supabase.auth.signInWithPassword({
@@ -128,6 +142,7 @@ function LoginForm() {
         password,
       });
       if (signInError) {
+        reportAuthFailure(trimmed, "new_account_sign_in_rejected");
         setFormError("Account created but sign-in failed. Please try signing in.");
         setSubmitting(false);
         return;
@@ -157,6 +172,7 @@ function LoginForm() {
         password,
       });
       if (signInError) {
+        reportAuthFailure(trimmed, "credentials_rejected");
         setFormError("Incorrect password. Please try again.");
         setSubmitting(false);
         return;

@@ -8,6 +8,7 @@ import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
 import { normalizePersona } from "@/pro-personnel/engine/core/personas";
 import type { Gap } from "@/pro-personnel/engine/core/types";
 import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
+import { appSessionFromRequest, sessionCanActForRoster } from "@/infrastructure/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -168,6 +169,10 @@ export async function POST(request: NextRequest) {
 
   const league_id = LEAGUE_ID;
   if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+  const session = await appSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!sessionCanActForRoster(session, league_id, from_team_id) || from_team_id === to_team_id)
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
@@ -242,13 +247,17 @@ export async function POST(request: NextRequest) {
   if (parent_offer_id) {
     const { data: parent, error: parentError } = await client
       .from("trade_offers")
-      .select("thread_id")
+      .select("thread_id, from_team_id, to_team_id")
       .eq("id", parent_offer_id)
       .eq("league_id", league_id)
       .single();
     if (parentError || !parent) {
       return NextResponse.json({ error: "Parent offer not found" }, { status: 404 });
     }
+    const parentTeams = [String(parent.from_team_id), String(parent.to_team_id)].sort();
+    const requestTeams = [from_team_id, to_team_id].sort();
+    if (parentTeams[0] !== requestTeams[0] || parentTeams[1] !== requestTeams[1])
+      return NextResponse.json({ error: "Parent offer participants do not match" }, { status: 403 });
     threadId = parent.thread_id ?? null;
 
     // Mark the parent as countered. Only changes status if it's still pending —

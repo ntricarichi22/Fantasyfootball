@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
+import { appSessionFromRequest, sessionCanAccessTeamPair } from "@/infrastructure/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 /* ------------------------------------------------------------------ */
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> },
 ) {
   const { threadId } = await params;
@@ -18,11 +19,18 @@ export async function GET(
   if (!league_id) {
     return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   }
+  const session = await appSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
+  const { data: thread } = await client.from("trade_threads")
+    .select("team_a_id, team_b_id").eq("id", threadId).eq("league_id", league_id).maybeSingle();
+  if (!thread) return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+  if (!sessionCanAccessTeamPair(session, league_id, String(thread.team_a_id), String(thread.team_b_id)))
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { data, error } = await client
     .from("trade_messages")
@@ -71,11 +79,21 @@ export async function POST(
   if (!league_id) {
     return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   }
+  const session = await appSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (session.role === "member" && session.rosterId !== from_team_id)
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
+  const { data: thread } = await client.from("trade_threads")
+    .select("team_a_id, team_b_id").eq("id", threadId).eq("league_id", league_id).maybeSingle();
+  if (!thread) return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+  if (!sessionCanAccessTeamPair(session, league_id, String(thread.team_a_id), String(thread.team_b_id)) ||
+      ![String(thread.team_a_id), String(thread.team_b_id)].includes(from_team_id))
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { data, error } = await client
     .from("trade_messages")

@@ -67,11 +67,10 @@ function isAuthorized(request: NextRequest): boolean {
   if (process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`) {
     return true;
   }
-  // Manual runs use ADMIN_SECRET (header or query param)
+  // Manual runs use ADMIN_SECRET in an Authorization header. Secrets in URLs
+  // leak into browser history, proxy logs, and monitoring traces.
   if (process.env.ADMIN_SECRET) {
     if (auth === `Bearer ${process.env.ADMIN_SECRET}`) return true;
-    const querySecret = request.nextUrl.searchParams.get("secret");
-    if (querySecret === process.env.ADMIN_SECRET) return true;
   }
   return false;
 }

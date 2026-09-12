@@ -1,0 +1,5 @@
+# Local-only project identifier used by the disposable CI stack.
+project_id = "fantasyfootball_migration_ci"
+
+[db]
+major_version = 15

@@ -240,6 +240,7 @@ export async function POST(req: Request) {
 
       const makeProse = () =>
         generateOfferProse({
+          request: req,
           client,
           leagueId: LEAGUE_ID,
           teamId,

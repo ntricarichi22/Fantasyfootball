@@ -1,0 +1,61 @@
+name: Supabase Migration CI
+
+on:
+  pull_request:
+    paths:
+      - "supabase/**"
+      - "scripts/validate-supabase-migrations.bash"
+      - ".github/workflows/supabase-*.yml"
+  push:
+    branches: [main]
+    paths:
+      - "supabase/**"
+      - "scripts/validate-supabase-migrations.bash"
+      - ".github/workflows/supabase-*.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-migration-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migrations:
+    name: Validate migrations in disposable database
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out the reviewed revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Validate migration filenames and ordering
+        run: ./scripts/validate-supabase-migrations.bash
+
+      - name: Install pinned Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.45.5
+
+      - name: Start isolated local Supabase stack and apply migrations
+        run: supabase start
+
+      - name: Rebuild the disposable database from migration history
+        run: supabase db reset --local
+
+      - name: Lint the migrated database
+        run: supabase db lint --local --level error
+
+      - name: Run database tests when present
+        shell: bash
+        run: |
+          if find supabase/tests/database -type f -name '*.sql' -print -quit 2>/dev/null | grep -q .; then
+            supabase test db
+          else
+            echo "No database tests are currently checked in."
+          fi
+
+      - name: Stop disposable stack
+        if: always()
+        run: supabase stop --no-backup

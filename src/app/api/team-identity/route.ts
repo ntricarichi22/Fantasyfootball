@@ -44,7 +44,7 @@ const NAME_MAX = 30;
 
 export async function POST(request: NextRequest) {
   try {
-    const rosterId = rosterIdFromCookies(request);
+    const rosterId = await rosterIdFromCookies(request);
     if (!rosterId) {
       return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
     }
@@ -67,7 +67,7 @@ export async function POST(request: NextRequest) {
     // Names double as crest lookup keys league-wide — keep them unique.
     const { data: allRows } = await client
       .from("team_email_map")
-      .select("roster_id, team_name, email");
+      .select("roster_id, team_name");
     const taken = (allRows ?? []).some(
       (r) =>
         String(r.roster_id) !== rosterId &&
@@ -86,10 +86,6 @@ export async function POST(request: NextRequest) {
     invalidateTeamIdentities();
 
     // Same cookie contract as /api/auth/finalize.
-    const email =
-      request.cookies.get("cfc_email")?.value ||
-      (allRows ?? []).find((r) => String(r.roster_id) === rosterId)?.email ||
-      "";
     const cookieOptions = {
       path: "/",
       maxAge: 60 * 60 * 24 * 90,
@@ -103,7 +99,7 @@ export async function POST(request: NextRequest) {
     });
     response.cookies.set(
       "cfc_identity",
-      JSON.stringify({ rosterId, teamName, email }),
+      JSON.stringify({ rosterId, teamName }),
       { ...cookieOptions, httpOnly: false }
     );
     return response;

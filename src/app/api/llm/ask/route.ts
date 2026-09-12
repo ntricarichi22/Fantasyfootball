@@ -1,3 +1,4 @@
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
 import { SCHEMA_CONTEXT } from "@/infrastructure/llm/schema-context";
@@ -110,10 +111,11 @@ type AnthropicResponse = {
 };
 
 async function callClaude(
+  request: Request,
   apiKey: string,
   messages: AnthropicMessage[]
 ): Promise<AnthropicResponse> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await meteredAnthropicFetch(request, { feature: "historian", model: "claude-sonnet-4-5", maxInputTokens: 12000, maxOutputTokens: 2048 }, {
     method: "POST",
     headers: {
       "x-api-key": apiKey,
@@ -157,6 +159,7 @@ async function callClaude(
 // Main agent loop
 // ============================================================
 async function runAgent(
+  request: Request,
   apiKey: string,
   pool: Pool,
   question: string
@@ -176,7 +179,7 @@ async function runAgent(
   const MAX_TURNS = 12;
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await callClaude(apiKey, messages);
+    const response = await callClaude(request, apiKey, messages);
     totalInputTokens += response.usage?.input_tokens ?? 0;
     totalOutputTokens += response.usage?.output_tokens ?? 0;
 
@@ -249,7 +252,7 @@ async function runAgent(
 // ============================================================
 // Route handlers (GET for browser testing, POST for app)
 // ============================================================
-async function handleAsk(question: string) {
+async function handleAsk(request: Request, question: string) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   const dbUrl = process.env.LLM_DATABASE_URL;
 
@@ -269,7 +272,7 @@ async function handleAsk(question: string) {
   const pool = getPool(dbUrl);
 
   try {
-    const result = await runAgent(apiKey, pool, question);
+    const result = await runAgent(request, apiKey, pool, question);
     return NextResponse.json({
       ok: true,
       question,
@@ -296,7 +299,7 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     );
   }
-  return handleAsk(question);
+  return handleAsk(request, question);
 }
 
 export async function POST(request: NextRequest) {
@@ -317,5 +320,5 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  return handleAsk(question);
+  return handleAsk(request, question);
 }

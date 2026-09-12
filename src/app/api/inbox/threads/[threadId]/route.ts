@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
+import { appSessionFromRequest, sessionCanAccessTeamPair } from "@/infrastructure/auth/session";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 /* ------------------------------------------------------------------ */
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> },
 ) {
   try {
@@ -24,6 +25,8 @@ export async function GET(
   if (!league_id) {
     return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   }
+  const session = await appSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
@@ -47,6 +50,9 @@ export async function GET(
 
   if (threadRes.error || !threadRes.data) {
     return NextResponse.json({ error: "Thread not found" }, { status: 404 });
+  }
+  if (!sessionCanAccessTeamPair(session, league_id, String(threadRes.data.team_a_id), String(threadRes.data.team_b_id))) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   if (offersRes.error) {

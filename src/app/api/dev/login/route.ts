@@ -1,6 +1,6 @@
 // POST/GET /api/dev/login — DEV-ONLY team impersonation.
 //
-// Production auth runs through Supabase magic-link → /api/auth/finalize, which
+// Production auth runs through Supabase email/password → /api/auth/finalize, which
 // sets the identity cookies from team_email_map. That flow needs a real email
 // inbox, which is painful for local UI testing. This route is a dev shortcut:
 // it sets the SAME cookie set finalize does, for any roster_id in the league,
@@ -16,6 +16,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { appSessionCookie, createAppSession } from "@/infrastructure/auth/session";
+import { LEAGUE_ID } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,7 @@ const IDENTITY_COOKIES = [
   "cfc_team_name",
   "cfc_email",
   "cfc_profile_complete",
+  "cfc_session",
 ];
 
 type TeamRow = {
@@ -104,7 +107,6 @@ export async function POST(request: NextRequest) {
   if (!teamRow) return NextResponse.json({ error: `unknown roster_id: ${rosterId}` }, { status: 404 });
 
   const rid = String(teamRow.roster_id);
-  const email = (teamRow.email ?? "dev@local").toLowerCase().trim();
   const profileComplete = teamRow.profile_complete ?? true;
 
   const res = NextResponse.json({
@@ -113,13 +115,18 @@ export async function POST(request: NextRequest) {
   });
 
   // Same cookie contract as /api/auth/finalize.
+  res.cookies.set(appSessionCookie.name, await createAppSession({
+    userId: `dev:${rid}`,
+    leagueId: LEAGUE_ID,
+    rosterId: rid,
+    role: "admin",
+  }), { ...appSessionCookie.options, secure: false });
   res.cookies.set("cfc_roster_id", rid, { ...COOKIE_BASE, httpOnly: true });
   res.cookies.set("cfc_team_name", encodeURIComponent(teamRow.team_name), { ...COOKIE_BASE, httpOnly: true });
-  res.cookies.set("cfc_email", email, { ...COOKIE_BASE, httpOnly: true });
   res.cookies.set("cfc_profile_complete", String(profileComplete), { ...COOKIE_BASE, httpOnly: false });
   res.cookies.set(
     "cfc_identity",
-    JSON.stringify({ rosterId: rid, teamName: teamRow.team_name, email }),
+    JSON.stringify({ rosterId: rid, teamName: teamRow.team_name }),
     { ...COOKIE_BASE, httpOnly: false },
   );
 

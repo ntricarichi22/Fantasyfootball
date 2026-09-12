@@ -1,5 +1,6 @@
 "use client";
 
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import RosterPanel, { type AddSide } from "@/inbox/thread/RosterPanel";
@@ -269,7 +270,7 @@ export default function CounterDrawer({
       const ac = new AbortController();
       readAbort.current = ac;
       setReadLoading(true);
-      fetch("/api/inbox/counter-read", {
+      authenticatedAiFetch("/api/inbox/counter-read", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

@@ -1,5 +1,6 @@
 "use client";
 
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import RosterPanel, { type RosterAssetItem } from "./RosterPanel";
@@ -216,7 +217,7 @@ export default function TradeStudioView() {
       ...offer.receive.map(a => ({ key: a.key, name: a.name, fromTeamId: offer.partnerTeamId, toTeamId: rosterId })),
     ];
 
-    fetch("/api/pro-personnel/advisor", {
+    authenticatedAiFetch("/api/pro-personnel/advisor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
