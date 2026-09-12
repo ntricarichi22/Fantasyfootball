@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 export type Identity = {
   rosterId: string;
   teamName: string;
-  email: string;
 };
 
 export const useIdentity = (): Identity | null => {
@@ -18,7 +17,7 @@ export const useIdentity = (): Identity | null => {
       if (!match) return;
       const raw = decodeURIComponent(match.split("=")[1]);
       const parsed = JSON.parse(raw);
-      if (parsed?.rosterId && parsed?.teamName && parsed?.email) {
+      if (parsed?.rosterId && parsed?.teamName) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setIdentity(parsed as Identity);
       }
