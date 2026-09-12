@@ -121,6 +121,13 @@ function LoginForm() {
         return;
       }
 
+      if (signupJson?.confirmationRequired) {
+        setFormError("Check your email to verify the account, then return here to sign in.");
+        setStep("existing-password");
+        setSubmitting(false);
+        return;
+      }
+
       // Sign in with the newly-created credentials
       if (!supabase) throw new Error("client_unavailable");
       const { error: signInError } = await supabase.auth.signInWithPassword({
