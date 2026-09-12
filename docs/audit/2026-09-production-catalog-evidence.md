@@ -47,3 +47,17 @@ restore, storage-object recovery, and destructive approval remain outstanding.
 Both existing Supabase projects are production applications and are prohibited
 as restore targets. The proposed temporary physical-backup clone remains
 unapproved and was not created.
+
+## Fixed pick ladder disclosure
+
+The user explicitly approved disclosure of the nonpersonal ladder/schema
+payload to this task. A read-only capture at
+`2026-09-12T16:00:03.925094+00:00` returned exactly 36 `pick_template` rows.
+Version `2026-09-12.v1` freezes slots 1.01–1.12 at
+300,250,230,200,190,175,165,155,145,135,125,115; slots 2.01–2.12 at
+100,85,75,68,61,54,47,41,35,31,27,24; and slots 3.01–3.12 at
+22,20,18,16,14,12,10,9,8,7,6,5. Migration 019 records this provenance and
+fails rather than overwrite a conflicting effective or manual value. The
+runtime uses the same versioned constant. Round four and later remain
+explicitly unpriced unless a future separately approved ladder version adds
+anchors; this does not cap dynamic pick seasons or rounds.

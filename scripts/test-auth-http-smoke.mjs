@@ -210,6 +210,32 @@ try {
   assert.equal(spoofedThread.response.status, 403, "member cannot spoof the thread creator");
   const legitimateThread = await post("/api/inbox/threads", { team_a_id: "1", team_b_id: "2", created_by_team_id: "1" }, { cookie: memberCookie });
   assert.equal(legitimateThread.response.status, 200, "real counterpart thread succeeds");
+  const unrelated = await pool.query(`INSERT INTO public.trade_threads
+    (league_id,team_a_id,team_b_id,created_by_team_id) VALUES ($1,'2','3','2') RETURNING id`, [league]);
+  const unrelatedOffer = await pool.query(`INSERT INTO public.trade_offers
+    (league_id,from_team_id,to_team_id,assets_from,assets_to,from_value,to_value,grade_label,status,thread_id)
+    VALUES ($1,'2','3',$2,$3,1,1,'Private marker','pending',$4) RETURNING id`,
+    [league, JSON.stringify([{ key: "player:private-a", label: "PRIVATE-ASSET-A", type: "player" }]),
+      JSON.stringify([{ key: "player:private-b", label: "PRIVATE-ASSET-B", type: "player" }]), unrelated.rows[0].id]);
+  const invalidTradeTab = await app("/api/inbox/trades/list?teamId=1&tab=everything", { headers: { cookie: memberCookie } });
+  assert.equal(invalidTradeTab.response.status, 400, "unknown trade tabs fail before a service-role query");
+  assert.doesNotMatch(JSON.stringify(invalidTradeTab.body), /PRIVATE-ASSET/, "invalid tabs disclose no unrelated assets");
+  assert.equal((await app("/api/inbox/trades/list?teamId=1&tab=", { headers: { cookie: memberCookie } })).response.status,
+    400, "empty trade tabs are rejected");
+  assert.equal((await app("/api/inbox/trades/list?teamId=1&tab=%00sent", { headers: { cookie: memberCookie } })).response.status,
+    400, "malformed trade tabs are rejected");
+  const ownInbox = await app("/api/inbox/trades/list?teamId=1&tab=inbox", { headers: { cookie: memberCookie } });
+  assert.equal(ownInbox.response.status, 200);
+  assert.doesNotMatch(JSON.stringify(ownInbox.body), /PRIVATE-ASSET/, "owned inbox excludes another pair's offers");
+  const foreignOffer = await app(`/api/inbox/trades/list?offerId=${unrelatedOffer.rows[0].id}`, { headers: { cookie: memberCookie } });
+  assert.equal(foreignOffer.response.status, 404, "single-offer reads reject nonparticipants without enumeration");
+  assert.doesNotMatch(JSON.stringify(foreignOffer.body), /PRIVATE-ASSET/, "foreign offer denial exposes no negotiation payload");
+  const unrelatedCounter = await post("/api/inbox/ai-counter", { thread_id: unrelated.rows[0].id, counter_team_id: "1" }, { cookie: memberCookie });
+  assert.equal(unrelatedCounter.response.status, 404, "owned roster plus unrelated thread receives non-enumerating denial");
+  const crossLeague = await pool.query(`INSERT INTO public.trade_threads
+    (league_id,team_a_id,team_b_id,created_by_team_id) VALUES ('ci-other-league','1','2','1') RETURNING id`);
+  assert.equal((await post("/api/inbox/ai-counter", { thread_id: crossLeague.rows[0].id, counter_team_id: "1" }, { cookie: memberCookie })).response.status,
+    404, "cross-league counter thread receives the same non-enumerating denial");
 
   const commissionerLogin = await login(emails.commissioner);
   const commissionerFinal = await finalize(commissionerLogin.body.accessToken);

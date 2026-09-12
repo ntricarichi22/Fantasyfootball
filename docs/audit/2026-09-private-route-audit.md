@@ -41,3 +41,24 @@ The disposable HTTP fixture exercises absent, forged, tampered, revoked,
 cross-league, foreign-roster, commissioner-own-roster, Builder, strategy,
 mock-draft adapter, and draft-state boundaries. This is CI evidence only; it is
 not production rollout evidence.
+
+## Independent review findings resolved
+
+- **A — trade list:** only `inbox` and `sent` are accepted; empty/malformed tabs
+  fail before query construction. List and single-offer queries are explicitly
+  participant-scoped, and foreign single IDs return a non-enumerating response.
+- **B — AI counter:** the current-league thread is loaded first and the owned
+  roster must be an actual participant. The pending offer must contain exactly
+  that thread's pair before any dossiers, strategies, rosters, or values load.
+- **C — targets:** only the caller's strategy and attachment rows are loaded.
+  Counterparty assets use neutral public availability; saved counterpart
+  profile/attachment inputs are not returned.
+- **D — insider:** active negotiation chains are selected only from threads in
+  which the caller participates. Completed-deal headlines and explicit public
+  availability remain league activity; unrelated open offers are not loaded.
+- **E — commissioner:** migration 012 deliberately backfills members only. A
+  private direct-database operator script assigns exactly one verified
+  `(user_id, league_id)` membership after review; no email/team-name heuristic
+  or application self-promotion path exists. pgTAP covers rename stability,
+  member denial, and self-promotion denial; existing revocation tests cover
+  removal of authority.

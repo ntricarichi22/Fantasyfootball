@@ -24,6 +24,7 @@ import {
   type SleeperUser,
 } from "./sleeper";
 import { getTeamNameOverrides } from "./teamIdentity";
+import { FIXED_PICK_LADDER } from "@/shared/asset-values/fixedPickLadder";
 import { deriveOwnablePickShape, deriveSpentPickNumbers, isPickSpentInSeason } from "./picks";
 import {
   POSITIONS,
@@ -435,19 +436,11 @@ export async function getPickOwnership(): Promise<Map<string, OwnedPick[]>> {
 
 // Canonical slot ladder from the pick_template rows (display_name -> cfc_value).
 export async function getPickValues(): Promise<PickLadder> {
-  const ladder: PickLadder = new Map();
-  const admin = getSupabaseAdminClient();
-  if (!admin.client) return ladder;
-  const { data } = await admin.client
-    .from("cfc_trade_values_current")
-    .select("display_name, cfc_value, asset_type")
-    .eq("asset_type", "pick_template");
-  for (const row of (data ?? []) as Array<{ display_name: string | null; cfc_value: number | null }>) {
-    if (row.display_name && /^\d+\.\d+$/.test(row.display_name) && typeof row.cfc_value === "number") {
-      ladder.set(row.display_name, row.cfc_value);
-    }
-  }
-  return ladder;
+  // D-16 is deliberately code/version pinned. Database rows are seeded by 019
+  // for auditability, but runtime pricing cannot drift when a row is missing or
+  // edited. Rounds without an approved anchor remain explicitly unpriced (0 at
+  // the valuation boundary), while seasons remain dynamically unbounded.
+  return new Map(FIXED_PICK_LADDER);
 }
 
 export async function getLeagueSettings(): Promise<LeagueSettings> {

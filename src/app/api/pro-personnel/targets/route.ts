@@ -3,6 +3,7 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { getLeagueData, getSleeperLeagueId, formatPickLabel } from "@/shared/league-data";
 import { buildValuationContext, valueAsset, isYoung } from "@/shared/asset-values";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { targetResponse, visibleAttachment } from "./targetVisibility";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -68,8 +69,10 @@ export async function GET(request: NextRequest) {
   const valCtx = await buildValuationContext();
 
   const [attachRes, stratRes] = await Promise.all([
-    client.from("cfc_team_player_attachment").select("team_id, sleeper_player_id, attachment").eq("league_id", league_id),
-    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market").eq("league_id", league_id),
+    client.from("cfc_team_player_attachment").select("team_id, sleeper_player_id, attachment")
+      .eq("league_id", league_id).eq("team_id", teamId),
+    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market")
+      .eq("league_id", league_id).eq("team_id", teamId),
   ]);
 
   const attachments = (attachRes.data ?? []) as AttachRow[];
@@ -96,7 +99,9 @@ export async function GET(request: NextRequest) {
       const name = info.name;
       const pos = info.position;
       const age = info.age;
-      const att = attMap[`${rid}:${pid}`] || "core";
+      // Only the caller's private attachment rows are loaded. Counterparty
+      // availability defaults to neutral and is never reconstructable here.
+      const att = visibleAttachment(rid, teamId, pid, attMap);
       const isStud = league.values.isStud.get(pid) ?? false;
       const isYouth = isYoung(pos, age, info.exp);
       const needW = myNeeds[pos] ?? 0;
@@ -174,8 +179,5 @@ export async function GET(request: NextRequest) {
   });
   rankings.sort((a, b) => b.score - a.score);
 
-  const profileMap: Record<string, StratRow> = {};
-  for (const s of strategies) profileMap[s.team_id] = s;
-
-  return NextResponse.json({ targets, rankings, rosters: allRosters, profiles: profileMap });
+  return NextResponse.json(targetResponse({ targets, rankings, rosters: allRosters }));
 }

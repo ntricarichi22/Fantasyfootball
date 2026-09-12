@@ -6,6 +6,9 @@ import type { AppSession } from "../src/infrastructure/auth/session.ts";
 import { authorizeThreadCreation } from "../src/app/api/inbox/threads/threadAuthorization.ts";
 import { boundedJson } from "../src/infrastructure/auth/boundedJson.ts";
 import { claimAuthAttempt } from "../src/infrastructure/auth/rateLimit.ts";
+import { isCounterThreadParticipant, offerBelongsToThreadParticipants } from "../src/app/api/inbox/ai-counter/counterAuthorization.ts";
+import { targetResponse, visibleAttachment } from "../src/app/api/pro-personnel/targets/targetVisibility.ts";
+import { isVisibleNegotiationThread } from "../src/app/api/inbox/insider/visibility.ts";
 
 const session: AppSession = { userId: "user-a", leagueId: "league-a", rosterId: "team-a", role: "member", expiresAt: 9999999999 };
 const responseJson = async (response: Response) => await response.json() as Record<string, unknown>;
@@ -97,6 +100,28 @@ test("thread boundary denies spoofing and permits a real counterpart", async () 
   assert.equal(await authorizeThreadCreation(session, "league-a", "team-b", "team-c", "team-a", lookup), false);
   assert.equal(await authorizeThreadCreation(session, "league-a", "team-a", "team-b", "team-a", lookup), true);
   assert.equal(await authorizeThreadCreation(session, "league-a", "team-a", "invented", "team-a", lookup), false);
+});
+
+test("counter authorization binds the owned roster to the actual thread and offer pair", () => {
+  const thread = { team_a_id: "team-a", team_b_id: "team-b" };
+  assert.equal(isCounterThreadParticipant(thread, "team-a"), true);
+  assert.equal(isCounterThreadParticipant(thread, "team-b"), true);
+  assert.equal(isCounterThreadParticipant(thread, "team-c"), false);
+  assert.equal(offerBelongsToThreadParticipants(thread, { from_team_id: "team-a", to_team_id: "team-b" }), true);
+  assert.equal(offerBelongsToThreadParticipants(thread, { from_team_id: "team-a", to_team_id: "team-c" }), false);
+});
+
+test("target response keeps computed trading data without exposing counterpart private inputs", () => {
+  const own = { "team-a:p1": "untouchable", "team-b:p2": "moveable" };
+  assert.equal(visibleAttachment("team-a", "team-a", "p1", own), "untouchable");
+  assert.equal(visibleAttachment("team-b", "team-a", "p2", own), "listening");
+  const response = targetResponse({ targets: [{ id: "p2" }], rosters: { "team-b": ["p2"] }, profiles: { "team-b": { wants: "private" } } });
+  assert.deepEqual(response, { targets: [{ id: "p2" }], rosters: { "team-b": ["p2"] } });
+});
+
+test("insider negotiation detail is limited to the caller's actual threads", () => {
+  assert.equal(isVisibleNegotiationThread({ team_a_id: "team-a", team_b_id: "team-b" }, "team-a"), true);
+  assert.equal(isVisibleNegotiationThread({ team_a_id: "team-b", team_b_id: "team-c" }, "team-a"), false);
 });
 
 test("sensitive auth JSON is rejected beyond its byte envelope", async () => {

@@ -4,6 +4,10 @@ Status is against this branch, not the unavailable Claude commit. **Complete**
 means code and a local check exist; **partial** names remaining work; **blocked**
 requires live metadata or a destructive rollout approval.
 
+Current review status: **50 complete**, with DB-01/02/03/05/07 fully prepared
+but operationally blocked. Database-CI-dependent rows are not represented as
+executed until the combined published SHA passes its disposable workflow.
+
 ## Consolidation blocks
 
 | ID | Status | Evidence / remaining work |
@@ -12,7 +16,7 @@ requires live metadata or a destructive rollout approval.
 | C-02 | Complete | Shared slot-free key parser/formatter/year helpers added and engine parser delegates to it. |
 | C-03 | Complete | Targets, offer snapshots, insider, pick-values and NFL context use shared viewer-aware valuation; storage-only rebuild code remains. |
 | C-04 | Complete | Studio, trade-up and trade-back use the canonical engine adapters; draft-room profiles use the shared feed. |
-| C-05 | Complete | Private route audit is recorded; ownership routes use current membership/resource participation and administrative routes use stable roles or centralized secrets. |
+| C-05 | Complete | Private route audit plus handler/HTTP fixtures cover trade tabs, offer/thread participation, targets privacy, insider negotiation scope, current membership and admin boundaries. |
 | C-06 | Complete | Zero-import modules and caller-free debug/intel/memo/draft-sim/health routes were verified by repository search and removed. |
 
 ## Divergences
@@ -34,7 +38,7 @@ requires live metadata or a destructive rollout approval.
 | D-13 | Complete | Current unslotted picks use projected finish, never roster index. |
 | D-14 | Complete | Player and pick display values use the same viewer perspective in converted consumers. |
 | D-15 | Complete | CFC year rolls in March; Sleeper draft seasons/rounds and traded capital extend the default horizon, including 2029 and round 4 fixtures. |
-| D-16 | Live-evidence blocked | Ladder remains fixed and missing anchors degrade to zero; versioned seed awaits the exact confirmed 1.01–3.12 `pick_template` values and `cfc_assets` constraints returned by `pick-ladder-readonly.sql`. |
+| D-16 | Complete / DB-CI pending | Version `2026-09-12.v1` freezes all 36 approved anchors in runtime and migration 019; conflicts fail closed and unapproved rounds remain explicitly unpriced. |
 | D-17 | Complete | Request-time roster backfill and its sole module were removed. |
 | D-18 | Complete | Player/pick modifiers are +20/+10/0/-10 in both shared and rebuild paths. |
 | D-19 | Complete | Onboarding saves attachments, patch-merges strategy, rebuilds values, then invalidates caches. |
@@ -46,8 +50,8 @@ requires live metadata or a destructive rollout approval.
 | D-25 | Complete | Both trade-up and trade-back simulations adapt `runScouting` and retain the existing board response contract. |
 | D-26 | Complete | Memo offer cards fetch a participant-authorized live persona grade at render time. |
 | D-27 | Complete | Vercel schedules the secret-gated sweep; calls use explicit background metering attribution and remain fail-closed. |
-| D-28 | Complete | Full service-client/private-route review is documented; team-scoped endpoints reject foreign roster IDs and resource handlers verify ownership/participation. |
-| D-29 | Complete | Commissioner controls derive from the current stable membership role; all three Founders-name route fallbacks and the dead name-based resolver were removed. |
+| D-28 | Complete | Service-client routes now reject invalid tabs before queries, scope single/list resources by participant, and suppress counterpart strategy/attachment inputs. |
+| D-29 | Complete | Authority is a verified user+league membership role; explicit audited operator assignment replaces inference, survives rename/email changes, denies self-promotion, and is removed by revocation. |
 | D-30 | Complete | Draft components use the shared stored-team reader/writer while server authorization remains current membership. |
 | D-31 | Complete | Identity exposes full name, location and shared exception-aware nickname; rename override and roster-keyed art/personality survive. |
 | D-32 | Complete | Snapshot ships the canonical fantasy-player pool; draft room/onboarding consume it and rookie filtering uses Sleeper experience. |
@@ -72,7 +76,7 @@ requires live metadata or a destructive rollout approval.
 | DB-04 | Complete (retain) | Flea/MFL mirrors were not changed. |
 | DB-05 | Prepared / live-blocked | Staging is confirmed absent; watchlist estimated zero is not emptiness proof. Exact count, external dependency and archive evidence remain required. |
 | DB-06 | Complete | Migration 017 preserves Flea/MFL and replaces only Sleeper selected-by actual results; automated sync calls the hardened rebuild. |
-| DB-07 | Prepared / live-blocked | Combined two-phase CI includes 018; exact ladder/constraint capture, combined CI, approved isolated restore and rollout remain required. |
+| DB-07 | Prepared / live-blocked | Combined two-phase CI includes constrained 018 fixtures and ladder 019; combined CI, approved isolated restore and rollout remain required. |
 
 ## Provenance
 
@@ -110,7 +114,7 @@ These are review-branch checks, not production rollout claims.
 | D-13 | Shared valuation scenario uses projected owner slot when actual slot is absent. |
 | D-14 | `test:trade-parity` plus viewer-aware value route review. |
 | D-15 | `test:league`: February/March rollover, 2029 traded pick and round 4. |
-| D-16 | Missing-anchor degradation is built; authoritative versioned seed held pending approved evidence handoff. |
+| D-16 | `test:league` checks version, 36 anchors, endpoints and unpriced round 4; constrained migration fixture awaits combined CI. |
 | D-17 | Production-build route/import graph after backfill removal. |
 | D-18 | Modifier unit/source review and type/build checks. |
 | D-19 | Onboarding save/rebuild/invalidate handler sequence review. |
@@ -143,4 +147,4 @@ These are review-branch checks, not production rollout claims.
 | DB-04 | Migration 017 review retains Flea/MFL inputs. |
 | DB-05 | Catalog confirms staging absent; watchlist exact emptiness remains blocked. |
 | DB-06 | Migration validator plus Sleeper draft-sync route/rebuild review; real CI pending. |
-| DB-07 | Two-phase harness covers 000–018; real combined execution and restore remain blocked. |
+| DB-07 | Two-phase harness covers 000–019 with FK/collision/identity fixtures; real combined execution and restore remain blocked. |

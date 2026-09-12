@@ -4,6 +4,7 @@ import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { getLeagueData } from "@/shared/league-data";
 import { buildValuationContext, valueAsset } from "@/shared/asset-values";
+import { isVisibleNegotiationThread } from "./visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -99,13 +100,15 @@ export async function GET(request: Request) {
     .select("id, team_a_id, team_b_id, last_activity_at")
     .eq("league_id", league_id)
     .eq("status", "open")
+    .or(`team_a_id.eq.${session.rosterId},team_b_id.eq.${session.rosterId}`)
     .order("last_activity_at", { ascending: false });
 
   const playerThreadMap: Record<string, { name: string; threadIds: Set<string>; latestTimestamp: string }> = {};
 
-  if (openThreads?.length) {
-    const threadIds = openThreads.map((t) => t.id);
-    const threadById = new Map(openThreads.map((t) => [t.id, t]));
+  const visibleOpenThreads = (openThreads ?? []).filter(thread => isVisibleNegotiationThread(thread, session.rosterId));
+  if (visibleOpenThreads.length) {
+    const threadIds = visibleOpenThreads.map((t) => t.id);
+    const threadById = new Map(visibleOpenThreads.map((t) => [t.id, t]));
 
     const { data: threadOffers } = await client
       .from("trade_offers")

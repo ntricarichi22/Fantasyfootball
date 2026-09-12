@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(30);
+SELECT plan(34);
 
 SELECT ok(public.claim_security_alert('database-test-alert', 'application_error', 15, 12) IS NOT NULL,
   'first alert in a window receives a durable claim');
@@ -65,6 +65,18 @@ SELECT is(public.cfc_durable_pick_key('pick:2026-2-06-7'), 'pick:2026-2-7',
 SELECT is(public.cfc_durable_pick_key('pick:2027-2-7'), 'pick:2027-2-7',
   'durable pick keys remain unchanged');
 
+-- Simulate the explicit trusted operator assignment. Authority is attached to
+-- user+league membership, never the mutable franchise display name.
+UPDATE public.league_memberships SET role='commissioner'
+WHERE user_id='10000000-0000-0000-0000-000000000001' AND league_id='security-league-a';
+INSERT INTO public.team_email_map(email,roster_id,team_name)
+VALUES ('security-a@example.invalid','1','Original Name') ON CONFLICT (email) DO UPDATE SET team_name=excluded.team_name;
+UPDATE public.team_email_map SET team_name='Renamed Franchise' WHERE roster_id='1';
+SELECT is((SELECT role FROM public.league_memberships WHERE user_id='10000000-0000-0000-0000-000000000001'),
+  'commissioner', 'commissioner authority survives a team rename');
+SELECT is((SELECT role FROM public.league_memberships WHERE user_id='20000000-0000-0000-0000-000000000002'),
+  'member', 'ordinary members are not promoted');
+
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
 
@@ -78,8 +90,12 @@ SELECT ok(NOT has_table_privilege('authenticated', 'public.draft_log', 'INSERT')
 SELECT ok(NOT has_table_privilege('authenticated', 'public.draft_state', 'UPDATE'), 'authenticated cannot directly update draft clock');
 SELECT ok(NOT has_table_privilege('anon', 'public.draft_log', 'SELECT'), 'anonymous draft reads are denied');
 SELECT ok(NOT has_table_privilege('authenticated', 'public.trade_offers', 'SELECT'), 'private trade offers are not directly readable');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.league_memberships', 'UPDATE'),
+  'members cannot self-promote');
 SELECT ok(NOT has_table_privilege('authenticated', 'public.cfc_pending_trade_overlays', 'SELECT'),
   'pending trade overlays are server-only');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.cfc_pick_ladder_versions', 'SELECT'),
+  'pick ladder provenance is server-only');
 SELECT ok(NOT has_table_privilege('authenticated', 'public.team_email_map', 'SELECT'), 'invitation email map is server-only');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.ai_get_quota(uuid,bigint,bigint)', 'EXECUTE'), 'AI quota RPC is service-only');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.claim_security_alert(text,text,integer,integer)', 'EXECUTE'),

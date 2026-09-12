@@ -12,8 +12,12 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   try {
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
-  const tab = request.nextUrl.searchParams.get("tab")?.trim() || "inbox";
+  const rawTab = request.nextUrl.searchParams.get("tab");
+  const tab = rawTab === null ? "inbox" : rawTab.trim();
   const offerId = request.nextUrl.searchParams.get("offerId")?.trim();
+  if (!offerId && tab !== "inbox" && tab !== "sent") {
+    return NextResponse.json({ error: "invalid_tab" }, { status: 400 });
+  }
 
   const league_id = LEAGUE_ID;
   if (!league_id) {
@@ -34,13 +38,10 @@ export async function GET(request: NextRequest) {
       .select("*")
       .eq("id", offerId)
       .eq("league_id", league_id)
-      .single();
+      .or(`from_team_id.eq.${session.rosterId},to_team_id.eq.${session.rosterId}`)
+      .maybeSingle();
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    if (session.rosterId !== data.from_team_id && session.rosterId !== data.to_team_id)
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (error || !data) return NextResponse.json({ error: "offer_unavailable" }, { status: 404 });
     const ctx = await buildValuationContext();
     const fromViewer = session.rosterId === data.from_team_id;
     const send = (fromViewer ? data.assets_from : data.assets_to) ?? [];
@@ -63,7 +64,8 @@ export async function GET(request: NextRequest) {
   }
   if (teamId !== session.rosterId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  // List offers based on tab
+  // Every list query is explicitly participant-scoped. The validated tab only
+  // controls which side/status is selected; it can never remove ownership.
   let query = client
     .from("trade_offers")
     .select("*")
@@ -72,7 +74,7 @@ export async function GET(request: NextRequest) {
 
   if (tab === "inbox") {
     query = query.eq("to_team_id", teamId).eq("status", "pending");
-  } else if (tab === "sent") {
+  } else {
     query = query.eq("from_team_id", teamId);
   }
 

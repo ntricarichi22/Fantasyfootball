@@ -49,42 +49,78 @@ REVOKE ALL ON TABLE public.cfc_pick_key_migration_018_archive FROM PUBLIC,anon,a
 GRANT ALL ON TABLE public.cfc_pick_key_migration_018_archive TO service_role;
 
 DO $$
-DECLARE
-  spec record;
-  row_record record;
-  new_key text;
+DECLARE r record; new_key text;
 BEGIN
-  -- Each relation/key pair below was confirmed by the 2026-09-12 read-only
-  -- production catalog capture. A conflicting canonical row is never deleted:
-  -- the retired key remains readable and is reported by validation.
-  FOR spec IN SELECT * FROM (VALUES
-    ('cfc_team_player_attachment','sleeper_player_id'),
-    ('cfc_asset_calculations','asset_key'),
-    ('cfc_asset_source_values','asset_key'),
-    ('cfc_assets','asset_key'),
-    ('cfc_team_draft_class_strength','pick_key'),
-    ('cfc_team_manual_value_overrides','asset_key'),
-    ('watchlist','asset_key')
-  ) AS confirmed(table_name,key_column)
+  -- Parent assets first. A replacement parent is created before children move;
+  -- child uniqueness collisions are archived and merged without touching
+  -- GENERATED ALWAYS identity values.
+  FOR r IN SELECT ctid,* FROM public.cfc_assets
+    WHERE asset_key ~ '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
   LOOP
-    IF to_regclass('public.' || spec.table_name) IS NULL THEN CONTINUE; END IF;
-    FOR row_record IN EXECUTE format(
-      'SELECT ctid, %1$I AS old_key, to_jsonb(t) AS row_data FROM public.%2$I t WHERE %1$I ~ $1',
-      spec.key_column, spec.table_name
-    ) USING '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
-    LOOP
-      new_key := public.cfc_durable_pick_key(row_record.old_key);
-      INSERT INTO public.cfc_pick_key_migration_018_archive(source_table,old_key,row_data)
-      VALUES(spec.table_name,row_record.old_key,row_record.row_data);
-      EXECUTE format(
-        'UPDATE public.%1$I old SET %2$I=$1 WHERE old.ctid=$2 AND NOT EXISTS (SELECT 1 FROM public.%1$I canonical WHERE canonical.%2$I=$1)',
-        spec.table_name,spec.key_column
-      ) USING new_key,row_record.ctid;
-    END LOOP;
+    new_key := public.cfc_durable_pick_key(r.asset_key);
+    INSERT INTO public.cfc_pick_key_migration_018_archive(source_table,old_key,row_data)
+      VALUES('cfc_assets',r.asset_key,to_jsonb(r)-'ctid');
+    IF NOT EXISTS (SELECT 1 FROM public.cfc_assets WHERE asset_key=new_key) THEN
+      INSERT INTO public.cfc_assets(asset_key,asset_type,display_name,sleeper_player_id,position,birth_date,
+        age_override,pick_round,pick_number,is_active,manual_override_value,manual_override_reason,created_at,updated_at,years_exp)
+      VALUES(new_key,r.asset_type,r.display_name,r.sleeper_player_id,r.position,r.birth_date,
+        r.age_override,r.pick_round,r.pick_number,r.is_active,r.manual_override_value,r.manual_override_reason,r.created_at,r.updated_at,r.years_exp);
+    END IF;
+
+    INSERT INTO public.cfc_pick_key_migration_018_archive(source_table,old_key,row_data)
+      SELECT 'cfc_asset_calculations',r.asset_key,to_jsonb(c) FROM public.cfc_asset_calculations c WHERE c.asset_key=r.asset_key;
+    DELETE FROM public.cfc_asset_calculations old WHERE old.asset_key=r.asset_key
+      AND EXISTS (SELECT 1 FROM public.cfc_asset_calculations n WHERE n.asset_key=new_key);
+    UPDATE public.cfc_asset_calculations SET asset_key=new_key WHERE asset_key=r.asset_key;
+
+    INSERT INTO public.cfc_pick_key_migration_018_archive(source_table,old_key,row_data)
+      SELECT 'cfc_asset_source_values',r.asset_key,to_jsonb(c) FROM public.cfc_asset_source_values c WHERE c.asset_key=r.asset_key;
+    DELETE FROM public.cfc_asset_source_values old WHERE old.asset_key=r.asset_key
+      AND EXISTS (SELECT 1 FROM public.cfc_asset_source_values n WHERE n.asset_key=new_key AND n.source_key=old.source_key);
+    UPDATE public.cfc_asset_source_values SET asset_key=new_key WHERE asset_key=r.asset_key;
+
+    INSERT INTO public.cfc_pick_key_migration_018_archive(source_table,old_key,row_data)
+      SELECT 'cfc_team_manual_value_overrides',r.asset_key,to_jsonb(c) FROM public.cfc_team_manual_value_overrides c WHERE c.asset_key=r.asset_key;
+    DELETE FROM public.cfc_team_manual_value_overrides old WHERE old.asset_key=r.asset_key
+      AND EXISTS (SELECT 1 FROM public.cfc_team_manual_value_overrides n WHERE n.asset_key=new_key AND n.team_id=old.team_id);
+    UPDATE public.cfc_team_manual_value_overrides SET asset_key=new_key WHERE asset_key=r.asset_key;
+    DELETE FROM public.cfc_assets WHERE asset_key=r.asset_key;
+  END LOOP;
+
+  FOR r IN SELECT ctid,* FROM public.cfc_team_draft_class_strength
+    WHERE pick_key ~ '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
+  LOOP
+    new_key:=public.cfc_durable_pick_key(r.pick_key);
+    INSERT INTO public.cfc_pick_key_migration_018_archive VALUES('cfc_team_draft_class_strength',r.pick_key,to_jsonb(r)-'ctid',now());
+    IF EXISTS (SELECT 1 FROM public.cfc_team_draft_class_strength n WHERE n.league_id=r.league_id AND n.team_id=r.team_id AND n.pick_key=new_key)
+      THEN DELETE FROM public.cfc_team_draft_class_strength WHERE ctid=r.ctid;
+      ELSE UPDATE public.cfc_team_draft_class_strength SET pick_key=new_key WHERE ctid=r.ctid; END IF;
+  END LOOP;
+  FOR r IN SELECT ctid,* FROM public.watchlist
+    WHERE asset_key ~ '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
+  LOOP
+    new_key:=public.cfc_durable_pick_key(r.asset_key);
+    INSERT INTO public.cfc_pick_key_migration_018_archive VALUES('watchlist',r.asset_key,to_jsonb(r)-'ctid',now());
+    IF EXISTS (SELECT 1 FROM public.watchlist n WHERE n.league_id=r.league_id AND n.team_id=r.team_id AND n.asset_key=new_key)
+      THEN DELETE FROM public.watchlist WHERE ctid=r.ctid;
+      ELSE UPDATE public.watchlist SET asset_key=new_key WHERE ctid=r.ctid; END IF;
+  END LOOP;
+  FOR r IN SELECT ctid,* FROM public.cfc_team_player_attachment
+    WHERE sleeper_player_id ~ '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
+  LOOP
+    new_key:=public.cfc_durable_pick_key(r.sleeper_player_id);
+    INSERT INTO public.cfc_pick_key_migration_018_archive VALUES('cfc_team_player_attachment',r.sleeper_player_id,to_jsonb(r)-'ctid',now());
+    IF EXISTS (SELECT 1 FROM public.cfc_team_player_attachment n WHERE n.league_id=r.league_id AND n.team_id=r.team_id AND n.sleeper_player_id=new_key)
+      THEN DELETE FROM public.cfc_team_player_attachment WHERE ctid=r.ctid;
+      ELSE UPDATE public.cfc_team_player_attachment SET sleeper_player_id=new_key WHERE ctid=r.ctid; END IF;
   END LOOP;
 END $$;
 
 -- Stored offer assets are arrays of objects with a key property.
+INSERT INTO public.cfc_pick_key_migration_018_archive(source_table,old_key,row_data)
+SELECT 'trade_offers',o.id::text,to_jsonb(o) FROM public.trade_offers o
+WHERE o.assets_from::text ~ 'pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+'
+   OR o.assets_to::text ~ 'pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+';
 UPDATE public.trade_offers o SET
  assets_from=(SELECT jsonb_agg(CASE WHEN elem ? 'key' THEN jsonb_set(elem,'{key}',to_jsonb(public.cfc_durable_pick_key(elem->>'key'))) ELSE elem END ORDER BY ord) FROM jsonb_array_elements(o.assets_from) WITH ORDINALITY a(elem,ord)),
  assets_to=(SELECT jsonb_agg(CASE WHEN elem ? 'key' THEN jsonb_set(elem,'{key}',to_jsonb(public.cfc_durable_pick_key(elem->>'key'))) ELSE elem END ORDER BY ord) FROM jsonb_array_elements(o.assets_to) WITH ORDINALITY a(elem,ord))

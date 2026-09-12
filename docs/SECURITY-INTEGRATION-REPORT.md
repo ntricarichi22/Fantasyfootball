@@ -91,7 +91,8 @@ apply, after staging review, `012_security_multitenancy_foundation.sql`, then
 `013_ai_usage_limits.sql`, `014_security_monitoring_audit.sql`, and finally
 `015_live_api_least_privilege.sql`, `016_durable_league_invitations.sql`,
 `017_lintable_actual_draft_rebuild.sql`, and finally coordinated application
-migration `018_pending_trade_overlays_and_pick_keys.sql`. Never repair or baseline production history
+migration `018_pending_trade_overlays_and_pick_keys.sql`, followed by the
+versioned fixed ladder `019_fixed_pick_ladder_v1.sql`. Never repair or baseline production history
 automatically. Follow the compatibility sequence in `SECURITY-ROLLOUT.md`; do not
 approve database revocation before the exact compatible app SHA is ready. Configure
 `AUTH_SESSION_SECRET`, `AUDIT_HASH_KEY`, verified per-model AI prices, and assign the
@@ -107,7 +108,7 @@ Auth/application fixtures and cookies, verified membership/invitation
 backfills, then passed clean SQL lint, all 27 pgTAP assertions, actual database
 AI concurrency/bypass tests, and the full Mailpit confirmation-token HTTP/Auth
 suite. This supersedes the failed `b90603a` harness result. It does not validate
-PR153 migration 018 or the combined application tree.
+PR153 migrations 018–019 or the combined application tree.
 
 GitHub run `34701863673` at published head `b49e0f8` completed successfully. It
 staged the reviewed CI-only baseline as generated version `000`, reset through
@@ -132,16 +133,17 @@ only during disposable CI and must never enter linked production history. Produc
 remains at `001`–`011`.
 
 Security head `e54df407` supplies that proven harness. On this stacked branch it
-first isolates migrations `012`–`018`, starts baseline `000` plus deployed history
+first isolates migrations `012`–`019`, starts baseline `000` plus deployed history
 `001`–`011`, and exercises a
 mapped confirmed user's real login/finalization, signed compatibility cookie, own and
 foreign reads, tampered/forged cookie denial, and AI failure before accounting exists.
-It then restores all seven pending migration files with explicit presence checks,
-resets through `018`, and runs the normal database and HTTP suites. The normal phase now
+It then restores all eight pending migration files with explicit presence checks,
+tests constrained 018 parent/child/collision/identity fixtures and the 36-row
+ladder, resets through `019`, and runs the normal database and HTTP suites. The normal phase now
 follows the real synthetic confirmation link captured from local Mailpit back through
 the fixture application, and adds unauthenticated, forged, tampered, and validly signed
 cross-league denial. The combined PR153 head requires its own new CI run; neither
-prior security run validates migration 018 or these application refactors.
+prior security run validates migrations 018–019 or these application refactors.
 
 All fixture credentials, mail, accounts, and rows are generated inside the disposable
 stack. This is neither a production probe nor a production-backup restore drill.
@@ -184,4 +186,4 @@ This validates reviewed backfill cardinality, not a migration or environment set
 
 ## PR150 source-of-truth dependency note
 
-PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Its proposed `012`/`013` cleanup versions must be renumbered after security `017` (start at `018`) if later approved. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.
+PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. PR153 now owns 018–019, so any later cleanup starts at 020 or higher. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered dispatch, audit hooks, recovery tooling, and the guarded production workflow.

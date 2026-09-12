@@ -51,7 +51,7 @@ CREATE TABLE public.cfc_assets (
   age_override integer, pick_round integer, pick_number integer,
   is_active boolean NOT NULL DEFAULT true, manual_override_value numeric(18,6),
   manual_override_reason text, created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
+  updated_at timestamptz NOT NULL DEFAULT now(), years_exp integer
 );
 CREATE TABLE public.cfc_value_upload_staging (
   staging_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -76,8 +76,32 @@ CREATE TABLE public.cfc_asset_calculations (
   source_count integer NOT NULL DEFAULT 0, composite_101_multiple numeric(18,6),
   composite_value numeric(18,6), elite_multiplier_applied numeric(18,6),
   position_multiplier_applied numeric(18,6), computed_cfc_value numeric(18,6),
-  final_cfc_value numeric(18,6), rebuilt_at timestamptz NOT NULL DEFAULT now()
+  final_cfc_value numeric(18,6), rebuilt_at timestamptz NOT NULL DEFAULT now(),
+  age_multiplier_applied numeric(18,6), scoring_factor_applied numeric(6,4) DEFAULT 1.0000,
+  rookie_qb_boost numeric(18,6) NOT NULL DEFAULT 1.0
 );
+CREATE TABLE public.cfc_team_draft_class_strength (
+  league_id text NOT NULL, team_id text NOT NULL, pick_key text NOT NULL,
+  strength text NOT NULL CHECK (strength IN ('weak','average','stacked')),
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (league_id,team_id,pick_key)
+);
+CREATE TABLE public.cfc_team_manual_value_overrides (
+  id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY, team_id text NOT NULL,
+  asset_key text NOT NULL REFERENCES public.cfc_assets(asset_key) ON DELETE CASCADE,
+  manual_value numeric(18,6) NOT NULL, firsts_equivalent numeric(10,2), seconds_equivalent numeric(10,2),
+  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(team_id,asset_key)
+);
+CREATE INDEX cfc_team_manual_value_overrides_asset_idx ON public.cfc_team_manual_value_overrides(asset_key);
+CREATE INDEX cfc_team_manual_value_overrides_team_idx ON public.cfc_team_manual_value_overrides(team_id);
+CREATE TABLE public.watchlist (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), league_id text NOT NULL, team_id text NOT NULL,
+  asset_key text NOT NULL, owner_team_id text NOT NULL, created_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT watchlist_unique_entry UNIQUE(league_id,team_id,asset_key)
+);
+CREATE INDEX idx_watchlist_asset ON public.watchlist(league_id,asset_key);
+CREATE INDEX idx_watchlist_team ON public.watchlist(league_id,team_id);
 CREATE INDEX cfc_assets_asset_type_idx ON public.cfc_assets(asset_type);
 CREATE INDEX cfc_assets_sleeper_player_id_idx ON public.cfc_assets(sleeper_player_id);
 CREATE INDEX cfc_assets_position_idx ON public.cfc_assets(position);
@@ -126,8 +150,8 @@ CREATE VIEW public.cfc_trade_values_current AS SELECT
   a.asset_id,a.asset_key,a.asset_type,a.display_name,a.sleeper_player_id,a.position,
   a.birth_date,a.age_override,a.pick_round,a.pick_number,c.source_count,
   c.composite_101_multiple,c.composite_value,c.elite_multiplier_applied,
-  c.position_multiplier_applied,c.computed_cfc_value,c.final_cfc_value AS cfc_value,
-  a.manual_override_value,a.manual_override_reason,c.rebuilt_at
+  c.position_multiplier_applied,c.age_multiplier_applied,c.computed_cfc_value,c.final_cfc_value AS cfc_value,
+  a.manual_override_value,a.manual_override_reason,c.rebuilt_at,c.rookie_qb_boost
 FROM public.cfc_assets a LEFT JOIN public.cfc_asset_calculations c USING (asset_key)
 WHERE a.is_active;
 

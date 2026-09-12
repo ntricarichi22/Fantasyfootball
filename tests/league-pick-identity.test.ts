@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { deriveOwnablePickShape, deriveSpentPickNumbers, formatPickKey, formatPickLabel, getCFCYear, isPickSpentInSeason, parsePickKey } from "../src/shared/league-data/picks.ts";
+import { FIXED_PICK_LADDER, FIXED_PICK_LADDER_VERSION, fixedPickValue } from "../src/shared/asset-values/fixedPickLadder.ts";
 
 test("pick identity never contains a mutable draft slot", () => {
   assert.equal(formatPickKey(2027, 2, "7"), "pick:2027-2-7");
@@ -25,6 +26,14 @@ test("Sleeper and traded capital extend seasons and rounds without a three-by-th
   assert.deepEqual(deriveOwnablePickShape(2026, 2026,
     [{ season: "2026", settings: { rounds: 4 } }],
     [{ season: "2029", round: 4 }]), { seasons: [2026, 2027, 2028, 2029], rounds: 4 });
+});
+
+test("fixed D-16 ladder is versioned while unapproved rounds are explicitly unpriced", () => {
+  assert.equal(FIXED_PICK_LADDER_VERSION, "2026-09-12.v1");
+  assert.equal(FIXED_PICK_LADDER.size, 36);
+  assert.equal(fixedPickValue(1, 1), 300);
+  assert.equal(fixedPickValue(3, 12), 5);
+  assert.equal(fixedPickValue(4, 1), null);
 });
 
 test("completed drafts spend the whole configured season while incomplete drafts spend only returned rows", () => {

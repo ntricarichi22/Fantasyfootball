@@ -14,6 +14,7 @@ import {
   isYoung,
   type AssetRef,
 } from "@/shared/asset-values";
+import { isCounterThreadParticipant, offerBelongsToThreadParticipants } from "./counterAuthorization";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -64,6 +65,14 @@ export async function POST(request: NextRequest) {
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
 
+  const denyThread = () => NextResponse.json({ error: "thread_unavailable" }, { status: 404 });
+  const { data: thread } = await client.from("trade_threads")
+    .select("id, team_a_id, team_b_id")
+    .eq("id", thread_id).eq("league_id", league_id).maybeSingle();
+  if (!thread || !isCounterThreadParticipant(thread, counter_team_id)) {
+    return denyThread();
+  }
+
   // Latest live offer in the thread — what we're countering.
   const { data: offers, error: offersError } = await client
     .from("trade_offers")
@@ -74,11 +83,10 @@ export async function POST(request: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (offersError || !offers?.length) {
-    return NextResponse.json({ error: "No pending offer found in thread" }, { status: 404 });
-  }
+  if (offersError || !offers?.length) return denyThread();
 
   const latestOffer = offers[0];
+  if (!offerBelongsToThreadParticipants(thread, latestOffer)) return denyThread();
   const us = String(counter_team_id);
   const them =
     String(latestOffer.from_team_id) === us

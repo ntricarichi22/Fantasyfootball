@@ -79,3 +79,15 @@ old application rollback must not depend on anonymous database writes.
   verified price configuration; requests then fail before provider dispatch.
 - A database restore is last resort and only follows the recovery runbook. Never reset
   or repair migration history automatically.
+
+## Designated commissioner assignment
+
+Migration 012 intentionally backfills all matched users as ordinary members; it
+does not infer authority from an email or team name. After membership backfill
+has been reviewed, a database operator uses
+`scripts/database/assign-commissioner.sql` with the verified Auth user UUID and
+league ID over a private direct connection. The script updates exactly one
+current membership or rolls back. This is an explicit deployment gate and was
+not run by this PR. Because authority is stored on `(user_id, league_id)`, team
+renames and email changes do not affect it; revocation still removes current
+authority. No application route permits self-promotion.
