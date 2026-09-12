@@ -8,6 +8,7 @@ on:
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-auth-http-smoke.*"
+      - "scripts/test-next-auth-boundaries.mjs"
       - "scripts/test-staged-security-rollout.bash"
       - "scripts/test-migration-validator.bash"
       - "scripts/test-commissioner-assignment.bash"
@@ -45,6 +46,7 @@ on:
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-auth-http-smoke.*"
+      - "scripts/test-next-auth-boundaries.mjs"
       - "scripts/test-staged-security-rollout.bash"
       - "scripts/test-migration-validator.bash"
       - "scripts/test-commissioner-assignment.bash"
@@ -120,6 +122,7 @@ jobs:
           npm run test:roster-values
           npm run test:trade-parity
           npm run build
+          npm run test:framework-auth
 
       - name: Install pinned Supabase CLI
         uses: supabase/setup-cli@v1
