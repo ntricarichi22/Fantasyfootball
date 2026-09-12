@@ -3,6 +3,7 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { fetchPlayers } from "@/shared/league-data/sleeper";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { buildScrubSets, bucketOf, buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives } from "@/shared/team-narratives";
@@ -55,6 +56,10 @@ export async function POST(request: NextRequest) {
 
   const league_id = LEAGUE_ID;
   if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || !currentSessionCanActForRoster(session, league_id, counter_team_id)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { rebuildPickValuesForTeam } from "@/research-strategy/api/pickService";
@@ -18,6 +19,8 @@ export async function GET(request: NextRequest) {
     if (!teamId) {
       return NextResponse.json({ error: "teamId is required" }, { status: 400 });
     }
+    const { session } = await currentAppSessionFromRequest(request);
+    if (!session || !currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const { client, error: clientError } = getSupabaseAdminClient();
     if (!client) {
@@ -68,6 +71,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const { session } = await currentAppSessionFromRequest(request);
+    if (!session || !currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     if (!VALID_STRENGTHS.includes(strength)) {
       return NextResponse.json(

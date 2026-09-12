@@ -22,15 +22,17 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { client, error } = getSupabaseAdminClient();
-  if (!client) return NextResponse.json({ error }, { status: 500 });
-
   const teamId = new URL(req.url).searchParams.get("team_id")?.trim();
   if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, LEAGUE_ID, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { client, error } = getSupabaseAdminClient();
+  if (!client) return NextResponse.json({ error }, { status: 500 });
 
   const { data, error: qErr } = await client
     .from("cfc_trade_passes")
@@ -60,6 +62,8 @@ export async function POST(req: Request) {
   if (!teamId || !offerId) {
     return NextResponse.json({ error: "team_id and offer_id required" }, { status: 400 });
   }
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, LEAGUE_ID, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error }, { status: 500 });

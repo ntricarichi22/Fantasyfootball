@@ -3,8 +3,12 @@
 ## Status and scope (2026-09-12)
 
 This repository review verifies that the application uses Supabase Postgres and
-Supabase Auth. It also uses Supabase Storage for the `team-logos` bucket; logo
-object metadata and the binary files are therefore recovery dependencies.
+Supabase Auth. Read-only configuration showed two public Storage buckets: `Players`
+(no configured size/MIME limits observed) and `team-logos` (2 MiB size limit, no
+configured MIME list observed). Names suggest public player assets and logos, but
+object contents and write authorization were not inspected. Metadata and binary
+files for both buckets are therefore recovery-review dependencies; public visibility
+alone is not evidence that objects contain private data.
 
 The dashboard listed eight daily physical backups from September 5–12, 2026;
 the newest was September 12 at 11:15:36 UTC. This is an observed span, not a
@@ -17,7 +21,7 @@ in the drill record each time this runbook is exercised.
 
 Database backups restore Postgres state, including `public`, `auth`, and Storage
 metadata. They must not be treated as a backup of Storage object bytes. Preserve
-and restore the `team-logos` objects separately, or confirm from current Supabase
+and restore the `Players` and `team-logos` objects separately, or confirm from current Supabase
 documentation/support in writing that the selected recovery mechanism includes
 object bytes.
 
@@ -58,6 +62,23 @@ copy. Actual RTO remains unknown until a complete timed drill passes.
 ## Safe restore drill
 
 ### Preconditions
+
+No safe hosted target currently exists: both observed projects are production-class, and neither has an isolated branch. The minimum remaining operator decision is approval of a disposable destination that is not either existing project, authorization to restore the selected physical backup into it, a named owner, a deletion/reset deadline no later than seven days, and acceptance of any explicitly quoted temporary compute/restore/egress cost. No project should be provisioned or billed from this repository task.
+
+Before handling credentials, complete `docs/templates/RESTORE-DRILL-RECORD.md` and run:
+
+```bash
+PRODUCTION_PROJECT_REF=owkxkpkdffhcordlxqte \
+RECOVERY_TARGET_PROJECT_REF=approved-disposable-ref \
+RECOVERY_PROTECTED_PROJECT_REFS=owkxkpkdffhcordlxqte,other-protected-ref \
+RECOVERY_TARGET_APPROVAL=approval-reference \
+RECOVERY_TARGET_DELETE_AFTER=2026-09-19T00:00:00Z \
+RECOVERY_SIDE_EFFECTS_DISABLED=YES \
+RECOVERY_STORAGE_PLAN_CONFIRMED=YES \
+  ./scripts/recovery/preflight-drill.sh
+```
+
+The command validates declarations only; it does not provision, connect, restore, or incur cost.
 
 Use an existing disposable, isolated, nonproduction Supabase project (or local
 Supabase/Postgres environment) with no production integrations, email delivery,
@@ -126,4 +147,5 @@ a complete recovery while Storage files remain missing.
   account/fixture.
 
 No migration is required for this recovery-only change, and nothing here changes
-production data, policies, credentials, or infrastructure.
+production data, policies, credentials, or infrastructure. A fixture reset in migration CI
+is not a production-backup restore and provides no measured production RPO/RTO.

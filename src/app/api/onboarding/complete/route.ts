@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { rosterIdFromCookies } from "@/infrastructure/identity/rosterCookie";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export async function POST(request: NextRequest) {
   try {
-    const rosterId = await rosterIdFromCookies(request);
+    const { session } = await currentAppSessionFromRequest(request);
+    const rosterId = session?.rosterId;
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const { client, error: clientError } = getSupabaseAdminClient();

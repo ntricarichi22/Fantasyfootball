@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatPickKey, formatPickLabel, getCFCYear, parsePickKey } from "../src/shared/league-data/picks.ts";
+import { deriveOwnablePickShape, deriveSpentPickNumbers, formatPickKey, formatPickLabel, getCFCYear, parsePickKey } from "../src/shared/league-data/picks.ts";
 
 test("pick identity never contains a mutable draft slot", () => {
   assert.equal(formatPickKey(2027, 2, "7"), "pick:2027-2-7");
@@ -19,6 +19,20 @@ test("slot is display metadata only", () => {
 test("CFC year rolls over in March", () => {
   assert.equal(getCFCYear(new Date("2027-02-28T12:00:00Z")), 2026);
   assert.equal(getCFCYear(new Date("2027-03-01T12:00:00Z")), 2027);
+});
+
+test("Sleeper and traded capital extend seasons and rounds without a three-by-three cap", () => {
+  assert.deepEqual(deriveOwnablePickShape(2026, 2026,
+    [{ season: "2026", settings: { rounds: 4 } }],
+    [{ season: "2029", round: 4 }]), { seasons: [2026, 2027, 2028, 2029], rounds: 4 });
+});
+
+test("completed drafts spend the whole configured season while incomplete drafts spend only returned rows", () => {
+  assert.deepEqual([...deriveSpentPickNumbers([1, 13], false, 12, 4)], [1, 13]);
+  const complete = deriveSpentPickNumbers([], true, 12, 4);
+  assert.equal(complete.size, 48);
+  assert.ok(complete.has(48));
+  assert.ok(!deriveSpentPickNumbers([1], false, 12, 3).has(13));
 });
 
 import { applyPendingTradeOverlays } from "../src/shared/league-data/overlays.ts";

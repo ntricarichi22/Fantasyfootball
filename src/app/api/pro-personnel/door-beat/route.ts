@@ -14,6 +14,8 @@
 import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES } from "@/shared/director-prose";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
@@ -63,6 +65,11 @@ export async function POST(req: NextRequest) {
     body = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+  }
+  const teamId = String(body.team_id ?? "").trim();
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!teamId || !session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const goals = (body.goals ?? []).slice(0, 8);
 

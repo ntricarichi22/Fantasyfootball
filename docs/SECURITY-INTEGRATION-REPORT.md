@@ -89,7 +89,9 @@ View dependency chains were captured and confirm many views transitively reach R
 For an existing production database whose reviewed history is exactly `001`-`011` (see `SECURITY-ROLLOUT.md` for the auto-deploy compatibility sequence):
 apply, after staging review, `012_security_multitenancy_foundation.sql`, then
 `013_ai_usage_limits.sql`, `014_security_monitoring_audit.sql`, and finally
-`015_live_api_least_privilege.sql`, then `016_durable_league_invitations.sql`. Never repair or baseline production history
+`015_live_api_least_privilege.sql`, `016_durable_league_invitations.sql`,
+`017_lintable_actual_draft_rebuild.sql`, and finally coordinated application
+migration `018_pending_trade_overlays_and_pick_keys.sql`. Never repair or baseline production history
 automatically. Follow the compatibility sequence in `SECURITY-ROLLOUT.md`; do not
 approve database revocation before the exact compatible app SHA is ready. Configure
 `AUTH_SESSION_SECRET`, `AUDIT_HASH_KEY`, verified per-model AI prices, and assign the
@@ -98,96 +100,79 @@ settings first. Existing users must sign in again.
 
 ## Clean-database baseline and verified CI proof
 
-GitHub run `34699583360` at `005f2fec` completed successfully. The disposable
-baseline and migrations 001–017 applied/reset, SQL lint passed, all 27 pgTAP
-authorization/rebuild assertions passed, and the real PostgreSQL AI
-concurrency/bypass tests passed. This is CI evidence, not a production rollout
-or a completed restore drill.
+GitHub run `34701863673` at published head `b49e0f8` completed successfully. It
+staged the reviewed CI-only baseline as generated version `000`, reset through
+migrations `001`–`017`, reported no SQL lint errors, passed all 27 pgTAP assertions,
+passed the actual parallel PostgreSQL AI reservation/bypass checks, and reported
+`Disposable HTTP/Auth smoke checks passed.` The HTTP cases covered confirmation-required
+signup gating, login, own quota, cross-roster thread denial, creator-spoof denial,
+legitimate thread creation, restricted commissioner behavior, recovery and old-password
+rejection, durable revocation/refinalize denial, and logout.
 
-GitHub run `34697463355` at published head `89a558d` proved the generated baseline
-and migrations 001-012 apply in the disposable stack. It then failed in migration
-013 before reset/lint/pgTAP/concurrency because a multi-function `REVOKE` repeated the
-`FUNCTION` keyword. That PostgreSQL syntax is corrected, and equivalent statements
-were inspected. A new full CI run is still required; the earlier run is not a DB-test
-pass.
+The earlier GitHub run `34699583360`, job `103568851942`, at published head `005f2fec`
+completed successfully. It staged the reviewed CI-only baseline as generated version
+`000`, reset through migrations `001`–`017`, reported no SQL lint errors, passed all
+27 pgTAP assertions, and passed the actual parallel PostgreSQL AI reservation and
+bypass checks. This is real disposable-database evidence, not a claim about deployed
+production RLS, live Auth behavior, or a backup restore.
 
-GitHub run `34698778065` at published head `dec8e1b` subsequently reset through
-the generated baseline and all migrations 001-016, and all 23 then-current pgTAP
-assertions passed. The parallel PostgreSQL reservation test did not execute because
-the runner had not installed the locked `pg` dependency. The workflow now pins Node
-22.23.0 and runs `npm ci --ignore-scripts`. That run also surfaced a static lint error
-for the rebuild function's runtime temporary table; the function now replaces only
-the Sleeper result slice without a temporary relation. Additive migration `017`
-preserves applied migration `004`, and pgTAP exercises the rebuild with isolated mapped data. A new run must prove lint, 27 pgTAP assertions, and actual
-parallel reservations before database CI is called passing.
+The baseline provenance remains bounded: saved SQL supplied original trade/value/master
+definitions but exposed no execution timestamp; current live catalog shapes were
+reversed only through checked-in migrations where documented. Baseline `000` exists
+only during disposable CI and must never enter linked production history. Production
+remains at `001`–`011`.
 
-Earlier credential-free CI could not truthfully run `001`-`016` on an empty database.
-`001` alters `trade_offers` and `trade_messages`, while `002` requires the value-upload
-schema; later migrations require draft and strategy tables. Full Git history contains
-no reviewed creation DDL for those prerequisites. The checked-in CSV is a partial,
-post-migration column export and cannot establish constraints, indexes, policies,
-functions, views or pre-`001` nullability. Creating placeholders or copying the live
-post-migration shape would conceal migration defects.
+Security head `b90603a` extends that proven harness. On this stacked branch it
+first isolates migrations `012`–`018`, starts baseline `000` plus deployed history
+`001`–`011`, and exercises a
+mapped confirmed user's real login/finalization, signed compatibility cookie, own and
+foreign reads, tampered/forged cookie denial, and AI failure before accounting exists.
+It then restores all seven pending migration files with explicit presence checks,
+resets through `018`, and runs the normal database and HTTP suites. The normal phase now
+follows the real synthetic confirmation link captured from local Inbucket back through
+the fixture application, and adds unauthenticated, forged, tampered, and validly signed
+cross-league denial. The combined PR153 head requires its own new CI run; neither
+prior security run validates migration 018 or these application refactors.
 
-The additional current catalog capture closes the *present* definitions for the CFC
-asset/value relations, trade relations, source maps, strategy, draft state/log and MFL
-draft mirror, but it does not establish their historical pre-`001` shapes. Concrete
-conflicts prove that copying it would be wrong: `001` reads
-`trade_messages.offer_id`, which is absent today; `002` inserts into the current
-`cfc_trade_values_current` view and expects calculation/staging columns absent today;
-and `004` expects `source_platform`/`source_franchise_id`, while today's franchise
-map exposes `platform`/`source_team_id`. The requested upload staging and master draft
-table/functions are absent today as well.
+All fixture credentials, mail, accounts, and rows are generated inside the disposable
+stack. This is neither a production probe nor a production-backup restore drill.
 
-Saved SQL source has now been recovered for the original trade tables (including
-`offer_id`), canonical value staging/tables/view/functions, and master draft/player/
-franchise/map definitions. Draft and strategy prerequisites are reconstructed by
-reversing only changes stated in checked-in migrations 005-008 and 011 from the
-verified current catalog; unversioned `picks_sell_move` is conservatively retained.
-The sources had no visible execution/creation timestamps, so they are not described
-as an executed snapshot. Their selected non-destructive definitions, plus live catalog
-shapes reversed only through checked-in migrations, now form the CI-only baseline;
-see `PRE001-BASELINE-PROVENANCE.md`. It is temporarily staged as version `000` only in
-the disposable runner and can never enter linked production history. CI must still
-prove reset, lint, RLS tests and concurrent AI reservations; no prior failed run is a
-pass and no migration is skipped.
+## Verified production preflight evidence
+
+A read-only aggregate capture at `2026-09-12T14:55:42Z` found 12 clean and distinct
+`team_email_map` email/roster mappings (rosters 1–12), each matched exactly once to a
+confirmed Auth account, with no unmatched or ambiguous accounts. `draft_state` has one
+nonblank row for league `1328902558617473024`; the legacy 2025 league and other/null
+counts were zero. `draft_log` has 12 rows across eight mapped rosters with no null or
+duplicate pick index, duplicate nonnull player, blank roster, or unmapped roster.
+`league_memberships`, `league_invitations`, and `draft_log.league_id` remain absent.
+This validates reviewed backfill cardinality, not a migration or environment setting.
 
 ## Remaining operational gates
 
-1. Publish the baseline commit and require a new disposable CI pass. SQL RLS tests
-   and a real parallel PostgreSQL AI reservation test are wired in but are not passes
-   until GitHub executes them successfully.
-2. Inspect view definitions/dependencies and Realtime publications before selectively
-   reopening any direct client access affected by migration `015`.
-3. Enable secure password change/current-password verification and leaked-password protection after plan/UX review; verify minimum length, email-send limits, CAPTCHA and privileged MFA. The custom prepare flow still leaks allowlist/account state and needs durable edge throttling before a public multi-league launch.
-4. Inventory Storage buckets/objects/policies separately; test logo ownership paths.
-5. Verify backup database coverage/retention and Storage backup separately. Run the
-   recovery drill only in an already available isolated nonproduction project.
-6. Monitoring persists events and emits platform logs. A disabled-by-default Resend
-   email hook now covers significant server errors and authoritative AI usage/quota
-   signals with database-backed deduplication and a pilot-wide hourly cap. Delivery is
-   **not active**: configure a verified sender, provider credential, and the approved
-   recipient only in private server settings. Server-observed password rejection is
-   trusted; the former browser assertion endpoint is inert and cannot trigger alerts.
-7. Run unauthenticated, forged-cookie, cross-user/team/league and commissioner tests
-   against a deployed nonproduction instance. Source/unit checks are not endpoint
-   exploitation evidence and production was not probed.
-8. Director memos remain an enforced single-league compatibility surface because the
-   confirmed table has no `league_id`. Every memo body/UUID/status path must require
-   current membership, configured-league equality, and own-roster filtering. Add and
-   unambiguously backfill a league column before any second league is enabled.
-9. Supabase Auth provides the shared password-attempt limits for the new server login
-   path, but server proxying can share egress while IP forwarding is off. Migration
-   `016` therefore adds a database-backed per-identifier limiter for login/prepare/
-   signup, using bounded request bodies and keyed pseudonymous identifiers rather than
-   client-supplied forwarding headers or process-local counters. Review complementary
-   edge controls before broader signup exposure.
-10. Membership absence after migration 012 no longer consults `team_email_map` or
-   performs an upsert. Only a locked, unused invitation in migration 016 can create
-   membership; acceptance consumes it, and the service-only revoke operation marks it
-   revoked while deleting membership. Current membership remains authoritative for
-   transfers and demotions.
+1. Publish the staged schema-011/normal-phase extension and require credential-free CI
+   on the exact reviewed head. Re-run after reconciling stacked PR153.
+2. Run the private environment-shape preflight in `SECURITY-ENVIRONMENT-AND-PREFLIGHT.md`;
+   configure independent signing/audit secrets, exact Sonnet 5 prices, the fixed $5
+   user/$60 pilot ceilings, and keep email disabled.
+3. Review the production dry-run showing remote `001`–`011` and only reviewed
+   `012`–`017` pending. Do not repair or baseline live history.
+4. Inspect view definitions/dependencies and Realtime publications before selectively
+   reopening direct client access affected by `015`; inventory Storage write policies
+   and object backup coverage separately.
+5. Review Auth secure-password-change, current-password verification, leaked-password
+   protection, effective minimum length/email limits, CAPTCHA, privileged MFA, and
+   edge controls. No live setting was changed.
+6. Designate and approve a truly disposable restore target, quoted temporary cost,
+   side-effect isolation, Storage-object recovery source, and seven-day cleanup. Both
+   currently observed projects are production-class and forbidden as targets.
+7. Email alerts remain disabled pending a verified Resend sender, provider credential,
+   private recipient, and nonproduction delivery test.
+8. Director memos remain single-league because the confirmed table has no `league_id`.
+   Add and unambiguously backfill it before enabling a second league.
+9. Apply the owner commissioner role only through a reviewed trusted operation after
+   membership creation, then require users to sign in again.
 
 ## PR150 source-of-truth dependency note
 
-PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Security owns migration `017`; later cleanup starts at `018`. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.
+PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Its proposed `012`/`013` cleanup versions must be renumbered after security `017` (start at `018`) if later approved. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.

@@ -14,7 +14,7 @@
 // These are the FALLBACK. When a partner has >= MIN_SAMPLES_FOR_EMPIRICAL_BAND
 // accepted trades on file, history/reader.ts overrides with their real band.
 
-import type { PersonaKey } from "./types";
+import type { PersonaKey } from "./types.ts";
 
 export type PersonaBand = {
   min: number; // floor — most they'll overpay (lowest acceptable ratio)

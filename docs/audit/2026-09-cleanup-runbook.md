@@ -25,3 +25,11 @@ project is active production infrastructure and is not a restore target.
 Blocked evidence: this hosted session has no Supabase/read-only Postgres
 configuration, so no live dependency result, row count, archive, rename, drop,
 migration, or restore has been performed.
+
+## Confirmed production catalog evidence
+
+The sanitized 2026-09-12 result is recorded in
+`2026-09-production-catalog-evidence.md`. Absent relations are excluded from
+any action list, and `slp_raw_smoke` is retained because its direct and
+transitive view dependencies are live. Catalog row figures are estimates, not
+emptiness proof.

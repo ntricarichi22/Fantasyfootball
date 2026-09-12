@@ -9,6 +9,7 @@ import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
 import { runScouting, type EngineContext } from "@/pro-personnel/engine";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -54,17 +55,15 @@ export async function POST(req: Request) {
     give?: Array<{ kind?: string; overall?: number; playerId?: string; key?: string }>;
   };
   const seed = typeof body.seed === "number" && body.seed > 0 ? body.seed : 1;
-  const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
-  if ("error" in data) return NextResponse.json(data, { status: 500 });
   const scenario = asScenario(body.scenario);
   const teamId = body.teamId ?? "";
   const { session } = await currentAppSessionFromRequest(req);
-  if (!session || !currentSessionCanActForRoster(session, data.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
+  if ("error" in data) return NextResponse.json(data, { status: 500 });
 
   const you =
-    data.teams.find((t) => t.rosterId === teamId) ??
-    data.teams.find((t) => /founders/i.test(t.teamName)) ??
-    data.teams[0];
+    data.teams.find((t) => t.rosterId === teamId);
   if (!you) return NextResponse.json({ error: "No teams found." }, { status: 500 });
   const youId = you.rosterId;
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));

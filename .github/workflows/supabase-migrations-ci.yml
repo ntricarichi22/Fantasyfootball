@@ -7,6 +7,19 @@ on:
       - "scripts/validate-supabase-migrations.bash"
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
+      - "scripts/test-auth-http-smoke.*"
+      - "scripts/test-staged-security-rollout.bash"
+      - "package.json"
+      - "package-lock.json"
+      - "middleware.ts"
+      - "instrumentation.ts"
+      - "src/app/api/**"
+      - "src/infrastructure/auth/**"
+      - "src/infrastructure/ai/**"
+      - "src/infrastructure/security/**"
+      - "src/shared/director-prose/**"
+      - "tests/security-*"
+      - "tests/ai-*"
       - ".github/workflows/supabase-*.yml"
   push:
     branches: [main]
@@ -15,6 +28,19 @@ on:
       - "scripts/validate-supabase-migrations.bash"
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
+      - "scripts/test-auth-http-smoke.*"
+      - "scripts/test-staged-security-rollout.bash"
+      - "package.json"
+      - "package-lock.json"
+      - "middleware.ts"
+      - "instrumentation.ts"
+      - "src/app/api/**"
+      - "src/infrastructure/auth/**"
+      - "src/infrastructure/ai/**"
+      - "src/infrastructure/security/**"
+      - "src/shared/director-prose/**"
+      - "tests/security-*"
+      - "tests/ai-*"
       - ".github/workflows/supabase-*.yml"
   workflow_dispatch:
 
@@ -51,14 +77,8 @@ jobs:
         with:
           version: 2.45.5
 
-      - name: Start isolated local Supabase stack and apply migrations
-        run: |
-          cp supabase/baseline/pre001_clean_database.sql \
-            supabase/migrations/000_ci_pre001_clean_database.sql
-          supabase start
-
-      - name: Rebuild the disposable database from migration history
-        run: ./scripts/test-supabase-clean-db.bash
+      - name: Prove schema-011 compatibility and reviewed migration transition
+        run: ./scripts/test-staged-security-rollout.bash
         env:
           LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 

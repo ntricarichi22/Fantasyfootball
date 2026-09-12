@@ -23,6 +23,7 @@ export interface SleeperDraft {
   slot_to_roster_id?: Record<string, number>;
   draft_id?: string;
   status?: string;
+  settings?: { rounds?: number };
 }
 
 export const DEFAULT_PICK_SEASONS = ["2026", "2027"];

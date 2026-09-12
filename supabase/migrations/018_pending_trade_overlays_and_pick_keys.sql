@@ -3,7 +3,9 @@
 SELECT table_name,column_name,data_type
 FROM information_schema.columns
 WHERE table_schema='public' AND table_name IN
- ('trade_offers','cfc_team_player_attachment','cfc_team_trade_values_current','cfc_team_draft_class_strength')
+ ('trade_offers','cfc_team_player_attachment','cfc_asset_calculations','cfc_asset_source_values',
+  'cfc_assets','cfc_team_draft_class_strength','cfc_team_manual_value_overrides',
+  'cfc_trade_values_current','watchlist')
 ORDER BY table_name,ordinal_position;
 
 CREATE TABLE IF NOT EXISTS public.cfc_pending_trade_overlays (
@@ -47,47 +49,39 @@ REVOKE ALL ON TABLE public.cfc_pick_key_migration_018_archive FROM PUBLIC,anon,a
 GRANT ALL ON TABLE public.cfc_pick_key_migration_018_archive TO service_role;
 
 DO $$
-DECLARE r record; new_key text;
+DECLARE
+  spec record;
+  row_record record;
+  new_key text;
 BEGIN
- IF to_regclass('public.cfc_team_player_attachment') IS NOT NULL THEN
-  FOR r IN SELECT ctid,* FROM public.cfc_team_player_attachment
-    WHERE sleeper_player_id ~ '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
+  -- Each relation/key pair below was confirmed by the 2026-09-12 read-only
+  -- production catalog capture. A conflicting canonical row is never deleted:
+  -- the retired key remains readable and is reported by validation.
+  FOR spec IN SELECT * FROM (VALUES
+    ('cfc_team_player_attachment','sleeper_player_id'),
+    ('cfc_asset_calculations','asset_key'),
+    ('cfc_asset_source_values','asset_key'),
+    ('cfc_assets','asset_key'),
+    ('cfc_team_draft_class_strength','pick_key'),
+    ('cfc_team_manual_value_overrides','asset_key'),
+    ('watchlist','asset_key')
+  ) AS confirmed(table_name,key_column)
   LOOP
-   new_key:=public.cfc_durable_pick_key(r.sleeper_player_id);
-   IF EXISTS(SELECT 1 FROM public.cfc_team_player_attachment x WHERE x.league_id=r.league_id AND x.team_id=r.team_id AND x.sleeper_player_id=new_key) THEN
-    INSERT INTO public.cfc_pick_key_migration_018_archive VALUES('cfc_team_player_attachment',r.sleeper_player_id,to_jsonb(r)-'ctid',now());
-    DELETE FROM public.cfc_team_player_attachment WHERE ctid=r.ctid;
-   ELSE
-    UPDATE public.cfc_team_player_attachment SET sleeper_player_id=new_key WHERE ctid=r.ctid;
-   END IF;
+    IF to_regclass('public.' || spec.table_name) IS NULL THEN CONTINUE; END IF;
+    FOR row_record IN EXECUTE format(
+      'SELECT ctid, %1$I AS old_key, to_jsonb(t) AS row_data FROM public.%2$I t WHERE %1$I ~ $1',
+      spec.key_column, spec.table_name
+    ) USING '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
+    LOOP
+      new_key := public.cfc_durable_pick_key(row_record.old_key);
+      INSERT INTO public.cfc_pick_key_migration_018_archive(source_table,old_key,row_data)
+      VALUES(spec.table_name,row_record.old_key,row_record.row_data);
+      EXECUTE format(
+        'UPDATE public.%1$I old SET %2$I=$1 WHERE old.ctid=$2 AND NOT EXISTS (SELECT 1 FROM public.%1$I canonical WHERE canonical.%2$I=$1)',
+        spec.table_name,spec.key_column
+      ) USING new_key,row_record.ctid;
+    END LOOP;
   END LOOP;
- END IF;
- IF to_regclass('public.cfc_team_draft_class_strength') IS NOT NULL THEN
-  FOR r IN SELECT ctid,* FROM public.cfc_team_draft_class_strength
-    WHERE pick_key ~ '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
-  LOOP
-   new_key:=public.cfc_durable_pick_key(r.pick_key);
-   IF EXISTS(SELECT 1 FROM public.cfc_team_draft_class_strength x WHERE x.league_id=r.league_id AND x.team_id=r.team_id AND x.pick_key=new_key) THEN
-    INSERT INTO public.cfc_pick_key_migration_018_archive VALUES('cfc_team_draft_class_strength',r.pick_key,to_jsonb(r)-'ctid',now());
-    DELETE FROM public.cfc_team_draft_class_strength WHERE ctid=r.ctid;
-   ELSE
-    UPDATE public.cfc_team_draft_class_strength SET pick_key=new_key WHERE ctid=r.ctid;
-   END IF;
-  END LOOP;
- END IF;
- IF to_regclass('public.cfc_team_trade_values_current') IS NOT NULL THEN
-  FOR r IN SELECT ctid,* FROM public.cfc_team_trade_values_current
-    WHERE sleeper_player_id ~ '^pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+$'
-  LOOP
-   new_key:=public.cfc_durable_pick_key(r.sleeper_player_id);
-   IF EXISTS(SELECT 1 FROM public.cfc_team_trade_values_current x WHERE x.league_id=r.league_id AND x.team_id=r.team_id AND x.sleeper_player_id=new_key) THEN
-    INSERT INTO public.cfc_pick_key_migration_018_archive VALUES('cfc_team_trade_values_current',r.sleeper_player_id,to_jsonb(r)-'ctid',now());
-    DELETE FROM public.cfc_team_trade_values_current WHERE ctid=r.ctid;
-   ELSE
-    UPDATE public.cfc_team_trade_values_current SET sleeper_player_id=new_key WHERE ctid=r.ctid;
-   END IF;
-  END LOOP;
- END IF;
 END $$;
 
 -- Stored offer assets are arrays of objects with a key property.
@@ -102,10 +96,13 @@ GRANT EXECUTE ON FUNCTION public.cfc_durable_pick_key(text) TO service_role;
 -- Validation: inspect existence/columns first; absent optional value tables are
 -- reported rather than recreated. Offer count must be zero.
 SELECT wanted.table_name,columns.column_name,columns.data_type
-FROM (VALUES ('cfc_team_player_attachment'),('cfc_team_draft_class_strength'),
- ('cfc_team_trade_values_current'),('trade_offers'),('cfc_pending_trade_overlays')) wanted(table_name)
+FROM (VALUES ('cfc_team_player_attachment'),('cfc_asset_calculations'),('cfc_asset_source_values'),
+ ('cfc_assets'),('cfc_team_draft_class_strength'),('cfc_team_manual_value_overrides'),
+ ('cfc_trade_values_current'),('watchlist'),('trade_offers'),('cfc_pending_trade_overlays')) wanted(table_name)
 LEFT JOIN information_schema.columns columns ON columns.table_schema='public' AND columns.table_name=wanted.table_name
 ORDER BY wanted.table_name,columns.ordinal_position;
 SELECT count(*) offer_old_keys FROM public.trade_offers
 WHERE assets_from::text ~ 'pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+'
    OR assets_to::text ~ 'pick:[0-9]{4}-[0-9]+-(tbd|[0-9]+)-[^-]+';
+SELECT source_table,count(*) archived_rows
+FROM public.cfc_pick_key_migration_018_archive GROUP BY source_table ORDER BY source_table;

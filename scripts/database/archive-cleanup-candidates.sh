@@ -5,7 +5,9 @@ set -euo pipefail
 mkdir -p "$ARCHIVE_DIR"
 stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 out="$ARCHIVE_DIR/cfc-cleanup-candidates-$stamp.dump"
-tables=(league_seasons league_users league_teams league_roster_snapshots league_roster_players league_drafts league_draft_picks league_matchups league_matchup_teams league_transactions league_transaction_assets league_traded_picks league_playoff_bracket_games league_final_standings league_champions slp_raw_global slp_raw_smoke flea_raw_global flea_raw_smoke mfl_raw_global mfl_raw_smoke watchlist cfc_value_upload_staging)
+# Exact existing relations from the 2026-09-12 read-only catalog capture.
+# All are archived for recovery evidence; inclusion is not a deletion claim.
+tables=(slp_raw_global slp_raw_smoke flea_raw_global flea_raw_smoke mfl_raw_global mfl_raw_smoke watchlist)
 args=(); for table in "${tables[@]}"; do args+=(--table="public.$table"); done
 pg_dump "$READ_ONLY_DATABASE_URL" --format=custom --no-owner --no-privileges "${args[@]}" --file="$out"
 pg_restore --list "$out" > "$out.list"

@@ -22,6 +22,8 @@
 
 import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextResponse } from "next/server";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
@@ -280,6 +282,8 @@ export async function POST(req: Request) {
   if (!teamId || !message) {
     return NextResponse.json({ error: "roster_id and message required" }, { status: 400 });
   }
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   try {
     const data = await getLeagueData();

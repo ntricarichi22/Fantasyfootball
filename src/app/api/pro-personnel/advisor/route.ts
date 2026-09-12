@@ -1,6 +1,7 @@
 import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import {
   personaAwareGrade,
@@ -226,6 +227,10 @@ export async function POST(request: NextRequest) {
   const priorTake = mode === "editor_opening" ? (body.prior_prose ?? "").trim() : "";
   if (!my_team_id || !other_team_ids?.length) {
     return NextResponse.json({ error: "team IDs required" }, { status: 400 });
+  }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || !currentSessionCanActForRoster(session, LEAGUE_ID, my_team_id)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   if (!rawRosters) {
     return NextResponse.json({ error: "rosters required" }, { status: 400 });

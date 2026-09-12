@@ -12,8 +12,9 @@ old application rollback must not depend on anonymous database writes.
 
 ## Pre-merge gates
 
-1. Make the clean-database CI job pass from the reviewed pre-`001` baseline; do not
-   approve based only on app tests.
+1. Require successful CI run `34701863673` at `b49e0f8` as the current database and
+   HTTP/Auth proof, plus the new staged schema-011 transition on the exact final head; do not approve
+   based only on app tests.
 2. In Vercel's server-only production environment, configure a new independent
    `AUTH_SESSION_SECRET` and 32+ byte `AUDIT_HASH_KEY`. Until the signing key exists,
    the code can use the already-server-only service-role key solely as a compatibility
@@ -25,7 +26,7 @@ old application rollback must not depend on anonymous database writes.
    scheduled prose is desired and deliberately charged to that account.
    Keep email alerts disabled until a verified Resend sender, private provider key,
    and approved private recipient setting are present. No destination belongs in Git.
-4. Verify the current production `draft_state` contains exactly one distinct league.
+4. Preserve the read-only preflight evidence: current production `draft_state` contains exactly one distinct league.
    Migrations `012` and `015` intentionally abort otherwise rather than guessing the
    membership or historical draft-log league.
 5. Review the membership backfill preview using aggregate counts only. It joins
@@ -49,13 +50,16 @@ old application rollback must not depend on anonymous database writes.
    still revalidate the Auth user, accept only that exact absent relation, and downgrade
    the compatibility session to `member`; other database errors fail closed. Non-AI
    features remain available; AI fails closed until accounting exists.
+   Credential-free CI must prove this exact interval by physically withholding
+   migrations `012`–`017`, not by fabricating missing-relation responses.
 3. The reviewer verifies the tested SHA and dry-run history shows remote `001`–`011`
    and local pending `012`–`017`, with no repair, baseline, drop, or unexpected SQL.
 4. Approve the serialized database job. `012` creates/backfills memberships; `013`
    adds AI accounting; `014` adds protected audit storage; `015` scopes draft history
    and revokes broad Data API access; `016` adds one-time invitation acceptance,
-   durable revocation semantics, and shared pseudonymous auth throttling. Validation queries must
-   match the reviewed results.
+   durable revocation semantics, and shared pseudonymous auth throttling; `017`
+   replaces the lint-invisible temporary-table rebuild while preserving Flea/MFL
+   results. Validation queries must match the reviewed results.
 5. Apply the prepared owner commissioner membership through a separately reviewed,
    authenticated administrative operation. Have all users sign in again so session
    roles reflect durable membership.

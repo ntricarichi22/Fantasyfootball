@@ -10,7 +10,7 @@
 import type { SourceRow } from "@/infrastructure/values/normalize";
 
 const ENDPOINT =
-  "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1";
+  "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=0.5";
 
 const PICK_YEAR = "2026";
 

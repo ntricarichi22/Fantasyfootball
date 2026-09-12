@@ -144,6 +144,9 @@ export type ValueMaps = {
   // QB-stash behavior. Empty when the source column is absent — the engine
   // treats a missing boost as 1 (not a stash candidate), so it degrades cleanly.
   rookieQbBoost: Map<string, number>;
+  // Rostered players absent from both adjusted and league-base sources. They
+  // remain in every engine/UI pool at zero and are explicitly identifiable.
+  unpriced?: Set<string>;
 };
 
 // Canonical draft-pick slot ladder. Key = "R.SS" with a ZERO-PADDED slot

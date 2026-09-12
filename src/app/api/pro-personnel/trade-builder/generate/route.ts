@@ -38,6 +38,8 @@ import { buildValuationContext } from "@/shared/asset-values";
 import { buildNflTeams } from "@/shared/nfl-teams";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import { type EngineContext } from "@/pro-personnel/engine";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 
@@ -46,6 +48,10 @@ export async function POST(req: Request) {
     const body = await req.json();
     const teamId = String(body.team_id ?? "").trim();
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
+    const { session } = await currentAppSessionFromRequest(req);
+    if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) {
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    }
 
     // Short-TTL cache per team: the slate is deterministic for a given league
     // state, and the door re-requests it on every visit (including browser

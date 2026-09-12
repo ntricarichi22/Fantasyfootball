@@ -24,6 +24,7 @@ import {
   type SleeperUser,
 } from "./sleeper";
 import { getTeamNameOverrides } from "./teamIdentity";
+import { deriveOwnablePickShape, deriveSpentPickNumbers } from "./picks";
 import {
   POSITIONS,
   type Position,
@@ -275,6 +276,7 @@ export async function getDraftStatus(): Promise<DraftStatus> {
     const picks = [...merged.values()].sort((a, b) => a.pickNumber - b.pickNumber);
     const sleeperStatus = draft?.status ? String(draft.status) : null;
     const complete = sleeperStatus === "complete";
+    const configuredRounds = Math.max(1, Number(draft?.settings?.rounds) || 3);
     const dayOneComplete = picks.filter(p => p.round === 1).length >= 12;
     const dayTwoComplete = complete || (picks.filter(p => p.round === 2).length >= 12 && picks.filter(p => p.round === 3).length >= 12);
     return {
@@ -285,11 +287,12 @@ export async function getDraftStatus(): Promise<DraftStatus> {
       dayTwoComplete,
       complete: complete || (dayOneComplete && dayTwoComplete),
       picks,
-      spentPickNumbers: new Set(picks.map(p => p.pickNumber)),
+      spentPickNumbers: deriveSpentPickNumbers(picks.map(pick => pick.pickNumber), complete, 12, configuredRounds),
       firstUndraftedSeason: complete || (dayOneComplete && dayTwoComplete) ? season + 1 : season,
     };
   });
 }
+
 
 // Players already drafted in the current-year rookie draft but not yet
 // processed into Sleeper rosters. The draft log is the source of truth: each
@@ -344,10 +347,12 @@ function buildPickOwnership(
   const derived = deriveDraftOrderForSeason(drafts as SleeperDraft[], String(cfcYear));
   const draftOrder = mapDraftOrderToRosters(derived.draftOrder, rawRosters);
 
+  const shape = deriveOwnablePickShape(cfcYear, draftStatus.firstUndraftedSeason, drafts as SleeperDraft[], traded as TradedPick[]);
   const withPicks = withComputedDraftPicks(rawRosters, traded as TradedPick[], {
     teamCountOverride: teamCount,
     rosterOwnerMap,
-    seasons: [0, 1, 2].map(offset => String(draftStatus.firstUndraftedSeason + offset)),
+    seasons: shape.seasons.map(String),
+    defaultRounds: shape.rounds,
     draftOrder,
     draftOrderAvailable: derived.available,
   });
@@ -619,6 +624,14 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   const sleeperTeams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict, drafted);
   const ownership = buildPickOwnership(rosters, traded, draftStatus, drafts);
   const overlaid = applyPendingTradeOverlays(sleeperTeams, ownership.map, overlays);
+  const unpriced = new Set<string>();
+  for (const team of overlaid.teams) for (const playerId of team.playerIds) {
+    if (!values.value.has(playerId)) {
+      values.value.set(playerId, 0);
+      unpriced.add(playerId);
+    }
+  }
+  values.unpriced = unpriced;
 
   const settings: LeagueSettings = {
     rosterPositions:

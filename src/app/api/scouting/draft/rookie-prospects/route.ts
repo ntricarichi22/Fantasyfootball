@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,10 @@ export const dynamic = "force-dynamic";
  * plus the post-NFL-draft fields (nfl_team, nfl_draft_round,
  * nfl_draft_pick) that drive the Draft Capital grade.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
+  const { session, error: sessionError } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: sessionError }, { status: sessionError === "not_authenticated" ? 401 : 503 });
   const { client, error } = getSupabaseAdminClient();
   if (!client) {
     // Without Supabase, return an empty map so the UI degrades gracefully.

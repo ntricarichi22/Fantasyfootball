@@ -13,6 +13,8 @@
 // layers — do not use that for new surfaces.
 
 import { NextRequest, NextResponse } from "next/server";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
@@ -28,6 +30,8 @@ export async function GET(req: NextRequest) {
   try {
     const teamId = req.nextUrl.searchParams.get("team_id")?.trim();
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
+    const { session } = await currentAppSessionFromRequest(req);
+    if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const data = await getLeagueData();
     if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });

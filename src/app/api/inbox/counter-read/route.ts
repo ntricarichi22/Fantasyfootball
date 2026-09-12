@@ -2,6 +2,7 @@ import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { counterProse, type CounterPartner } from "@/inbox/thread/counterMath";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES, rankDealPieces } from "@/shared/director-prose";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -110,6 +111,8 @@ async function callAnthropic(request: Request, user: string, apiKey: string): Pr
 }
 
 export async function POST(request: NextRequest) {
+  const { session, error: sessionError } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: sessionError }, { status: sessionError === "not_authenticated" ? 401 : 503 });
   let body: Body;
   try {
     body = (await request.json()) as Body;
