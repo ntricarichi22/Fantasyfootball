@@ -2,6 +2,7 @@ import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { Pool } from "pg";
 import { SCHEMA_CONTEXT } from "@/infrastructure/llm/schema-context";
+import { CFC_AI_MODEL } from "@/shared/ai-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -115,7 +116,7 @@ async function callClaude(
   apiKey: string,
   messages: AnthropicMessage[]
 ): Promise<AnthropicResponse> {
-  const response = await meteredAnthropicFetch(request, { feature: "historian", model: "claude-sonnet-4-5", maxInputTokens: 12000, maxOutputTokens: 2048 }, {
+  const response = await meteredAnthropicFetch(request, { feature: "historian", model: CFC_AI_MODEL, maxInputTokens: 12000, maxOutputTokens: 2048 }, {
     method: "POST",
     headers: {
       "x-api-key": apiKey,
@@ -123,7 +124,7 @@ async function callClaude(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model: CFC_AI_MODEL,
       max_tokens: 2048,
       system: SCHEMA_CONTEXT,
       tools: [

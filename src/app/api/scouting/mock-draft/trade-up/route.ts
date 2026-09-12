@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 import { getLeagueData, type OwnedPick } from "@/shared/league-data";
 import { teamNickname } from "@/shared/league-data/nicknames";
-import { buildTeamProfiles } from "@/shared/team-profiles";
+import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildValuationContext, valueAsset } from "@/shared/asset-values";
 import { bandFor, normalizePersona } from "@/pro-personnel/engine/core/personas";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
+import { runScouting, type EngineContext } from "@/pro-personnel/engine";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -56,6 +58,8 @@ export async function POST(req: Request) {
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const scenario = asScenario(body.scenario);
   const teamId = body.teamId ?? "";
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, data.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const you =
     data.teams.find((t) => t.rosterId === teamId) ??
@@ -269,9 +273,6 @@ export async function POST(req: Request) {
   // ── Auto-generated offers (default mode) — anchored on our next unmade pick.
   const myPick = myCurrentPicks[0];
   if (!myPick) return NextResponse.json({ offers: [] });
-  const myOurVal = val(myPick, youId);
-  const myExtraPicks = myCurrentPicks.filter((p) => p.overall !== myPick.overall);
-  const tradeablePlayers = rosterPlayers.slice(2); // keep the top two untouchable (auto offers only)
 
   // Targets: unmade picks ahead of ours owned by another team, TEAM ON THE CLOCK
   // (targetOverall) first, then the closest jumps. We surface offers for the
@@ -284,48 +285,29 @@ export async function POST(req: Request) {
       return (myPick.overall! - a.overall!) - (myPick.overall! - b.overall!);
     });
 
-  const myPickAssetFor = (partnerId: string): Asset =>
-    ({ kind: "pick", label: pickKey(myPick.round, myPick.slot), sublabel: "our pick", vYou: myOurVal, vP: val(myPick, partnerId), overall: myPick.overall! });
-
   const offers: unknown[] = [];
-  const seenSignatures = new Set<string>();
+  const ec: EngineContext = { data, profiles, dossiers, needs: computeNeeds(data), ctx };
   for (const cand of candidates) {
     if (offers.length >= 3) break;
     const partnerId = cand.currentRosterId;
-    const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
-    // A team sliding DOWN gives up the better draft slot, so it demands a
-    // PREMIUM to do it — the mover-up must deliver MORE than the pick's raw
-    // value, never a straight swap for an adjacent pick. Threshold = their pick's
-    // value marked up by MOVE_UP_PREMIUM (and never below their persona floor).
-    const threshold = Math.max(band.min, MOVE_UP_PREMIUM) * val(cand, partnerId);
-
-    // Asset pools valued from the partner's seat (what they'd accept) and ours.
-    const myPickAsset = myPickAssetFor(partnerId);
-    const pickPool: Asset[] = myExtraPicks.map((p) => ({ kind: "pick" as const, label: pickKey(p.round, p.slot), sublabel: "pick", vYou: val(p, youId), vP: val(p, partnerId), overall: p.overall! })).sort((a, b) => a.vP - b.vP);
-    const playerPool: Asset[] = tradeablePlayers.map((pl) => ({ kind: "player" as const, label: pl.name, sublabel: `${pl.pos}${pl.nflTeam ? ` · ${pl.nflTeam}` : ""}`, vYou: pl.vYou, vP: playerVal(pl.id, partnerId), playerId: pl.id })).sort((a, b) => a.vP - b.vP);
-    const interleaved: Asset[] = [];
-    for (let i = 0; i < Math.max(pickPool.length, playerPool.length); i++) { if (pickPool[i]) interleaved.push(pickPool[i]); if (playerPool[i]) interleaved.push(playerPool[i]); }
-
-    // Greedily fill from our pick + a preference order until the partner is made
-    // whole. Returns null if even everything falls short.
-    const build = (order: Asset[]): Asset[] | null => {
-      const pkg = [myPickAsset];
-      let recv = myPickAsset.vP;
-      for (const a of order) { if (recv >= threshold) break; pkg.push(a); recv += a.vP; }
-      return recv >= threshold ? pkg : null;
-    };
-    const variants = [
-      build([...pickPool, ...playerPool]),      // picks first
-      build([...playerPool, ...pickPool]),      // players first
-      build(interleaved),                        // mixed
-    ];
-
-    for (const pkg of variants) {
-      if (offers.length >= 3 || !pkg) continue;
-      const sig = pkg.map((a) => a.label).sort().join("|") + "->" + cand.overall;
-      if (seenSignatures.has(sig)) continue;
-      seenSignatures.add(sig);
-      offers.push(makeOffer(pkg, cand));
+    const slate = runScouting(ec, youId, { pickKeys: [myPick.key], intent: "trade_up",
+      counterpartyTeamIds: [partnerId], requiredCounterpartyKeys: [cand.key] });
+    for (const offer of slate.offers) {
+      if (offers.length >= 3) break;
+      const pkg: Asset[] = [];
+      for (const asset of offer.assets.filter(asset => asset.side === "send")) {
+        if (asset.type === "pick") {
+          const pick = [...myCurrentPicks,...myFuturePicks].find(item => item.key === asset.key);
+          if (pick) pkg.push({ kind: "pick", label: pick.kind === "current" ? pickKey(pick.round,pick.slot) : futureLabel(pick),
+            sublabel: "pick", vYou: val(pick,youId), vP: val(pick,partnerId), overall: pick.overall ?? undefined,
+            futureKey: pick.kind === "future" ? pick.key : undefined });
+          continue;
+        }
+        const player = rosterPlayers.find(item => item.id === asset.key);
+        if (player) pkg.push({ kind: "player", label: player.name, sublabel: player.pos,
+          vYou: player.vYou, vP: playerVal(player.id,partnerId), playerId: player.id });
+      }
+      if (pkg.length) offers.push(makeOffer(pkg,cand));
     }
   }
 

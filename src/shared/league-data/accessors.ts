@@ -42,40 +42,29 @@ import {
   type PickLadder,
   type ResultsSource,
   type LeagueData,
-  type DraftStatus,
+type DraftStatus,
   type DraftResultPick,
   type LeagueSnapshot,
 } from "./types";
 import { formatPickKey, getCFCYear } from "./picks";
 
+import { applyPendingTradeOverlays, type PendingTradeOverlay } from "./overlays";
+import { buildTeamProfiles } from "@/shared/team-profiles";
+
 const FANTASY = new Set<Position>(POSITIONS);
 const DEFAULT_ROSTER_POSITIONS = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX"];
-
 const toStr = (v: unknown): string => (v == null ? "" : String(v));
-
 function stance(v: unknown): MarketStance {
   const s = typeof v === "string" ? v.toLowerCase() : "";
-  if (s === "buy" || s === "hold" || s === "sell") return s;
-  return "unknown";
+  return s === "buy" || s === "hold" || s === "sell" ? s : "unknown";
 }
-
-// Per-position intent vocabularies (must match the SQL column comments and the
-// research-strategy save path). Anything outside the set is dropped — defensive
-// against typos / future tags, exactly like the old wants_more normalize.
 const BUY_INTENTS = new Set<string>(["difference_maker", "insurance", "young"]);
 const PICKS_KINDS = new Set<string>(["premium", "day2", "future"]);
 const SELL_MOVES = new Set<string>(["consolidate", "fill_need"]);
-
-// Read a text[] column, lowercased + filtered to the allowed vocabulary, deduped.
-// A missing/empty column reads as [] ( = nothing selected ).
 function intentArr<T extends string>(v: unknown, allowed: Set<string>): T[] {
   if (!Array.isArray(v)) return [];
-  const out: T[] = [];
-  for (const raw of v) {
-    const s = typeof raw === "string" ? raw.toLowerCase().trim() : "";
-    if (allowed.has(s) && !out.includes(s as T)) out.push(s as T);
-  }
-  return out;
+  return [...new Set(v.filter((raw): raw is string => typeof raw === "string").map(raw => raw.toLowerCase().trim()))]
+    .filter((value): value is T => allowed.has(value));
 }
 
 // ── builders (pure: raw data in, normalized facts out) ─────────────────────
@@ -161,6 +150,59 @@ function buildTeams(
       players,
     };
   });
+}
+
+async function getPendingTradeOverlays(leagueId: string): Promise<PendingTradeOverlay[]> {
+  const { client } = getSupabaseAdminClient();
+  if (!client) return [];
+  const { data, error } = await client.from("cfc_pending_trade_overlays")
+    .select("offer_id,from_team_id,to_team_id,assets_from,assets_to")
+    .eq("league_id", leagueId).not("accepted_at", "is", null).is("reconciled_at", null)
+    .order("accepted_at", { ascending: true });
+  if (error) {
+    // Compatibility window while migration 018 rolls out: no overlays rather
+    // than taking ordinary league reads down.
+    if (error.code === "42P01" || error.code === "PGRST205") return [];
+    throw new Error(error.message);
+  }
+  return (data ?? []).map(row => ({
+    offerId: String(row.offer_id), fromTeamId: String(row.from_team_id), toTeamId: String(row.to_team_id),
+    assetsFrom: Array.isArray(row.assets_from) ? row.assets_from : [],
+    assetsTo: Array.isArray(row.assets_to) ? row.assets_to : [],
+  }));
+}
+
+/** Apply accepted deals in acceptance order. Sleeper remains authoritative:
+ * an asset already at the destination is a no-op. */
+export async function reconcilePendingTradeOverlays(): Promise<number> {
+  const leagueId = getSleeperLeagueId();
+  const [players, rosters, users, traded, drafts, status, names, overlays] = await Promise.all([
+    fetchPlayers(), fetchRosters(leagueId), fetchUsers(leagueId), fetchTradedPicks(leagueId),
+    fetchDrafts(leagueId), getDraftStatus(), getTeamNameOverrides(), getPendingTradeOverlays(leagueId),
+  ]);
+  const teams = buildTeams(rosters, buildTeamNames(rosters, users, names), buildPlayerDict(players));
+  const ownership = buildPickOwnership(rosters, traded, status, drafts).map;
+  const located = (asset: { key?: string; type?: string }, rosterId: string) => {
+    const key = String(asset.key ?? "");
+    if (asset.type === "pick" || key.startsWith("pick:")) {
+      return (ownership.get(rosterId) ?? []).some(pick => pick.key === key)
+        || (status.complete && key.startsWith(`pick:${status.season}-`));
+    }
+    const id = key.replace(/^player:/, "");
+    return teams.find(team => team.rosterId === rosterId)?.playerIds.includes(id) ?? false;
+  };
+  const reconciled = overlays.filter(overlay =>
+    overlay.assetsFrom.every(asset => located(asset, overlay.toTeamId))
+    && overlay.assetsTo.every(asset => located(asset, overlay.fromTeamId)));
+  if (!reconciled.length) return 0;
+  const { client } = getSupabaseAdminClient();
+  if (!client) return 0;
+  const { error } = await client.from("cfc_pending_trade_overlays")
+    .update({ reconciled_at: new Date().toISOString() })
+    .in("offer_id", reconciled.map(item => item.offerId));
+  if (error) throw new Error(error.message);
+  invalidateLeagueData();
+  return reconciled.length;
 }
 
 function buildResults(rosters: SleeperRoster[]): Map<string, SeasonResult> {
@@ -556,7 +598,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   const leagueId = getSleeperLeagueId();
   if (!leagueId) return { error: "NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set" };
 
-  const [players, rosters, users, traded, league, values, strat, draftStatus, drafted, drafts, nameOverrides] = await Promise.all([
+  const [players, rosters, users, traded, league, values, strat, draftStatus, drafted, drafts, nameOverrides, overlays] = await Promise.all([
     fetchPlayers(),
     fetchRosters(leagueId),
     fetchUsers(leagueId),
@@ -568,13 +610,15 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     fetchDraftedPlayers(getCFCYear(), leagueId),
     fetchDrafts(leagueId),
     getTeamNameOverrides(),
+    getPendingTradeOverlays(leagueId),
   ]);
 
   if (!rosters.length) return { error: "Sleeper rosters unavailable" };
 
   const dict = buildPlayerDict(players);
-  const teams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict, drafted);
+  const sleeperTeams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict, drafted);
   const ownership = buildPickOwnership(rosters, traded, draftStatus, drafts);
+  const overlaid = applyPendingTradeOverlays(sleeperTeams, ownership.map, overlays);
 
   const settings: LeagueSettings = {
     rosterPositions:
@@ -609,9 +653,9 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     teamCount: ownership.teamCount,
     settings,
     players: dict,
-    teams,
+    teams: overlaid.teams,
     values,
-    pickOwnership: ownership.map,
+    pickOwnership: overlaid.ownership,
     draftStatus,
     strategy: strat.strategy,
     attachments: strat.attachments,
@@ -644,7 +688,10 @@ export function toLeagueSnapshot(data: LeagueData): LeagueSnapshot {
     leagueId: data.leagueId,
     cfcYear: data.cfcYear,
     teamCount: data.teamCount,
+    settings: data.settings,
     teams: data.teams,
+    players: [...data.players.values()],
+    profiles: buildTeamProfiles(data),
     pickOwnership: Object.fromEntries(data.pickOwnership),
     draftStatus: { ...data.draftStatus, spentPickNumbers: [...data.draftStatus.spentPickNumbers] },
   };

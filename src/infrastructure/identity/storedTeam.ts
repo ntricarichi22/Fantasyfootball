@@ -55,3 +55,11 @@ export const readStoredTeam = (): StoredTeam => {
     return {};
   }
 };
+
+export const writeStoredTeam = (team: StoredTeam): void => {
+  if (typeof window !== "undefined") sessionStorage.setItem(SELECTED_TEAM_CACHE_KEY, JSON.stringify(team));
+};
+
+export const clearStoredTeam = (): void => {
+  if (typeof window !== "undefined") sessionStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
+};

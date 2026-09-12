@@ -16,7 +16,7 @@
 
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { ttlInvalidate, ttlMemo } from "@/infrastructure/ttlCache";
-import { teamNickname } from "./nicknames";
+import { teamNickname, teamNameParts } from "./nicknames";
 import { TEAM_COLORS } from "./teamColors";
 import { fetchRosters, fetchUsers, getSleeperLeagueId } from "./sleeper";
 
@@ -28,6 +28,9 @@ export type TeamIdentity = {
   rosterId: string;
   /** Display name — team_email_map first, Sleeper as fallback. */
   teamName: string;
+  fullName: string;
+  location: string;
+  nickname: string;
   /** Slug of the Sleeper name: keys the original art, stable across renames. */
   baseSlug: string;
   /** Slug of the display name: what crest/avatar URLs are requested under. */
@@ -112,6 +115,7 @@ async function loadIdentities(): Promise<TeamIdentity[]> {
     identities.push({
       rosterId: rid,
       teamName,
+      ...teamNameParts(teamName),
       baseSlug,
       nameSlug: nicknameSlug(teamName),
       customLogoUrl,

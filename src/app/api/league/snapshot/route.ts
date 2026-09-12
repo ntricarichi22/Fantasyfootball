@@ -10,5 +10,8 @@ export async function GET(request: Request) {
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json({ error: data.error }, { status: 503 });
   if (auth.session.leagueId !== data.leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  return NextResponse.json(toLeagueSnapshot(data));
+  return NextResponse.json({
+    ...toLeagueSnapshot(data),
+    viewer: { rosterId: auth.session.rosterId, role: auth.session.role },
+  });
 }

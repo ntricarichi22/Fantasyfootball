@@ -1,19 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findCommissionerRosterId } from "@/infrastructure/commissioner";
 import { getLeagueId } from "@/infrastructure/config";
 import { INITIAL_PICK_SECONDS, normalizeDraftStateRow } from "@/scouting/draft-room/draftState";
 import { getSupabaseAdminClient } from "@/app/api/active-teams/shared";
-
-type SleeperUser = {
-  user_id?: string | null;
-  display_name?: string | null;
-  metadata?: { team_name?: string | null } | null;
-};
-
-type SleeperRoster = {
-  roster_id?: number | null;
-  owner_id?: string | null;
-};
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { invalidateLeagueData } from "@/shared/league-data";
 
 type DraftLogPayload = {
   pickIndex?: number | string | null;
@@ -73,24 +63,6 @@ const normalizeDraftLogPayload = (payload: DraftLogPayload) => {
     positions: Array.isArray(payload.positions) ? payload.positions : [],
     nfl_team: payload.nflTeam ?? null,
   };
-};const fetchCommissionerRosterId = async () => {
-  try {
-    const [rosterRes, userRes] = await Promise.all([
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
-    ]);
-
-    if (!rosterRes.ok || !userRes.ok) {
-      return "";
-    }
-
-    const rosters = (await rosterRes.json()) as SleeperRoster[];
-    const users = (await userRes.json()) as SleeperUser[];
-    return findCommissionerRosterId(users, rosters);
-  } catch (error) {
-    console.warn("Unable to resolve commissioner roster id", error);
-    return "";
-  }
 };
 
 const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>["client"]) => {
@@ -110,6 +82,8 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
 };
 
 export async function GET(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== LEAGUE_ID) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { client, error } = getSupabaseAdminClient();
 
   if (!client || error) {
@@ -152,6 +126,9 @@ export async function POST(request: NextRequest) {
   if (!normalized) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== LEAGUE_ID || (session.rosterId !== normalized.roster_id && session.role !== "commissioner" && session.role !== "admin"))
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error } = getSupabaseAdminClient();
 
@@ -292,6 +269,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  invalidateLeagueData();
   return NextResponse.json({ success: true, isAnnounced });
 }
 
@@ -304,9 +282,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "pickIndex and rosterId are required" }, { status: 400 });
   }
 
-  const commissionerRosterId = await fetchCommissionerRosterId();
-
-  if (!commissionerRosterId || commissionerRosterId !== rosterId) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== LEAGUE_ID || !["commissioner", "admin"].includes(session.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -323,6 +300,6 @@ export async function DELETE(request: NextRequest) {
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 500 });
   }
-
+  invalidateLeagueData();
   return NextResponse.json({ success: true });
 }

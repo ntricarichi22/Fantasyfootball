@@ -20,7 +20,8 @@
 // The verdict on the card is OUR-POV (good for us) via verdictFromRatio +
 // gradeFromVerdict; whether THEY accept lives in the director's prose.
 
-import { verdictFromRatio, gradeFromVerdict } from "@/pro-personnel/engine/core/gap";
+import { verdictFromRatio, personaAwareGrade } from "@/pro-personnel/engine/core/gap";
+import type { PersonaKey } from "@/pro-personnel/engine/core/types";
 import type { Grade } from "@/pro-personnel/engine/core/types";
 import { balanceDeal, type ValuedAsset } from "@/pro-personnel/engine/balance";
 
@@ -170,8 +171,9 @@ export function centerpieceKey(assets: CounterAsset[]): string | null {
 }
 
 // Live verdict for a ratio — OUR-POV, same table the engine grades with.
-export function gradeForRatio(ratio: number): Grade {
-  return gradeFromVerdict(verdictFromRatio(ratio, true, true));
+export function gradeForRatio(ratio: number, persona: PersonaKey = "straight_shooter"): Grade {
+  return personaAwareGrade({ sendValue: 1, receiveValue: ratio, ratio, delta: ratio - 1,
+    verdict: verdictFromRatio(ratio, true, true), hasSend: true, hasReceive: true }, persona);
 }
 
 // The director's read of an INCOMING offer (our-POV ratio = receive / send).

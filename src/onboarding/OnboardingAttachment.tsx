@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import type { LeagueSnapshot } from "@/shared/league-data";
 
 type Props = {
   onBack: () => void;
@@ -35,16 +36,6 @@ type Player = {
   team: string;
 };
 
-type SleeperPlayerEntry = {
-  player_id?: string;
-  first_name?: string;
-  last_name?: string;
-  full_name?: string;
-  position?: string | null;
-  fantasy_positions?: string[] | null;
-  team?: string | null;
-};
-
 const SUB_STEPS = [
   { key: "QB", label: "Quarterbacks", filter: (p: Player) => p.position === "QB" },
   { key: "RB", label: "Running Backs", filter: (p: Player) => p.position === "RB" },
@@ -72,56 +63,23 @@ export default function OnboardingAttachment({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const playerDictCache = useRef<Record<string, SleeperPlayerEntry> | null>(null);
-
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
         setLoading(true);
         setError(null);
-        const rostersRes = await fetch(
-          `https://api.sleeper.app/v1/league/${leagueId}/rosters`
-        );
-        if (!rostersRes.ok) throw new Error("Couldn't load your roster.");
-        const rosters = (await rostersRes.json()) as Array<{
-          roster_id?: number | string;
-          players?: string[] | null;
-        }>;
-        const myRoster = rosters.find(
-          (r) => String(r.roster_id) === String(rosterId)
-        );
-        const ownedIds: string[] = myRoster?.players ?? [];
-
-        let dict = playerDictCache.current;
-        if (!dict) {
-          const dictRes = await fetch("https://api.sleeper.app/v1/players/nfl");
-          if (!dictRes.ok) throw new Error("Couldn't load player data.");
-          dict = (await dictRes.json()) as Record<string, SleeperPlayerEntry>;
-          playerDictCache.current = dict;
-        }
-
-        const owned: Player[] = [];
-        for (const id of ownedIds) {
-          const e = dict[id];
-          if (!e) continue;
-          const pos = (
-            e.position ||
-            (e.fantasy_positions && e.fantasy_positions[0]) ||
-            ""
-          ).toUpperCase();
-          if (!["QB", "RB", "WR", "TE"].includes(pos)) continue;
-          const name =
-            e.full_name ||
-            [e.first_name, e.last_name].filter(Boolean).join(" ") ||
-            id;
-          owned.push({
-            player_id: id,
-            full_name: name,
-            position: pos,
-            team: (e.team || "FA").toString().toUpperCase(),
-          });
-        }
+        const response = await fetch("/api/league/snapshot");
+        if (!response.ok) throw new Error("Couldn't load your roster.");
+        const snapshot = await response.json() as LeagueSnapshot;
+        if (snapshot.leagueId !== leagueId) throw new Error("League configuration changed. Sign in again.");
+        const roster = snapshot.teams.find(team => team.rosterId === rosterId);
+        const owned: Player[] = (roster?.players ?? []).map(player => ({
+          player_id: player.id,
+          full_name: player.name,
+          position: player.position,
+          team: (player.team ?? "FA").toUpperCase(),
+        }));
 
         owned.sort((a, b) => {
           const pa = POS_ORDER[a.position] ?? 99;
@@ -130,11 +88,10 @@ export default function OnboardingAttachment({
           return a.full_name.localeCompare(b.full_name);
         });
 
-        const trimmed = owned.slice(0, 25);
         if (cancelled) return;
-        setPlayers(trimmed);
+        setPlayers(owned);
         const initial: Record<string, Attachment> = {};
-        for (const p of trimmed) initial[p.player_id] = "listening";
+        for (const p of owned) initial[p.player_id] = "listening";
         setAttachments(initial);
       } catch (e) {
         if (!cancelled) {

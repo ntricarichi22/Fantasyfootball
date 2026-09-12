@@ -1,6 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { fetchLeagueRosters, type SleeperRoster } from "@/infrastructure/sleeper/api";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, invalidateLeagueData } from "@/shared/league-data";
 
 import {
   GM_PERSONA_VALUES,
@@ -29,12 +28,12 @@ export type TeamTradeChartAnchors = {
   third: number;
 };
 
-type SleeperPlayerMeta = {
+type PlayerMeta = {
   full_name?: string | null;
   search_full_name?: string | null;
   position?: string | null;
   team?: string | null;
-  birth_date?: string | null;
+  age?: number | null;
 };
 
 type AttachmentLevel = "untouchable" | "core_piece" | "listening" | "moveable";
@@ -52,10 +51,6 @@ const ATTACHMENT_SET = new Set<AttachmentLevel>([
   "listening",
   "moveable",
 ]);
-
-let sleeperPlayersCache: Record<string, SleeperPlayerMeta> | null = null;
-let sleeperPlayersCacheFetchedAt = 0;
-const SLEEPER_PLAYERS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 
 // Modifier configuration — single source of truth for all team-level adjustments.
 // All modifiers stack additively. No global cap; ranges are bounded by design.
@@ -148,74 +143,21 @@ const getClientOrThrow = () => {
   return client;
 };
 
-const parseLeagueRoster = (rosters: SleeperRoster[], teamId: string) => {
-  const targetRosterId = Number(teamId);
-  return rosters.find((roster) => {
-    if (Number.isFinite(targetRosterId)) {
-      return roster.roster_id === targetRosterId;
-    }
-    return String(roster.roster_id) === teamId;
-  });
-};
-
 const getOwnedPlayerIds = async (leagueId: string, teamId: string): Promise<string[]> => {
-  const rosters = await fetchLeagueRosters(leagueId);
-  const roster = parseLeagueRoster(rosters, teamId);
-  if (!roster?.players?.length) return [];
-  return roster.players.map((id) => String(id)).filter(Boolean);
+  const league = await getLeagueData();
+  if ("error" in league || league.leagueId !== leagueId) return [];
+  return league.teams.find(team => team.rosterId === teamId)?.playerIds ?? [];
 };
 
-const getSleeperPlayersDictionary = async (): Promise<Record<string, SleeperPlayerMeta>> => {
-  const now = Date.now();
-  if (sleeperPlayersCache && now - sleeperPlayersCacheFetchedAt < SLEEPER_PLAYERS_CACHE_TTL_MS) {
-    return sleeperPlayersCache;
-  }
-
-  const response = await fetch("https://api.sleeper.app/v1/players/nfl", { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error(`Sleeper players API error ${response.status}`);
-  }
-
-  const dictionary = (await response.json()) as Record<string, SleeperPlayerMeta>;
-  sleeperPlayersCache = dictionary;
-  sleeperPlayersCacheFetchedAt = now;
-  return dictionary;
-};
-
-const parseBirthDate = (birthDate: string): Date | null => {
-  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(birthDate.trim());
-  if (isoMatch) {
-    const [, yearRaw, monthRaw, dayRaw] = isoMatch;
-    const year = Number(yearRaw);
-    const month = Number(monthRaw);
-    const day = Number(dayRaw);
-    const parsed = new Date(Date.UTC(year, month - 1, day));
-    if (
-      parsed.getUTCFullYear() === year &&
-      parsed.getUTCMonth() === month - 1 &&
-      parsed.getUTCDate() === day
-    ) {
-      return parsed;
-    }
-    return null;
-  }
-
-  const fallback = new Date(birthDate);
-  return Number.isNaN(fallback.getTime()) ? null : fallback;
-};
-
-const computeAge = (birthDate: string | null | undefined): number | null => {
-  if (!birthDate) return null;
-  const birth = parseBirthDate(birthDate);
-  if (!birth) return null;
-
-  const now = new Date();
-  let age = now.getUTCFullYear() - birth.getUTCFullYear();
-  const monthDiff = now.getUTCMonth() - birth.getUTCMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && now.getUTCDate() < birth.getUTCDate())) {
-    age -= 1;
-  }
-  return age;
+const getPlayersDictionary = async (): Promise<Record<string, PlayerMeta>> => {
+  const league = await getLeagueData();
+  if ("error" in league) throw new Error(league.error);
+  return Object.fromEntries([...league.players].map(([id, player]) => [id, {
+    full_name: player.name,
+    position: player.position,
+    team: player.team,
+    age: player.age,
+  }]));
 };
 
 /**
@@ -289,21 +231,10 @@ export async function readTeamTradeChartAnchors(): Promise<TeamTradeChartAnchors
   const second = byDisplayName.get("2.06");
   const third = byDisplayName.get("3.06");
 
-  if (
-    typeof first !== "number" ||
-    typeof second !== "number" ||
-    typeof third !== "number" ||
-    first <= 0 ||
-    second <= 0 ||
-    third <= 0
-  ) {
-    throw new Error("Missing canonical pick-template anchors (1.06, 2.06, 3.06)");
-  }
-
   return {
-    first: roundTo(first, 2),
-    second: roundTo(second, 2),
-    third: roundTo(third, 2),
+    first: typeof first === "number" && first > 0 ? roundTo(first, 2) : 0,
+    second: typeof second === "number" && second > 0 ? roundTo(second, 2) : 0,
+    third: typeof third === "number" && third > 0 ? roundTo(third, 2) : 0,
   };
 }
 
@@ -359,7 +290,11 @@ export async function saveTeamStrategyProfile(
   payload: TeamStrategyProfileInput,
 ): Promise<TeamStrategyProfile> {
   const client = getClientOrThrow();
-  const normalized = normalizeStrategyPayload(payload);
+  // Patch semantics: editors own only the fields they submit. Merge against
+  // the authoritative stored profile so onboarding cannot reset markets and a
+  // strategy editor cannot reset attachment-derived preference.
+  const current = await getTeamStrategyProfile(leagueId, teamId);
+  const normalized = normalizeStrategyPayload({ ...current, ...payload });
   const nowIso = new Date().toISOString();
 
   const { error } = await client.from("cfc_team_strategy_profiles").upsert(
@@ -375,6 +310,7 @@ export async function saveTeamStrategyProfile(
   if (error) {
     throw new Error(error.message);
   }
+  invalidateLeagueData();
 
   return {
     league_id: leagueId,
@@ -412,7 +348,7 @@ const upsertComputedRows = async (
       .eq("league_id", leagueId)
       .eq("team_id", teamId)
       .in("sleeper_player_id", playerIds),
-    getSleeperPlayersDictionary(),
+    getPlayersDictionary(),
   ]);
 
   if (valuesResult.error) {
@@ -455,7 +391,7 @@ const upsertComputedRows = async (
 
       const playerMeta = sleeperDict[playerId] ?? {};
       const position = typeof playerMeta.position === "string" ? playerMeta.position.toUpperCase() : null;
-      const age = computeAge(playerMeta.birth_date ?? null);
+      const age = playerMeta.age ?? null;
 
       // Modifier 1: Studs — small premium for high-value players when wants_more includes "studs"
       const studsModifierPct =
@@ -575,6 +511,7 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
     }
   }
 
+  invalidateLeagueData();
   return { upserted, deleted: staleIds.length };
 }
 
@@ -599,6 +536,7 @@ export async function rebuildTeamTradeValueForPlayer(
       throw new Error(deleteError.message);
     }
 
+    invalidateLeagueData();
     return { rebuilt: false, reason: "not_owned" as const };
   }
 
@@ -607,6 +545,7 @@ export async function rebuildTeamTradeValueForPlayer(
     wants_more: strategyProfile.wants_more,
   });
 
+  invalidateLeagueData();
   return { rebuilt: true };
 }
 

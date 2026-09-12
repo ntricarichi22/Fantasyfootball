@@ -14,6 +14,14 @@ numbers 012–017; the first future cleanup migration is 018.
 5. Prepare deletion in a later, separate destructive PR. Never bundle it with
    app rollout. Rerun the inventory and restore drill immediately beforehand.
 
+`scripts/database/archive-cleanup-candidates.sh` creates the custom-format
+archive, manifest and SHA-256 files. `proposed-cleanup-soft-rename.sql` and
+`proposed-cleanup-deletion.sql` are fail-closed review artifacts: neither
+contains an executable candidate mutation. Exact production row counts,
+dependency OIDs, `pg_cron` jobs, external Historian build ownership, and a safe
+isolated restore target remain required. The existing `cfc_owner_meeting`
+project is active production infrastructure and is not a restore target.
+
 Blocked evidence: this hosted session has no Supabase/read-only Postgres
 configuration, so no live dependency result, row count, archive, rename, drop,
 migration, or restore has been performed.

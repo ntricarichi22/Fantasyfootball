@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(27);
+SELECT plan(30);
 
 SELECT ok(public.claim_security_alert('database-test-alert', 'application_error', 15, 12) IS NOT NULL,
   'first alert in a window receives a durable claim');
@@ -60,6 +60,10 @@ SELECT is((SELECT count(*) FROM public.ff_master_draft_picks WHERE source_platfo
 SELECT ok((SELECT original_franchise_id IS NULL AND current_franchise_id IS NULL
   FROM public.ff_master_draft_picks WHERE source_platform='sleeper'),
   'Sleeper actual result stores selected-by only, not pick ownership');
+SELECT is(public.cfc_durable_pick_key('pick:2026-2-06-7'), 'pick:2026-2-7',
+  'retired slotted pick keys migrate to durable identity');
+SELECT is(public.cfc_durable_pick_key('pick:2027-2-7'), 'pick:2027-2-7',
+  'durable pick keys remain unchanged');
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
@@ -74,6 +78,8 @@ SELECT ok(NOT has_table_privilege('authenticated', 'public.draft_log', 'INSERT')
 SELECT ok(NOT has_table_privilege('authenticated', 'public.draft_state', 'UPDATE'), 'authenticated cannot directly update draft clock');
 SELECT ok(NOT has_table_privilege('anon', 'public.draft_log', 'SELECT'), 'anonymous draft reads are denied');
 SELECT ok(NOT has_table_privilege('authenticated', 'public.trade_offers', 'SELECT'), 'private trade offers are not directly readable');
+SELECT ok(NOT has_table_privilege('authenticated', 'public.cfc_pending_trade_overlays', 'SELECT'),
+  'pending trade overlays are server-only');
 SELECT ok(NOT has_table_privilege('authenticated', 'public.team_email_map', 'SELECT'), 'invitation email map is server-only');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.ai_get_quota(uuid,bigint,bigint)', 'EXECUTE'), 'AI quota RPC is service-only');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.claim_security_alert(text,text,integer,integer)', 'EXECUTE'),

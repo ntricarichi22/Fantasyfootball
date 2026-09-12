@@ -9,21 +9,27 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { rosterIdFromCookies } from "@/infrastructure/identity/rosterCookie";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import {
   getTeamIdentities,
   invalidateTeamIdentities,
 } from "@/shared/league-data/teamIdentity";
+import { invalidateLeagueData } from "@/shared/league-data";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const { session } = await currentAppSessionFromRequest(request);
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
     const identities = await getTeamIdentities();
     return NextResponse.json({
       teams: identities.map((t) => ({
         rosterId: t.rosterId,
         teamName: t.teamName,
+        fullName: t.fullName,
+        location: t.location,
+        nickname: t.nickname,
         baseSlug: t.baseSlug,
         crestUrl: t.crestUrl,
         gmAvatarUrl: t.gmAvatarUrl,
@@ -44,10 +50,11 @@ const NAME_MAX = 30;
 
 export async function POST(request: NextRequest) {
   try {
-    const rosterId = await rosterIdFromCookies(request);
-    if (!rosterId) {
+    const { session } = await currentAppSessionFromRequest(request);
+    if (!session) {
       return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
     }
+    const rosterId = session.rosterId;
 
     const body = (await request.json().catch(() => ({}))) as { teamName?: string };
     const teamName = (body.teamName ?? "").replace(/\s+/g, " ").trim();
@@ -84,6 +91,7 @@ export async function POST(request: NextRequest) {
     if (error) throw new Error(error.message);
 
     invalidateTeamIdentities();
+    invalidateLeagueData();
 
     // Same cookie contract as /api/auth/finalize.
     const cookieOptions = {

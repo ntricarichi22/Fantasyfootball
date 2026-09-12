@@ -3,6 +3,7 @@ import { getLeagueData, type LeagueData, type OwnedPick, type Position, type Ros
 import { buildTeamProfiles, candidatesFor, fillLineup, startingSlots, type TeamProfile } from "@/shared/team-profiles";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -217,7 +218,10 @@ export async function GET(req: Request) {
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const seedParam = Number(searchParams.get("seed"));
   const seed = Number.isFinite(seedParam) && seedParam > 0 ? seedParam : 1;
-  const payload = await buildPayload(data, asScenario(searchParams.get("scenario")), searchParams.get("teamId") ?? "", undefined, undefined, seed);
+  const teamId = searchParams.get("teamId") ?? "";
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, data.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const payload = await buildPayload(data, asScenario(searchParams.get("scenario")), teamId, undefined, undefined, seed);
   return NextResponse.json(payload);
 }
 
@@ -232,6 +236,8 @@ export async function POST(req: Request) {
   };
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json(data, { status: 500 });
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, data.leagueId, body.teamId ?? "")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const forced = new Map<number, string>();
   for (const f of body.forcedPicks ?? []) {
     if (typeof f?.overall === "number" && typeof f?.playerId === "string") forced.set(f.overall, f.playerId);

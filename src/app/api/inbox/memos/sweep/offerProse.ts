@@ -50,9 +50,9 @@ function attachmentLine(atts: AttachmentRow[], assets: Asset[]): string {
   return out.join("; ");
 }
 
-async function callAnthropic(request: Request, system: string, user: string, apiKey: string): Promise<string | null> {
+async function callAnthropic(request: Request, system: string, user: string, apiKey: string, background: boolean): Promise<string | null> {
   try {
-    const res = await meteredAnthropicFetch(request, { feature: "memo-sweep", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 220 }, {
+    const res = await meteredAnthropicFetch(request, { feature: "memo-sweep", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 220, background }, {
       method: "POST",
       headers: {
         "x-api-key": apiKey,
@@ -98,6 +98,7 @@ export async function generateOfferProse(params: {
   otherNeedsLine?: string | null;
   otherDirectionLine?: string | null;
   dealRankingLine?: string | null;
+  background?: boolean;
 }): Promise<string> {
   const {
     request, client, leagueId, teamId, ourName, partnerName, partnerTeamId,
@@ -163,6 +164,6 @@ export async function generateOfferProse(params: {
     `${VOICE_RULES.translatorOnly} ` +
     "2-3 sentences, conversational, no markdown.";
 
-  const text = await callAnthropic(request, system, user, apiKey);
+  const text = await callAnthropic(request, system, user, apiKey, params.background === true);
   return text || fallback;
 }

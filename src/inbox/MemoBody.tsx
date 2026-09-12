@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { Icon } from "@/shared/ui/Icon";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
@@ -178,6 +179,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
   // Offer-card memos: liveness of the offer behind the card. "pending" keeps
   // the action row hot; anything else renders the card as a record.
   const [offerLive, setOfferLive] = useState<"checking" | "pending" | "resolved">("checking");
+  const [liveVerdict, setLiveVerdict] = useState<{ label: string; color: string } | null>(null);
   const [confirmAction, setConfirmAction] = useState<"accepted" | "declined" | null>(null);
   const [acting, setActing] = useState(false);
 
@@ -219,7 +221,10 @@ export default function MemoBody({ memoId }: { memoId: string }) {
       try {
         const r = await fetch(`/api/inbox/trades/list?offerId=${encodeURIComponent(payload.offer_id)}`);
         const j = r.ok ? await r.json() : null;
-        if (!cancelled) setOfferLive(j?.data?.status === "pending" ? "pending" : "resolved");
+        if (!cancelled) {
+          setOfferLive(j?.data?.status === "pending" ? "pending" : "resolved");
+          if (j?.live_grade?.label) setLiveVerdict({ label: j.live_grade.label, color: j.live_grade.color });
+        }
       } catch {
         if (!cancelled) setOfferLive("resolved");
       }
@@ -276,7 +281,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
           <div style={{ fontFamily: FH, fontWeight: 800, fontSize: 22, marginBottom: 12 }}>
             {error || "Memo not found"}
           </div>
-          <a
+          <Link
             href="/inbox"
             style={{
               fontFamily: FM,
@@ -288,7 +293,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
             }}
           >
             ← Back to inbox
-          </a>
+          </Link>
         </div>
       </div>
     );
@@ -510,12 +515,12 @@ export default function MemoBody({ memoId }: { memoId: string }) {
                       style={{
                         fontWeight: 700,
                         textDecoration: "underline",
-                        textDecorationColor: offerCard.verdict_color,
+                      textDecorationColor: liveVerdict?.color ?? offerCard.verdict_color,
                         textDecorationThickness: 4,
                         textUnderlineOffset: 4,
                       }}
                     >
-                      {leadIn(offerCard.verdict)}
+                      {leadIn(liveVerdict?.label ?? offerCard.verdict)}
                     </span>
                     .
                   </div>

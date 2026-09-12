@@ -14,7 +14,6 @@ import { readStoredTeam, type StoredTeam } from "@/infrastructure/identity/store
 // The live war room moved under the Draft Room lobby; /scouting/draft-room is
 // now the lobby. The clock bar navigates straight to the live room.
 const DRAFT_ROUTE = "/scouting/draft-room/live";
-const TRADE_ROUTE = "/inbox";
 
 // Color palette — Item 1 / spec.
 const BAR_BLUE = "#3366CC";
@@ -907,16 +906,21 @@ export default function ClockBar() {
       router.push(DRAFT_ROUTE);
       return;
     }
-    const params = new URLSearchParams({
-      mode: "draft",
-      action: onClockState === "your-pick" ? "shop" : "tradeup",
-      pickOwner: context?.onClockRosterId || "",
-      pickRound: String(context?.round || 1),
-      pickSlot: String(context?.pick || 1),
-      pickSeason: context?.season || "",
-      myTeam: selection.rosterId || "",
-    });
-    router.push(`/trade-builder?${params.toString()}`);
+    if (onClockState === "your-pick") {
+      router.push("/pro-personnel/trade-builder?seed=fresh");
+      return;
+    }
+    const partnerId = context?.onClockRosterId || "";
+    const season = context?.season || "";
+    const round = context?.round || 1;
+    if (!partnerId || !season) return;
+    sessionStorage.setItem("cfc_builder_seed_deal", JSON.stringify({
+      partner_team_id: partnerId,
+      partner_team_name: context?.onClockTeamName || `Team ${partnerId}`,
+      send: [],
+      receive: [{ key: `pick:${season}-${round}-${partnerId}`, name: `${season} Rd ${round}`, type: "pick" }],
+    }));
+    router.push("/pro-personnel/trade-builder?seed=cycler");
   };
 
   const franchiseName = isPending

@@ -53,3 +53,12 @@ export function teamNickname(fullName: string): string {
   const parts = name.split(/\s+/);
   return parts[parts.length - 1];
 }
+
+export function teamNameParts(fullName: string): { fullName: string; location: string; nickname: string } {
+  const normalized = (fullName ?? "").replace(/\s+/g, " ").trim();
+  const nickname = teamNickname(normalized);
+  const location = normalized.toLowerCase().endsWith(nickname.toLowerCase())
+    ? normalized.slice(0, normalized.length - nickname.length).trim()
+    : "";
+  return { fullName: normalized, location, nickname };
+}

@@ -55,6 +55,7 @@ type PartnerContext = {
 };
 
 type CounterFeed = {
+  our_persona: PersonaKey;
   their_persona: PersonaKey;
   their_band: Band;
   our_band: Band;
@@ -183,6 +184,7 @@ export default function CounterDrawer({
       .then((j) => {
         if (live && j && j.their_persona) {
           setFeed({
+            our_persona: j.our_persona ?? "straight_shooter",
             their_persona: j.their_persona,
             their_band: j.their_band ?? { min: 0.9, max: 1.1 },
             our_band: j.our_band ?? { min: 0.9, max: 1.1 },
@@ -252,7 +254,7 @@ export default function CounterDrawer({
   }, [feed, offer.id, axis, ourSend, ourReceive, trimFromSend, demandFromThem]);
 
   const ratio = ratioOf(sumValue(deal.send), sumValue(deal.receive));
-  const grade = gradeForRatio(ratio);
+  const grade = gradeForRatio(ratio, feed?.our_persona ?? "straight_shooter");
   const pc = feed?.partner_context ?? EMPTY_PARTNER_CONTEXT;
 
   // The director's read is written by the LLM (counter-read endpoint), grounded in

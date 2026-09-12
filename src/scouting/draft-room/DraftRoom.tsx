@@ -17,7 +17,6 @@ import {
   LINEUP_CACHE_KEY,
   MIN_TEAM_COUNT,
   PRECOMPUTED_GRADES_COUNT,
-  SELECTED_TEAM_CACHE_KEY,
   STATUS_MESSAGE_TIMEOUT_MS,
 } from "@/scouting/draft-room/constants";
 import type {
@@ -39,6 +38,7 @@ import {
   resolveDraftedPlayer,
   toId,
 } from "@/scouting/draft-room/helpers";
+import { clearStoredTeam, readStoredTeam, writeStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { DraftBoardTable } from "@/scouting/draft-room/DraftBoardTable";
 import { DraftControls } from "@/scouting/draft-room/DraftControls";
 import { AssistantGmPanel } from "@/scouting/draft-room/AssistantGmPanel";
@@ -53,7 +53,7 @@ import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { useNflTeamContext } from "@/scouting/draft-room/hooks/useNflTeamContext";
 import { useRookieProspects } from "@/scouting/draft-room/hooks/useRookieProspects";
 import { useSleeperData } from "@/infrastructure/sleeper/useSleeperData";
-import { buildLeagueProfiles, type PositionKey } from "@/pro-personnel/trade-engine/profile";
+import { type PositionKey } from "@/pro-personnel/trade-engine/profile";
 import type { StarterAsset } from "@/pro-personnel/trade-engine/starterLevel";
 import { buildScoutingGrades, type ScoutingGradeSet } from "@/scouting/draft-room/grades";
 import { HomeScreen } from "@/components/HomeScreen";
@@ -89,32 +89,10 @@ export default function DraftRoom() {
   );
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const match = document.cookie
-        .split("; ")
-        .find((row) => row.startsWith("cfc_identity="));
-      if (!match) return;
-      const raw = decodeURIComponent(match.split("=")[1]);
-      const identity = JSON.parse(raw);
-      if (identity?.rosterId && identity?.teamName) {
-        const stored = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-        const parsed = stored ? JSON.parse(stored) : {};
-        if (parsed.rosterId !== identity.rosterId) {
-          sessionStorage.setItem(
-            SELECTED_TEAM_CACHE_KEY,
-            JSON.stringify({
-              rosterId: identity.rosterId,
-              teamName: identity.teamName,
-              sessionId: parsed.sessionId || "",
-            })
-          );
-          setSelectedTeam(identity.rosterId);
-          setTeamSelectionInput(identity.rosterId);
-        }
-      }
-    } catch {
-      // ignore
+    const identity = readStoredTeam();
+    if (identity.rosterId) {
+      setSelectedTeam(identity.rosterId);
+      setTeamSelectionInput(identity.rosterId);
     }
   }, []);
   const {
@@ -136,7 +114,7 @@ export default function DraftRoom() {
 
 useEffect(() => {
   if (!selectedTeam) return;
-  fetch("/api/home/trade-count")
+  fetch(`/api/inbox/unread-count?teamId=${encodeURIComponent(selectedTeam)}`)
     .then((r) => r.json())
     .then((data) => {
       if (typeof data.count === "number") setOpenTradeCount(data.count);
@@ -167,6 +145,7 @@ useEffect(() => {
     rosterNames,
     playerDictionary,
     playerValues,
+    teamProfiles,
   } = useSleeperData({
     leagueId,
     leagueIdError,
@@ -311,9 +290,7 @@ handleStartClockRequest,
     setSelectedTeam("");
     setTeamSelectionInput("");
     setSessionId("");
-    if (typeof window !== "undefined") {
-      sessionStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
-    }
+    clearStoredTeam();
   }, []);
 
   const releaseActiveTeam = useCallback(async () => {
@@ -529,30 +506,7 @@ handleStartClockRequest,
 
   const teamCount = useMemo(() => rosters.length || teams.length || 12, [rosters.length, teams.length]);
 
-  const tradeProfiles = useMemo(() => {
-    if (!rosters.length || !Object.keys(playerDictionary).length) return null;
-    const profileTeams = rosters.map((roster) => ({
-      rosterId: roster.roster_id,
-      players: (roster.players ?? []).map((player) => {
-        const id = toId(player);
-        const info = playerDictionary[id];
-        const position =
-          info?.position?.toUpperCase() || info?.fantasy_positions?.[0]?.toUpperCase();
-        const value = playerValues[id];
-        return {
-          id,
-          position,
-          value: typeof value === "number" && Number.isFinite(value) ? value : 0,
-          age: null,
-        };
-      }),
-      picks: roster.draft_picks ?? [],
-    }));
-    return buildLeagueProfiles(profileTeams, {
-      teamCount,
-      cfcValues: playerValues,
-    });
-  }, [playerDictionary, playerValues, rosters, teamCount]);
+  const tradeProfiles = teamProfiles;
 
   const ownerProfile = useMemo(() => {
     if (!tradeProfiles || !selectedTeam) return null;
@@ -840,14 +794,11 @@ handleStartClockRequest,
       setSelectedTeam(teamSelectionInput);
       setErrorMessage("");
       setStatusMessage("");
-      sessionStorage.setItem(
-        SELECTED_TEAM_CACHE_KEY,
-        JSON.stringify({
+      writeStoredTeam({
           rosterId: teamSelectionInput,
           sessionId: activeSessionId,
           teamName: teams.find((t) => toId(t.id) === teamSelectionInput)?.name || "",
-        })
-      );
+      });
       window.location.href = draftRoute;
     } catch (error) {
       console.warn("Unable to claim team", error);
@@ -860,21 +811,18 @@ handleStartClockRequest,
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!selectedTeam || !sessionId) {
-      sessionStorage.removeItem(SELECTED_TEAM_CACHE_KEY);
+      clearStoredTeam();
       return;
     }
 
     const selectedTeamName = teams.find((t) => toId(t.id) === selectedTeam)?.name;
 
     try {
-      sessionStorage.setItem(
-        SELECTED_TEAM_CACHE_KEY,
-        JSON.stringify({
+      writeStoredTeam({
           rosterId: selectedTeam,
           sessionId,
           teamName: selectedTeamName || "",
-        })
-      );
+      });
     } catch {
       // ignore storage failures
     }

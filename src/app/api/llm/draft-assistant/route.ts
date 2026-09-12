@@ -1,5 +1,6 @@
 import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
+import { CFC_AI_MODEL as MODEL } from "@/shared/ai-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,8 +66,6 @@ type AnthropicResponse = {
   content?: AnthropicContentBlock[];
   stop_reason?: string;
 };
-
-const MODEL = "claude-sonnet-4-5";
 
 // Strip any normalized 0-100 board scores from a list of available-player
 // payloads so the LLM only ever sees the raw cfc trade value. Defense in

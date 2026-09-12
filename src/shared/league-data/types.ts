@@ -1,3 +1,5 @@
+import type { TeamProfile as SharedTeamProfile } from "@/shared/team-profiles/types";
+
 export type Position = "QB" | "RB" | "WR" | "TE";
 
 export const POSITIONS: Position[] = ["QB", "RB", "WR", "TE"];
@@ -185,7 +187,11 @@ export type LeagueSnapshot = {
   leagueId: string;
   cfcYear: number;
   teamCount: number;
+  settings: LeagueSettings;
   teams: RosteredTeam[];
+  players: PlayerInfo[];
+  profiles: SharedTeamProfile[];
   pickOwnership: Record<string, OwnedPick[]>;
   draftStatus: Omit<DraftStatus, "spentPickNumbers"> & { spentPickNumbers: number[] };
+  viewer?: { rosterId: string; role: "member" | "commissioner" | "admin" };
 };

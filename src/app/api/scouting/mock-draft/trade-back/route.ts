@@ -6,6 +6,7 @@ import { buildValuationContext, valueAsset } from "@/shared/asset-values";
 import { bandFor, normalizePersona } from "@/pro-personnel/engine/core/personas";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -35,6 +36,8 @@ export async function POST(req: Request) {
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const scenario = asScenario(body.scenario);
   const teamId = body.teamId ?? "";
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, data.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const you =
     data.teams.find((t) => t.rosterId === teamId) ??

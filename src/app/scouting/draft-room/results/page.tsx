@@ -17,7 +17,7 @@ export default function DraftResultsPage() {
       .catch(reason => setError(reason instanceof Error ? reason.message : "Draft results are unavailable."));
   }, []);
   const names = new Map(snapshot?.teams.map(team => [team.rosterId, team.teamName]) ?? []);
-  const players = new Map(snapshot?.teams.flatMap(team => team.players.map(player => [player.id, player.name] as const)) ?? []);
+  const players = new Map(snapshot?.players.map(player => [player.id, player.name] as const) ?? []);
   return <main style={{ minHeight: "100vh", background: "#F5F0E6", color: "#0b1f3a" }}>
     <UnifiedTopbar />
     <section style={{ maxWidth: 1100, margin: "0 auto", padding: "32px 20px" }}>

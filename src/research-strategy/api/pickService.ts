@@ -1,5 +1,5 @@
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { getLeagueData, teamNickname, type AttachmentLevel, type OwnedPick } from "@/shared/league-data";
+import { formatPickLabel, getLeagueData, invalidateLeagueData, teamNickname, type AttachmentLevel } from "@/shared/league-data";
 import {
   buildValuationContext,
   valueAsset,
@@ -16,14 +16,6 @@ import {
 //   market_modifier_pct    -> draft class strength (picks only)
 //   nfl_team               -> owner tag: "(own)" or "(via Kush)"
 //   studs/youth            -> 0 (player-only signals)
-
-const pad = (n: number): string => String(n).padStart(2, "0");
-
-function pickLabel(p: OwnedPick): string {
-  if (p.kind === "current" && p.slot != null) return `${p.season} ${p.round}.${pad(p.slot)}`;
-  const ord = p.round === 1 ? "1st" : p.round === 2 ? "2nd" : p.round === 3 ? "3rd" : `${p.round}th`;
-  return `${p.season} ${ord}`;
-}
 
 // Maps legacy attachment values to the current set; null/unknown -> listening.
 function normalizeAttachment(v: string | null | undefined): AttachmentLevel {
@@ -108,7 +100,7 @@ export async function rebuildPickValuesForTeam(
       league_id: leagueId,
       team_id: teamId,
       sleeper_player_id: pick.key,
-      player_name: pickLabel(pick),
+      player_name: formatPickLabel(pick),
       position: "PICK",
       nfl_team: ownerSuffix,
       base_value: base,
@@ -152,4 +144,5 @@ export async function rebuildPickValuesForTeam(
       .eq("position", "PICK")
       .in("sleeper_player_id", stale);
   }
+  invalidateLeagueData();
 }

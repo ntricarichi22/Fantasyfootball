@@ -96,7 +96,13 @@ approve database revocation before the exact compatible app SHA is ready. Config
 owner's membership `commissioner` role before rollout. Confirm email and redirect
 settings first. Existing users must sign in again.
 
-## Clean-database baseline and pending CI proof
+## Clean-database baseline and verified CI proof
+
+GitHub run `34699583360` at `005f2fec` completed successfully. The disposable
+baseline and migrations 001–017 applied/reset, SQL lint passed, all 27 pgTAP
+authorization/rebuild assertions passed, and the real PostgreSQL AI
+concurrency/bypass tests passed. This is CI evidence, not a production rollout
+or a completed restore drill.
 
 GitHub run `34697463355` at published head `89a558d` proved the generated baseline
 and migrations 001-012 apply in the disposable stack. It then failed in migration
@@ -184,4 +190,4 @@ pass and no migration is skipped.
 
 ## PR150 source-of-truth dependency note
 
-PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Its proposed `012`/`013` cleanup versions must be renumbered after security `016` (start at `017`) if later approved. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.
+PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Security owns migration `017`; later cleanup starts at `018`. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.
