@@ -98,7 +98,16 @@ settings first. Existing users must sign in again.
 
 ## Clean-database baseline and verified CI proof
 
-GitHub run `34699583360`, job `103568851942`, at published head `005f2fec`
+GitHub run `34701863673` at published head `b49e0f8` completed successfully. It
+staged the reviewed CI-only baseline as generated version `000`, reset through
+migrations `001`–`017`, reported no SQL lint errors, passed all 27 pgTAP assertions,
+passed the actual parallel PostgreSQL AI reservation/bypass checks, and reported
+`Disposable HTTP/Auth smoke checks passed.` The HTTP cases covered confirmation-required
+signup gating, login, own quota, cross-roster thread denial, creator-spoof denial,
+legitimate thread creation, restricted commissioner behavior, recovery and old-password
+rejection, durable revocation/refinalize denial, and logout.
+
+The earlier GitHub run `34699583360`, job `103568851942`, at published head `005f2fec`
 completed successfully. It staged the reviewed CI-only baseline as generated version
 `000`, reset through migrations `001`–`017`, reported no SQL lint errors, passed all
 27 pgTAP assertions, and passed the actual parallel PostgreSQL AI reservation and
@@ -111,14 +120,18 @@ reversed only through checked-in migrations where documented. Baseline `000` exi
 only during disposable CI and must never enter linked production history. Production
 remains at `001`–`011`.
 
-The CI workflow now also starts the application against the disposable Supabase stack
-with generated test keys/accounts/data. Its HTTP/Auth smoke covers hostile signup,
-confirmation enforcement plus an isolated admin-confirmed fixture transition, login,
-invitation acceptance, signed-cookie authorization,
-foreign-team and creator spoof denial, legitimate counterpart and restricted
-commissioner actions, recovery-token password change, revocation of an existing
-cookie, refusal to reuse a consumed invitation, and logout. This fixture is neither a
-production probe, confirmation-email delivery test, or backup-restore drill.
+The next CI revision extends that proven harness. It first isolates migrations
+`012`–`017`, starts baseline `000` plus deployed history `001`–`011`, and exercises a
+mapped confirmed user's real login/finalization, signed compatibility cookie, own and
+foreign reads, tampered/forged cookie denial, and AI failure before accounting exists.
+It then restores all six pending migration files with explicit presence checks, resets
+through `017`, and runs the normal database and HTTP suites. The normal phase now
+follows the real synthetic confirmation link captured from local Inbucket back through
+the fixture application, and adds unauthenticated, forged, tampered, and validly signed
+cross-league denial. This extension requires a new CI run; it is not yet a pass.
+
+All fixture credentials, mail, accounts, and rows are generated inside the disposable
+stack. This is neither a production probe nor a production-backup restore drill.
 
 ## Verified production preflight evidence
 
@@ -133,8 +146,8 @@ This validates reviewed backfill cardinality, not a migration or environment set
 
 ## Remaining operational gates
 
-1. Publish the new HTTP/Auth smoke harness and require its first credential-free CI
-   execution on the exact reviewed head. Re-run after reconciling stacked PR153.
+1. Publish the staged schema-011/normal-phase extension and require credential-free CI
+   on the exact reviewed head. Re-run after reconciling stacked PR153.
 2. Run the private environment-shape preflight in `SECURITY-ENVIRONMENT-AND-PREFLIGHT.md`;
    configure independent signing/audit secrets, exact Sonnet 5 prices, the fixed $5
    user/$60 pilot ceilings, and keep email disabled.

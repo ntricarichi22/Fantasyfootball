@@ -11,7 +11,7 @@ cleanup() {
 trap 'code=$?; cleanup "$code"; exit "$code"' EXIT
 
 # Values come only from the disposable local stack. Random keys are ephemeral.
-eval "$(supabase status -o env | sed -nE '/^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=/p')"
+eval "$(supabase status -o env | sed -nE '/^(API_URL|ANON_KEY|SERVICE_ROLE_KEY|INBUCKET_URL)=/p')"
 export NEXT_PUBLIC_SUPABASE_URL="$API_URL"
 export NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY"
 export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
@@ -21,8 +21,9 @@ export AUDIT_HASH_KEY="$(openssl rand -hex 32)"
 export SECURITY_EMAIL_ALERTS_ENABLED=false
 export LOCAL_DATABASE_URL="${LOCAL_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
 export APP_BASE_URL="http://127.0.0.1:3000"
+export INBUCKET_URL="${INBUCKET_URL:-http://127.0.0.1:54324}"
 
-npm run dev -- --hostname 127.0.0.1 --port 3000 >"$log" 2>&1 &
+"$root/node_modules/.bin/next" dev --hostname 127.0.0.1 --port 3000 >"$log" 2>&1 &
 app_pid=$!
 for _ in $(seq 1 90); do
   if curl --fail --silent --output /dev/null "$APP_BASE_URL/login"; then break; fi

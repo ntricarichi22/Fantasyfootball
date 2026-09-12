@@ -12,8 +12,8 @@ old application rollback must not depend on anonymous database writes.
 
 ## Pre-merge gates
 
-1. Require successful CI run `34699583360` as the current database proof, plus the
-   new disposable HTTP/Auth smoke on the exact final reconciled head; do not approve
+1. Require successful CI run `34701863673` at `b49e0f8` as the current database and
+   HTTP/Auth proof, plus the new staged schema-011 transition on the exact final head; do not approve
    based only on app tests.
 2. In Vercel's server-only production environment, configure a new independent
    `AUTH_SESSION_SECRET` and 32+ byte `AUDIT_HASH_KEY`. Until the signing key exists,
@@ -50,6 +50,8 @@ old application rollback must not depend on anonymous database writes.
    still revalidate the Auth user, accept only that exact absent relation, and downgrade
    the compatibility session to `member`; other database errors fail closed. Non-AI
    features remain available; AI fails closed until accounting exists.
+   Credential-free CI must prove this exact interval by physically withholding
+   migrations `012`–`017`, not by fabricating missing-relation responses.
 3. The reviewer verifies the tested SHA and dry-run history shows remote `001`–`011`
    and local pending `012`–`017`, with no repair, baseline, drop, or unexpected SQL.
 4. Approve the serialized database job. `012` creates/backfills memberships; `013`

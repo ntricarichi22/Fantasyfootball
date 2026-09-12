@@ -28,9 +28,10 @@ Protect `main` separately: require pull requests, require **Validate migrations 
 ## Normal operation
 
 1. Add a new, uniquely numbered SQL file under `supabase/migrations/`; never edit an already deployed migration.
-2. Open a pull request. CI validates names/order, rebuilds an isolated PostgreSQL
-   database, lints it, runs SQL tests and concurrent reservations, then exercises
-   actual Auth/application HTTP boundaries with synthetic accounts and rows.
+2. Open a pull request. CI validates names/order, temporarily holds `012`–`017` outside
+   the migration directory, proves the app against baseline `000` plus deployed history
+   `001`–`011`, restores every held file, resets through `017`, lints, runs SQL and
+   concurrent-reservation tests, then exercises current Auth/application HTTP boundaries.
 3. Review and merge only after required checks pass. The successful post-merge CI run creates one serialized production deployment.
 4. An environment reviewer compares the commit and preflight output, then approves. The job links the exact project, lists local/remote history, performs `db push --dry-run`, and only then runs `db push`.
 
@@ -48,5 +49,6 @@ Supabase migrations are forward-only in this workflow. Before a risky production
 ## Local checks
 
 Run `./scripts/validate-supabase-migrations.bash`. With Docker and the pinned Supabase
-CLI available, stage the baseline as CI does, run `supabase start`, then run
-`./scripts/test-supabase-clean-db.bash`; finally run `supabase stop --no-backup`.
+CLI available, run `./scripts/test-staged-security-rollout.bash`; it stages and cleans
+up baseline `000`, restores held migrations even on failure, and exercises both schema
+phases. Finally run `supabase stop --no-backup`.
