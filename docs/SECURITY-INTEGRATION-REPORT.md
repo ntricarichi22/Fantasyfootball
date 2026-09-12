@@ -145,6 +145,14 @@ the fixture application, and adds unauthenticated, forged, tampered, and validly
 cross-league denial. The combined PR153 head requires its own new CI run; neither
 prior security run validates migrations 018–020 or these application refactors.
 
+Published combined run `34708254758` proved application contracts and the
+same-database 011→018 transition, then failed in migration 019 because its final
+verification joined `d16_ladder.key` with `USING (asset_key)`. The review branch
+now uses an explicit key join, asserts all 36 values and overrides, and exercises
+an existing correct/no-override anchor through the normal rebuild. Migration 020,
+40 pgTAP assertions, commissioner operator fixtures and final HTTP checks remain
+pending until the revised combined SHA runs; this paragraph is not a pass claim.
+
 All fixture credentials, mail, accounts, and rows are generated inside the disposable
 stack. This is neither a production probe nor a production-backup restore drill.
 
@@ -186,4 +194,4 @@ This validates reviewed backfill cardinality, not a migration or environment set
 
 ## PR150 source-of-truth dependency note
 
-PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. PR153 now owns 018–019, so any later cleanup starts at 020 or higher. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered dispatch, audit hooks, recovery tooling, and the guarded production workflow.
+PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. PR153 now owns 018–020, so any later cleanup starts at 021 or higher. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered dispatch, audit hooks, recovery tooling, and the guarded production workflow.

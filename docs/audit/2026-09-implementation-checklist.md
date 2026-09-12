@@ -21,27 +21,48 @@ workflow through migration 020.
 | C-05 | Complete / DB-CI pending | Private route fixtures cover trade tabs, offer/thread participation, targets privacy and insider scope. Auth uses a stateless anon factory, ingestion uses the server-only admin factory, rename-stable personality mapping uses Sleeper-origin identity, and migration 020 enforces normalized invitation identity. |
 | C-06 | Complete | Caller-free scouting modules/report scripts and approved routes were removed. `trade-engine/value.ts` and advisor context were retained after current callers disproved the old zero-import finding. |
 
-### Consolidation bullet audit
+### Consolidation bullet-by-bullet audit
 
-- **C-01:** one cached Sleeper module owns player/league transport and age logic;
-  operator value rebuild explicitly requests its fresh variant. Roster position
-  fallback and missing-player filtering remain canonical. Dead intel loaders are gone.
-- **C-02:** durable parsing, labels, March CFC year, season/round discovery and
-  spent-season behavior are shared. Runtime draft status uses fetched roster count;
-  the source-provider format remains intentionally fixed at 12 teams under D-37.
-- **C-03:** canonical valuation and immutable offer snapshots remain intact;
-  onboarding now writes `draft_picks`/`elite_producers`/`young_upside`/`roster_depth`,
-  while existing short-form stored values are translated on read.
-- **C-04:** Builder/Studio/drawers/memos and scouting adapters retain canonical
-  grade/value parity. Stale persona/path documentation was corrected. Modules
-  found to have current runtime callers were retained rather than deleted.
-- **C-05:** display selection is never authorization; private routes use signed
-  current membership. Server admin/Auth clients have distinct centralized
-  factories. Neutral loading identity and Sleeper-origin personality identity
-  survive an in-app rename. Migration 020 aborts on existing normalized email
-  collisions, normalizes future writes and rejects blanks/duplicates.
-- **C-06:** caller-free intel modules and report scripts are removed in addition
-  to the previously removed route/module set; guarded ingestion remains.
+Each row maps one bullet, in order, from `2026-09-decision-sheet.json`.
+“Source” means a reviewed caller/data-flow check rather than a runtime claim.
+
+| Bullet | Status | Implementation and evidence |
+|---|---|---|
+| C-01.1 | Complete | Removed `useMyRoster` and caller-free `src/scouting/intel/*`; production build proves no unresolved importer. |
+| C-01.2 | Complete | Targets, trade-chart/strategy rebuild, draft hook, onboarding, log/order/clock use `shared/league-data`; client consumers use `/api/league/snapshot`. Build + handler review. |
+| C-01.3 | Complete | `shared/league-data/sleeper.ts` owns Sleeper transport and dictionary filtering; missing roster dictionary entries follow the one documented exclusion rule. Source + build. |
+| C-01.4 | Complete | `LeagueSettings.rosterPositions` comes from Sleeper with `DEFAULT_ROSTER_POSITIONS` as the sole fallback. Source + build. |
+| C-01.5 | Complete | Cached and operator-fresh dictionary reads share the Sleeper module; draft-room age delegates to `playerAge`. Source + typecheck. |
+| C-02.1 | Complete | `shared/league-data/picks.ts` is the parser; engine re-exports/delegates and Set Availability imports it directly. `test:league`. |
+| C-02.2 | Complete | Shared label/big-text/ordinal functions replaced the removed display parser; remaining department presentation adds context but does not parse identity. `test:league` + build. |
+| C-02.3 | Complete | Shared March-based `getCFCYear`; `draft_log.cfc_year` generated contract remains in migration 005. February/March fixture. |
+| C-02.4 | Complete | Fixed ladder reader is shared/versioned; comments and types distinguish zero-based `pick_index` from one-based overall/slot. Ladder fixture and migration 019. |
+| C-02.5 | Complete | Runtime status/ownership derives team count from Sleeper roster/league facts. D-37's provider request intentionally remains fixed at 12. Build + `test:league`. |
+| C-02.6 | Complete | Draft calendar consumes shared CFC year/status. Source + build. |
+| C-02.7 | Complete | Draft clock state exports `INITIAL_PICK_SECONDS`; wall-clock half-hour announcement is a boundary calculation, not a second duration setting. Source + build. |
+| C-02.8 | Complete | Advisor prompt contains no round-one-complete assertion. Source review. |
+| C-03.1 | Complete | Live insider/NFL/pick-values/targets consumers use shared values; dead intel reader removed. Source + parity tests. |
+| C-03.2 | Complete | Trade creation snapshots `valueAsset` results; snapshots stay immutable history. Source + parity test. |
+| C-03.3 | Complete | Stud maps and callers key by Sleeper player ID. Source + roster fixture. |
+| C-03.4 | Complete | Writers use canonical `draft_picks`/`elite_producers`/`young_upside`/`roster_depth`; reads translate legacy short tokens. Typecheck + source. |
+| C-03.5 | Complete | Refresh metadata position comes from the shared Sleeper dictionary. Source review. |
+| C-03.6 | Complete | Live league dictionary is used for current roster/player rendering with stored offer labels retained only as historical fallback; values remain the stored snapshot. Source review. |
+| C-03.7 | Complete | Inbox, insider and memo timestamps delegate to `shared/time/relative.ts`; Historian retains the same browser-only conversation timestamp contract outside this takeover. Build. |
+| C-04.1 | Complete with corrected audit finding | Studio persona delegates to locked bands. `trade-engine/value.ts` and advisor context remain because `profile.ts` and `prompt.ts` are real current callers; deleting them would break production. TGIF fallback is not used when canonical CFC values exist. Caller search + build. |
+| C-04.2 | Complete | Studio persists reciprocal feedback from both seats rather than inverting one ratio. Source + trade parity fixture. |
+| C-04.3 | Complete | Current persona bands and paths regenerated in `CFC-APP-STATUS`, `CFC-PREFERENCES`, and `CLAUDE.md`. Documentation diff checked against code. |
+| C-05.1 | Complete | Shared stored-team reader/key is used by draft/onboarding/mobile; duplicate constant removed. Build. |
+| C-05.2 | Complete | Team identity carries rename-proof Sleeper base identity for personality/art, and GM cards prefer base slug after identity load. Source + build. |
+| C-05.3 | Complete | Home loading state is neutral “Your Franchise.” Source + build. |
+| C-05.4 | Complete | Canonical identity feed resolves current display names; stable roster IDs remain authority and historical labels are fallback only. Source review. |
+| C-05.5 | Complete | Privileged ingestion uses infrastructure admin factory; login/signup use a fresh stateless infrastructure Auth factory. Security tests + source. |
+| C-05.6 | Complete | Career history traverses stable franchise map across seasons. Source review. |
+| C-05.7 | Complete / DB-CI pending | Migration 020 checks collisions, normalizes, rejects blanks and enforces normalized uniqueness on both `team_email_map` (auth join) and `league_invitations`; 40 pgTAP cases execute in combined CI. |
+| C-05.8 | Complete | Big Board and logo mutations require signed current membership/owned roster. Handler/HTTP fixtures. |
+| C-06.1 | Complete | Listed caller-free league/debug/intel/memo/draft-sim/health routes removed; build route manifest verifies absence. |
+| C-06.2 | Complete | Listed zero-import modules/scripts removed, including duplicate pick display and stale studio reports. Caller search + build. |
+| C-06.3 | Complete | Required admin ingestion remains and is secret/admin gated. Security integration test. |
+| C-06.4 | Complete with corrected audit finding | Every DEAD-01 candidate was caller-checked; genuinely dead items were removed, while value/context modules with current callers were retained and documented rather than falsely classified. |
 
 ## Divergences
 

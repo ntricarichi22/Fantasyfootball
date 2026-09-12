@@ -188,6 +188,9 @@ export async function GET(request: Request) {
     .from("cfc_team_player_attachment")
     .select("team_id, sleeper_player_id, attachment, updated_at")
     .eq("league_id", league_id)
+    // Saved attachment tiers are team-private strategy inputs. They may inform
+    // this roster's own briefing, but are not a league-wide publishing switch.
+    .eq("team_id", session.rosterId)
     .in("attachment", ["listening", "moveable"])
     .order("updated_at", { ascending: false });
 

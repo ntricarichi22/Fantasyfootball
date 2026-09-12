@@ -38,6 +38,7 @@ done
 # application fixtures prove the real migration/backfill transition.
 supabase migration up --local
 node "$root/scripts/test-018-fixtures.mjs"
+"$root/scripts/test-commissioner-assignment.bash"
 SMOKE_PHASE=upgrade "$root/scripts/test-auth-http-smoke.bash"
 
 # Independently retain the clean-bootstrap reset/lint/pgTAP/concurrency proof.

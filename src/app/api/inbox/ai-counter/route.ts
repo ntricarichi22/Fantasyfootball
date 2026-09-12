@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
-import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
+import { getLeagueData } from "@/shared/league-data";
 import { fetchPlayers } from "@/shared/league-data/sleeper";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { buildScrubSets, bucketOf, buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
-import { buildTeamDossiers } from "@/shared/team-dossier";
-import { buildTeamNarratives } from "@/shared/team-narratives";
+import { buildScrubSets, bucketOf, computeNeeds } from "@/shared/team-profiles";
 import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas";
 import {
   buildValuationContext,
@@ -15,6 +13,7 @@ import {
   type AssetRef,
 } from "@/shared/asset-values";
 import { isCounterThreadParticipant, offerBelongsToThreadParticipants } from "./counterAuthorization";
+import { publicPartnerContext } from "./publicPartnerContext";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -106,26 +105,11 @@ export async function POST(request: NextRequest) {
 
   const ourStrat = data.strategy.get(us) ?? null;
   const ourPersona = normalizePersona(data.strategy.get(us)?.persona);
-  const theirPersona = normalizePersona(data.strategy.get(them)?.persona);
   const our_band = bandFor(ourPersona);
-  const their_band = bandFor(theirPersona);
 
-  // Partner's real situation — the same dossier/needs the trade engine reads, so
-  // the director's prose can ground its advice in WHO they are (direction, what
-  // they're chasing/shedding) and their biggest hole, not a bare persona label.
-  const profiles = buildTeamProfiles(data);
-  const dossiers = buildTeamDossiers(profiles, data);
+  // A participant may see public roster-derived needs, but participation does
+  // not publish the opponent's saved persona, strategy or attachment inputs.
   const needs = computeNeeds(data);
-  const playoffHistory = await getPlayoffHistory();
-  const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
-  const theirDossier = dossiers.find((d) => d.rosterId === them) ?? null;
-  // Competitive direction from their STORYLINES (single source of truth).
-  const theirTheses = bundles.get(them)?.theses ?? [];
-  const theirDirection = (() => {
-    const w = theirTheses.some((t) => t.timeline === "win_now");
-    const b = theirTheses.some((t) => t.timeline === "build_future");
-    return w && b ? "win-now + building" : w ? "win-now" : b ? "building for the future" : "unknown";
-  })();
   const theirNeeds = needs.get(them) ?? null;
   const topNeed: string | null = (() => {
     if (!theirNeeds) return null;
@@ -137,16 +121,7 @@ export async function POST(request: NextRequest) {
     ranked.sort((a, b) => b[1].score - a[1].score);
     return ranked[0][1].level === "high" ? ranked[0][0] : null;
   })();
-  const partner_context = {
-    window: theirDirection,
-    verdict: theirDossier?.verdict ?? "",
-    wants: theirDossier?.wants ?? "",
-    sells: theirDossier?.sells ?? "",
-    trade_stance: theirDossier?.tradeStance ?? "",
-    core_label: theirDossier?.coreLabel ?? "",
-    tier_label: theirDossier?.tierLabel ?? "",
-    top_need: topNeed,
-  };
+  const partner_context = publicPartnerContext(topNeed);
 
   const teamById = new Map(data.teams.map((t) => [t.rosterId, t]));
 
@@ -223,8 +198,6 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     latest_offer_id: latestOffer.id,
-    their_persona: theirPersona,
-    their_band,
     our_persona: ourPersona,
     our_band,
     partner_context, // partner's direction / wants / sells / biggest hole — for the director's read

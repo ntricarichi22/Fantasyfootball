@@ -146,7 +146,7 @@ Routes with no client/cron/script caller: `/api/league/{profiles,needs,dossiers}
    idempotent, dependency-gated, and followed by validation queries. Destructive
    migrations ship separately because CI applies migrations on merge.
    **Review-branch update:** PR153 now assigns 018 to durable keys/overlays and
-   019 to the approved fixed ladder; any later cleanup starts at 020.
+   019 to the approved fixed ladder; any later cleanup starts at 021.
 4. Update `docs/CFC-SUPABASE-SCHEMA.md` to the final schema.
 
 ---

@@ -49,16 +49,18 @@ not production rollout evidence.
   participant-scoped, and foreign single IDs return a non-enumerating response.
 - **B — AI counter:** the current-league thread is loaded first and the owned
   roster must be an actual participant. The pending offer must contain exactly
-  that thread's pair before any dossiers, strategies, rosters, or values load.
+  that thread's pair. Opponent persona/band/dossier/strategy fields are not
+  returned; only public roster-derived need and offer/roster facts remain.
 - **C — targets:** only the caller's strategy and attachment rows are loaded.
   Counterparty assets use neutral public availability; saved counterpart
   profile/attachment inputs are not returned.
 - **D — insider:** active negotiation chains are selected only from threads in
-  which the caller participates. Completed-deal headlines and explicit public
-  availability remain league activity; unrelated open offers are not loaded.
+  which the caller participates. Saved attachment tiers are not treated as a publishing switch: attachment-derived
+  headlines are scoped to the caller's roster. Completed deals remain league activity.
 - **E — commissioner:** migration 012 deliberately backfills members only. A
   private direct-database operator script assigns exactly one verified
   `(user_id, league_id)` membership after review; no email/team-name heuristic
-  or application self-promotion path exists. pgTAP covers rename stability,
+  or application self-promotion path exists. The staged harness executes success/audit
+  and zero-match rollback paths against synthetic rows. pgTAP covers rename stability,
   member denial, and self-promotion denial; existing revocation tests cover
   removal of authority.

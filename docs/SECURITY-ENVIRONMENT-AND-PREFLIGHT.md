@@ -39,4 +39,4 @@ This supports the reviewed single-league backfill cardinality. It does not prove
 
 ## PR153 integration boundary
 
-The combined PR153 lineage is recorded in its audit checklist. Security owns 012–017 and PR153 owns 018–019; later cleanup must start at 020 or higher. No destructive cleanup is authorized by this PR. Any combined head must retrigger both security CI and PR153 functional tests.
+The combined PR153 lineage is recorded in its audit checklist. Security owns 012–017 and PR153 owns 018–020; later cleanup must start at 021 or higher. No destructive cleanup is authorized by this PR. Any combined head must retrigger both security CI and PR153 functional tests.

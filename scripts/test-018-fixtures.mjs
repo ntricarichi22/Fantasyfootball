@@ -16,5 +16,8 @@ try {
   assert.equal(Number((await one("SELECT count(*) n FROM cfc_trade_values_current WHERE asset_type='pick_template'")).n),36,"versioned ladder exposes 36 anchors");
   assert.equal(Number((await one("SELECT cfc_value n FROM cfc_trade_values_current WHERE asset_key='pick.1.01'")).n),300);
   assert.equal(Number((await one("SELECT cfc_value n FROM cfc_trade_values_current WHERE asset_key='pick.3.12'")).n),5);
+  assert.equal(Number((await one("SELECT manual_override_value n FROM cfc_assets WHERE asset_key='pick.1.01'")).n),300,"existing correct anchor receives frozen override");
+  await pool.query("SELECT public.cfc_rebuild_value_layers()");
+  assert.equal(Number((await one("SELECT cfc_value n FROM cfc_trade_values_current WHERE asset_key='pick.1.01'")).n),300,"normal rebuild preserves frozen existing anchor");
   console.log("Migration 018 FK/collision and D-16 ladder fixtures passed.");
 } finally { await pool.end(); }

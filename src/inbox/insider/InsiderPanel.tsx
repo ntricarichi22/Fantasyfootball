@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatRelativeTime } from "@/shared/time/relative";
 
 type InsiderItem = {
   type: "done_deal" | "active_talks" | "on_the_block" | "multiple_calls";
@@ -15,18 +16,7 @@ const TYPE_LABELS: Record<string, { label: string; color: string }> = {
   multiple_calls: { label: "Multiple calls", color: "#3366CC" },
 };
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  return `${weeks}w ago`;
-}
+const timeAgo = (dateStr: string) => formatRelativeTime(dateStr, { suffix: true, longNow: true });
 
 function renderHeadline(headline: string): React.ReactNode {
   const parts: React.ReactNode[] = [];

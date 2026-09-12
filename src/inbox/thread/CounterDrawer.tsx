@@ -56,8 +56,6 @@ type PartnerContext = {
 
 type CounterFeed = {
   our_persona: PersonaKey;
-  their_persona: PersonaKey;
-  their_band: Band;
   our_band: Band;
   partner_context: PartnerContext; // partner direction / wants / sells / hole — for the director
   demand_pool: OfferAsset[]; // slider auto-demand (scrub-gated partner pieces)
@@ -87,7 +85,6 @@ type Props = {
   onCounterSent: () => void;
 };
 
-const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
 
@@ -182,11 +179,9 @@ export default function CounterDrawer({
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
-        if (live && j && j.their_persona) {
+        if (live && j && j.our_persona) {
           setFeed({
             our_persona: j.our_persona ?? "straight_shooter",
-            their_persona: j.their_persona,
-            their_band: j.their_band ?? { min: 0.9, max: 1.1 },
             our_band: j.our_band ?? { min: 0.9, max: 1.1 },
             partner_context: j.partner_context ?? EMPTY_PARTNER_CONTEXT,
             demand_pool: j.demand_pool ?? [],
@@ -202,9 +197,10 @@ export default function CounterDrawer({
     };
   }, [threadId, myRosterId]);
 
-  const theirPersona: PersonaKey = feed?.their_persona ?? "straight_shooter";
+  // Opponent saved settings are private; use the neutral public baseline.
+  const theirPersona: PersonaKey = "straight_shooter";
   const ourBandMin = feed?.our_band?.min ?? 0.9;
-  const theirBandMin = feed?.their_band?.min ?? 0.9;
+  const theirBandMin = 0.9;
 
   // The offer's implied ratio (our seat) anchors where the thumb opens.
   const offerRatio = useMemo(

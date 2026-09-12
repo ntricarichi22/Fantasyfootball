@@ -49,6 +49,18 @@ INSERT INTO public.cfc_assets(asset_key,asset_type,display_name,pick_round,pick_
 SELECT key,'pick_template',display_name,round,slot,value,'Frozen CFC ladder 2026-09-12.v1'
 FROM d16_ladder WHERE true ON CONFLICT (asset_key) DO NOTHING;
 
+-- Existing correct templates may predate the frozen version and have no
+-- override. Install the approved anchor after the conflict checks above so a
+-- normal calculation rebuild cannot move it. Never overwrite a conflicting
+-- non-null override: that condition aborted earlier.
+UPDATE public.cfc_assets a
+SET manual_override_value=d.value,
+    manual_override_reason='Frozen CFC ladder 2026-09-12.v1',
+    updated_at=now()
+FROM d16_ladder d
+WHERE a.asset_key=d.key
+  AND a.manual_override_value IS NULL;
+
 -- Populate only missing calculation rows. Existing valid calculations and
 -- manual overrides are untouched; future rebuilds retain the asset override.
 INSERT INTO public.cfc_asset_calculations(asset_key,source_count,final_cfc_value,rebuilt_at)
@@ -56,5 +68,16 @@ SELECT d.key,0,d.value,now() FROM d16_ladder d
 LEFT JOIN public.cfc_asset_calculations c ON c.asset_key=d.key WHERE c.asset_key IS NULL
 ON CONFLICT (asset_key) DO NOTHING;
 
-SELECT count(*) AS ladder_rows FROM public.cfc_trade_values_current v JOIN d16_ladder d USING(asset_key)
-WHERE v.display_name=d.display_name AND v.cfc_value=d.value;
+DO $$
+DECLARE matched integer;
+BEGIN
+  SELECT count(*) INTO matched
+  FROM public.cfc_trade_values_current v
+  JOIN d16_ladder d ON d.key=v.asset_key
+  WHERE v.display_name=d.display_name
+    AND v.cfc_value=d.value
+    AND v.manual_override_value=d.value;
+  IF matched <> 36 THEN
+    RAISE EXCEPTION 'D-16 ladder postcondition failed: expected 36 frozen anchors, found %', matched;
+  END IF;
+END $$;

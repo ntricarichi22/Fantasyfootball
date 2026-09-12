@@ -2,6 +2,13 @@ import pg from "pg";
 const pool = new pg.Pool({ connectionString: process.env.LOCAL_DATABASE_URL });
 try {
   await pool.query("INSERT INTO public.cfc_value_sources(source_key,source_name,source_type) VALUES ('fixture','Fixture','manual') ON CONFLICT DO NOTHING");
+  // Existing correct D-16 anchor with no override proves migration 019 freezes
+  // pre-existing templates rather than only newly inserted ones.
+  await pool.query(`INSERT INTO public.cfc_assets
+    (asset_key,asset_type,display_name,pick_round,pick_number,manual_override_value)
+    VALUES ('pick.1.01','pick_template','1.01',1,1,NULL)`);
+  await pool.query(`INSERT INTO public.cfc_asset_calculations(asset_key,final_cfc_value)
+    VALUES ('pick.1.01',300)`);
   await pool.query(`INSERT INTO public.cfc_assets(asset_key,asset_type,display_name,pick_round,pick_number,manual_override_value) VALUES
     ('pick:2027-2-06-7','pick','Old only',2,6,54),
     ('pick:2028-1-03-3','pick','Old collision',1,3,230),

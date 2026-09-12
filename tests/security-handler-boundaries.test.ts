@@ -7,6 +7,7 @@ import { authorizeThreadCreation } from "../src/app/api/inbox/threads/threadAuth
 import { boundedJson } from "../src/infrastructure/auth/boundedJson.ts";
 import { claimAuthAttempt } from "../src/infrastructure/auth/rateLimit.ts";
 import { isCounterThreadParticipant, offerBelongsToThreadParticipants } from "../src/app/api/inbox/ai-counter/counterAuthorization.ts";
+import { publicPartnerContext } from "../src/app/api/inbox/ai-counter/publicPartnerContext.ts";
 import { targetResponse, visibleAttachment } from "../src/app/api/pro-personnel/targets/targetVisibility.ts";
 import { isVisibleNegotiationThread } from "../src/app/api/inbox/insider/visibility.ts";
 
@@ -122,6 +123,26 @@ test("target response keeps computed trading data without exposing counterpart p
 test("insider negotiation detail is limited to the caller's actual threads", () => {
   assert.equal(isVisibleNegotiationThread({ team_a_id: "team-a", team_b_id: "team-b" }, "team-a"), true);
   assert.equal(isVisibleNegotiationThread({ team_a_id: "team-b", team_b_id: "team-c" }, "team-a"), false);
+});
+
+test("counter response projection is invariant to opponent private settings", () => {
+  const firstPrivate = { persona: "hustler", wants: "picks", stance: "sell" };
+  const secondPrivate = { persona: "closer", wants: "studs", stance: "hold" };
+  const project = (privateSettings: typeof firstPrivate) => {
+    void privateSettings;
+    return publicPartnerContext("QB");
+  };
+  assert.deepEqual(project(firstPrivate), project(secondPrivate));
+  assert.deepEqual(project(firstPrivate), {
+    window: "", verdict: "", wants: "", sells: "", trade_stance: "",
+    core_label: "", tier_label: "", top_need: "QB",
+  });
+});
+
+test("insider attachment query is scoped to the signed roster before headlines", async () => {
+  const source = await (await import("node:fs/promises")).readFile("src/app/api/inbox/insider/route.ts", "utf8");
+  const attachmentQuery = source.slice(source.indexOf('.from("cfc_team_player_attachment")'));
+  assert.match(attachmentQuery, /\.eq\("league_id", league_id\)[\s\S]*\.eq\("team_id", session\.rosterId\)[\s\S]*\.in\("attachment"/);
 });
 
 test("sensitive auth JSON is rejected beyond its byte envelope", async () => {

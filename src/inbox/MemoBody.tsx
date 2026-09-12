@@ -78,16 +78,8 @@ function formatDate(iso: string): string {
 
 // Gmail-style compact timestamp for the sender row: "12m" / "16h" / "3d", then
 // falls back to a short date once it's more than a week old.
-function relativeTime(iso: string): string {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${Math.max(1, mins)}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-}
+import { formatRelativeTime } from "@/shared/time/relative";
+const relativeTime = (iso: string) => formatRelativeTime(iso, { dateAfterWeek: true });
 
 // The verdict reads as a standalone sentence ("We should take this deal"); when
 // it follows "Bottom line, " we lowercase its first word — but never a leading

@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(37);
+SELECT plan(40);
 
 SELECT ok(public.claim_security_alert('database-test-alert', 'application_error', 15, 12) IS NOT NULL,
   'first alert in a window receives a durable claim');
@@ -34,6 +34,18 @@ SELECT throws_ok(
   $$INSERT INTO public.league_invitations (league_id,email,roster_id)
     VALUES ('normalization-league','   ','5')$$,
   'P0001', 'invitation email cannot be blank', 'blank normalized invitation identity fails closed');
+INSERT INTO public.team_email_map(email,roster_id,team_name)
+VALUES ('  Mapping@Example.invalid  ','mapping-roster','Mapping fixture');
+SELECT is((SELECT email FROM public.team_email_map WHERE roster_id='mapping-roster'),
+  'mapping@example.invalid', 'future auth-to-team mapping writes normalize email identity');
+SELECT throws_ok(
+  $$INSERT INTO public.team_email_map(email,roster_id,team_name)
+    VALUES ('mapping@EXAMPLE.invalid','other-roster','Duplicate fixture')$$,
+  '23505', NULL, 'auth-to-team mapping rejects normalized duplicate email identity');
+SELECT throws_ok(
+  $$INSERT INTO public.team_email_map(email,roster_id,team_name)
+    VALUES ('   ','blank-roster','Blank fixture')$$,
+  'P0001', 'invitation email cannot be blank', 'blank auth-to-team mapping identity fails closed');
 SELECT is((SELECT count(*) FROM public.accept_league_invitation(
   '30000000-0000-0000-0000-000000000003','invited@example.invalid','security-league-a')),
   1::bigint, 'unused explicit invitation creates one membership');

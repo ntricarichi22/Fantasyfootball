@@ -1,4 +1,4 @@
--- REVIEWED OPERATOR ACTION; NOT A MIGRATION AND NOT EXECUTED BY CI.
+-- REVIEWED OPERATOR ACTION; NOT A MIGRATION. Executed only against synthetic CI fixtures.
 -- Run only after migrations 012-020, with a private direct database connection:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v league_id='<league>' -v user_id='<verified-auth-uuid>' -v actor_user_id='<operator-auth-uuid>' -f scripts/database/assign-commissioner.sql
 BEGIN;
@@ -13,16 +13,23 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-UPDATE public.league_memberships
-SET role='commissioner', updated_at=now()
-WHERE league_id=:'league_id' AND user_id=:'user_id'::uuid;
-
--- CASE evaluates the failing cast only when cardinality is not exactly one;
--- ON_ERROR_STOP then aborts this transaction before COMMIT.
-SELECT CASE WHEN count(*)=1 THEN 1 ELSE 'assignment_failed'::integer END AS exactly_one_current_commissioner
+CREATE TEMP TABLE commissioner_assignment_target ON COMMIT DROP AS
+SELECT league_id,user_id
 FROM public.league_memberships
 WHERE league_id=:'league_id' AND user_id=:'user_id'::uuid
-  AND role='commissioner';
+FOR UPDATE;
+
+DO $$
+BEGIN
+  IF (SELECT count(*) FROM commissioner_assignment_target) <> 1 THEN
+    RAISE EXCEPTION 'commissioner assignment requires exactly one existing membership';
+  END IF;
+END $$;
+
+UPDATE public.league_memberships membership
+SET role='commissioner', updated_at=now()
+FROM commissioner_assignment_target target
+WHERE membership.league_id=target.league_id AND membership.user_id=target.user_id;
 
 INSERT INTO public.security_audit_log(actor_user_id,league_id,target_type,target_id,action,outcome,change_summary)
 VALUES (:'actor_user_id'::uuid,:'league_id','membership',:'user_id',
