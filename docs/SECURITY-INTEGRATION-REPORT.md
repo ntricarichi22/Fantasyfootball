@@ -105,6 +105,16 @@ and migrations 001-012 apply in the disposable stack. It then failed in migratio
 were inspected. A new full CI run is still required; the earlier run is not a DB-test
 pass.
 
+GitHub run `34698778065` at published head `dec8e1b` subsequently reset through
+the generated baseline and all migrations 001-016, and all 23 then-current pgTAP
+assertions passed. The parallel PostgreSQL reservation test did not execute because
+the runner had not installed the locked `pg` dependency. The workflow now pins Node
+22.23.0 and runs `npm ci --ignore-scripts`. That run also surfaced a static lint error
+for the rebuild function's runtime temporary table; the function now replaces only
+the Sleeper result slice without a temporary relation. Additive migration `017`
+preserves applied migration `004`, and pgTAP exercises the rebuild with isolated mapped data. A new run must prove lint, 27 pgTAP assertions, and actual
+parallel reservations before database CI is called passing.
+
 Earlier credential-free CI could not truthfully run `001`-`016` on an empty database.
 `001` alters `trade_offers` and `trade_messages`, while `002` requires the value-upload
 schema; later migrations require draft and strategy tables. Full Git history contains

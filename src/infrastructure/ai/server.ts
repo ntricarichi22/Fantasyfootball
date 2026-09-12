@@ -1,13 +1,12 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { aiConfig, estimateMicros, monthStart, priceFor, resetAt } from "./config";
+import { aiConfig, monthStart, priceFor, reserveMicros, resetAt, usageMicros, validateAnthropicEnvelope, type AiUsage } from "./config";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { recordSecurityEvent } from "@/infrastructure/security/audit";
 import { sendSecurityAlert } from "@/infrastructure/security/alerts";
 import { resolveAiBillingUserId } from "./billingIdentity";
 
-type Usage = { input_tokens?: number; output_tokens?: number };
 type Reservation = { reservation_id: string; used_micros: number; remaining_micros: number };
 
 export class AiLimitError extends Error {
@@ -27,7 +26,7 @@ export async function reserveAi(request: Request, params: { feature: string; mod
   const cfg = aiConfig();
   const price = priceFor(params.model);
   const maxCalls = params.maxCalls ?? 1;
-  const reservedMicros = estimateMicros(price, params.maxInputTokens * maxCalls, params.maxOutputTokens * maxCalls);
+  const reservedMicros = reserveMicros(price, params.maxInputTokens * maxCalls, params.maxOutputTokens * maxCalls);
   const { client, error } = getSupabaseAdminClient();
   if (!client) throw new AiLimitError(error ?? "AI accounting unavailable");
   const { data, error: rpcError } = await client.rpc("ai_reserve_usage", {
@@ -47,8 +46,9 @@ export async function reserveAi(request: Request, params: { feature: string; mod
   return { client, userId, price, model: params.model, reservationId: row.reservation_id, reservedMicros, usedMicros: Number(row.used_micros), remainingMicros: Number(row.remaining_micros) };
 }
 
-export async function reconcileAi(reservation: Awaited<ReturnType<typeof reserveAi>>, usage?: Usage, outcome = "succeeded") {
-  const actualMicros = usage ? estimateMicros(reservation.price, usage.input_tokens ?? 0, usage.output_tokens ?? 0) : reservation.reservedMicros;
+export async function reconcileAi(reservation: Awaited<ReturnType<typeof reserveAi>>, usage?: AiUsage, outcome = "succeeded") {
+  const measuredMicros = usage ? usageMicros(reservation.price, usage) : null;
+  const actualMicros = measuredMicros ?? reservation.reservedMicros;
   const { error } = await reservation.client.rpc("ai_reconcile_usage", { p_reservation_id: reservation.reservationId, p_actual_micros: actualMicros, p_outcome: outcome });
   if (error) throw new AiLimitError("AI usage reconciliation failed");
   const event = { eventType: "ai_usage" as const, severity: "info" as const, outcome: outcome === "succeeded" ? "success" as const : "failure" as const,
@@ -75,14 +75,13 @@ export function aiError(error: unknown) {
 export async function meteredAnthropic(request: Request, params: { feature: string; model: string; maxInputTokens: number; maxOutputTokens: number; maxCalls?: number; body: Record<string, unknown>; background?: boolean }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new AiLimitError("AI provider unavailable");
-  if (params.body.model !== params.model || Number(params.body.max_tokens) > params.maxOutputTokens) throw new AiLimitError("AI request exceeds its cost envelope");
-  // UTF-8 bytes are a deliberately conservative upper bound on tokenizer tokens.
-  if (new TextEncoder().encode(JSON.stringify(params.body)).length > params.maxInputTokens) throw new AiLimitError("AI input is too large", 413);
+  const envelopeError = validateAnthropicEnvelope(params.body, params.model, params.maxInputTokens, params.maxOutputTokens);
+  if (envelopeError) throw new AiLimitError(envelopeError, envelopeError === "AI input is too large" ? 413 : 503);
   const reservation = await reserveAi(request, params);
   try {
     const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(params.body), signal: AbortSignal.timeout(30_000) });
     if (!response.ok) { await reconcileAi(reservation, undefined, "provider_error"); throw new AiLimitError("AI provider request failed", 502); }
-    const data = await response.json() as { usage?: Usage; [key: string]: unknown };
+    const data = await response.json() as { usage?: AiUsage; [key: string]: unknown };
     await reconcileAi(reservation, data.usage);
     return { data, quota: { used_micros: reservation.usedMicros, remaining_micros: reservation.remainingMicros, reset_at: resetAt() } };
   } catch (error) {

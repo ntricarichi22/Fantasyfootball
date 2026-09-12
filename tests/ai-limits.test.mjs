@@ -1,10 +1,36 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { estimateMicros, monthStart, resetAt } from "../src/infrastructure/ai/config.ts";
+import { estimateMicros, monthStart, priceFor, reserveMicros, resetAt, usageMicros, validateAnthropicEnvelope } from "../src/infrastructure/ai/config.ts";
+
+const price = { inputMicrosPerMillion: 2_000_000, outputMicrosPerMillion: 10_000_000,
+  cacheWrite5mMicrosPerMillion: 2_500_000, cacheWrite1hMicrosPerMillion: 4_000_000,
+  cacheReadMicrosPerMillion: 200_000 };
 
 test("cost reservation rounds upward", () => {
-  assert.equal(estimateMicros({ inputMicrosPerMillion: 3_000_000, outputMicrosPerMillion: 15_000_000 }, 1, 1), 18);
+  assert.equal(estimateMicros({ ...price, inputMicrosPerMillion: 3_000_000, outputMicrosPerMillion: 15_000_000 }, 1, 1), 18);
+});
+
+test("Sonnet 5 standard prices and provider overhead are reserved conservatively", () => {
+  assert.deepEqual(priceFor("claude-sonnet-5"), price);
+  assert.equal(reserveMicros(price, 1_000, 100), 7_048);
+  assert.equal(usageMicros(price, { input_tokens: 1_000, output_tokens: 100,
+    cache_creation_input_tokens: 100, cache_read_input_tokens: 50 }), 3_410);
+  assert.equal(usageMicros(price, { cache_creation: {
+    ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 100 } }), 650);
+});
+
+test("request envelope rejects unsupported cost-bearing and sampling features", () => {
+  const valid = { model: "claude-sonnet-5", max_tokens: 100, messages: [{ role: "user", content: "hello" }] };
+  assert.equal(validateAnthropicEnvelope(valid, "claude-sonnet-5", 1_000, 100), null);
+  assert.match(validateAnthropicEnvelope({ ...valid, temperature: 0.2 }, "claude-sonnet-5", 1_000, 100), /sampling/);
+  assert.match(validateAnthropicEnvelope({ ...valid, cache_control: { type: "ephemeral" } }, "claude-sonnet-5", 1_000, 100), /caching/);
+  assert.match(validateAnthropicEnvelope({ ...valid, tools: [{ type: "web_search_20250305", name: "web_search" }] }, "claude-sonnet-5", 1_000, 100), /server tools/);
+  assert.match(validateAnthropicEnvelope({ ...valid, messages: [{ role: "user", content: "x".repeat(2_000) }] }, "claude-sonnet-5", 1_000, 100), /too large/);
+});
+
+test("invalid measured usage fails closed to the reservation", () => {
+  assert.equal(usageMicros(price, { input_tokens: -1, output_tokens: 2 }), null);
 });
 
 test("UTC calendar month reset handles year rollover", () => {

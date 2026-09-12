@@ -31,7 +31,9 @@ END $$;
 CREATE OR REPLACE FUNCTION public.ai_reconcile_usage(p_reservation_id uuid,p_actual_micros bigint,p_outcome text) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $$
 BEGIN
  IF p_actual_micros < 0 OR p_outcome NOT IN ('succeeded','failed','provider_error') THEN RAISE EXCEPTION 'Invalid reconciliation'; END IF;
- UPDATE public.ai_usage_reservations SET actual_micros=LEAST(p_actual_micros,reserved_micros),status=p_outcome,reconciled_at=now() WHERE id=p_reservation_id AND status='reserved';
+ -- Never hide provider-reported cost. The request envelope should keep actual
+ -- usage below the reservation; if it does not, retain the full observed cost.
+ UPDATE public.ai_usage_reservations SET actual_micros=p_actual_micros,status=p_outcome,reconciled_at=now() WHERE id=p_reservation_id AND status='reserved';
  IF NOT FOUND THEN RAISE EXCEPTION 'Reservation unavailable'; END IF;
 END $$;
 

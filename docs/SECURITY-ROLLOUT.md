@@ -7,7 +7,7 @@ No step in this document has been executed. Production changes require the exist
 
 Vercel automatically deploys a merged application commit, while the database job waits
 for a reviewer. The application must therefore tolerate schema version `011` until the
-reviewer applies `012`–`016`. Conversely, after `015` revokes old direct privileges, an
+reviewer applies `012`–`017`. Conversely, after `015` revokes old direct privileges, an
 old application rollback must not depend on anonymous database writes.
 
 ## Pre-merge gates
@@ -50,7 +50,7 @@ old application rollback must not depend on anonymous database writes.
    the compatibility session to `member`; other database errors fail closed. Non-AI
    features remain available; AI fails closed until accounting exists.
 3. The reviewer verifies the tested SHA and dry-run history shows remote `001`–`011`
-   and local pending `012`–`016`, with no repair, baseline, drop, or unexpected SQL.
+   and local pending `012`–`017`, with no repair, baseline, drop, or unexpected SQL.
 4. Approve the serialized database job. `012` creates/backfills memberships; `013`
    adds AI accounting; `014` adds protected audit storage; `015` scopes draft history
    and revokes broad Data API access; `016` adds one-time invitation acceptance,

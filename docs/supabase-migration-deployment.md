@@ -33,9 +33,9 @@ Protect `main` separately: require pull requests, require **Validate migrations 
 Disposable CI temporarily stages the reviewed prerequisite source from
 `supabase/baseline/pre001_clean_database.sql` as generated version `000`. That file is
 removed after testing and is never linked or pushed to production. Production history
-remains `001`-`011`, with `012`-`016` pending review. Do not move the baseline into the
+remains `001`-`011`, with `012`-`017` pending review. Do not move the baseline into the
 production migration directory, weaken CI, invent schema, or mark history as applied.
-Resolve future parallel migration numbers after `016` before merge.
+Resolve future parallel migration numbers after `017` before merge.
 
 ## Recovery and rollback
 

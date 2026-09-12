@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(23);
+SELECT plan(27);
 
 SELECT ok(public.claim_security_alert('database-test-alert', 'application_error', 15, 12) IS NOT NULL,
   'first alert in a window receives a durable claim');
@@ -38,6 +38,28 @@ SELECT ok(public.claim_auth_attempt(repeat('a',64), 5, 1),
   'first server auth attempt in a shared window is admitted');
 SELECT ok(NOT public.claim_auth_attempt(repeat('a',64), 5, 1),
   'shared auth limiter rejects the next attempt over its bound');
+
+INSERT INTO public.ff_master_franchises(franchise_id,canonical_franchise_name)
+VALUES ('40000000-0000-0000-0000-000000000004','Sleeper test franchise');
+INSERT INTO public.ff_master_players(player_id,canonical_player_name)
+VALUES ('50000000-0000-0000-0000-000000000005','Sleeper test player');
+INSERT INTO public.ff_source_franchise_map(platform,source_league_id,season_year,source_roster_id,franchise_id)
+VALUES ('sleeper','security-source-league',2025,'7','40000000-0000-0000-0000-000000000004');
+INSERT INTO public.ff_source_player_map(platform,source_player_id,player_id)
+VALUES ('sleeper','security-source-player','50000000-0000-0000-0000-000000000005');
+INSERT INTO public.slp_mirror_draft_results(season_year,source_league_id,draft_id,round,pick_number,roster_id,source_player_id,raw_pick_json)
+VALUES (2025,'security-source-league','security-draft',1,1,'7','security-source-player','{}');
+INSERT INTO public.ff_master_draft_picks(draft_year,round,pick_number,source_platform)
+VALUES (2024,1,1,'mfl');
+SELECT lives_ok('SELECT public.ff_rebuild_master_draft_picks_actual_results()',
+  'actual-results rebuild executes without a hidden temp-table dependency');
+SELECT is((SELECT count(*) FROM public.ff_master_draft_picks WHERE source_platform='mfl'), 1::bigint,
+  'actual-results rebuild preserves MFL results');
+SELECT is((SELECT count(*) FROM public.ff_master_draft_picks WHERE source_platform='sleeper'), 1::bigint,
+  'actual-results rebuild materializes mapped Sleeper results once');
+SELECT ok((SELECT original_franchise_id IS NULL AND current_franchise_id IS NULL
+  FROM public.ff_master_draft_picks WHERE source_platform='sleeper'),
+  'Sleeper actual result stores selected-by only, not pick ownership');
 
 SET LOCAL ROLE authenticated;
 SELECT set_config('request.jwt.claim.sub', '10000000-0000-0000-0000-000000000001', true);
