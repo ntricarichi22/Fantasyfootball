@@ -90,9 +90,9 @@ For an existing production database whose reviewed history is exactly `001`-`011
 apply, after staging review, `012_security_multitenancy_foundation.sql`, then
 `013_ai_usage_limits.sql`, `014_security_monitoring_audit.sql`, and finally
 `015_live_api_least_privilege.sql`, `016_durable_league_invitations.sql`,
-`017_lintable_actual_draft_rebuild.sql`, and finally coordinated application
-migration `018_pending_trade_overlays_and_pick_keys.sql`, followed by the
-versioned fixed ladder `019_fixed_pick_ladder_v1.sql`. Never repair or baseline production history
+`017_lintable_actual_draft_rebuild.sql`, coordinated application migration
+`018_pending_trade_overlays_and_pick_keys.sql`, the versioned fixed ladder
+`019_fixed_pick_ladder_v1.sql`, and `020_normalize_league_invitation_email.sql`. Never repair or baseline production history
 automatically. Follow the compatibility sequence in `SECURITY-ROLLOUT.md`; do not
 approve database revocation before the exact compatible app SHA is ready. Configure
 `AUTH_SESSION_SECRET`, `AUDIT_HASH_KEY`, verified per-model AI prices, and assign the
@@ -145,13 +145,10 @@ the fixture application, and adds unauthenticated, forged, tampered, and validly
 cross-league denial. The combined PR153 head requires its own new CI run; neither
 prior security run validates migrations 018–020 or these application refactors.
 
-Published combined run `34708254758` proved application contracts and the
-same-database 011→018 transition, then failed in migration 019 because its final
-verification joined `d16_ladder.key` with `USING (asset_key)`. The review branch
-now uses an explicit key join, asserts all 36 values and overrides, and exercises
-an existing correct/no-override anchor through the normal rebuild. Migration 020,
-40 pgTAP assertions, commissioner operator fixtures and final HTTP checks remain
-pending until the revised combined SHA runs; this paragraph is not a pass claim.
+Earlier combined failures in migration 019 and commissioner-fixture cleanup were
+superseded by run `34710761847`: it passed migrations 012–020, the constrained 018
+and D-16 fixtures, and commissioner operator tests before reaching the Auth-fixture
+failure documented below.
 
 All fixture credentials, mail, accounts, and rows are generated inside the disposable
 stack. This is neither a production probe nor a production-backup restore drill.
@@ -169,22 +166,27 @@ This validates reviewed backfill cardinality, not a migration or environment set
 
 ## Remaining operational gates
 
-1. Publish the staged schema-011/normal-phase extension and require credential-free CI
-   on the exact reviewed head. Re-run after reconciling stacked PR153.
+1. Publish the Auth-fixture repair on the existing PR153 branch and require the full
+   credential-free workflow on that exact reviewed head.
 2. Run the private environment-shape preflight in `SECURITY-ENVIRONMENT-AND-PREFLIGHT.md`;
    configure independent signing/audit secrets, exact Sonnet 5 prices, the fixed $5
    user/$60 pilot ceilings, and keep email disabled.
 3. Review the production dry-run showing remote `001`–`011` and only reviewed
-   `012`–`017` pending. Do not repair or baseline live history.
+   `012`–`020` pending. CI-only `000` must remain absent from production history. Do not repair or baseline live history.
 4. Inspect view definitions/dependencies and Realtime publications before selectively
    reopening direct client access affected by `015`; inventory Storage write policies
    and object backup coverage separately.
 5. Review Auth secure-password-change, current-password verification, leaked-password
    protection, effective minimum length/email limits, CAPTCHA, privileged MFA, and
    edge controls. No live setting was changed.
-6. Designate and approve a truly disposable restore target, quoted temporary cost,
-   side-effect isolation, Storage-object recovery source, and seven-day cleanup. Both
-   currently observed projects are production-class and forbidden as targets.
+6. The separately proposed `cfc-recovery-drill-2026-09-12` restore target remains held
+   at final browser confirmation; it has not been created and has no cleanup clock. The
+   approved quote is $10.18/month billed by running hours (about $0.34 for 24 hours,
+   with possible extra usage). If separately created, isolate it from both production
+   projects, validate the unmodified database backup, delete it immediately after the
+   checks and no later than 24 hours after creation, then verify absence. Storage object
+   bytes remain outside this database-backup drill and unverified. This temporary-target
+   limit is distinct from DB-01's two-week archive/soft-rename observation window.
 7. Email alerts remain disabled pending a verified Resend sender, provider credential,
    private recipient, and nonproduction delivery test.
 8. Director memos remain single-league because the confirmed table has no `league_id`.
@@ -198,10 +200,20 @@ PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it wa
 
 ## Latest combined-run continuation
 
-Run `34709436855` applied migrations 012–020 and passed constrained 018 and
-D-16 fixtures. Commissioner promotion and its audit assertion also passed; the
-harness then incorrectly attempted to delete from append-only `security_audit_log`.
-The revised fixture never deletes audit history: it records the baseline, forces
-the real operator script to fail at its audit insert after the role update, and
-asserts transaction rollback plus an unchanged audit count. Upgrade Auth, reset,
-40 pgTAP, concurrency and current HTTP remain pending on the next published SHA.
+Published combined run `34710761847`, job `103599015420`, at `573ff713` passed
+application/type/build contracts, schema-011 compatibility, same-database migrations
+012–020, constrained 018 and D-16 fixtures, and the actual commissioner success, audit,
+zero-match, invalid-actor rollback and uniqueness checks. Upgrade Auth then failed when
+GoTrue `listUsers` returned `500 Database error finding users`. The commissioner harness
+had inserted minimal rows directly into `auth.users`; the next revision creates those
+synthetic accounts through GoTrue's local admin API instead, leaving Auth-owned columns
+and invariants to GoTrue. No personal address, delivery, production account, or provider
+is involved. The repaired published SHA still requires upgrade Auth, clean reset, SQL
+lint, 40 pgTAP assertions, AI database concurrency/bypass and current HTTP/Auth/privacy.
+This is not a claim that those remaining suites have passed.
+
+The current coordinated production transition remains verified live history 001–011
+followed by reviewed 012–020. CI-only baseline 000 is never a production migration.
+Private roster-ID-to-base-slug configuration, signing and audit secrets, exact model
+prices, commissioner assignment, disabled email alerts, the director-memo single-league
+boundary, and coordinated Vercel/database rollout all remain deployment requirements.

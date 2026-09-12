@@ -130,7 +130,7 @@ try {
       (SELECT count(*)::int FROM public.league_invitations WHERE accepted_by=$3 AND league_id=$2 AND roster_id='1') AS invitation_count`,
       [emails.member, league, member.id]);
     assert.deepEqual(preserved.rows[0], { mapping_count: 1, draft_count: 1, membership_count: 1, invitation_count: 1 },
-      "incremental 012-017 migration preserves fixtures and backfills membership/invitation state");
+      "incremental 012-020 migration preserves fixtures and backfills membership/invitation state");
     assert.ok(stateFile, "staged rollout state file is required");
     const legacyState = JSON.parse(await readFile(stateFile, "utf8"));
     assert.equal(legacyState.userId, member.id);
@@ -145,7 +145,7 @@ try {
     assert.equal((await app("/api/inbox/threads?teamId=2", { headers: { cookie: upgradedCookie } })).response.status, 403);
     assert.equal((await app("/api/ai/quota", { headers: { cookie: upgradedCookie } })).response.status, 200,
       "AI accounting becomes available after incremental migration 013");
-    console.log("Disposable incremental schema-011 to schema-017 smoke checks passed.");
+    console.log("Disposable incremental schema-011 to schema-020 smoke checks passed.");
     return;
   }
 

@@ -19,7 +19,7 @@ workflow through migration 020.
 | C-03 | Complete | Targets, offer snapshots, insider, pick-values and NFL context use shared viewer-aware valuation. Strategy writes use the canonical vocabulary while reads translate four legacy tokens. |
 | C-04 | Complete | Studio, trade-up and trade-back use the canonical engine adapters; draft-room profiles use the shared feed. |
 | C-05 | Complete / DB-CI pending | Private route fixtures cover trade tabs, offer/thread participation, targets privacy and insider scope. Auth uses a stateless anon factory, ingestion uses the server-only admin factory, rename-stable personality mapping uses Sleeper-origin identity, and migration 020 enforces normalized invitation identity. |
-| C-06 | Complete | Caller-free scouting modules/report scripts and approved routes were removed. `trade-engine/value.ts` and advisor context were retained after current callers disproved the old zero-import finding. |
+| C-06 | Complete | Caller-free scouting modules/report scripts and approved routes were removed. The unreachable profile/value/TGIF cluster was removed after preserving its used types; reachable advisor context was retained. |
 
 ### Consolidation bullet-by-bullet audit
 

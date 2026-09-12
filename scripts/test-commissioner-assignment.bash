@@ -2,14 +2,19 @@
 set -euo pipefail
 db="${LOCAL_DATABASE_URL:?LOCAL_DATABASE_URL is required}"
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/database/assign-commissioner.sql"
-user_id=91000000-0000-0000-0000-000000000001
-actor_id=91000000-0000-0000-0000-000000000002
 league_id=commissioner-script-fixture
 
+if [[ -z "${NEXT_PUBLIC_SUPABASE_URL:-}" || -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]]; then
+  eval "$(supabase status -o env | sed -nE '/^(API_URL|SERVICE_ROLE_KEY)=/p')"
+  export NEXT_PUBLIC_SUPABASE_URL="$API_URL"
+  export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+fi
+mapfile -t auth_ids < <(node "$(dirname "$script")/../create-commissioner-auth-fixtures.mjs")
+[[ ${#auth_ids[@]} == 2 ]] || { echo "Auth fixture creation did not return two users" >&2; exit 1; }
+user_id="${auth_ids[0]}"
+actor_id="${auth_ids[1]}"
+
 psql "$db" -v ON_ERROR_STOP=1 <<SQL
-INSERT INTO auth.users(id,instance_id,aud,role,email,encrypted_password,created_at,updated_at) VALUES
-('$user_id','00000000-0000-0000-0000-000000000000','authenticated','authenticated','commissioner-fixture@example.invalid','',now(),now()),
-('$actor_id','00000000-0000-0000-0000-000000000000','authenticated','authenticated','operator-fixture@example.invalid','',now(),now());
 INSERT INTO public.league_memberships(user_id,league_id,roster_id,role)
 VALUES ('$user_id','$league_id','fixture-roster','member');
 SQL
