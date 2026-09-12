@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "recovery:check": "bash -n scripts/recovery/*.sh"
   },
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",
