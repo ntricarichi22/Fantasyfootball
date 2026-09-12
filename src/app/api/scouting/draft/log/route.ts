@@ -115,6 +115,7 @@ export async function GET(request: NextRequest) {
   if (!client || error) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
+  if (!LEAGUE_ID) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
 
   // `?includeUnannounced=1` is reserved for commissioner / admin tools that
   // need to see the full log including in-flight (submitted-but-not-yet-
@@ -128,6 +129,7 @@ export async function GET(request: NextRequest) {
     .select(
       "pick_index, pick_number, team_count, team_name, roster_id, player_id, player_name, positions, nfl_team, is_announced, submitted_at, announced_at"
     )
+    .eq("league_id", LEAGUE_ID)
     .order("pick_index", { ascending: true });
 
   if (!includeUnannounced) {
@@ -156,6 +158,7 @@ export async function POST(request: NextRequest) {
   if (!client || error) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
+  if (!LEAGUE_ID) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
 
   const draftState = await fetchDraftState(client);
   if (draftState?.status === "paused") {
@@ -174,6 +177,7 @@ export async function POST(request: NextRequest) {
   const { data: existingPlayerRow, error: existingPlayerError } = await client
     .from("draft_log")
     .select("pick_index, player_id")
+    .eq("league_id", LEAGUE_ID)
     .eq("player_id", normalized.player_id)
     .maybeSingle();
   if (existingPlayerError) {
@@ -214,6 +218,7 @@ export async function POST(request: NextRequest) {
 
   const { error: insertError } = await client.from("draft_log").upsert([
     {
+      league_id: LEAGUE_ID,
       ...normalized,
       submitted_at: submittedAt,
       is_announced: isAnnounced,
@@ -311,7 +316,9 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
 
-  const { error: deleteError } = await client.from("draft_log").delete().eq("pick_index", pickIndex);
+  if (!LEAGUE_ID) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+  const { error: deleteError } = await client.from("draft_log").delete()
+    .eq("league_id", LEAGUE_ID).eq("pick_index", pickIndex);
 
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 500 });

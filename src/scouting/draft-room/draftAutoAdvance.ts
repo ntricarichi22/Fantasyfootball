@@ -85,6 +85,7 @@ const processStep = async (
     const { error: updateLogError } = await client
       .from("draft_log")
       .update({ is_announced: true, announced_at: nowIso })
+      .eq("league_id", leagueId)
       .eq("pick_index", currentIndex)
       .eq("is_announced", false);
     if (updateLogError) {
@@ -100,6 +101,7 @@ const processStep = async (
     const { error: insertSkipError } = await client.from("draft_log").upsert(
       [
         {
+          league_id: leagueId,
           pick_index: currentIndex,
           pick_number: null,
           team_count: null,
@@ -115,7 +117,7 @@ const processStep = async (
           is_skip: true,
         },
       ],
-      { onConflict: "pick_index" }
+      { onConflict: "league_id,pick_index" }
     );
     if (insertSkipError) {
       console.warn(

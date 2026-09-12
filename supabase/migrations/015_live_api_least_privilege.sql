@@ -16,6 +16,28 @@ WHERE table_schema = 'public'
   )
 ORDER BY table_name, ordinal_position;
 
+-- draft_log predates tenant scoping. Backfill only when the existing database
+-- unambiguously contains one draft_state league; otherwise stop for review.
+ALTER TABLE public.draft_log ADD COLUMN IF NOT EXISTS league_id TEXT;
+DO $$
+DECLARE league_count INTEGER; only_league TEXT;
+BEGIN
+  SELECT count(DISTINCT league_id), min(league_id)
+    INTO league_count, only_league FROM public.draft_state;
+  IF EXISTS (SELECT 1 FROM public.draft_log WHERE league_id IS NULL) THEN
+    IF league_count <> 1 OR only_league IS NULL THEN
+      RAISE EXCEPTION 'draft_log league backfill requires exactly one draft_state league; found %', league_count;
+    END IF;
+    UPDATE public.draft_log SET league_id = only_league WHERE league_id IS NULL;
+  END IF;
+END $$;
+ALTER TABLE public.draft_log ALTER COLUMN league_id SET NOT NULL;
+ALTER TABLE public.draft_log DROP CONSTRAINT IF EXISTS draft_log_pkey;
+ALTER TABLE public.draft_log ADD CONSTRAINT draft_log_pkey PRIMARY KEY (league_id, pick_index);
+DROP INDEX IF EXISTS public.draft_log_player_unique;
+CREATE UNIQUE INDEX draft_log_player_unique
+  ON public.draft_log (league_id, player_id) WHERE player_id IS NOT NULL;
+
 -- Private/team and server-managed relations are only accessed by authenticated
 -- Next.js handlers using the service role. Removing Data API privileges closes
 -- both no-RLS tables and accidentally permissive policies without changing data.
@@ -58,24 +80,16 @@ ALTER TABLE public.rookie_prospects FORCE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS draft_log_league_member ON public.draft_log;
 CREATE POLICY draft_log_league_member ON public.draft_log
-  FOR ALL TO authenticated
+  FOR SELECT TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM public.league_memberships m
-    WHERE m.user_id = (SELECT auth.uid()) AND m.league_id = draft_log.league_id
-  ))
-  WITH CHECK (EXISTS (
     SELECT 1 FROM public.league_memberships m
     WHERE m.user_id = (SELECT auth.uid()) AND m.league_id = draft_log.league_id
   ));
 
 DROP POLICY IF EXISTS draft_state_league_member ON public.draft_state;
 CREATE POLICY draft_state_league_member ON public.draft_state
-  FOR ALL TO authenticated
+  FOR SELECT TO authenticated
   USING (EXISTS (
-    SELECT 1 FROM public.league_memberships m
-    WHERE m.user_id = (SELECT auth.uid()) AND m.league_id = draft_state.league_id
-  ))
-  WITH CHECK (EXISTS (
     SELECT 1 FROM public.league_memberships m
     WHERE m.user_id = (SELECT auth.uid()) AND m.league_id = draft_state.league_id
   ));
@@ -85,7 +99,7 @@ CREATE POLICY rookie_prospects_authenticated_read ON public.rookie_prospects
   FOR SELECT TO authenticated USING (true);
 
 REVOKE ALL ON public.draft_log, public.draft_state, public.rookie_prospects FROM anon, authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.draft_log, public.draft_state TO authenticated;
+GRANT SELECT ON public.draft_log, public.draft_state TO authenticated;
 GRANT SELECT ON public.rookie_prospects TO authenticated;
 GRANT SELECT ON public.league_memberships TO authenticated;
 
@@ -109,9 +123,30 @@ REVOKE ALL ON TABLE
   public.slp_worst_championship_bench_mistakes
 FROM authenticated;
 
--- Functions remain server-only until each callable contract is reviewed.
-REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO service_role;
+-- Only the confirmed application function inventory is changed; do not alter
+-- extension/test functions that a disposable stack may install in public.
+DO $$
+DECLARE fn RECORD;
+BEGIN
+  FOR fn IN
+    SELECT n.nspname, p.proname, pg_get_function_identity_arguments(p.oid) args
+    FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+    WHERE n.nspname = 'public' AND p.proname IN (
+      'cfc_big_board_touch_updated_at', 'cfc_get_player_age_bucket',
+      'cfc_rebuild_value_layers', 'cfc_set_updated_at',
+      'ff_epoch_millis_to_timestamptz', 'ff_jsonb_force_array',
+      'ff_try_bigint', 'ff_try_bool_text', 'ff_try_int', 'ff_try_numeric',
+      'set_updated_at', 'ff_rebuild_master_draft_picks_actual_results',
+      'ai_reserve_usage', 'ai_reconcile_usage', 'ai_get_quota',
+      'record_security_event', 'prevent_security_audit_mutation'
+    )
+  LOOP
+    EXECUTE format('REVOKE EXECUTE ON FUNCTION %I.%I(%s) FROM PUBLIC, anon, authenticated',
+      fn.nspname, fn.proname, fn.args);
+    EXECUTE format('GRANT EXECUTE ON FUNCTION %I.%I(%s) TO service_role',
+      fn.nspname, fn.proname, fn.args);
+  END LOOP;
+END $$;
 
 COMMIT;
 

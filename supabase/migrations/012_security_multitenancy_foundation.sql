@@ -1,12 +1,12 @@
 -- Security and multitenancy foundation. Review, then run as one rerunnable block.
--- This migration does not read or emit user rows.
+-- This migration joins existing Auth users to the invitation map for rollout, but does not emit user rows.
 BEGIN;
 
 -- Required preflight: inspect the existing objects before any DDL.
 SELECT table_schema, table_name, column_name, data_type, is_nullable
 FROM information_schema.columns
-WHERE table_schema IN ('public', 'storage')
-  AND table_name IN ('team_email_map', 'cfc_team_player_attachment', 'objects', 'buckets')
+WHERE table_schema IN ('public', 'storage', 'auth')
+  AND table_name IN ('users', 'team_email_map', 'cfc_team_player_attachment', 'objects', 'buckets', 'draft_state')
 ORDER BY table_schema, table_name, ordinal_position;
 
 CREATE TABLE IF NOT EXISTS public.league_memberships (
@@ -23,6 +23,33 @@ CREATE TABLE IF NOT EXISTS public.league_memberships (
 
 CREATE INDEX IF NOT EXISTS league_memberships_league_roster_idx
   ON public.league_memberships (league_id, roster_id);
+
+-- Compatibility backfill for the existing single league. This reads no rows
+-- into output and does not change an existing membership/role. If draft_state
+-- is not unambiguously single-league, stop rather than assign users incorrectly.
+DO $$
+DECLARE league_count INTEGER; only_league TEXT; missing_count INTEGER;
+BEGIN
+  SELECT count(*) INTO missing_count
+  FROM auth.users users
+  JOIN public.team_email_map mapping ON lower(mapping.email) = lower(users.email)
+  WHERE users.email IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM public.league_memberships membership
+    WHERE membership.user_id = users.id
+  );
+  IF missing_count = 0 THEN RETURN; END IF;
+  SELECT count(DISTINCT league_id), min(league_id)
+    INTO league_count, only_league FROM public.draft_state;
+  IF league_count <> 1 OR only_league IS NULL THEN
+    RAISE EXCEPTION 'membership backfill requires exactly one draft_state league; found %', league_count;
+  END IF;
+  INSERT INTO public.league_memberships (user_id, league_id, roster_id, role)
+  SELECT users.id, only_league, mapping.roster_id, 'member'
+  FROM auth.users users
+  JOIN public.team_email_map mapping ON lower(mapping.email) = lower(users.email)
+  WHERE users.email IS NOT NULL
+  ON CONFLICT (user_id, league_id) DO NOTHING;
+END $$;
 
 ALTER TABLE public.league_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.league_memberships FORCE ROW LEVEL SECURITY;

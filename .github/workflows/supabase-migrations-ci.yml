@@ -56,6 +56,11 @@ jobs:
             echo "No database tests are currently checked in."
           fi
 
+      - name: Test atomic AI reservations against PostgreSQL
+        env:
+          LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+        run: node scripts/test-ai-db-concurrency.mjs
+
       - name: Stop disposable stack
         if: always()
         run: supabase stop --no-backup

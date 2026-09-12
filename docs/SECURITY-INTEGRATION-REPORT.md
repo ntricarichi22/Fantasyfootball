@@ -50,9 +50,13 @@ Live `trade_offers.thread_id` is NOT NULL with its FK, confirming production is
 post-`001`. These facts are used only for rollout ordering, not as proof that checked-in
 migrations reproduce a clean database.
 
-Not inspected: Auth security/redirect/rate-limit settings, Storage buckets/files,
-view definitions/dependencies, Realtime publications, backup retention/coverage, and
-a restore target/drill. Endpoint exploit tests were not run against production.
+Additional verified configuration: email/password and new-user signup are enabled; email confirmation and secure email change are on; anonymous sign-in and manual linking are off. Secure password change, current-password-on-update, and leaked-password prevention are off. Minimum password length and email-send limit were blank/unverified. OTP is eight digits with 3600-second expiry; observed IP limits are 30 signups/signins, 30 OTP verifications, and 150 refreshes per five minutes. IP forwarding is off. Site/redirect settings include the production Vercel origin and expected callback/reset routes. No delivery flow was exercised.
+
+Realtime publishes `draft_log` and `draft_state`. Both public policies are replaced by authenticated membership-scoped read policies in `015`; writes use server handlers. Production `draft_log` has no `league_id`, so `015` now adds it, requires exactly one existing `draft_state` league for backfill, then changes uniqueness to `(league_id,pick_index)` and `(league_id,player_id)`.
+
+Both observed Storage buckets (`Players`, `team-logos`) are public and have zero Storage policies. Public asset reads may be intentional; contents and write behavior were not probed. `team-logos` has a 2 MiB limit; `Players` has no observed size limit, and neither restricts MIME types.
+
+View dependency chains were captured and confirm many views transitively reach RLS-enabled tables. Direct view grants remain closed pending definition/semantic review; RLS on a base table alone is not accepted as evidence. Endpoint exploit tests were not run against production.
 
 ## Source fixes and boundaries
 
@@ -75,11 +79,12 @@ a restore target/drill. Endpoint exploit tests were not run against production.
 
 ## Migration order and rollout
 
-For an existing production database whose reviewed history is exactly `001`-`011`:
+For an existing production database whose reviewed history is exactly `001`-`011` (see `SECURITY-ROLLOUT.md` for the auto-deploy compatibility sequence):
 apply, after staging review, `012_security_multitenancy_foundation.sql`, then
 `013_ai_usage_limits.sql`, `014_security_monitoring_audit.sql`, and finally
 `015_live_api_least_privilege.sql`. Never repair or baseline production history
-automatically. Deploy database changes before application code. Configure
+automatically. Follow the compatibility sequence in `SECURITY-ROLLOUT.md`; do not
+approve database revocation before the exact compatible app SHA is ready. Configure
 `AUTH_SESSION_SECRET`, `AUDIT_HASH_KEY`, verified per-model AI prices, and assign the
 owner's membership `commissioner` role before rollout. Confirm email and redirect
 settings first. Existing users must sign in again.
@@ -94,10 +99,7 @@ post-migration column export and cannot establish constraints, indexes, policies
 functions, views or pre-`001` nullability. Creating placeholders or copying the live
 post-migration shape would conceal migration defects.
 
-Minimal additional read-only input: a schema-only `pg_dump` (no data, no owners,
-no privileges) of `public`, or catalog query results sufficient to reproduce every
-pre-`001` prerequisite with columns/defaults/identity, constraints, indexes, RLS,
-policies, triggers, functions and dependent views. For post-`001` objects, the baseline
+The new six-table metadata closes draft-state/log, current strategy, MFL draft mirror, and current trade thread/message definitions, but not every pre-`001` prerequisite. Run the single read-only `scripts/catalog/pre001-baseline-catalog.sql`. Still indispensable are historical pre-`001` definitions for `trade_offers` and `trade_messages` (including the `offer_id` used by `001`), the now-absent `cfc_value_upload_staging`, `cfc_assets`, `cfc_asset_calculations`, the pre-`003` table form of `cfc_trade_values_current`, and complete `ff_master_draft_picks`/franchise/player-map DDL. Current catalog output plus repository history must be reviewed to reconstruct—not guess—those states. For post-`001` objects, the baseline
 review must logically remove changes introduced by `001`-`011` before committing a
 `000` clean baseline. Then run `supabase start`, `supabase db reset --local`, DB lint,
 RLS role tests, and concurrent AI reservation tests. CI intentionally remains red
@@ -105,12 +107,10 @@ until that reviewed baseline exists; no skip or automatic history repair was add
 
 ## Remaining operational gates
 
-1. Obtain/review the schema-only baseline above and complete disposable DB tests.
+1. Obtain/review the remaining pre-001 definitions above and complete disposable DB tests. SQL RLS tests and a real parallel PostgreSQL AI reservation test are now wired into CI but have not executed successfully while baseline migration application fails.
 2. Inspect view definitions/dependencies and Realtime publications before selectively
    reopening any direct client access affected by migration `015`.
-3. Inspect Auth confirmation, redirect, password, CAPTCHA, rate-limit, leaked-password
-   and privileged-MFA settings. The custom prepare flow still leaks allowlist/account
-   state and needs durable edge throttling before a public multi-league launch.
+3. Enable secure password change/current-password verification and leaked-password protection after plan/UX review; verify minimum length, email-send limits, CAPTCHA and privileged MFA. The custom prepare flow still leaks allowlist/account state and needs durable edge throttling before a public multi-league launch.
 4. Inventory Storage buckets/objects/policies separately; test logo ownership paths.
 5. Verify backup database coverage/retention and Storage backup separately. Run the
    recovery drill only in an already available isolated nonproduction project.
@@ -121,3 +121,7 @@ until that reviewed baseline exists; no skip or automatic history repair was add
 7. Run unauthenticated, forged-cookie, cross-user/team/league and commissioner tests
    against a deployed nonproduction instance. Source/unit checks are not endpoint
    exploitation evidence and production was not probed.
+
+## PR150 source-of-truth dependency note
+
+PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Its proposed `012`/`013` cleanup versions must be renumbered after security `015` (start at `016`) if later approved. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.

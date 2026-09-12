@@ -7,6 +7,7 @@ import {
   verifyAppSession,
   appSessionFromRequest,
   sessionCanAccessTeamPair,
+  isMissingDatabaseRelation,
   type AppSession,
 } from "../src/infrastructure/auth/session.ts";
 
@@ -56,4 +57,11 @@ test("thread authorization requires same league and participation", () => {
   assert.equal(sessionCanAccessTeamPair(session, "league-a", "team-a", "team-b"), true);
   assert.equal(sessionCanAccessTeamPair(session, "league-a", "team-b", "team-c"), false);
   assert.equal(sessionCanAccessTeamPair(session, "league-b", "team-a", "team-b"), false);
+});
+
+test("rollout fallback accepts only an absent membership relation", () => {
+  assert.equal(isMissingDatabaseRelation({ code: "42P01", message: "missing" }, "league_memberships"), true);
+  assert.equal(isMissingDatabaseRelation({ message: "league_memberships not found in schema cache" }, "league_memberships"), true);
+  assert.equal(isMissingDatabaseRelation({ code: "42501", message: "permission denied" }, "league_memberships"), false);
+  assert.equal(isMissingDatabaseRelation({ code: "08006", message: "connection failed" }, "league_memberships"), false);
 });

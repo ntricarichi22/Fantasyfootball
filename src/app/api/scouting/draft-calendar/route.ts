@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { LEAGUE_ID } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 
@@ -21,11 +22,12 @@ export async function GET() {
   };
 
   const admin = getSupabaseAdminClient();
-  if (!admin.client) return NextResponse.json(fallback);
+  if (!admin.client || !LEAGUE_ID) return NextResponse.json(fallback);
 
   const { data: logs } = await admin.client
     .from("draft_log")
     .select("pick_number, cfc_year, is_skip, team_count")
+    .eq("league_id", LEAGUE_ID)
     .order("cfc_year", { ascending: false });
 
   const rows = (logs ?? []) as Array<{
@@ -66,7 +68,8 @@ export async function GET() {
 
   let upcomingDraftAt: string | null = null;
   try {
-    const { data: state } = await admin.client.from("draft_state").select("starts_at").limit(1);
+    const { data: state } = await admin.client.from("draft_state").select("starts_at")
+      .eq("league_id", LEAGUE_ID).limit(1);
     upcomingDraftAt = (state?.[0] as { starts_at?: string | null } | undefined)?.starts_at ?? null;
   } catch {
     /* draft_state optional */

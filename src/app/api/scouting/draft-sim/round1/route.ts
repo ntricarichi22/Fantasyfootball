@@ -4,6 +4,7 @@ import { buildTeamProfiles } from "@/shared/team-profiles";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine } from "@/scouting/draft-sim";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { LEAGUE_ID } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -33,10 +34,11 @@ type ActualPick = {
 
 async function getRound1Actuals(cfcYear: number): Promise<ActualPick[]> {
   const admin = getSupabaseAdminClient();
-  if (!admin.client) return [];
+  if (!admin.client || !LEAGUE_ID) return [];
   const { data, error } = await admin.client
     .from("draft_log")
     .select("pick_number, team_name, roster_id, player_id, player_name, is_skip, cfc_year")
+    .eq("league_id", LEAGUE_ID)
     .eq("cfc_year", cfcYear)
     .order("pick_index", { ascending: true });
   if (error || !data) return [];

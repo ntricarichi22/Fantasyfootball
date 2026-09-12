@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { appSessionCookie, createAppSession } from "@/infrastructure/auth/session";
+import { appSessionCookie, createAppSession, isMissingDatabaseRelation } from "@/infrastructure/auth/session";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { recordAuditChange } from "@/infrastructure/security/audit";
 
@@ -30,12 +30,20 @@ export async function POST(request: NextRequest) {
     if (!LEAGUE_ID) return NextResponse.json({ error: "league_not_configured" }, { status: 500 });
 
     const userId = userData.user.id;
-    const { data: membershipRow } = await adminClient
+    const { data: membershipRow, error: membershipLookupError } = await adminClient
       .from("league_memberships")
       .select("league_id, roster_id, role")
       .eq("user_id", userId)
       .eq("league_id", LEAGUE_ID)
       .maybeSingle();
+
+    // Vercel can deploy the compatible app build before the reviewer approves
+    // migration 012. Only a genuinely absent membership table may use the
+    // invitation map fallback; every other database error fails closed.
+    const membershipTablePending = isMissingDatabaseRelation(membershipLookupError, "league_memberships");
+    if (membershipLookupError && !membershipTablePending) {
+      return NextResponse.json({ error: "membership_lookup_failed" }, { status: 503 });
+    }
 
     const { data: teamRow } = await adminClient
       .from("team_email_map")
@@ -52,7 +60,7 @@ export async function POST(request: NextRequest) {
       roster_id: String(teamRow.roster_id),
       role: "member" as const,
     };
-    if (!membershipRow) {
+    if (!membershipRow && !membershipTablePending) {
       const { error: membershipError } = await adminClient.from("league_memberships").upsert({
         user_id: userId,
         league_id: membership.league_id,

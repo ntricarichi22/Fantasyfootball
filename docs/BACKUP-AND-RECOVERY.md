@@ -6,9 +6,12 @@ This repository review verifies that the application uses Supabase Postgres and
 Supabase Auth. It also uses Supabase Storage for the `team-logos` bucket; logo
 object metadata and the binary files are therefore recovery dependencies.
 
-The dashboard overview showed a recent backup on 2026-09-12. Coverage, plan,
-retention, point-in-time recovery (PITR), Storage inclusion, restore validity, and
-restorable dates remain **unverified**. No production restore was performed.
+The dashboard listed eight daily physical backups from September 5–12, 2026;
+the newest was September 12 at 11:15:36 UTC. This is an observed span, not a
+contractual retention guarantee. PITR is not enabled (the dashboard offers it as an
+add-on). The dashboard explicitly states Storage object bytes are excluded: database
+backup covers only object metadata, and restoring an older backup does not recover
+deleted objects. Restore validity remains unverified; no restore was performed.
 Do not infer coverage from a Supabase plan name: record the dashboard evidence
 in the drill record each time this runbook is exercised.
 

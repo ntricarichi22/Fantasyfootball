@@ -188,13 +188,14 @@ function resultsAreEmpty(results: Map<string, SeasonResult>): boolean {
 
 // Picks already used in the draft are no longer ownable assets (they became
 // players). Reading the draft log lets ownership return only live picks.
-async function fetchSpentPickNumbers(): Promise<Set<string>> {
+async function fetchSpentPickNumbers(leagueId: string): Promise<Set<string>> {
   const spent = new Set<string>();
   const admin = getSupabaseAdminClient();
   if (!admin.client) return spent;
   const { data } = await admin.client
     .from("draft_log")
     .select("pick_number, submitted_at")
+    .eq("league_id", leagueId)
     .not("submitted_at", "is", null);
   for (const row of (data ?? []) as Array<{ pick_number: string | null }>) {
     if (row.pick_number) spent.add(String(row.pick_number));
@@ -209,13 +210,14 @@ async function fetchSpentPickNumbers(): Promise<Set<string>> {
 // drafts never leak in, and getLeagueData grafts these onto rosters — skipping
 // anyone Sleeper already shows, so the graft silently stops once Sleeper
 // catches up.
-async function fetchDraftedPlayers(cfcYear: number): Promise<Array<{ rosterId: string; playerId: string }>> {
+async function fetchDraftedPlayers(cfcYear: number, leagueId: string): Promise<Array<{ rosterId: string; playerId: string }>> {
   const out: Array<{ rosterId: string; playerId: string }> = [];
   const admin = getSupabaseAdminClient();
   if (!admin.client) return out;
   const { data } = await admin.client
     .from("draft_log")
     .select("roster_id, player_id, submitted_at, cfc_year")
+    .eq("league_id", leagueId)
     .eq("cfc_year", cfcYear)
     .not("submitted_at", "is", null);
   for (const row of (data ?? []) as Array<{ roster_id: string | null; player_id: string | null }>) {
@@ -332,7 +334,7 @@ export async function getPickOwnership(): Promise<Map<string, OwnedPick[]>> {
   const [rosters, traded, spent, drafts] = await Promise.all([
     fetchRosters(leagueId),
     fetchTradedPicks(leagueId),
-    fetchSpentPickNumbers(),
+    fetchSpentPickNumbers(leagueId),
     fetchDrafts(leagueId),
   ]);
   return buildPickOwnership(rosters, traded, spent, drafts).map;
@@ -516,8 +518,8 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     fetchLeague(leagueId),
     getValues(),
     getStrategyProfiles(),
-    fetchSpentPickNumbers(),
-    fetchDraftedPlayers(getCFCYear()),
+    fetchSpentPickNumbers(leagueId),
+    fetchDraftedPlayers(getCFCYear(), leagueId),
     fetchDrafts(leagueId),
     getTeamNameOverrides(),
   ]);

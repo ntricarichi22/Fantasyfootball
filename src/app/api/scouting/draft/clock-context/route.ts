@@ -48,7 +48,8 @@ const fetchJson = async <T>(url: string): Promise<T | null> => {
 };
 
 const countPicksMade = async (
-  client: ReturnType<typeof getSupabaseAdminClient>["client"]
+  client: ReturnType<typeof getSupabaseAdminClient>["client"],
+  leagueId: string,
 ): Promise<number> => {
   if (!client) return 0;
   // Prefer the authoritative cursor on draft_state so skipped picks don't
@@ -57,7 +58,7 @@ const countPicksMade = async (
   const stateRes = await client
     .from("draft_state")
     .select("current_pick_index")
-    .limit(1)
+    .eq("league_id", leagueId)
     .maybeSingle();
   const currentIndex = (stateRes.data as { current_pick_index?: number | string | null } | null)
     ?.current_pick_index;
@@ -69,6 +70,7 @@ const countPicksMade = async (
   const { data, error } = await client
     .from("draft_log")
     .select("pick_index")
+    .eq("league_id", leagueId)
     .eq("is_announced", true)
     .order("pick_index", { ascending: false })
     .limit(1);
@@ -98,7 +100,7 @@ export async function GET() {
     fetchJson<SleeperUser[]>(`https://api.sleeper.app/v1/league/${leagueId}/users`),
     fetchJson<TradedPick[]>(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`),
     fetchJson<SleeperDraft[]>(`https://api.sleeper.app/v1/league/${leagueId}/drafts`),
-    countPicksMade(client),
+    countPicksMade(client, leagueId),
   ]);
 
   if (!rosters || !rosters.length) {

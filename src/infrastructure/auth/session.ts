@@ -25,8 +25,13 @@ const base64UrlDecode = (value: string) => {
 
 const signingSecret = () => {
   if (process.env.AUTH_SESSION_SECRET) return process.env.AUTH_SESSION_SECRET;
+  // Deployment compatibility: the service key is already server-only and high
+  // entropy, so it can sign sessions during the migration-first rollout window.
+  // AUTH_SESSION_SECRET remains required before final security activation so
+  // session signing can be rotated independently from database credentials.
+  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (process.env.NODE_ENV === "production") throw new Error("Missing AUTH_SESSION_SECRET");
-  return process.env.SUPABASE_SERVICE_ROLE_KEY || "cfc-development-session-secret-not-for-production";
+  return "cfc-development-session-secret-not-for-production";
 };
 
 const signingKey = () => crypto.subtle.importKey(
@@ -96,7 +101,9 @@ const cookieValue = (request: Request, name: string) => {
   const raw = request.headers.get("cookie") ?? "";
   for (const item of raw.split(";")) {
     const [key, ...parts] = item.trim().split("=");
-    if (key === name) return decodeURIComponent(parts.join("="));
+    if (key === name) {
+      try { return decodeURIComponent(parts.join("=")); } catch { return undefined; }
+    }
   }
   return undefined;
 };
@@ -115,3 +122,10 @@ export const sessionCanAccessTeamPair = (
   teamB: string,
 ) => session.leagueId === leagueId &&
   (session.role !== "member" || session.rosterId === teamA || session.rosterId === teamB);
+
+export const isMissingDatabaseRelation = (
+  error: { code?: string; message?: string } | null | undefined,
+  relation: string,
+) => Boolean(error && (error.code === "42P01" ||
+  new RegExp(`${relation.replace(/[^a-zA-Z0-9_]/g, "")}.*(?:does not exist|schema cache)`, "i")
+    .test(error.message ?? "")));
