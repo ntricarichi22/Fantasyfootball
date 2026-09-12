@@ -9,12 +9,29 @@ Source review found Next.js server routes, Supabase Auth, service-role server ac
 1. Review and run `supabase/migrations/014_security_monitoring_audit.sql` through the protected workflow against a staging project, then run its validation queries.
 2. Set a unique 32+ byte `AUDIT_HASH_KEY` in hosting secrets. Never reuse a Supabase or provider credential.
 3. Deploy, deliberately fail a staging login, and confirm one pseudonymous `authentication_failure` row. Confirm `anon` and `authenticated` cannot select/insert/update/delete either table and that update/delete of an audit row fails. The endpoint has a best-effort per-instance 20-event/five-minute limiter; use hosting/WAF rate limiting as the durable multi-instance control.
-4. Configure hosting/log-platform alerts on structured logs where `kind=security_event`: authentication failures at 10 occurrences/15 minutes per fingerprint (and 30 globally), application errors at 5/10 minutes per source, and any `ai_quota_blocked`/`critical` event. Send only to an owner-approved destination. **No alert destination is configured by this change.**
+4. For email delivery, set `SECURITY_EMAIL_ALERTS_ENABLED=true`, provider `resend`,
+   `SECURITY_ALERT_EMAIL_TO`, `SECURITY_ALERT_EMAIL_FROM`, and `RESEND_API_KEY` as
+   private server settings. Never use a `NEXT_PUBLIC_` value. The recipient is not
+   committed. Claims in `security_alert_deliveries` deduplicate across instances and
+   cap attempts per hour. Payloads contain bounded event metadata only—not email
+   addresses, prompts, bodies, exception messages, or stacks.
+5. Verify in staging that significant server request errors and authoritative AI
+   quota/accounting signals deliver once per window. Failed-login email is **not an
+   active trusted signal yet**: client telemetry must never trigger owner email, and
+   the server-side verified-auth-failure integration remains a review gate.
+
+No provider credential or verified sender is configured by this change, and no email
+was sent. Until those private settings and the trusted-auth hook are staged, email
+alerts remain inactive.
 
 ## Integration contracts
 
 - Server authorization guards should call `recordSecurityEvent` with `authorization_failure`; top-level route error handlers should record `application_error`. Do not include request bodies or exception stacks in summaries.
-- AI metering calls `recordSecurityEvent` after authoritative accounting and on quota blocks. Accounting remains authoritative for the $5/user and fixed $60 aggregate limits; events never contain prompts.
+- AI metering calls `recordSecurityEvent` and the deduplicated alert hook after
+  authoritative accounting and on quota blocks. Accounting remains authoritative for
+  the $5/user and fixed $60 aggregate limits; events never contain prompts.
+- Next instrumentation emits a bounded `application_error` event without exception
+  text or stack. Delivery failure never exposes the recipient or changes the request.
 - Membership creation records the verified actor, league, target, and bounded role/roster metadata. Future ownership/permission mutation routes must follow the same contract.
 
 ## Retention and review

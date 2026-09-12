@@ -4,6 +4,7 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { aiConfig, estimateMicros, monthStart, priceFor, resetAt } from "./config";
 import { appSessionFromRequest } from "@/infrastructure/auth/session";
 import { recordSecurityEvent } from "@/infrastructure/security/audit";
+import { sendSecurityAlert } from "@/infrastructure/security/alerts";
 
 type Usage = { input_tokens?: number; output_tokens?: number };
 type Reservation = { reservation_id: string; used_micros: number; remaining_micros: number };
@@ -34,8 +35,10 @@ export async function reserveAi(request: Request, params: { feature: string; mod
     p_max_concurrent: cfg.maxConcurrentPerUser,
   });
   if (rpcError || !data) {
-    await recordSecurityEvent({ eventType: "ai_quota_blocked", severity: "warning", outcome: "blocked",
-      source: params.feature, actorUserId: userId, summary: { reason: rpcError?.code ?? "accounting_unavailable" } });
+    const event = { eventType: "ai_quota_blocked" as const, severity: "warning" as const, outcome: "blocked" as const,
+      source: params.feature, actorUserId: userId, summary: { reason: rpcError?.code ?? "accounting_unavailable" } };
+    await recordSecurityEvent(event);
+    await sendSecurityAlert(event, { trusted: true });
     throw new AiLimitError(rpcError?.code === "P0001" ? "AI allowance or request limit reached" : "AI accounting unavailable", rpcError?.code === "P0001" ? 429 : 503, { reset_at: resetAt() });
   }
   const row = (Array.isArray(data) ? data[0] : data) as Reservation;
@@ -46,9 +49,11 @@ export async function reconcileAi(reservation: Awaited<ReturnType<typeof reserve
   const actualMicros = usage ? estimateMicros(reservation.price, usage.input_tokens ?? 0, usage.output_tokens ?? 0) : reservation.reservedMicros;
   const { error } = await reservation.client.rpc("ai_reconcile_usage", { p_reservation_id: reservation.reservationId, p_actual_micros: actualMicros, p_outcome: outcome });
   if (error) throw new AiLimitError("AI usage reconciliation failed");
-  await recordSecurityEvent({ eventType: "ai_usage", severity: "info", outcome: outcome === "succeeded" ? "success" : "failure",
+  const event = { eventType: "ai_usage" as const, severity: "info" as const, outcome: outcome === "succeeded" ? "success" as const : "failure" as const,
     source: "ai-meter", actorUserId: reservation.userId,
-    summary: { model: reservation.model, actual_micros: actualMicros, outcome } });
+    summary: { model: reservation.model, actual_micros: actualMicros, outcome } };
+  await recordSecurityEvent(event);
+  await sendSecurityAlert(event, { trusted: true });
 }
 
 export async function aiQuota(request: Request) {

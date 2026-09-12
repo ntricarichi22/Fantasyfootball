@@ -99,7 +99,29 @@ post-migration column export and cannot establish constraints, indexes, policies
 functions, views or pre-`001` nullability. Creating placeholders or copying the live
 post-migration shape would conceal migration defects.
 
-The new six-table metadata closes draft-state/log, current strategy, MFL draft mirror, and current trade thread/message definitions, but not every pre-`001` prerequisite. Run the single read-only `scripts/catalog/pre001-baseline-catalog.sql`. Still indispensable are historical pre-`001` definitions for `trade_offers` and `trade_messages` (including the `offer_id` used by `001`), the now-absent `cfc_value_upload_staging`, `cfc_assets`, `cfc_asset_calculations`, the pre-`003` table form of `cfc_trade_values_current`, and complete `ff_master_draft_picks`/franchise/player-map DDL. Current catalog output plus repository history must be reviewed to reconstruct—not guess—those states. For post-`001` objects, the baseline
+The additional current catalog capture closes the *present* definitions for the CFC
+asset/value relations, trade relations, source maps, strategy, draft state/log and MFL
+draft mirror, but it does not establish their historical pre-`001` shapes. Concrete
+conflicts prove that copying it would be wrong: `001` reads
+`trade_messages.offer_id`, which is absent today; `002` inserts into the current
+`cfc_trade_values_current` view and expects calculation/staging columns absent today;
+and `004` expects `source_platform`/`source_franchise_id`, while today's franchise
+map exposes `platform`/`source_team_id`. The requested upload staging and master draft
+table/functions are absent today as well.
+
+Still indispensable is saved, dated SQL or an equivalent schema-only dump establishing:
+(a) `trade_offers` and `trade_messages` immediately before `001`, including the
+`offer_id`/legacy identity, constraints and indexes; (b) `cfc_value_upload_staging`,
+the table form of `cfc_trade_values_current`, calculation columns, and
+`cfc_apply_value_upload` immediately before `002`; (c) `ff_master_draft_picks`, both
+source-map shapes, and `ff_rebuild_master_draft_picks_actual_results` immediately
+before `004`; and (d) initial `draft_log`/`draft_state` plus the unversioned changes
+that introduced generated `cfc_year`, and the initial strategy profile including
+columns missing from ordinal positions 6/7 and the unversioned `picks_sell_move`.
+Run the single read-only `scripts/catalog/pre001-baseline-catalog.sql` only to compare
+current state; absent current objects cannot answer this historical question. Current
+catalog output plus repository/saved-SQL history must be reviewed to reconstruct—not
+guess—those states. For post-`001` objects, the baseline
 review must logically remove changes introduced by `001`-`011` before committing a
 `000` clean baseline. Then run `supabase start`, `supabase db reset --local`, DB lint,
 RLS role tests, and concurrent AI reservation tests. CI intentionally remains red
@@ -114,10 +136,12 @@ until that reviewed baseline exists; no skip or automatic history repair was add
 4. Inventory Storage buckets/objects/policies separately; test logo ownership paths.
 5. Verify backup database coverage/retention and Storage backup separately. Run the
    recovery drill only in an already available isolated nonproduction project.
-6. Monitoring currently persists events and emits platform logs. No alert destination
-   is configured, so failed-login/app-error/spend notification delivery is **not active**.
-   Choose the approved operations destination and connect it without sending test
-   notifications to league members.
+6. Monitoring persists events and emits platform logs. A disabled-by-default Resend
+   email hook now covers significant server errors and authoritative AI usage/quota
+   signals with database-backed deduplication and a pilot-wide hourly cap. Delivery is
+   **not active**: configure a verified sender, provider credential, and the approved
+   recipient only in private server settings. Failed-login email additionally awaits
+   a trusted server-auth signal; browser assertions must not trigger it.
 7. Run unauthenticated, forged-cookie, cross-user/team/league and commissioner tests
    against a deployed nonproduction instance. Source/unit checks are not endpoint
    exploitation evidence and production was not probed.

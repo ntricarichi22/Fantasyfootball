@@ -138,7 +138,8 @@ BEGIN
       'ff_try_bigint', 'ff_try_bool_text', 'ff_try_int', 'ff_try_numeric',
       'set_updated_at', 'ff_rebuild_master_draft_picks_actual_results',
       'ai_reserve_usage', 'ai_reconcile_usage', 'ai_get_quota',
-      'record_security_event', 'prevent_security_audit_mutation'
+      'record_security_event', 'prevent_security_audit_mutation',
+      'claim_security_alert'
     )
   LOOP
     EXECUTE format('REVOKE EXECUTE ON FUNCTION %I.%I(%s) FROM PUBLIC, anon, authenticated',

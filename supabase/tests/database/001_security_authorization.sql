@@ -1,5 +1,10 @@
 BEGIN;
-SELECT plan(12);
+SELECT plan(15);
+
+SELECT ok(public.claim_security_alert('database-test-alert', 'application_error', 15, 12) IS NOT NULL,
+  'first alert in a window receives a durable claim');
+SELECT is(public.claim_security_alert('database-test-alert', 'application_error', 15, 12), NULL::uuid,
+  'duplicate alert in the same window is suppressed');
 
 INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password, created_at, updated_at)
 VALUES
@@ -29,6 +34,8 @@ SELECT ok(NOT has_table_privilege('anon', 'public.draft_log', 'SELECT'), 'anonym
 SELECT ok(NOT has_table_privilege('authenticated', 'public.trade_offers', 'SELECT'), 'private trade offers are not directly readable');
 SELECT ok(NOT has_table_privilege('authenticated', 'public.team_email_map', 'SELECT'), 'invitation email map is server-only');
 SELECT ok(NOT has_function_privilege('authenticated', 'public.ai_get_quota(uuid,bigint,bigint)', 'EXECUTE'), 'AI quota RPC is service-only');
+SELECT ok(NOT has_function_privilege('authenticated', 'public.claim_security_alert(text,text,integer,integer)', 'EXECUTE'),
+  'authenticated clients cannot claim owner alert delivery');
 
 SELECT * FROM finish();
 ROLLBACK;
