@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:security": "node --experimental-strip-types --test tests/security-session.test.ts",
+    "test:ai": "node --experimental-strip-types --test tests/ai-limits.test.mjs",
+    "test:audit": "node --experimental-strip-types --test src/infrastructure/security/audit.test.ts",
+    "test:integration-security": "node --experimental-strip-types --test tests/security-integration.test.mjs",
+    "recovery:check": "bash -n scripts/recovery/*.sh"
   },
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",

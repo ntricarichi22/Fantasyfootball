@@ -1,5 +1,6 @@
 "use client";
 
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen, ScrollText } from "lucide-react";
 
@@ -24,6 +25,12 @@ type State = {
   conversations: Conversation[];
   activeId: string | null;
 };
+
+type Quota = { used_micros: number; remaining_micros: number; reset_at: string };
+
+function dollars(micros: number) {
+  return `$${(micros / 1_000_000).toFixed(2)}`;
+}
 
 type Action =
   | { type: "hydrate"; conversations: Conversation[] }
@@ -88,7 +95,7 @@ function reducer(state: State, action: Action): State {
 }
 
 async function askHistorian(question: string, signal?: AbortSignal): Promise<string> {
-  const res = await fetch("/api/llm/ask", {
+  const res = await authenticatedAiFetch("/api/llm/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question }),
@@ -126,6 +133,7 @@ export default function HistorianChat() {
   const [funFact, setFunFact] = useState<string | null>(null);
   const [funFactLoading, setFunFactLoading] = useState(false);
   const [funFactError, setFunFactError] = useState<string | null>(null);
+  const [quota, setQuota] = useState<Quota | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -136,6 +144,16 @@ export default function HistorianChat() {
     dispatch({ type: "hydrate", conversations: loadConversations() });
     hydratedRef.current = true;
   }, []);
+
+  const refreshQuota = useCallback(async () => {
+    try {
+      const response = await authenticatedAiFetch("/api/ai/quota");
+      const payload = await response.json() as { quota?: Quota };
+      if (response.ok && payload.quota) setQuota(payload.quota);
+    } catch { /* The chat error remains the actionable failure surface. */ }
+  }, []);
+
+  useEffect(() => { void refreshQuota(); }, [refreshQuota]);
 
   // Persist conversations whenever they change (after hydration).
   useEffect(() => {
@@ -256,11 +274,12 @@ export default function HistorianChat() {
           },
         });
       } finally {
+        void refreshQuota();
         if (abortRef.current === controller) abortRef.current = null;
         setIsLoading(false);
       }
     },
-    [isLoading],
+    [isLoading, refreshQuota],
   );
 
   const handleSend = useCallback(() => {
@@ -341,7 +360,9 @@ export default function HistorianChat() {
               {activeConversation?.title ?? "CFC Historian"}
             </p>
             <p className="text-[11px]" style={{ color: "var(--cfc-muted)" }}>
-              League history assistant
+              {quota
+                ? `${dollars(quota.used_micros)} used · ${dollars(quota.remaining_micros)} left · resets ${new Date(quota.reset_at).toLocaleDateString()}`
+                : "League history assistant"}
             </p>
           </div>
         </div>

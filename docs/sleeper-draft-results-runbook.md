@@ -3,7 +3,8 @@
 ## First sync
 1. Run migration `supabase/migrations/004_sleeper_draft_results_sync.sql`.
 2. Trigger sync route:
-   - `POST /api/admin/ingest/sleeper-draft-results?secret=<ADMIN_SECRET>`
+   - `POST /api/admin/ingest/sleeper-draft-results` with header
+     `Authorization: Bearer <ADMIN_SECRET>`
    - Empty body will sync 2024 + 2025 known leagues.
 3. Rebuild master picks:
    - `SELECT public.ff_rebuild_master_draft_picks_actual_results();`

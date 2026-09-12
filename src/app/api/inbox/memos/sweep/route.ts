@@ -36,6 +36,7 @@ import { normalizePersona } from "@/pro-personnel/engine/core/personas";
 import type { Gap } from "@/pro-personnel/engine/core/types";
 import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
 import { generateOfferProse } from "./offerProse";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 // The director's read is now LLM-written at mint time (one call per new email).
@@ -101,6 +102,10 @@ export async function POST(req: Request) {
   }
   const teamId = String(body.team_id ?? "").trim();
   if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (session.leagueId !== LEAGUE_ID || session.rosterId !== teamId)
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
@@ -240,6 +245,7 @@ export async function POST(req: Request) {
 
       const makeProse = () =>
         generateOfferProse({
+          request: req,
           client,
           leagueId: LEAGUE_ID,
           teamId,

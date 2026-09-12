@@ -1,3 +1,4 @@
+import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 
@@ -75,12 +76,8 @@ function toIsoFromMetadata(metadata: Record<string, unknown> | null | undefined)
 }
 
 export async function POST(req: Request) {
+  if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   const url = new URL(req.url);
-  const secret = url.searchParams.get("secret");
-  const adminSecret = process.env.ADMIN_SECRET;
-
-  if (!adminSecret) return jsonError("Missing ADMIN_SECRET env var", 500);
-  if (secret !== adminSecret) return jsonError("Unauthorized", 401);
 
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supabaseResult.error}`, 500);

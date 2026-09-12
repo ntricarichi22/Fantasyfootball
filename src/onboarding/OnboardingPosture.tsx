@@ -66,7 +66,7 @@ export default function OnboardingPosture({ onBack, wantsMore, identity }: Props
       const completeRes = await fetch("/api/onboarding/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: identity.email }),
+        body: JSON.stringify({}),
       });
       if (!completeRes.ok) {
         const j = await completeRes.json().catch(() => ({}));
