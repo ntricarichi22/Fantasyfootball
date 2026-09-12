@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveOwnablePickShape, deriveSpentPickNumbers, formatPickKey, formatPickLabel, getCFCYear, isPickSpentInSeason, parsePickKey } from "../src/shared/league-data/picks.ts";
+import { deriveOwnablePickShape, deriveSpentPickNumbers, formatPickBigText, formatPickKey, formatPickLabel, getCFCYear, isPickSpentInSeason, parsePickKey } from "../src/shared/league-data/picks.ts";
 import { FIXED_PICK_LADDER, FIXED_PICK_LADDER_VERSION, fixedPickValue } from "../src/shared/asset-values/fixedPickLadder.ts";
 
 test("pick identity never contains a mutable draft slot", () => {
@@ -9,7 +9,8 @@ test("pick identity never contains a mutable draft slot", () => {
 });
 
 test("retired slotted keys remain readable during migration", () => {
-  assert.deepEqual(parsePickKey("pick:2026-2-06-7"), { season: 2026, round: 2, originalRosterId: "7" });
+  assert.deepEqual(parsePickKey("pick:2026-2-06-7"), { season: 2026, round: 2, originalRosterId: "7", slot: 6 });
+  assert.equal(formatPickBigText(parsePickKey("pick:2026-2-06-7")!), "2.06");
 });
 
 test("slot is display metadata only", () => {

@@ -77,6 +77,13 @@ export function fetchPlayers(): Promise<Record<string, SleeperPlayer>> {
   );
 }
 
+/** Uncached dictionary read for an operator-triggered value rebuild. */
+export async function fetchPlayersFresh(): Promise<Record<string, SleeperPlayer>> {
+  const response = await fetch("https://api.sleeper.app/v1/players/nfl", { cache: "no-store" });
+  if (!response.ok) throw new Error(`Sleeper player dictionary returned ${response.status}`);
+  return response.json() as Promise<Record<string, SleeperPlayer>>;
+}
+
 export function fetchRosters(leagueId: string): Promise<SleeperRoster[]> {
   return getJson<SleeperRoster[]>(
     `https://api.sleeper.app/v1/league/${leagueId}/rosters`,

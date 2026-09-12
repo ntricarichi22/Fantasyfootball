@@ -56,19 +56,19 @@
 ## Trade Engine Architecture — Non-Negotiables (May 6, 2026)
 
 ### Single Source of Truth
-- All gap math, grading, liquidity classification, post-trade warnings, and shape mismatch detection lives in `src/lib/trade/core/`.
-- Builder (`src/lib/trade/advisor/`) and Studio (`src/lib/trade/studio/`) **both** call core/. They do not reimplement these primitives.
+- All gap math, grading, liquidity classification, post-trade warnings, and shape mismatch detection lives in `src/pro-personnel/engine/core/`.
+- Builder (`src/pro-personnel/trade-engine/advisor/`) and Studio (`src/pro-personnel/trade-engine/studio/`) **both** call core/. They do not reimplement these primitives.
 - If you find yourself adding a new gap calculation or grade derivation outside core/, stop. Put it in core/ and consume from there.
 
 ### Canonical Functions
 - **`computeGap`** (in `core/gap.ts`) — given a deal's assets and rosters, returns sendValue / receiveValue / ratio / verdict / hasSend / hasReceive. Pure math, no side effects. **The single source of fairness signal.**
 - **`gradeFromVerdict`** (in `core/gap.ts`) — verdict → chip label + color + bucket. Neutral grading.
-- **`personaAwareGrade`** (in `core/gap.ts`) — same as above but knows partner persona's accept band. Builder uses this for the chip; Studio uses neutral grading because Studio offers are already filtered to the user's persona.
+- **`personaAwareGrade`** (in `core/gap.ts`) — same as above but knows partner persona's accept band. Builder uses this for the chip; Studio uses the same persona-aware grading.
 
-### Persona Ratio Bands (defined in BOTH `core/gap.ts` and `studio/persona.ts` — keep in sync)
+### Persona Ratio Bands (single source: `engine/core/personas.ts`)
 - Straight Shooter: 0.90–1.10
-- Closer: 0.90–1.15
-- Hustler: 0.85–1.00
+- Closer: 0.85–1.05
+- Hustler: 1.00–99
 - Architect: 0.90–1.10
 
 ### Suggestion Shape (Builder)
@@ -241,7 +241,7 @@ Three-stage sort:
 ### Persona Selection
 - Driven by user's `gm_persona` from `cfc_team_strategy_profiles`, overridable via popover on offer card
 - Persona toggle in offer card lets user re-roll the same partner with a different persona
-- Persona ratio bands defined in `src/lib/trade/studio/persona.ts` — also mirrored in `core/gap.ts` for Builder's `personaAwareGrade`. Keep both in sync.
+- Persona ratio bands defined once in `src/pro-personnel/engine/core/personas.ts` and consumed by Builder and Studio.
 
 ### Offer Card UI
 - Top row: "Deal shape as [Persona ▾]" + prev/next + "1 / 5" counter

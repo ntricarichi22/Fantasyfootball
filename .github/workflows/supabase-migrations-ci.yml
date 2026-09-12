@@ -11,6 +11,7 @@ on:
       - "scripts/test-staged-security-rollout.bash"
       - "scripts/test-migration-validator.bash"
       - "scripts/*018-fixtures.mjs"
+      - "scripts/*020-fixtures.mjs"
       - "scripts/lib/mailpit.mjs"
       - "package.json"
       - "package-lock.json"
@@ -45,6 +46,7 @@ on:
       - "scripts/test-staged-security-rollout.bash"
       - "scripts/test-migration-validator.bash"
       - "scripts/*018-fixtures.mjs"
+      - "scripts/*020-fixtures.mjs"
       - "scripts/lib/mailpit.mjs"
       - "package.json"
       - "package-lock.json"
@@ -127,4 +129,9 @@ jobs:
 
       - name: Stop disposable stack
         if: always()
-        run: supabase stop --no-backup
+        run: |
+          if command -v supabase >/dev/null 2>&1; then
+            supabase stop --no-backup
+          else
+            echo "Supabase CLI was not installed; no disposable stack exists to stop."
+          fi

@@ -2,6 +2,8 @@ export type ParsedPickKey = {
   season: number;
   round: number;
   originalRosterId: string;
+  /** Retired-key display metadata only; never part of durable identity. */
+  slot?: number;
 };
 
 /** The durable identity is season + round + original roster. Slot is metadata. */
@@ -20,8 +22,21 @@ export function parsePickKey(key: string): ParsedPickKey | null {
   const round = Number(parts[1]);
   const originalRosterId = parts.at(-1) ?? "";
   if (!Number.isInteger(season) || !Number.isInteger(round) || !originalRosterId) return null;
-  return { season, round, originalRosterId };
+  const slot = parts.length === 4 ? Number(parts[2]) : undefined;
+  return { season, round, originalRosterId, ...(Number.isInteger(slot) ? { slot } : {}) };
 }
+
+export function formatRoundOrdinal(round: number): string {
+  return ({ 1: "1ST", 2: "2ND", 3: "3RD" } as Record<number, string>)[round] ?? `${round}TH`;
+}
+
+export function formatPickBigText(pick: { round: number; slot?: number | null }): string {
+  return pick.slot && pick.slot > 0
+    ? `${pick.round}.${String(pick.slot).padStart(2, "0")}`
+    : formatRoundOrdinal(pick.round);
+}
+
+export const formatPickSubtitle = (pick: { season: number }): string => `${pick.season} Draft`;
 
 export function formatPickLabel(pick: {
   season: number;

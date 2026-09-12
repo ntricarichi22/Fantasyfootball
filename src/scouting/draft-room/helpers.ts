@@ -150,22 +150,7 @@ export const playerLabel = (playerId: string, dictionary: Record<string, Sleeper
   return { name, meta };
 };
 
-export const computeAge = (player: SleeperPlayer) => {
-  if (typeof player.age === "number") return player.age;
-  if (player.birth_date) {
-    const birthDate = new Date(player.birth_date);
-    if (!Number.isNaN(birthDate.getTime())) {
-      const now = new Date();
-      let age = now.getFullYear() - birthDate.getFullYear();
-      const hadBirthday =
-        now.getMonth() > birthDate.getMonth() ||
-        (now.getMonth() === birthDate.getMonth() && now.getDate() >= birthDate.getDate());
-      if (!hadBirthday) age -= 1;
-      return age;
-    }
-  }
-  return null;
-};
+export { playerAge as computeAge } from "@/shared/league-data/sleeper";
 
 export const calculatePickNumber = (pickIndex: number, teamCount: number) => {
   const safeTeamCount = Math.max(teamCount, MIN_TEAM_COUNT);

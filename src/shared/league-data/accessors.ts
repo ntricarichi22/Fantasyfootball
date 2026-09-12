@@ -109,9 +109,19 @@ function buildTeamNames(
   return names;
 }
 
+function buildSleeperTeamNames(rosters: SleeperRoster[], users: SleeperUser[]): Map<string, string> {
+  const userById = new Map(users.map(user => [user.user_id, user]));
+  return new Map(rosters.map(roster => {
+    const rid = toStr(roster.roster_id);
+    const user = roster.owner_id ? userById.get(roster.owner_id) : undefined;
+    return [rid, user?.metadata?.team_name || user?.display_name || `Team ${rid}`];
+  }));
+}
+
 function buildTeams(
   rosters: SleeperRoster[],
   names: Map<string, string>,
+  baseNames: Map<string, string>,
   dict: Map<string, PlayerInfo>,
   drafted: Array<{ rosterId: string; playerId: string }> = []
 ): RosteredTeam[] {
@@ -146,6 +156,7 @@ function buildTeams(
     return {
       rosterId: rid,
       teamName: names.get(rid) || `Team ${rid}`,
+      baseTeamName: baseNames.get(rid) || `Team ${rid}`,
       ownerId: r.owner_id,
       playerIds,
       starterIds: (r.starters ?? []).map(toStr),
@@ -182,7 +193,8 @@ export async function reconcilePendingTradeOverlays(): Promise<number> {
     fetchPlayers(), fetchRosters(leagueId), fetchUsers(leagueId), fetchTradedPicks(leagueId),
     fetchDrafts(leagueId), getDraftStatus(), getTeamNameOverrides(), getPendingTradeOverlays(leagueId),
   ]);
-  const teams = buildTeams(rosters, buildTeamNames(rosters, users, names), buildPlayerDict(players));
+  const teams = buildTeams(rosters, buildTeamNames(rosters, users, names),
+    buildSleeperTeamNames(rosters, users), buildPlayerDict(players));
   const ownership = buildPickOwnership(rosters, traded, status, drafts).map;
   const located = (asset: { key?: string; type?: string }, rosterId: string) => {
     const key = String(asset.key ?? "");
@@ -232,7 +244,7 @@ function resultsAreEmpty(results: Map<string, SeasonResult>): boolean {
 
 // Picks already used in the draft are no longer ownable assets (they became
 // players). Reading the draft log lets ownership return only live picks.
-async function fetchAppDraftPicks(leagueId: string, season: number): Promise<DraftResultPick[]> {
+async function fetchAppDraftPicks(leagueId: string, season: number, teamCount: number): Promise<DraftResultPick[]> {
   const picks: DraftResultPick[] = [];
   const admin = getSupabaseAdminClient();
   if (!admin.client) return picks;
@@ -247,7 +259,7 @@ async function fetchAppDraftPicks(leagueId: string, season: number): Promise<Dra
     if (!match || !row.roster_id || !row.player_id) continue;
     const round = Number(match[1]);
     const slot = Number(match[2]);
-    picks.push({ source: "app", pickNumber: (round - 1) * 12 + slot, round, slot, rosterId: String(row.roster_id), playerId: String(row.player_id) });
+    picks.push({ source: "app", pickNumber: (round - 1) * teamCount + slot, round, slot, rosterId: String(row.roster_id), playerId: String(row.player_id) });
   }
   return picks;
 }
@@ -256,11 +268,16 @@ export async function getDraftStatus(): Promise<DraftStatus> {
   return ttlMemo("league-data:draft-status", 300_000, async () => {
     const leagueId = getSleeperLeagueId();
     const season = getCFCYear();
-    const drafts = await fetchDrafts(leagueId) as SleeperDraft[];
+    const [drafts, sleeperLeague, rosters] = await Promise.all([
+      fetchDrafts(leagueId) as Promise<SleeperDraft[]>, fetchLeague(leagueId), fetchRosters(leagueId),
+    ]);
     const draft = drafts.find(d => String(d.season) === String(season) && d.type === "rookie")
       ?? drafts.find(d => String(d.season) === String(season));
+    // One is a no-data arithmetic guard for build-time/offline rendering, not
+    // a league-size assumption; real data comes from rosters or league metadata.
+    const teamCount = Math.max(rosters.length, Number(sleeperLeague?.total_rosters) || 0, 1);
     const [appPicks, sleeperRows] = await Promise.all([
-      fetchAppDraftPicks(leagueId, season),
+      fetchAppDraftPicks(leagueId, season, teamCount),
       draft?.draft_id ? fetchDraftPicks(String(draft.draft_id)) : Promise.resolve([]),
     ]);
     const sleeperPicks: DraftResultPick[] = sleeperRows.flatMap(row => {
@@ -269,7 +286,7 @@ export async function getDraftStatus(): Promise<DraftStatus> {
       const rosterId = String(row.roster_id ?? "");
       const playerId = String(row.player_id ?? "");
       if (!pickNumber || !round || !rosterId || !playerId) return [];
-      return [{ source: "sleeper" as const, pickNumber, round, slot: ((pickNumber - 1) % 12) + 1, rosterId, playerId }];
+      return [{ source: "sleeper" as const, pickNumber, round, slot: ((pickNumber - 1) % teamCount) + 1, rosterId, playerId }];
     });
     const merged = new Map<number, DraftResultPick>();
     for (const pick of sleeperPicks) merged.set(pick.pickNumber, pick);
@@ -278,8 +295,8 @@ export async function getDraftStatus(): Promise<DraftStatus> {
     const sleeperStatus = draft?.status ? String(draft.status) : null;
     const complete = sleeperStatus === "complete";
     const configuredRounds = Math.max(1, Number(draft?.settings?.rounds) || 3);
-    const dayOneComplete = picks.filter(p => p.round === 1).length >= 12;
-    const dayTwoComplete = complete || (picks.filter(p => p.round === 2).length >= 12 && picks.filter(p => p.round === 3).length >= 12);
+    const dayOneComplete = picks.filter(p => p.round === 1).length >= teamCount;
+    const dayTwoComplete = complete || (picks.filter(p => p.round === 2).length >= teamCount && picks.filter(p => p.round === 3).length >= teamCount);
     return {
       season,
       draftId: draft?.draft_id ? String(draft.draft_id) : null,
@@ -288,7 +305,7 @@ export async function getDraftStatus(): Promise<DraftStatus> {
       dayTwoComplete,
       complete: complete || (dayOneComplete && dayTwoComplete),
       picks,
-      spentPickNumbers: deriveSpentPickNumbers(picks.map(pick => pick.pickNumber), complete, 12, configuredRounds),
+      spentPickNumbers: deriveSpentPickNumbers(picks.map(pick => pick.pickNumber), complete, teamCount, configuredRounds),
       firstUndraftedSeason: complete || (dayOneComplete && dayTwoComplete) ? season + 1 : season,
     };
   });
@@ -420,7 +437,8 @@ export async function getRosters(): Promise<RosteredTeam[]> {
     getPlayerDictionary(),
     getTeamNameOverrides(),
   ]);
-  return buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict);
+  return buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides),
+    buildSleeperTeamNames(rosters, users), dict);
 }
 
 export async function getPickOwnership(): Promise<Map<string, OwnedPick[]>> {
@@ -614,7 +632,8 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   if (!rosters.length) return { error: "Sleeper rosters unavailable" };
 
   const dict = buildPlayerDict(players);
-  const sleeperTeams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), dict, drafted);
+  const sleeperTeams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides),
+    buildSleeperTeamNames(rosters, users), dict, drafted);
   const ownership = buildPickOwnership(rosters, traded, draftStatus, drafts);
   const overlaid = applyPendingTradeOverlays(sleeperTeams, ownership.map, overlays);
   const unpriced = new Set<string>();

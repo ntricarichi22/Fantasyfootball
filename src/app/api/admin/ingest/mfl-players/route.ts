@@ -1,6 +1,6 @@
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { requireSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -8,18 +8,7 @@ export const dynamic = "force-dynamic";
 
 const MFL_BATCH_SIZE = 200;
 
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!url || !key) {
-    throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
-  }
-
-  return createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-}
+const getSupabaseAdmin = requireSupabaseAdminClient;
 
 function sha256(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");

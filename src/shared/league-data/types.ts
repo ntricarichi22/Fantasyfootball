@@ -23,6 +23,8 @@ export type PlayerInfo = {
 export type RosteredTeam = {
   rosterId: string;
   teamName: string;
+  /** Sleeper-origin identity for mappings which must survive in-app renames. */
+  baseTeamName?: string;
   ownerId: string | null;
   playerIds: string[];
   starterIds: string[];

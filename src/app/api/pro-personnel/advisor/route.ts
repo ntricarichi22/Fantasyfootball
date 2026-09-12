@@ -18,7 +18,7 @@ import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas"
 import { priceDeal } from "@/pro-personnel/engine/pricing";
 import type { EngineOfferAsset, Scoreboard } from "@/pro-personnel/engine/types";
 import { buildValuationContext, valueAsset, isAging, type AssetRef, type ValuationContext } from "@/shared/asset-values";
-import { getLeagueData, type LeagueData } from "@/shared/league-data";
+import { getCFCYear, getLeagueData, type LeagueData } from "@/shared/league-data";
 import { computeNeeds, buildScrubSets, bucketOf, buildTeamProfiles } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { describeNeeds, rankDealPieces, describeDirection } from "@/shared/director-prose";
@@ -66,11 +66,6 @@ type RequestBody = {
   // roster sheet is open — the chip is pure math; prose waits for sheet close.
   skip_prose?: boolean;
 };
-
-function getCFCYear(): number {
-  const n = new Date();
-  return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
-}
 
 // ── One-tap balancing package ──────────────────────────────────────────────
 // Suggestions answer ONE question: what does it take to make this deal WORK —
@@ -401,7 +396,10 @@ export async function POST(request: NextRequest) {
   );
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
-  const personality = getPersonality(otherTeamName);
+  const stablePersonalityName = leagueData && "teams" in leagueData
+    ? leagueData.teams.find(team => team.rosterId === otherTeamId)?.baseTeamName
+    : undefined;
+  const personality = getPersonality(stablePersonalityName ?? otherTeamName);
   const cfcYear = getCFCYear();
 
   // ── PROMPT ASSEMBLY ────────────────────────────────────────────────────

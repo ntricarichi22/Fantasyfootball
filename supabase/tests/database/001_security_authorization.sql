@@ -1,5 +1,5 @@
 BEGIN;
-SELECT plan(34);
+SELECT plan(37);
 
 SELECT ok(public.claim_security_alert('database-test-alert', 'application_error', 15, 12) IS NOT NULL,
   'first alert in a window receives a durable claim');
@@ -22,6 +22,18 @@ VALUES ('security-league-a', 900001, 'security-player-a', now()),
 
 INSERT INTO public.league_invitations (league_id,email,roster_id)
 VALUES ('security-league-a','invited@example.invalid','3');
+INSERT INTO public.league_invitations (league_id,email,roster_id)
+VALUES ('normalization-league','  MIXED@example.invalid  ','4');
+SELECT is((SELECT email FROM public.league_invitations WHERE league_id='normalization-league'),
+  'mixed@example.invalid', 'future invitation writes normalize case and surrounding whitespace');
+SELECT throws_ok(
+  $$INSERT INTO public.league_invitations (league_id,email,roster_id)
+    VALUES ('normalization-league','mixed@EXAMPLE.invalid','5')$$,
+  '23505', NULL, 'normalized invitation identity rejects case-only duplicates');
+SELECT throws_ok(
+  $$INSERT INTO public.league_invitations (league_id,email,roster_id)
+    VALUES ('normalization-league','   ','5')$$,
+  'P0001', 'invitation email cannot be blank', 'blank normalized invitation identity fails closed');
 SELECT is((SELECT count(*) FROM public.accept_league_invitation(
   '30000000-0000-0000-0000-000000000003','invited@example.invalid','security-league-a')),
   1::bigint, 'unused explicit invitation creates one membership');

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
 import test from "node:test";
 import { estimateMicros, monthStart, priceFor, reserveMicros, resetAt, usageMicros, validateAnthropicEnvelope } from "../src/infrastructure/ai/config.ts";
 
@@ -65,18 +66,35 @@ test("parallel reservations cannot overrun a hard budget", async () => {
 });
 
 test("every Anthropic dispatch is behind the metered server module", async () => {
-  const { execFileSync } = await import("node:child_process");
-  const output = execFileSync("rg", ["-l", "api\\.anthropic\\.com", "src"], { encoding: "utf8" }).trim();
-  assert.equal(output, "src/infrastructure/ai/server.ts");
+  assert.deepEqual(await sourceFilesContaining(/api\.anthropic\.com/), ["src/infrastructure/ai/server.ts"]);
 });
 
 test("covered source paths use only the verified Sonnet 5 model", async () => {
-  const { execFileSync } = await import("node:child_process");
-  const output = execFileSync("rg", ["-o", "claude-sonnet-[A-Za-z0-9._-]+", "src"], { encoding: "utf8" });
-  const models = [...output.matchAll(/claude-sonnet-[A-Za-z0-9._-]+/g)].map(([model]) => model);
+  const models = [];
+  for (const file of await sourceFiles()) {
+    const contents = await readFile(file, "utf8");
+    models.push(...[...contents.matchAll(/claude-sonnet-[A-Za-z0-9._-]+/g)].map(([model]) => model));
+  }
   assert.ok(models.length > 0);
   assert.deepEqual([...new Set(models)], ["claude-sonnet-5"]);
 });
+
+async function sourceFiles(directory = "src") {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(entries.map(async entry => {
+    const path = join(directory, entry.name);
+    return entry.isDirectory() ? sourceFiles(path) : /\.(?:ts|tsx|js|mjs)$/.test(entry.name) ? [path] : [];
+  }));
+  return nested.flat().sort();
+}
+
+async function sourceFilesContaining(pattern) {
+  const matches = [];
+  for (const file of await sourceFiles()) {
+    if (pattern.test(await readFile(file, "utf8"))) matches.push(file);
+  }
+  return matches;
+}
 
 test("provider retries cannot bypass accounting", async () => {
   const server = await readFile("src/infrastructure/ai/server.ts", "utf8");

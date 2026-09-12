@@ -1,5 +1,5 @@
 -- REVIEWED OPERATOR ACTION; NOT A MIGRATION AND NOT EXECUTED BY CI.
--- Run only after migrations 012-019, with a private direct database connection:
+-- Run only after migrations 012-020, with a private direct database connection:
 -- psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v league_id='<league>' -v user_id='<verified-auth-uuid>' -v actor_user_id='<operator-auth-uuid>' -f scripts/database/assign-commissioner.sql
 BEGIN;
 SELECT table_name,column_name,data_type,is_nullable,column_default

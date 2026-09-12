@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createStatelessAuthClient } from "@/infrastructure/supabase/auth";
 import { pseudonymousFingerprint, recordSecurityEvent } from "@/infrastructure/security/audit";
 import { authoritativePasswordFailureEvent } from "@/infrastructure/security/authEvent";
 import { sendSecurityAlert } from "@/infrastructure/security/alerts";
@@ -13,9 +13,8 @@ export async function POST(request: NextRequest) {
   if (!email || !password || password.length > 1024)
     return NextResponse.json({ error: "invalid_credentials" }, { status: 400 });
 
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!url || !anonKey) return NextResponse.json({ error: "auth_unavailable" }, { status: 503 });
+  const auth = createStatelessAuthClient();
+  if (!auth) return NextResponse.json({ error: "auth_unavailable" }, { status: 503 });
 
   const fingerprint = pseudonymousFingerprint(email);
   if (!fingerprint) return NextResponse.json({ error: "auth_unavailable" }, { status: 503 });
@@ -23,7 +22,6 @@ export async function POST(request: NextRequest) {
   if (limit === "unavailable") return NextResponse.json({ error: "auth_unavailable" }, { status: 503 });
   if (limit === "limited") return NextResponse.json({ error: "rate_limited" }, { status: 429 });
 
-  const auth = createClient(url, anonKey, { auth: { autoRefreshToken: false, persistSession: false } });
   const { data, error } = await auth.auth.signInWithPassword({ email, password });
   if (error || !data.session) {
     // This is authoritative: this server path observed the provider rejection.

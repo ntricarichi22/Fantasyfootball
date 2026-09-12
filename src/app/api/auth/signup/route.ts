@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { createClient } from "@supabase/supabase-js";
+import { createStatelessAuthClient } from "@/infrastructure/supabase/auth";
 import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { claimAuthAttempt } from "@/infrastructure/auth/rateLimit";
 
@@ -39,14 +39,10 @@ export async function POST(request: NextRequest) {
 
     // Require control of the allowlisted mailbox before the new account can
     // authenticate and be bound to its team.
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    if (!supabaseUrl || !anonKey) {
+    const authClient = createStatelessAuthClient();
+    if (!authClient) {
       return NextResponse.json({ error: "Missing Supabase configuration" }, { status: 500 });
     }
-    const authClient = createClient(supabaseUrl, anonKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
     const { data: signupData, error: createError } = await authClient.auth.signUp({
       email,
       password,

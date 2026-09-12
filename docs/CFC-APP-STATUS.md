@@ -108,12 +108,12 @@ Same architecture as before. Different surfaces.
 ### Canonical Functions
 - **`computeGap`** (in `core/gap.ts`) — given a deal's assets and rosters, returns sendValue / receiveValue / ratio / verdict / hasSend / hasReceive. Pure math.
 - **`gradeFromVerdict`** (in `core/gap.ts`) — verdict → chip label + color + bucket. Neutral grading.
-- **`personaAwareGrade`** (in `core/gap.ts`) — same as above but knows partner persona's accept band. Builder uses this for the chip; Studio uses neutral grading because Studio offers are already filtered to the user's persona.
+- **`personaAwareGrade`** (in `core/gap.ts`) — same as above but knows partner persona's accept band. Builder uses this for the chip; Studio uses the same persona-aware grading.
 - **`parsePickKey`** (in `core/classification.ts`) — handles both 3-part future-year keys (`pick:YYYY-R-RID`) and 4-part current-year keys (`pick:YYYY-R-SS-RID`).
 
-### Persona Ratio Bands (defined in BOTH `core/gap.ts` and `studio/persona.ts` — keep in sync)
+### Persona Ratio Bands (single source: `engine/core/personas.ts`)
 - Straight Shooter: 0.90–1.10
-- Closer: 0.85–1.00 (the persona is 'always pay extra to get the deal done')
+- Closer: 0.85–1.05 (the persona is 'always pay extra to get the deal done')
 - Hustler: **1.00–99** (no upper cap — the persona is "always come out ahead")
 - Architect: 0.90–1.10
 

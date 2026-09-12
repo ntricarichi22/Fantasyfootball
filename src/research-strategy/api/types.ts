@@ -1,4 +1,4 @@
-export const TEAM_HQ_WANTS_MORE_VALUES = ["picks", "studs", "youth", "depth"] as const;
+export const TEAM_HQ_WANTS_MORE_VALUES = ["draft_picks", "elite_producers", "young_upside", "roster_depth"] as const;
 export const TEAM_HQ_MARKET_VALUES = ["buy", "hold", "sell"] as const;
 
 // Per-position trade intent (multi-select arrays). See trade_brain.docx Section 7.

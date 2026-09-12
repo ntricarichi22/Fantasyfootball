@@ -8,8 +8,8 @@ import {
 import {
   formatPickBigText,
   formatRoundOrdinal,
-  type ParsedPick,
-} from "./pickDisplay";
+  type ParsedPickKey as ParsedPick,
+} from "@/shared/league-data/picks";
 
 const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -58,7 +58,7 @@ export default function RosterPickCard({
       </div>
 
       <div style={{ padding: "6px 12px 10px" }}>
-        <div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: INK, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{parsed.year} Draft</div>
+        <div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: INK, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{parsed.season} Draft</div>
         <div style={{ fontFamily: F, fontSize: 17, fontWeight: 800, color: INK, lineHeight: 1.25, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{ownerSuffix ?? "(own)"}</div>
       </div>
 

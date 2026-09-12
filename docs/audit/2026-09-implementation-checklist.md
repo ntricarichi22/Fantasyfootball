@@ -4,20 +4,44 @@ Status is against this branch, not the unavailable Claude commit. **Complete**
 means code and a local check exist; **partial** names remaining work; **blocked**
 requires live metadata or a destructive rollout approval.
 
-Current review status: **50 complete**, with DB-01/02/03/05/07 fully prepared
-but operationally blocked. Database-CI-dependent rows are not represented as
-executed until the combined published SHA passes its disposable workflow.
+Current review status: all **55 decisions have review-branch implementations or
+explicit safe preparations**. DB-01/02/03/05/07 remain operationally blocked;
+prepared scripts are not executed cleanup. Database-CI-dependent rows are not
+represented as executed until the combined published SHA passes its disposable
+workflow through migration 020.
 
 ## Consolidation blocks
 
 | ID | Status | Evidence / remaining work |
 |---|---|---|
-| C-01 | Complete | Targets, Set Availability rebuilds, onboarding, draft room, draft order and clock consume the shared server feed. |
-| C-02 | Complete | Shared slot-free key parser/formatter/year helpers added and engine parser delegates to it. |
-| C-03 | Complete | Targets, offer snapshots, insider, pick-values and NFL context use shared viewer-aware valuation; storage-only rebuild code remains. |
+| C-01 | Complete | Targets, Set Availability rebuilds, onboarding, draft room, draft order and clock consume the shared server feed. The dead scouting loader was removed; the value rebuild's required fresh dictionary read now uses the shared Sleeper transport. |
+| C-02 | Complete | Shared slot-free key parser/formatter/year helpers added; engine and Set Availability display delegate to it, and draft-status arithmetic uses the live roster count. |
+| C-03 | Complete | Targets, offer snapshots, insider, pick-values and NFL context use shared viewer-aware valuation. Strategy writes use the canonical vocabulary while reads translate four legacy tokens. |
 | C-04 | Complete | Studio, trade-up and trade-back use the canonical engine adapters; draft-room profiles use the shared feed. |
-| C-05 | Complete | Private route audit plus handler/HTTP fixtures cover trade tabs, offer/thread participation, targets privacy, insider negotiation scope, current membership and admin boundaries. |
-| C-06 | Complete | Zero-import modules and caller-free debug/intel/memo/draft-sim/health routes were verified by repository search and removed. |
+| C-05 | Complete / DB-CI pending | Private route fixtures cover trade tabs, offer/thread participation, targets privacy and insider scope. Auth uses a stateless anon factory, ingestion uses the server-only admin factory, rename-stable personality mapping uses Sleeper-origin identity, and migration 020 enforces normalized invitation identity. |
+| C-06 | Complete | Caller-free scouting modules/report scripts and approved routes were removed. `trade-engine/value.ts` and advisor context were retained after current callers disproved the old zero-import finding. |
+
+### Consolidation bullet audit
+
+- **C-01:** one cached Sleeper module owns player/league transport and age logic;
+  operator value rebuild explicitly requests its fresh variant. Roster position
+  fallback and missing-player filtering remain canonical. Dead intel loaders are gone.
+- **C-02:** durable parsing, labels, March CFC year, season/round discovery and
+  spent-season behavior are shared. Runtime draft status uses fetched roster count;
+  the source-provider format remains intentionally fixed at 12 teams under D-37.
+- **C-03:** canonical valuation and immutable offer snapshots remain intact;
+  onboarding now writes `draft_picks`/`elite_producers`/`young_upside`/`roster_depth`,
+  while existing short-form stored values are translated on read.
+- **C-04:** Builder/Studio/drawers/memos and scouting adapters retain canonical
+  grade/value parity. Stale persona/path documentation was corrected. Modules
+  found to have current runtime callers were retained rather than deleted.
+- **C-05:** display selection is never authorization; private routes use signed
+  current membership. Server admin/Auth clients have distinct centralized
+  factories. Neutral loading identity and Sleeper-origin personality identity
+  survive an in-app rename. Migration 020 aborts on existing normalized email
+  collisions, normalizes future writes and rejects blanks/duplicates.
+- **C-06:** caller-free intel modules and report scripts are removed in addition
+  to the previously removed route/module set; guarded ingestion remains.
 
 ## Divergences
 
@@ -76,7 +100,7 @@ executed until the combined published SHA passes its disposable workflow.
 | DB-04 | Complete (retain) | Flea/MFL mirrors were not changed. |
 | DB-05 | Prepared / live-blocked | Staging is confirmed absent; watchlist estimated zero is not emptiness proof. Exact count, external dependency and archive evidence remain required. |
 | DB-06 | Complete | Migration 017 preserves Flea/MFL and replaces only Sleeper selected-by actual results; automated sync calls the hardened rebuild. |
-| DB-07 | Prepared / live-blocked | Combined two-phase CI includes constrained 018 fixtures and ladder 019; combined CI, approved isolated restore and rollout remain required. |
+| DB-07 | Prepared / live-blocked | Combined two-phase CI includes constrained 018 fixtures, ladder 019 and normalized-invitation migration 020; combined CI, approved isolated restore and rollout remain required. |
 
 ## Provenance
 
@@ -97,7 +121,7 @@ These are review-branch checks, not production rollout claims.
 | C-02 | `test:league`: durable and retired-key parsing. |
 | C-03 | `test:roster-values` plus shared valuation consumer review. |
 | C-04 | `test:trade-parity`; Studio and both scouting adapters compile in the production build. |
-| C-05 | Disposable HTTP/Auth fixture and `2026-09-private-route-audit.md`. |
+| C-05 | Disposable HTTP/Auth fixture, migration-020 pgTAP cases and `2026-09-private-route-audit.md`; combined CI pending. |
 | C-06 | Production-build route manifest and caller-removal review. |
 | D-01 | Authenticated snapshot caller/build scenario. |
 | D-02 | `test:roster-values`: team → league → tagged-zero fallback. |
@@ -147,4 +171,4 @@ These are review-branch checks, not production rollout claims.
 | DB-04 | Migration 017 review retains Flea/MFL inputs. |
 | DB-05 | Catalog confirms staging absent; watchlist exact emptiness remains blocked. |
 | DB-06 | Migration validator plus Sleeper draft-sync route/rebuild review; real CI pending. |
-| DB-07 | Two-phase harness covers 000–019 with FK/collision/identity fixtures; real combined execution and restore remain blocked. |
+| DB-07 | Two-phase harness covers 000–020 with FK/collision/identity/normalized-email fixtures; real combined execution and restore remain blocked. |

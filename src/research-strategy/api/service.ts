@@ -76,9 +76,13 @@ const roundTo = (value: number, precision: number) => {
 
 const normalizeWantsMore = (value: unknown): TeamHqWantsMore[] => {
   if (!Array.isArray(value)) return [];
-  return value
+  const legacy: Record<string, TeamHqWantsMore> = {
+    picks: "draft_picks", studs: "elite_producers", youth: "young_upside", depth: "roster_depth",
+  };
+  return [...new Set(value
     .map((item) => (typeof item === "string" ? item.toLowerCase().trim() : ""))
-    .filter((item): item is TeamHqWantsMore => WANTS_SET.has(item));
+    .map(item => legacy[item] ?? item)
+    .filter((item): item is TeamHqWantsMore => WANTS_SET.has(item)))];
 };
 
 // Generic multi-select normalizer for the per-position intent arrays: lowercase,
@@ -166,7 +170,7 @@ const getPlayersDictionary = async (): Promise<Record<string, PlayerMeta>> => {
  *   RB:    young ≤ 23, prime 24–26, aging ≥ 27
  *   WR/TE: young ≤ 24, prime 25–29, aging ≥ 30
  *
- * Only fires when team's wants_more includes "youth".
+ * Only fires when team's wants_more includes "young_upside".
  *   Young player: +5%
  *   Aging player: -5%
  *   Prime player: 0%
@@ -176,7 +180,7 @@ const getYouthModifier = (
   age: number | null,
   wantsMore: TeamHqWantsMore[],
 ): number => {
-  if (!wantsMore.includes("youth") || !position || age == null) return 0;
+  if (!wantsMore.includes("young_upside") || !position || age == null) return 0;
 
   if (position === "QB") {
     if (age <= 25) return YOUTH_YOUNG_MODIFIER_PCT;
@@ -393,9 +397,9 @@ const upsertComputedRows = async (
       const position = typeof playerMeta.position === "string" ? playerMeta.position.toUpperCase() : null;
       const age = playerMeta.age ?? null;
 
-      // Modifier 1: Studs — small premium for high-value players when wants_more includes "studs"
+      // Modifier 1: Studs — small premium for high-value players when wants_more includes "elite_producers"
       const studsModifierPct =
-        strategy.wants_more.includes("studs") && baseValue > STUDS_VALUE_THRESHOLD
+        strategy.wants_more.includes("elite_producers") && baseValue > STUDS_VALUE_THRESHOLD
           ? STUDS_MODIFIER_PCT
           : 0;
 

@@ -108,7 +108,7 @@ Auth/application fixtures and cookies, verified membership/invitation
 backfills, then passed clean SQL lint, all 27 pgTAP assertions, actual database
 AI concurrency/bypass tests, and the full Mailpit confirmation-token HTTP/Auth
 suite. This supersedes the failed `b90603a` harness result. It does not validate
-PR153 migrations 018–019 or the combined application tree.
+PR153 migrations 018–020 or the combined application tree.
 
 GitHub run `34701863673` at published head `b49e0f8` completed successfully. It
 staged the reviewed CI-only baseline as generated version `000`, reset through
@@ -133,17 +133,17 @@ only during disposable CI and must never enter linked production history. Produc
 remains at `001`–`011`.
 
 Security head `e54df407` supplies that proven harness. On this stacked branch it
-first isolates migrations `012`–`019`, starts baseline `000` plus deployed history
+first isolates migrations `012`–`020`, starts baseline `000` plus deployed history
 `001`–`011`, and exercises a
 mapped confirmed user's real login/finalization, signed compatibility cookie, own and
 foreign reads, tampered/forged cookie denial, and AI failure before accounting exists.
-It then restores all eight pending migration files with explicit presence checks,
+It then restores all nine pending migration files with explicit presence checks,
 tests constrained 018 parent/child/collision/identity fixtures and the 36-row
-ladder, resets through `019`, and runs the normal database and HTTP suites. The normal phase now
+ladder, resets through `020`, and runs the normal database and HTTP suites. The normal phase now
 follows the real synthetic confirmation link captured from local Mailpit back through
 the fixture application, and adds unauthenticated, forged, tampered, and validly signed
 cross-league denial. The combined PR153 head requires its own new CI run; neither
-prior security run validates migrations 018–019 or these application refactors.
+prior security run validates migrations 018–020 or these application refactors.
 
 All fixture credentials, mail, accounts, and rows are generated inside the disposable
 stack. This is neither a production probe nor a production-backup restore drill.

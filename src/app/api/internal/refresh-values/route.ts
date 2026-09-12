@@ -53,7 +53,7 @@ type SleeperStat = {
   pass_yd?: number;
 };
 
-const SLEEPER_PLAYERS_URL = "https://api.sleeper.app/v1/players/nfl";
+import { fetchPlayersFresh } from "@/shared/league-data/sleeper";
 const SLEEPER_STATS_URL = (season: number) =>
   `https://api.sleeper.app/v1/stats/nfl/regular/${season}`;
 
@@ -251,8 +251,7 @@ export async function GET(request: NextRequest) {
   // 3. Fetch Sleeper players dictionary (used for years_exp + name normalization fallback)
   let sleeperPlayers: Record<string, SleeperPlayerMeta> = {};
   try {
-    const res = await fetch(SLEEPER_PLAYERS_URL, { cache: "no-store" });
-    if (res.ok) sleeperPlayers = await res.json();
+    sleeperPlayers = await fetchPlayersFresh();
   } catch (e) {
     console.error("[refresh-values] Sleeper players fetch failed:", e);
   }
