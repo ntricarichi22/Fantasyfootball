@@ -16,6 +16,7 @@
 // Latency: the room opens on the fast storylines endpoint while the slate
 // generates in the background; goal labels carry live counts when it lands.
 
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
@@ -109,7 +110,7 @@ export default function TradeDoor() {
   useEffect(() => {
     if (!rosterId) return;
     let cancelled = false;
-    fetch(`/api/pro-personnel/storylines?team_id=${encodeURIComponent(rosterId)}`)
+    authenticatedAiFetch(`/api/pro-personnel/storylines?team_id=${encodeURIComponent(rosterId)}`)
       .then(r => r.json())
       .then(j => {
         if (cancelled) return;
@@ -348,7 +349,7 @@ export default function TradeDoor() {
       }
       let prose: string[];
       try {
-        const j = await (await fetch("/api/pro-personnel/door-beat", {
+        const j = await (await authenticatedAiFetch("/api/pro-personnel/door-beat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -393,7 +394,7 @@ export default function TradeDoor() {
     // the drawer opens in the same render the summary lands in (desktop) — on
     // mobile the offers wait behind a button so the sheet doesn't cover the prose.
     try {
-      const r = await fetch("/api/pro-personnel/office/respond", {
+      const r = await authenticatedAiFetch("/api/pro-personnel/office/respond", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ roster_id: rosterId, message: text }),
