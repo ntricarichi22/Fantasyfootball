@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { deriveOwnablePickShape, deriveSpentPickNumbers, formatPickKey, formatPickLabel, getCFCYear, parsePickKey } from "../src/shared/league-data/picks.ts";
+import { deriveOwnablePickShape, deriveSpentPickNumbers, formatPickKey, formatPickLabel, getCFCYear, isPickSpentInSeason, parsePickKey } from "../src/shared/league-data/picks.ts";
 
 test("pick identity never contains a mutable draft slot", () => {
   assert.equal(formatPickKey(2027, 2, "7"), "pick:2027-2-7");
@@ -32,7 +32,8 @@ test("completed drafts spend the whole configured season while incomplete drafts
   const complete = deriveSpentPickNumbers([], true, 12, 4);
   assert.equal(complete.size, 48);
   assert.ok(complete.has(48));
-  assert.ok(!deriveSpentPickNumbers([1], false, 12, 3).has(13));
+  assert.equal(isPickSpentInSeason(2026, 2026, 13, new Set([13])), true);
+  assert.equal(isPickSpentInSeason(2027, 2026, 13, new Set([13])), false);
 });
 
 import { applyPendingTradeOverlays } from "../src/shared/league-data/overlays.ts";

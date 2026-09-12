@@ -78,7 +78,69 @@ requires live metadata or a destructive rollout approval.
 
 The branch starts at verified security head
 `005f2fec3821ebb37b71aa43b392d1deee57aa61`, integrates security head
-`b90603a91ae89bd6b568b30936808f2213470615`, and cherry-picks the four
+`e54df407b94a0197052745992c59a85016cede9d`, and cherry-picks the four
 published audit files at `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`.
 Object `ff91766` is not present after an authorized fetch, so none of its
 reported 39-file patch is represented as copied or independently verified.
+
+## Per-decision verification scenarios
+
+These are review-branch checks, not production rollout claims.
+
+| ID | Verification scenario |
+|---|---|
+| C-01 | Build plus authenticated snapshot/onboarding/draft-room caller review. |
+| C-02 | `test:league`: durable and retired-key parsing. |
+| C-03 | `test:roster-values` plus shared valuation consumer review. |
+| C-04 | `test:trade-parity`; Studio and both scouting adapters compile in the production build. |
+| C-05 | Disposable HTTP/Auth fixture and `2026-09-private-route-audit.md`. |
+| C-06 | Production-build route manifest and caller-removal review. |
+| D-01 | Authenticated snapshot caller/build scenario. |
+| D-02 | `test:roster-values`: team → league → tagged-zero fallback. |
+| D-03 | `test:league`: immutable player/pick overlay; migration/HTTP CI pending. |
+| D-04 | Production build of snapshot-only draft-room hook. |
+| D-05 | Hook error-path review: state clears without demo substitution. |
+| D-06 | Write-handler invalidation review and integration-security suite. |
+| D-07 | Snapshot fixture retains full roster; production build verifies contract. |
+| D-08 | `test:trade-parity` and viewer-valued route review. |
+| D-09 | `test:league`: complete 48-slot draft and incomplete/current-season isolation. |
+| D-10 | Production build includes `/scouting/draft-room/results`; not deployed. |
+| D-11 | Snapshot pick adapter contract in production build. |
+| D-12 | `test:league` retired-key compatibility; real 018 execution pending combined CI. |
+| D-13 | Shared valuation scenario uses projected owner slot when actual slot is absent. |
+| D-14 | `test:trade-parity` plus viewer-aware value route review. |
+| D-15 | `test:league`: February/March rollover, 2029 traded pick and round 4. |
+| D-16 | Missing-anchor degradation is built; authoritative versioned seed held pending approved evidence handoff. |
+| D-17 | Production-build route/import graph after backfill removal. |
+| D-18 | Modifier unit/source review and type/build checks. |
+| D-19 | Onboarding save/rebuild/invalidate handler sequence review. |
+| D-20 | NFL-context percentile calculation type/build scenario. |
+| D-21 | Mutation-handler invalidation audit. |
+| D-22 | `test:trade-parity` and `test:roster-values`. |
+| D-23 | `test:trade-parity`; drawer compiles against canonical grade contract. |
+| D-24 | Studio `EngineContext`/`runStudio` production-build scenario. |
+| D-25 | Trade-up and trade-back `runScouting` adapters plus foreign-roster HTTP cases. |
+| D-26 | Participant-authorized memo list live-grade handler review. |
+| D-27 | AI tests cover metering/retry/identity; cron/admin boundary integration test. |
+| D-28 | Disposable HTTP foreign/cross-league/resource tests and route audit. |
+| D-29 | Authorization tests plus renamed-team/no-name-authority source review. |
+| D-30 | Signed server authorization tests; shared display-team storage build scenario. |
+| D-31 | Snapshot identity build scenario retaining override/full/location/nickname fields. |
+| D-32 | Snapshot player-pool and rookie-filter production build. |
+| D-33 | Rookie years-of-experience enrichment path production build. |
+| D-34 | Shared profile serialization/adapter production build. |
+| D-35 | Strategy patch-merge handler review and type/build checks. |
+| D-36 | `test:trade-parity` and canonical persona normalization review. |
+| D-37 | FantasyCalc request configuration: `ppr=0.5`, `numQbs=2`, `numTeams=12`. |
+| D-38 | `test:ai`: verified model coverage, bounded accounting, no retries. |
+| D-39 | Production-build route manifest confirms one inbox count route. |
+| D-40 | Clock builder-seed contract production build. |
+| D-41 | Production-build navigation manifest after tile removal. |
+| D-42 | Storage/schema review confirms no chat persistence was introduced. |
+| DB-01 | Read-only catalog evidence plus fail-closed proposal/archive syntax checks. |
+| DB-02 | Catalog dependency scenario retains 16-view Sleeper chain; restore still blocked. |
+| DB-03 | Catalog function/scheduler result recorded; external jobs still blocked. |
+| DB-04 | Migration 017 review retains Flea/MFL inputs. |
+| DB-05 | Catalog confirms staging absent; watchlist exact emptiness remains blocked. |
+| DB-06 | Migration validator plus Sleeper draft-sync route/rebuild review; real CI pending. |
+| DB-07 | Two-phase harness covers 000–018; real combined execution and restore remain blocked. |

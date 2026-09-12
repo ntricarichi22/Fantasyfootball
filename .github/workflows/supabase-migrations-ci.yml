@@ -9,6 +9,8 @@ on:
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-staged-security-rollout.bash"
+      - "scripts/test-migration-validator.bash"
+      - "scripts/lib/mailpit.mjs"
       - "package.json"
       - "package-lock.json"
       - "middleware.ts"
@@ -18,11 +20,21 @@ on:
       - "src/infrastructure/ai/**"
       - "src/infrastructure/security/**"
       - "src/shared/director-prose/**"
+      - "src/shared/league-data/**"
+      - "src/shared/asset-values/**"
+      - "src/pro-personnel/engine/**"
       - "tests/security-*"
       - "tests/ai-*"
+      - "tests/mailpit-*"
+      - "tests/league-*"
+      - "tests/roster-*"
+      - "tests/trade-*"
       - ".github/workflows/supabase-*.yml"
   push:
-    branches: [main]
+    # The stacked PR targets the security review branch, so a synchronize event
+    # may not evaluate a workflow newly added outside the default branch. Run
+    # credential-free disposable CI directly on its review-branch pushes too.
+    branches: [main, codex/implement-55-approved-fantasy-football-fixes]
     paths:
       - "supabase/**"
       - "scripts/validate-supabase-migrations.bash"
@@ -30,6 +42,8 @@ on:
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-staged-security-rollout.bash"
+      - "scripts/test-migration-validator.bash"
+      - "scripts/lib/mailpit.mjs"
       - "package.json"
       - "package-lock.json"
       - "middleware.ts"
@@ -39,8 +53,15 @@ on:
       - "src/infrastructure/ai/**"
       - "src/infrastructure/security/**"
       - "src/shared/director-prose/**"
+      - "src/shared/league-data/**"
+      - "src/shared/asset-values/**"
+      - "src/pro-personnel/engine/**"
       - "tests/security-*"
       - "tests/ai-*"
+      - "tests/mailpit-*"
+      - "tests/league-*"
+      - "tests/roster-*"
+      - "tests/trade-*"
       - ".github/workflows/supabase-*.yml"
   workflow_dispatch:
 
@@ -71,6 +92,26 @@ jobs:
 
       - name: Install locked test dependencies
         run: npm ci --ignore-scripts
+
+      - name: Test migration validator and Mailpit adapter
+        run: |
+          ./scripts/test-migration-validator.bash
+          node --test tests/mailpit-parser.test.mjs
+
+      - name: Validate combined application contracts
+        run: |
+          npx tsc --noEmit
+          npm run test:security
+          npm run test:ai
+          npm run test:audit
+          npm run test:alerts
+          npm run test:authorization
+          npm run test:handler-boundaries
+          npm run test:integration-security
+          npm run test:league
+          npm run test:roster-values
+          npm run test:trade-parity
+          npm run build
 
       - name: Install pinned Supabase CLI
         uses: supabase/setup-cli@v1

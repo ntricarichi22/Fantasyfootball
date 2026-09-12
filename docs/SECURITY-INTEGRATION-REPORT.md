@@ -100,6 +100,15 @@ settings first. Existing users must sign in again.
 
 ## Clean-database baseline and verified CI proof
 
+GitHub run `34704727222`, job `103582609569`, at published security head
+`e54df407` completed successfully. On one disposable database it proved the
+schema-011 compatibility phase, incrementally applied 012–017 while preserving
+Auth/application fixtures and cookies, verified membership/invitation
+backfills, then passed clean SQL lint, all 27 pgTAP assertions, actual database
+AI concurrency/bypass tests, and the full Mailpit confirmation-token HTTP/Auth
+suite. This supersedes the failed `b90603a` harness result. It does not validate
+PR153 migration 018 or the combined application tree.
+
 GitHub run `34701863673` at published head `b49e0f8` completed successfully. It
 staged the reviewed CI-only baseline as generated version `000`, reset through
 migrations `001`–`017`, reported no SQL lint errors, passed all 27 pgTAP assertions,
@@ -122,14 +131,14 @@ reversed only through checked-in migrations where documented. Baseline `000` exi
 only during disposable CI and must never enter linked production history. Production
 remains at `001`–`011`.
 
-Security head `b90603a` extends that proven harness. On this stacked branch it
+Security head `e54df407` supplies that proven harness. On this stacked branch it
 first isolates migrations `012`–`018`, starts baseline `000` plus deployed history
 `001`–`011`, and exercises a
 mapped confirmed user's real login/finalization, signed compatibility cookie, own and
 foreign reads, tampered/forged cookie denial, and AI failure before accounting exists.
 It then restores all seven pending migration files with explicit presence checks,
 resets through `018`, and runs the normal database and HTTP suites. The normal phase now
-follows the real synthetic confirmation link captured from local Inbucket back through
+follows the real synthetic confirmation link captured from local Mailpit back through
 the fixture application, and adds unauthenticated, forged, tampered, and validly signed
 cross-league denial. The combined PR153 head requires its own new CI run; neither
 prior security run validates migration 018 or these application refactors.

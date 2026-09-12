@@ -3,6 +3,10 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 hold="$(mktemp -d)"
 generated="$root/supabase/migrations/000_ci_pre001_clean_database.sql"
+state="$(mktemp)"; chmod 600 "$state"
+export SMOKE_STATE_FILE="$state"
+export AUTH_SESSION_SECRET="$(openssl rand -hex 32)"
+export AUDIT_HASH_KEY="$(openssl rand -hex 32)"
 restored=false
 restore_pending() {
   if [[ $restored == false ]]; then
@@ -10,7 +14,7 @@ restore_pending() {
     restored=true
   fi
 }
-cleanup() { restore_pending; rm -f "$generated"; rm -rf "$hold"; }
+cleanup() { restore_pending; rm -f "$generated" "$state"; rm -rf "$hold"; }
 trap cleanup EXIT
 
 mapfile -t pending < <(find "$root/supabase/migrations" -maxdepth 1 -type f \
@@ -29,5 +33,11 @@ restore_pending
 for version in 012 013 014 015 016 017 018; do
   compgen -G "$root/supabase/migrations/${version}_*.sql" >/dev/null || { echo "Migration $version was not restored." >&2; exit 1; }
 done
+# Apply the reviewed delta to the same database so the schema-011 Auth and
+# application fixtures prove the real migration/backfill transition.
+supabase migration up --local
+SMOKE_PHASE=upgrade "$root/scripts/test-auth-http-smoke.bash"
+
+# Independently retain the clean-bootstrap reset/lint/pgTAP/concurrency proof.
 "$root/scripts/test-supabase-clean-db.bash"
 SMOKE_PHASE=current "$root/scripts/test-auth-http-smoke.bash"

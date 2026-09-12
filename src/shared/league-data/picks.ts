@@ -65,3 +65,9 @@ export function deriveSpentPickNumbers(
   if (complete) return new Set(Array.from({ length: teamCount * rounds }, (_, index) => index + 1));
   return new Set(pickNumbers);
 }
+
+export function isPickSpentInSeason(
+  pickSeason: number, activeDraftSeason: number, overall: number, spent: Set<number>,
+): boolean {
+  return pickSeason === activeDraftSeason && spent.has(overall);
+}

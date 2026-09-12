@@ -24,7 +24,7 @@ import {
   type SleeperUser,
 } from "./sleeper";
 import { getTeamNameOverrides } from "./teamIdentity";
-import { deriveOwnablePickShape, deriveSpentPickNumbers } from "./picks";
+import { deriveOwnablePickShape, deriveSpentPickNumbers, isPickSpentInSeason } from "./picks";
 import {
   POSITIONS,
   type Position,
@@ -377,7 +377,7 @@ function buildPickOwnership(
         if (slot != null) {
           // skip picks already made in the draft
           const overall = (round - 1) * teamCount + slot;
-          if (draftStatus.spentPickNumbers.has(overall)) continue;
+          if (isPickSpentInSeason(season, draftStatus.season, overall, draftStatus.spentPickNumbers)) continue;
         }
         key = formatPickKey(season, round, origRid);
         currentYearPickCount++;
