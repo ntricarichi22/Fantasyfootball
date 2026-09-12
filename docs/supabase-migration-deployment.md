@@ -2,7 +2,9 @@
 
 ## Targets and trust boundary
 
-- CI uses Docker and the local Supabase stack. It has no cloud credentials and is not a persistent staging project.
+- CI uses Docker, the local Supabase stack, and an ephemeral Next.js process with
+  generated fixture credentials. It has no cloud credentials and is not a persistent
+  staging project or backup-restore target.
 - Production is the `cfcdraftapp` project with reference `owkxkpkdffhcordlxqte`.
 - Pull-request code never receives production credentials. A production run is created only after **Supabase Migration CI** succeeds for a push to `main`, and it checks out that tested commit SHA.
 - No workflow resets production, repairs migration history, or uses `--include-all`. A history mismatch stops the dry run and must be investigated manually.
@@ -26,7 +28,9 @@ Protect `main` separately: require pull requests, require **Validate migrations 
 ## Normal operation
 
 1. Add a new, uniquely numbered SQL file under `supabase/migrations/`; never edit an already deployed migration.
-2. Open a pull request. CI validates names/order, rebuilds an isolated PostgreSQL database, lints it, and runs SQL tests from `supabase/tests/database/` when present.
+2. Open a pull request. CI validates names/order, rebuilds an isolated PostgreSQL
+   database, lints it, runs SQL tests and concurrent reservations, then exercises
+   actual Auth/application HTTP boundaries with synthetic accounts and rows.
 3. Review and merge only after required checks pass. The successful post-merge CI run creates one serialized production deployment.
 4. An environment reviewer compares the commit and preflight output, then approves. The job links the exact project, lists local/remote history, performs `db push --dry-run`, and only then runs `db push`.
 

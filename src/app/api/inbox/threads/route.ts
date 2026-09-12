@@ -30,6 +30,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   }
 
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (session.leagueId !== league_id || session.rosterId !== teamId)
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
     return NextResponse.json({ error: clientError }, { status: 500 });

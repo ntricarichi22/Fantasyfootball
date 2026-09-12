@@ -7,6 +7,18 @@ on:
       - "scripts/validate-supabase-migrations.bash"
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
+      - "scripts/test-auth-http-smoke.*"
+      - "package.json"
+      - "package-lock.json"
+      - "middleware.ts"
+      - "instrumentation.ts"
+      - "src/app/api/**"
+      - "src/infrastructure/auth/**"
+      - "src/infrastructure/ai/**"
+      - "src/infrastructure/security/**"
+      - "src/shared/director-prose/**"
+      - "tests/security-*"
+      - "tests/ai-*"
       - ".github/workflows/supabase-*.yml"
   push:
     branches: [main]
@@ -15,6 +27,18 @@ on:
       - "scripts/validate-supabase-migrations.bash"
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
+      - "scripts/test-auth-http-smoke.*"
+      - "package.json"
+      - "package-lock.json"
+      - "middleware.ts"
+      - "instrumentation.ts"
+      - "src/app/api/**"
+      - "src/infrastructure/auth/**"
+      - "src/infrastructure/ai/**"
+      - "src/infrastructure/security/**"
+      - "src/shared/director-prose/**"
+      - "tests/security-*"
+      - "tests/ai-*"
       - ".github/workflows/supabase-*.yml"
   workflow_dispatch:
 
@@ -61,6 +85,9 @@ jobs:
         run: ./scripts/test-supabase-clean-db.bash
         env:
           LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Exercise real application and Auth boundaries
+        run: ./scripts/test-auth-http-smoke.bash
 
       - name: Stop disposable stack
         if: always()

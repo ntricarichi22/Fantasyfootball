@@ -66,7 +66,7 @@ type AnthropicResponse = {
   stop_reason?: string;
 };
 
-const MODEL = "claude-sonnet-4-5";
+const MODEL = "claude-sonnet-5";
 
 // Strip any normalized 0-100 board scores from a list of available-player
 // payloads so the LLM only ever sees the raw cfc trade value. Defense in
@@ -282,6 +282,7 @@ async function callAnthropic(
     body: JSON.stringify({
       model: MODEL,
       max_tokens: maxTokens,
+      thinking: { type: "disabled" },
       system,
       messages,
     }),

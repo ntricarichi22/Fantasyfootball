@@ -115,7 +115,7 @@ async function callClaude(
   apiKey: string,
   messages: AnthropicMessage[]
 ): Promise<AnthropicResponse> {
-  const response = await meteredAnthropicFetch(request, { feature: "historian", model: "claude-sonnet-4-5", maxInputTokens: 12000, maxOutputTokens: 2048 }, {
+  const response = await meteredAnthropicFetch(request, { feature: "historian", model: "claude-sonnet-5", maxInputTokens: 12000, maxOutputTokens: 2048 }, {
     method: "POST",
     headers: {
       "x-api-key": apiKey,
@@ -123,8 +123,9 @@ async function callClaude(
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model: "claude-sonnet-5",
       max_tokens: 2048,
+      thinking: { type: "disabled" },
       system: SCHEMA_CONTEXT,
       tools: [
         {
