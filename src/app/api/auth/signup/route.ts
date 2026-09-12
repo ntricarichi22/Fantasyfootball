@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { createClient } from "@supabase/supabase-js";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { claimAuthAttempt } from "@/infrastructure/auth/rateLimit";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { email?: string; password?: string };
+    const body = await boundedJson<{ email?: string; password?: string }>(request, 4096) ?? {};
     const email = body.email?.toLowerCase().trim() ?? "";
     const password = body.password ?? "";
 
@@ -14,6 +16,10 @@ export async function POST(request: NextRequest) {
     if (password.length < 8) {
       return NextResponse.json({ error: "password_too_short" }, { status: 400 });
     }
+    if (password.length > 1024) return NextResponse.json({ error: "invalid_credentials" }, { status: 400 });
+    const limit = await claimAuthAttempt(`signup:${email}`);
+    if (limit === "limited") return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    if (limit === "unavailable") return NextResponse.json({ error: "auth_unavailable" }, { status: 503 });
 
     const { client: adminClient, error: clientError } = getSupabaseAdminClient();
     if (!adminClient) {

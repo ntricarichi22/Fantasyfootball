@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
-import { canCreateThread } from "./threadAuthorization";
+import { authorizeThreadCreation } from "./threadAuthorization";
 
 export const dynamic = "force-dynamic";
 
@@ -134,10 +134,6 @@ export async function POST(request: NextRequest) {
 
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-  if (!canCreateThread(session, league_id, team_a_id, team_b_id, created_by_team_id)) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  }
-
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
     return NextResponse.json({ error: clientError }, { status: 500 });
@@ -145,14 +141,13 @@ export async function POST(request: NextRequest) {
 
   // league_memberships is the authoritative league/roster registry. Requiring
   // both participants prevents cross-league or invented roster identifiers.
-  const { data: participants, error: participantError } = await client
-    .from("league_memberships")
-    .select("roster_id")
-    .eq("league_id", league_id)
-    .in("roster_id", [team_a_id, team_b_id]);
-  const participantIds = new Set((participants ?? []).map((row) => String(row.roster_id)));
-  if (participantError) return NextResponse.json({ error: "authorization_unavailable" }, { status: 503 });
-  if (!participantIds.has(team_a_id) || !participantIds.has(team_b_id))
+  const authorized = await authorizeThreadCreation(session, league_id, team_a_id, team_b_id,
+    created_by_team_id, async (league, teams) => {
+      const { data, error } = await client.from("league_memberships").select("roster_id")
+        .eq("league_id", league).in("roster_id", teams);
+      return error ? null : (data ?? []).map((row) => String(row.roster_id));
+    });
+  if (!authorized)
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   // Normalise pair so we always search both orderings

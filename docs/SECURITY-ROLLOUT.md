@@ -7,7 +7,7 @@ No step in this document has been executed. Production changes require the exist
 
 Vercel automatically deploys a merged application commit, while the database job waits
 for a reviewer. The application must therefore tolerate schema version `011` until the
-reviewer applies `012`–`015`. Conversely, after `015` revokes old direct privileges, an
+reviewer applies `012`–`016`. Conversely, after `015` revokes old direct privileges, an
 old application rollback must not depend on anonymous database writes.
 
 ## Pre-merge gates
@@ -35,6 +35,10 @@ old application rollback must not depend on anonymous database writes.
 6. Confirm every current user mapped by `team_email_map` is represented or has an
    owner-approved remediation. This ensures Realtime SELECT remains available when
    `015` replaces public policies with membership scope.
+7. Review the `016` invitation preview. Existing mapped Auth users should already be
+   consumed through their `012` membership; only genuinely unaccepted invitations
+   may remain active. Future revocation must use the trusted service operation that
+   revokes the invitation and removes membership atomically—not deletion alone.
 
 ## Merge and reviewer-gated sequence
 
@@ -46,10 +50,11 @@ old application rollback must not depend on anonymous database writes.
    the compatibility session to `member`; other database errors fail closed. Non-AI
    features remain available; AI fails closed until accounting exists.
 3. The reviewer verifies the tested SHA and dry-run history shows remote `001`–`011`
-   and local pending `012`–`015`, with no repair, baseline, drop, or unexpected SQL.
+   and local pending `012`–`016`, with no repair, baseline, drop, or unexpected SQL.
 4. Approve the serialized database job. `012` creates/backfills memberships; `013`
-   adds AI accounting; `014` adds protected audit storage; `015` scopes draft history,
-   replaces public policies, and revokes broad Data API access. Validation queries must
+   adds AI accounting; `014` adds protected audit storage; `015` scopes draft history
+   and revokes broad Data API access; `016` adds one-time invitation acceptance,
+   durable revocation semantics, and shared pseudonymous auth throttling. Validation queries must
    match the reviewed results.
 5. Apply the prepared owner commissioner membership through a separately reviewed,
    authenticated administrative operation. Have all users sign in again so session

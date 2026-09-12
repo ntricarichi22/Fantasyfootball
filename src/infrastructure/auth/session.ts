@@ -129,3 +129,10 @@ export const isMissingDatabaseRelation = (
 ) => Boolean(error && (error.code === "42P01" ||
   new RegExp(`${relation.replace(/[^a-zA-Z0-9_]/g, "")}.*(?:does not exist|schema cache)`, "i")
     .test(error.message ?? "")));
+
+export const isMissingDatabaseFunction = (
+  error: { code?: string; message?: string } | null | undefined,
+  functionName: string,
+) => Boolean(error && (["42883", "PGRST202"].includes(error.code ?? "") ||
+  new RegExp(`${functionName.replace(/[^a-zA-Z0-9_]/g, "")}.*(?:does not exist|schema cache)`, "i")
+    .test(error.message ?? "")));

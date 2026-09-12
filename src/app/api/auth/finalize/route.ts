@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { appSessionCookie, createAppSession, isMissingDatabaseRelation } from "@/infrastructure/auth/session";
+import { appSessionCookie, createAppSession } from "@/infrastructure/auth/session";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { recordAuditChange } from "@/infrastructure/security/audit";
+import { resolveFinalizeAccess, sessionClaimsForAccess } from "@/infrastructure/auth/finalizeAuthorization";
 
 export async function POST(request: NextRequest) {
   try {
@@ -30,48 +31,31 @@ export async function POST(request: NextRequest) {
     if (!LEAGUE_ID) return NextResponse.json({ error: "league_not_configured" }, { status: 500 });
 
     const userId = userData.user.id;
-    const { data: membershipRow, error: membershipLookupError } = await adminClient
-      .from("league_memberships")
-      .select("league_id, roster_id, role")
-      .eq("user_id", userId)
-      .eq("league_id", LEAGUE_ID)
-      .maybeSingle();
+    const access = await resolveFinalizeAccess({
+      membership: async (id, league) => await adminClient.from("league_memberships")
+        .select("league_id, roster_id, role").eq("user_id", id).eq("league_id", league).maybeSingle(),
+      legacyInvitation: async (legacyEmail) => await adminClient.from("team_email_map")
+        .select("roster_id").eq("email", legacyEmail).maybeSingle(),
+      acceptInvitation: async (id, acceptedEmail, league) => {
+        const { data, error } = await adminClient.rpc("accept_league_invitation", {
+          p_user_id: id, p_email: acceptedEmail, p_league_id: league,
+        });
+        return { data: (Array.isArray(data) ? data[0] : data) ?? null, error };
+      },
+    }, userId, email, LEAGUE_ID);
+    if (access.error) return NextResponse.json({ error: access.error === "forbidden" ? "not_a_member" : "membership_lookup_failed" },
+      { status: access.error === "forbidden" ? 403 : 503 });
+    const membership = access.membership;
 
-    // Vercel can deploy the compatible app build before the reviewer approves
-    // migration 012. Only a genuinely absent membership table may use the
-    // invitation map fallback; every other database error fails closed.
-    const membershipTablePending = isMissingDatabaseRelation(membershipLookupError, "league_memberships");
-    if (membershipLookupError && !membershipTablePending) {
-      return NextResponse.json({ error: "membership_lookup_failed" }, { status: 503 });
-    }
-
-    const { data: teamRow } = await adminClient
-      .from("team_email_map")
+    const { data: teamRow, error: teamError } = await adminClient.from("team_email_map")
       .select("roster_id, team_name, profile_complete")
-      .eq("email", email)
-      .maybeSingle();
+      .eq("roster_id", membership.roster_id).limit(1).maybeSingle();
+    if (teamError) return NextResponse.json({ error: "team_lookup_failed" }, { status: 503 });
+    if (!teamRow) return NextResponse.json({ error: "not_a_member" }, { status: 403 });
 
-    if (!teamRow) {
-      return NextResponse.json({ error: "not_a_member" }, { status: 403 });
-    }
-
-    const membership = membershipRow ?? {
-      league_id: LEAGUE_ID,
-      roster_id: String(teamRow.roster_id),
-      role: "member" as const,
-    };
-    if (!membershipRow && !membershipTablePending) {
-      const { error: membershipError } = await adminClient.from("league_memberships").upsert({
-        user_id: userId,
-        league_id: membership.league_id,
-        roster_id: membership.roster_id,
-        role: membership.role,
-      }, { onConflict: "user_id,league_id" });
-      if (membershipError) {
-        return NextResponse.json({ error: "membership_not_configured" }, { status: 503 });
-      }
+    if (access.accepted) {
       await recordAuditChange({
-        action: "membership.created_from_invitation",
+        action: "membership.accepted_invitation",
         outcome: "success",
         actorUserId: userId,
         leagueId: membership.league_id,
@@ -91,13 +75,9 @@ export async function POST(request: NextRequest) {
     };
 
     const response = NextResponse.json({ ok: true, redirect });
-
-    response.cookies.set(appSessionCookie.name, await createAppSession({
-      userId,
-      leagueId: membership.league_id,
-      rosterId: String(membership.roster_id),
-      role: membership.role,
-    }), appSessionCookie.options);
+    const claims = sessionClaimsForAccess(access, userId);
+    if (!claims) return NextResponse.json({ error: "not_a_member" }, { status: 403 });
+    response.cookies.set(appSessionCookie.name, await createAppSession(claims), appSessionCookie.options);
 
     response.cookies.set("cfc_roster_id", teamRow.roster_id, {
       ...cookieOptions,

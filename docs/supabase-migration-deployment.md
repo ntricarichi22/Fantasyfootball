@@ -30,7 +30,12 @@ Protect `main` separately: require pull requests, require **Validate migrations 
 3. Review and merge only after required checks pass. The successful post-merge CI run creates one serialized production deployment.
 4. An environment reviewer compares the commit and preflight output, then approves. The job links the exact project, lists local/remote history, performs `db push --dry-run`, and only then runs `db push`.
 
-The current migration directory contains incremental migrations rather than a verified full baseline. If the disposable reset reports missing pre-existing objects, add the reviewed baseline/schema prerequisite supplied by the schema-owning integration work; do not weaken CI, invent schema, or mark history as applied. Likewise, resolve duplicate version numbers from parallel agents before merge.
+Disposable CI temporarily stages the reviewed prerequisite source from
+`supabase/baseline/pre001_clean_database.sql` as generated version `000`. That file is
+removed after testing and is never linked or pushed to production. Production history
+remains `001`-`011`, with `012`-`016` pending review. Do not move the baseline into the
+production migration directory, weaken CI, invent schema, or mark history as applied.
+Resolve future parallel migration numbers after `016` before merge.
 
 ## Recovery and rollback
 
@@ -38,4 +43,6 @@ Supabase migrations are forward-only in this workflow. Before a risky production
 
 ## Local checks
 
-Run `./scripts/validate-supabase-migrations.bash`. With Docker and the pinned Supabase CLI available, also run `supabase start`, `supabase db reset --local`, `supabase db lint --local --level error`, optional `supabase test db`, then `supabase stop --no-backup`.
+Run `./scripts/validate-supabase-migrations.bash`. With Docker and the pinned Supabase
+CLI available, stage the baseline as CI does, run `supabase start`, then run
+`./scripts/test-supabase-clean-db.bash`; finally run `supabase stop --no-backup`.

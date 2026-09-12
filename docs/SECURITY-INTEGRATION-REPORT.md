@@ -89,7 +89,7 @@ View dependency chains were captured and confirm many views transitively reach R
 For an existing production database whose reviewed history is exactly `001`-`011` (see `SECURITY-ROLLOUT.md` for the auto-deploy compatibility sequence):
 apply, after staging review, `012_security_multitenancy_foundation.sql`, then
 `013_ai_usage_limits.sql`, `014_security_monitoring_audit.sql`, and finally
-`015_live_api_least_privilege.sql`. Never repair or baseline production history
+`015_live_api_least_privilege.sql`, then `016_durable_league_invitations.sql`. Never repair or baseline production history
 automatically. Follow the compatibility sequence in `SECURITY-ROLLOUT.md`; do not
 approve database revocation before the exact compatible app SHA is ready. Configure
 `AUTH_SESSION_SECRET`, `AUDIT_HASH_KEY`, verified per-model AI prices, and assign the
@@ -98,7 +98,14 @@ settings first. Existing users must sign in again.
 
 ## Clean-database baseline and pending CI proof
 
-Earlier credential-free CI could not truthfully run `001`-`015` on an empty database.
+GitHub run `34697463355` at published head `89a558d` proved the generated baseline
+and migrations 001-012 apply in the disposable stack. It then failed in migration
+013 before reset/lint/pgTAP/concurrency because a multi-function `REVOKE` repeated the
+`FUNCTION` keyword. That PostgreSQL syntax is corrected, and equivalent statements
+were inspected. A new full CI run is still required; the earlier run is not a DB-test
+pass.
+
+Earlier credential-free CI could not truthfully run `001`-`016` on an empty database.
 `001` alters `trade_offers` and `trade_messages`, while `002` requires the value-upload
 schema; later migrations require draft and strategy tables. Full Git history contains
 no reviewed creation DDL for those prerequisites. The checked-in CSV is a partial,
@@ -154,9 +161,17 @@ pass and no migration is skipped.
    current membership, configured-league equality, and own-roster filtering. Add and
    unambiguously backfill a league column before any second league is enabled.
 9. Supabase Auth provides the shared password-attempt limits for the new server login
-   path. IP forwarding remains off and no independent durable application/WAF limiter
-   was verified; review those controls before broader signup exposure.
+   path, but server proxying can share egress while IP forwarding is off. Migration
+   `016` therefore adds a database-backed per-identifier limiter for login/prepare/
+   signup, using bounded request bodies and keyed pseudonymous identifiers rather than
+   client-supplied forwarding headers or process-local counters. Review complementary
+   edge controls before broader signup exposure.
+10. Membership absence after migration 012 no longer consults `team_email_map` or
+   performs an upsert. Only a locked, unused invitation in migration 016 can create
+   membership; acceptance consumes it, and the service-only revoke operation marks it
+   revoked while deleting membership. Current membership remains authoritative for
+   transfers and demotions.
 
 ## PR150 source-of-truth dependency note
 
-PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Its proposed `012`/`013` cleanup versions must be renumbered after security `015` (start at `016`) if later approved. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.
+PR150 was read at verified SHA `d1d62caf9c1c817aa8961516a8a7dfd4ee15cb16`; it was not modified or merged. Its DB-07 baseline work depends on this clean-bootstrap effort. Its proposed `012`/`013` cleanup versions must be renumbered after security `016` (start at `017`) if later approved. No archive/drop is authorized. View dependencies show raw/mirror relations remain upstream, so lack of TypeScript imports is not deletion evidence. Any future feed/client refactor must preserve signed handler identity, object/league checks, metered provider dispatch, audit hooks, recovery tooling, and the guarded production workflow.

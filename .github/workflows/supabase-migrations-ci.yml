@@ -5,12 +5,16 @@ on:
     paths:
       - "supabase/**"
       - "scripts/validate-supabase-migrations.bash"
+      - "scripts/test-supabase-clean-db.bash"
+      - "scripts/test-ai-db-concurrency.mjs"
       - ".github/workflows/supabase-*.yml"
   push:
     branches: [main]
     paths:
       - "supabase/**"
       - "scripts/validate-supabase-migrations.bash"
+      - "scripts/test-supabase-clean-db.bash"
+      - "scripts/test-ai-db-concurrency.mjs"
       - ".github/workflows/supabase-*.yml"
   workflow_dispatch:
 

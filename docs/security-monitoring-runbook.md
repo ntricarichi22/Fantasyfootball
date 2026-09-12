@@ -24,6 +24,13 @@ No provider credential or verified sender is configured by this change, and no e
 was sent. Until those private settings are staged, email
 alerts remain inactive.
 
+Password login, account preparation, and signup use a shared PostgreSQL limiter keyed
+by an HMAC-pseudonymous identifier. Request bodies are bounded before JSON parsing.
+The limiter does not trust forwarded client headers and is not process-local. Only the
+exact pre-`016` missing-function rollout window falls back to Supabase Auth's observed
+provider limit; any other accounting outage fails closed. Complementary Vercel/WAF
+configuration and trusted client-IP propagation remain unverified rollout settings.
+
 ## Integration contracts
 
 - Server authorization guards should call `recordSecurityEvent` with `authorization_failure`; top-level route error handlers should record `application_error`. Do not include request bodies or exception stacks in summaries.

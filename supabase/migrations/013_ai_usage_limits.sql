@@ -38,8 +38,8 @@ END $$;
 CREATE OR REPLACE FUNCTION public.ai_get_quota(p_user_id uuid,p_user_limit_micros bigint,p_pilot_limit_micros bigint) RETURNS TABLE(used_micros bigint,remaining_micros bigint,pilot_used_micros bigint,pilot_remaining_micros bigint) LANGUAGE sql SECURITY DEFINER SET search_path=public AS $$
  WITH m AS (SELECT date_trunc('month',timezone('UTC',now()))::date d), u AS (SELECT coalesce(sum(coalesce(actual_micros,reserved_micros)),0)::bigint n FROM public.ai_usage_reservations,m WHERE user_id=p_user_id AND month_start=m.d), p AS (SELECT coalesce(sum(coalesce(actual_micros,reserved_micros)),0)::bigint n FROM public.ai_usage_reservations,m WHERE month_start=m.d) SELECT u.n,greatest(0,p_user_limit_micros-u.n),p.n,greatest(0,p_pilot_limit_micros-p.n) FROM u,p
 $$;
-REVOKE ALL ON FUNCTION public.ai_reserve_usage(uuid,text,text,bigint,bigint,bigint,integer,integer), FUNCTION public.ai_reconcile_usage(uuid,bigint,text), FUNCTION public.ai_get_quota(uuid,bigint,bigint) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.ai_reserve_usage(uuid,text,text,bigint,bigint,bigint,integer,integer), FUNCTION public.ai_reconcile_usage(uuid,bigint,text), FUNCTION public.ai_get_quota(uuid,bigint,bigint) TO service_role;
+REVOKE ALL ON FUNCTION public.ai_reserve_usage(uuid,text,text,bigint,bigint,bigint,integer,integer), public.ai_reconcile_usage(uuid,bigint,text), public.ai_get_quota(uuid,bigint,bigint) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ai_reserve_usage(uuid,text,text,bigint,bigint,bigint,integer,integer), public.ai_reconcile_usage(uuid,bigint,text), public.ai_get_quota(uuid,bigint,bigint) TO service_role;
 
 -- Validation (read-only):
 SELECT column_name,data_type,is_nullable FROM information_schema.columns WHERE table_schema='public' AND table_name='ai_usage_reservations' ORDER BY ordinal_position;
