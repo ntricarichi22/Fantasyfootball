@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:security": "node --test --experimental-strip-types src/infrastructure/security/audit.test.ts"
   },
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",
