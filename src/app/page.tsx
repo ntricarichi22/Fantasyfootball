@@ -1,5 +1,5 @@
-import { HomeScreen } from "@/home/HomeScreen"
+import { FranchiseHome } from "@/home/FranchiseHome";
 
 export default function HomePage() {
-  return <HomeScreen />
+  return <FranchiseHome />;
 }
