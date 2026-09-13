@@ -11,7 +11,7 @@ These are the exact column names used in Supabase. Do not rename, alias, or assu
 
 ### `rookie_prospects`
 
-Columns confirmed in `src/app/api/draft/rookie-prospects/route.ts` and `src/app/api/admin/populate-rookies/route.ts`.
+Columns confirmed in `src/app/api/scouting/draft/rookie-prospects/route.ts` and `src/app/api/admin/populate-rookies/route.ts`.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -29,7 +29,7 @@ Columns confirmed in `src/app/api/draft/rookie-prospects/route.ts` and `src/app/
 
 ### `draft_log`
 
-Columns confirmed in `src/app/api/draft-log/route.ts` and `src/lib/draftAutoAdvance.ts`.
+Columns confirmed in `src/app/api/scouting/draft/log/route.ts` and `src/scouting/draft-room/draftAutoAdvance.ts`.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -49,7 +49,7 @@ Columns confirmed in `src/app/api/draft-log/route.ts` and `src/lib/draftAutoAdva
 
 ### `draft_state`
 
-Columns confirmed in `src/app/api/draft-state/shared.ts` (`SELECT_COLS`) and `src/app/api/draft-log/route.ts`.
+Columns confirmed in `src/app/api/scouting/draft/state/shared.ts` (`SELECT_COLS`) and `src/app/api/scouting/draft/log/route.ts`.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -68,13 +68,13 @@ Columns confirmed in `src/app/api/draft-state/shared.ts` (`SELECT_COLS`) and `sr
 
 When writing queries against these tables:
 - Use the exact column names above. Do not use camelCase equivalents.
-- If you need to reference a column not listed here, check the Supabase dashboard or `src/lib/llm/schema-context.ts` for the full schema.
-- `src/lib/llm/schema-context.ts` documents the `llm_*` warehouse tables — consult it as the source of truth for any table not listed in this file.
+- If you need to reference a column not listed here, check the Supabase dashboard or `src/infrastructure/llm/schema-context.ts` for the full schema.
+- `src/infrastructure/llm/schema-context.ts` documents the `llm_*` warehouse tables — consult it as the source of truth for any table not listed in this file.
 
 ---
 
 ## Conventions
 
-- **Name normalization:** Use `normalizeName()` from `src/lib/normalize.ts` for all player/prospect name matching. Do not create local normalization functions.
-- **Supabase admin client:** Import from `src/lib/supabaseAdmin.ts`. Do not instantiate `createClient` with service role keys inline in route handlers.
-- **Stored team selection:** Use `readStoredTeam()` from `src/lib/storedTeam.ts`. Do not read sessionStorage/localStorage directly in components.
+- **Name normalization:** Use `normalizeName()` from `src/infrastructure/normalize.ts` for all player/prospect name matching. Do not create local normalization functions.
+- **Supabase admin client:** Import from `src/infrastructure/supabase/admin.ts`. Do not instantiate `createClient` with service role keys inline in route handlers.
+- **Stored team selection:** Use `readStoredTeam()` from `src/infrastructure/identity/storedTeam.ts`. Do not read sessionStorage/localStorage directly in components.

@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { SleeperPlayer } from "@/scouting/draft-room/types";
-import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profile";
+import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profileTypes";
 import type { StarterAsset } from "@/pro-personnel/trade-engine/starterLevel";
 import { LineupCard } from "./LineupCard";
 import { TeamNeedsCard } from "./TeamNeedsCard";

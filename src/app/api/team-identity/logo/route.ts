@@ -5,7 +5,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { rosterIdFromCookies } from "@/infrastructure/identity/rosterCookie";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import {
   TEAM_LOGO_BUCKET,
   invalidateTeamIdentities,
@@ -31,7 +31,8 @@ async function logoObjectsFor(
 
 export async function POST(request: NextRequest) {
   try {
-    const rosterId = rosterIdFromCookies(request);
+    const { session } = await currentAppSessionFromRequest(request);
+    const rosterId = session?.rosterId;
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const form = await request.formData().catch(() => null);
@@ -86,7 +87,8 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
-    const rosterId = rosterIdFromCookies(request);
+    const { session } = await currentAppSessionFromRequest(request);
+    const rosterId = session?.rosterId;
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const { client, error: clientError } = getSupabaseAdminClient();

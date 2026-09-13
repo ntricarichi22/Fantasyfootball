@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { isYoung, buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
-import { getPlayerDictionary } from "@/shared/league-data";
+import { getPlayerDictionary, getValues, parsePickKey } from "@/shared/league-data";
 import { priceDeal } from "@/pro-personnel/engine/pricing";
 import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
 import { normalizePersona } from "@/pro-personnel/engine/core/personas";
 import type { Gap } from "@/pro-personnel/engine/core/types";
 import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
@@ -34,79 +35,23 @@ export const dynamic = "force-dynamic";
 type IncomingAsset = { key: string; label?: string; type?: string; value?: number };
 type AssetSummary = { studs: number; youth: number; picks_1st: number; picks_2nd: number; picks_3rd: number; depth: number };
 
-function getCFCYear(): number {
-  const n = new Date();
-  return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
-}
-
-// Parse pick key like "pick:2027-1-2" or "pick:2026-2-5-5" → { year, round, displayName }
-function parsePickKey(key: string): { year: number; round: number; displayName: string } | null {
-  if (!key.startsWith("pick:")) return null;
-  const parts = key.replace("pick:", "").split("-");
-  if (parts.length < 2) return null;
-  const year = parseInt(parts[0], 10);
-  const round = parseInt(parts[1], 10);
-  if (!year || !round) return null;
-  const cfcYear = getCFCYear();
-  // Current year picks have format pick:YYYY-R-SS-RID, slot is parts[2]
-  // Future year picks have format pick:YYYY-R-RID, no slot — use middle (06)
-  const slot = year === cfcYear && parts.length >= 4 ? parts[2] : "06";
-  const displayName = `${round}.${String(slot).padStart(2, "0")}`;
-  return { year, round, displayName };
-}
-
 type PlayerInfo = { value: number; isStud: boolean; isYouth: boolean };
 
-async function lookupBaseValues(client: ReturnType<typeof getSupabaseAdminClient>["client"], assets: IncomingAsset[]): Promise<{
+async function lookupBaseValues(assets: IncomingAsset[]): Promise<{
   playerMap: Record<string, PlayerInfo>;
   pickValueMap: Record<string, number>;
 }> {
-  if (!client) return { playerMap: {}, pickValueMap: {} };
-
-  const playerIds: string[] = [];
-  const pickDisplayNames: string[] = [];
-
-  for (const a of assets) {
-    if (a.key.startsWith("player:")) {
-      playerIds.push(a.key.replace("player:", ""));
-    } else if (a.key.startsWith("pick:")) {
-      const parsed = parsePickKey(a.key);
-      if (parsed) pickDisplayNames.push(parsed.displayName);
-    }
-  }
-
   const playerMap: Record<string, PlayerInfo> = {};
   const pickValueMap: Record<string, number> = {};
-
-  if (playerIds.length > 0) {
-    // Youth comes from the canonical isYoung() (position age bands OR
-    // rookie-deal experience) — the value table's age multiplier encodes
-    // prime as 1.0 and young as > 1.0, so it is not a youth flag.
-    const [{ data }, dict] = await Promise.all([
-      client
-        .from("cfc_trade_values_current")
-        .select("sleeper_player_id, cfc_value, elite_multiplier_applied")
-        .in("sleeper_player_id", playerIds),
-      getPlayerDictionary(),
-    ]);
-    for (const p of data ?? []) {
-      if (!p.sleeper_player_id) continue;
-      const info = dict.get(p.sleeper_player_id);
-      playerMap[p.sleeper_player_id] = {
-        value: typeof p.cfc_value === "number" ? p.cfc_value : 0,
-        isStud: typeof p.elite_multiplier_applied === "number" && p.elite_multiplier_applied > 1.0,
-        isYouth: info ? isYoung(info.position, info.age, info.exp) : false,
-      };
-    }
-  }
-
-  if (pickDisplayNames.length > 0) {
-    const { data } = await client
-      .from("cfc_trade_values_current")
-      .select("display_name, cfc_value")
-      .in("display_name", pickDisplayNames);
-    for (const p of data ?? []) {
-      if (p.display_name && typeof p.cfc_value === "number") pickValueMap[p.display_name] = p.cfc_value;
+  const [ctx, dict, values] = await Promise.all([buildValuationContext(), getPlayerDictionary(), getValues()]);
+  for (const asset of assets) {
+    if (asset.key.startsWith("player:")) {
+      const id = asset.key.slice(7); const info = dict.get(id);
+      playerMap[id] = { value: valueAsset({ type: "player", sleeperPlayerId: id }, ctx),
+        isStud: values.isStud.get(id) ?? false,
+        isYouth: info ? isYoung(info.position, info.age, info.exp) : false };
+    } else if (asset.key.startsWith("pick:")) {
+      pickValueMap[asset.key] = valueAsset({ type: "pick", key: asset.key }, ctx);
     }
   }
 
@@ -129,7 +74,7 @@ function summarizeAssets(assets: IncomingAsset[], playerMap: Record<string, Play
     } else if (a.key.startsWith("pick:")) {
       const parsed = parsePickKey(a.key);
       if (!parsed) continue;
-      totalValue += pickValueMap[parsed.displayName] ?? 0;
+      totalValue += pickValueMap[a.key] ?? 0;
       if (parsed.round === 1) summary.picks_1st++;
       else if (parsed.round === 2) summary.picks_2nd++;
       else if (parsed.round === 3) summary.picks_3rd++;
@@ -168,6 +113,10 @@ export async function POST(request: NextRequest) {
 
   const league_id = LEAGUE_ID;
   if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!currentSessionCanActForRoster(session, league_id, from_team_id) || from_team_id === to_team_id)
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
@@ -176,7 +125,7 @@ export async function POST(request: NextRequest) {
 
   // Compute base values + asset summary for both sides
   const allAssets = [...assets_from, ...assets_to];
-  const { playerMap, pickValueMap } = await lookupBaseValues(client, allAssets);
+  const { playerMap, pickValueMap } = await lookupBaseValues(allAssets);
   const fromBreakdown = summarizeAssets(assets_from, playerMap, pickValueMap);
   const toBreakdown = summarizeAssets(assets_to, playerMap, pickValueMap);
 
@@ -242,13 +191,17 @@ export async function POST(request: NextRequest) {
   if (parent_offer_id) {
     const { data: parent, error: parentError } = await client
       .from("trade_offers")
-      .select("thread_id")
+      .select("thread_id, from_team_id, to_team_id")
       .eq("id", parent_offer_id)
       .eq("league_id", league_id)
       .single();
     if (parentError || !parent) {
       return NextResponse.json({ error: "Parent offer not found" }, { status: 404 });
     }
+    const parentTeams = [String(parent.from_team_id), String(parent.to_team_id)].sort();
+    const requestTeams = [from_team_id, to_team_id].sort();
+    if (parentTeams[0] !== requestTeams[0] || parentTeams[1] !== requestTeams[1])
+      return NextResponse.json({ error: "Parent offer participants do not match" }, { status: 403 });
     threadId = parent.thread_id ?? null;
 
     // Mark the parent as countered. Only changes status if it's still pending —

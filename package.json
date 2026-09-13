@@ -6,14 +6,26 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:security": "node --experimental-strip-types --test tests/security-session.test.ts",
+    "test:ai": "node --experimental-strip-types --test tests/ai-limits.test.mjs",
+    "test:audit": "node --experimental-strip-types --test src/infrastructure/security/audit.test.ts",
+    "test:alerts": "node --experimental-strip-types --test src/infrastructure/security/alerts.test.ts",
+    "test:authorization": "node --experimental-strip-types --test tests/security-authorization.test.ts",
+    "test:handler-boundaries": "node --experimental-strip-types --test tests/security-handler-boundaries.test.ts",
+    "test:integration-security": "node --experimental-strip-types --test tests/security-integration.test.mjs",
+    "test:league": "node --experimental-strip-types --test tests/league-pick-identity.test.ts",
+    "test:roster-values": "node --experimental-strip-types --test tests/roster-value-completeness.test.ts",
+    "test:trade-parity": "node --experimental-strip-types --test tests/trade-grade-parity.test.ts",
+    "test:framework-auth": "node scripts/test-next-auth-boundaries.mjs",
+    "recovery:check": "bash -n scripts/recovery/*.sh"
   },
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",
     "@supabase/supabase-js": "^2.95.3",
     "cheerio": "^1.2.0",
     "lucide-react": "^0.574.0",
-    "next": "16.1.6",
+    "next": "16.3.5",
     "pg": "^8.20.0",
     "playwright-core": "^1.58.2",
     "react": "19.2.3",
@@ -26,7 +38,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.1.6",
+    "eslint-config-next": "16.3.5",
     "tailwindcss": "^4",
     "typescript": "5.9.3"
   }

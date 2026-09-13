@@ -17,11 +17,14 @@
 //   director: { opening, args: Record<thesisId, string> },
 // }
 
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives, ACQUIRE_GOAL_KINDS, type Thesis, type Goal } from "@/shared/team-narratives";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -129,6 +132,7 @@ const PROSE_TTL = 10 * 60_000;
 const LLM_TIMEOUT_MS = 8_000;
 
 async function llmProse(
+  req: Request,
   teamId: string,
   theses: Thesis[],
   identity: string,
@@ -149,7 +153,7 @@ async function llmProse(
     goals: t.goals.filter(g => ACQUIRE_GOAL_KINDS.has(g.kind)).map(g => ({ kind: g.kind, evidence: g.evidence })),
   }));
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await meteredAnthropicFetch(req, { feature: "storylines", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 8000, maxOutputTokens: 600 }, {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
@@ -186,6 +190,8 @@ async function llmProse(
 export async function GET(req: NextRequest) {
   const teamId = req.nextUrl.searchParams.get("team_id")?.trim();
   if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
@@ -217,7 +223,7 @@ export async function GET(req: NextRequest) {
   }));
 
   const director =
-    (await llmProse(teamId, bundle.theses, bundle.identitySentence, bundle.teamName)) ??
+    (await llmProse(req, teamId, bundle.theses, bundle.identitySentence, bundle.teamName)) ??
     fallbackProse(bundle.theses);
 
   return NextResponse.json({

@@ -141,6 +141,7 @@ export default function ThreadPage() {
   const [offers, setOffers] = useState<TradeOffer[]>([]);
   const [messages, setMessages] = useState<TradeMessage[]>([]);
   const [rosterNames, setRosterNames] = useState<Record<string, string>>({});
+  const [playerNames, setPlayerNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [newMsg, setNewMsg] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
@@ -185,7 +186,20 @@ const scrollToBottom = useCallback(() => {
 
   useEffect(() => {
     fetchRosterNames().then(setRosterNames);
+    fetch("/api/league/snapshot")
+      .then(response => response.ok ? response.json() : null)
+      .then(snapshot => setPlayerNames(Object.fromEntries(
+        (snapshot?.players ?? []).map((player: { id: string; name: string }) => [player.id, player.name]),
+      )))
+      .catch(() => {});
   }, []);
+
+  const currentLabels = useCallback((list: OfferAsset[]) => list.map(asset => {
+    if (asset.type !== "player") return asset;
+    const id = asset.key.startsWith("player:") ? asset.key.slice(7) : asset.key;
+    const current = playerNames[id];
+    return current ? { ...asset, label: current } : asset;
+  }), [playerNames]);
 
   const fetchThread = useCallback(async () => {
     if (!threadId) return;
@@ -194,10 +208,14 @@ const scrollToBottom = useCallback(() => {
       if (r.ok) {
         const j = await r.json();
         if (j.thread) setThread(j.thread);
-        if (j.offers) setOffers(j.offers);
+        if (j.offers) setOffers(j.offers.map((offer: TradeOffer) => ({
+          ...offer,
+          assets_from: currentLabels(offer.assets_from ?? []),
+          assets_to: currentLabels(offer.assets_to ?? []),
+        })));
       }
     } catch { /* silent */ } finally { setLoading(false); }
-  }, [threadId]);
+  }, [threadId, currentLabels]);
 
   useEffect(() => {
     fetchThread();
@@ -268,7 +286,6 @@ const scrollToBottom = useCallback(() => {
   const theirName = getName(cpId);
   const isClosed = thread ? thread.status !== "open" : false;
   const isMyTurn = !!(latestPending && latestPending.to_team_id === rosterId && latestPending.status === "pending");
-  const isSender = !!(latestPending && latestPending.from_team_id === rosterId && latestPending.status === "pending");
 
   // Don't exit counter mode while the thread is still loading — latestPending is
   // null during the initial fetch, which would otherwise cancel a #counter
@@ -669,7 +686,7 @@ const scrollToBottom = useCallback(() => {
                 {offer.from_team_id === rosterId ? "WE SAID" : "THEY SAID"}
               </span>
               <span style={{ fontSize: 13, lineHeight: 1.4, fontStyle: "italic", fontFamily: F }}>
-                "{note.message}"
+                &ldquo;{note.message}&rdquo;
               </span>
             </div>
           )}

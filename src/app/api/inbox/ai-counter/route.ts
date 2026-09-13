@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
-import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
+import { formatPickLabel, getLeagueData } from "@/shared/league-data";
 import { fetchPlayers } from "@/shared/league-data/sleeper";
-import { buildScrubSets, bucketOf, buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
-import { buildTeamDossiers } from "@/shared/team-dossier";
-import { buildTeamNarratives } from "@/shared/team-narratives";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { buildScrubSets, bucketOf, computeNeeds } from "@/shared/team-profiles";
 import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas";
 import {
   buildValuationContext,
@@ -13,6 +12,8 @@ import {
   isYoung,
   type AssetRef,
 } from "@/shared/asset-values";
+import { isCounterThreadParticipant, offerBelongsToThreadParticipants } from "./counterAuthorization";
+import { publicPartnerContext } from "./publicPartnerContext";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -55,9 +56,21 @@ export async function POST(request: NextRequest) {
 
   const league_id = LEAGUE_ID;
   if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || !currentSessionCanActForRoster(session, league_id, counter_team_id)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
+
+  const denyThread = () => NextResponse.json({ error: "thread_unavailable" }, { status: 404 });
+  const { data: thread } = await client.from("trade_threads")
+    .select("id, team_a_id, team_b_id")
+    .eq("id", thread_id).eq("league_id", league_id).maybeSingle();
+  if (!thread || !isCounterThreadParticipant(thread, counter_team_id)) {
+    return denyThread();
+  }
 
   // Latest live offer in the thread — what we're countering.
   const { data: offers, error: offersError } = await client
@@ -69,11 +82,10 @@ export async function POST(request: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(1);
 
-  if (offersError || !offers?.length) {
-    return NextResponse.json({ error: "No pending offer found in thread" }, { status: 404 });
-  }
+  if (offersError || !offers?.length) return denyThread();
 
   const latestOffer = offers[0];
+  if (!offerBelongsToThreadParticipants(thread, latestOffer)) return denyThread();
   const us = String(counter_team_id);
   const them =
     String(latestOffer.from_team_id) === us
@@ -93,26 +105,11 @@ export async function POST(request: NextRequest) {
 
   const ourStrat = data.strategy.get(us) ?? null;
   const ourPersona = normalizePersona(data.strategy.get(us)?.persona);
-  const theirPersona = normalizePersona(data.strategy.get(them)?.persona);
   const our_band = bandFor(ourPersona);
-  const their_band = bandFor(theirPersona);
 
-  // Partner's real situation — the same dossier/needs the trade engine reads, so
-  // the director's prose can ground its advice in WHO they are (direction, what
-  // they're chasing/shedding) and their biggest hole, not a bare persona label.
-  const profiles = buildTeamProfiles(data);
-  const dossiers = buildTeamDossiers(profiles, data);
+  // A participant may see public roster-derived needs, but participation does
+  // not publish the opponent's saved persona, strategy or attachment inputs.
   const needs = computeNeeds(data);
-  const playoffHistory = await getPlayoffHistory();
-  const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
-  const theirDossier = dossiers.find((d) => d.rosterId === them) ?? null;
-  // Competitive direction from their STORYLINES (single source of truth).
-  const theirTheses = bundles.get(them)?.theses ?? [];
-  const theirDirection = (() => {
-    const w = theirTheses.some((t) => t.timeline === "win_now");
-    const b = theirTheses.some((t) => t.timeline === "build_future");
-    return w && b ? "win-now + building" : w ? "win-now" : b ? "building for the future" : "unknown";
-  })();
   const theirNeeds = needs.get(them) ?? null;
   const topNeed: string | null = (() => {
     if (!theirNeeds) return null;
@@ -124,16 +121,7 @@ export async function POST(request: NextRequest) {
     ranked.sort((a, b) => b[1].score - a[1].score);
     return ranked[0][1].level === "high" ? ranked[0][0] : null;
   })();
-  const partner_context = {
-    window: theirDirection,
-    verdict: theirDossier?.verdict ?? "",
-    wants: theirDossier?.wants ?? "",
-    sells: theirDossier?.sells ?? "",
-    trade_stance: theirDossier?.tradeStance ?? "",
-    core_label: theirDossier?.coreLabel ?? "",
-    tier_label: theirDossier?.tierLabel ?? "",
-    top_need: topNeed,
-  };
+  const partner_context = publicPartnerContext(topNeed);
 
   const teamById = new Map(data.teams.map((t) => [t.rosterId, t]));
 
@@ -158,7 +146,7 @@ export async function POST(request: NextRequest) {
     }
     for (const pk of data.pickOwnership.get(teamId) ?? []) {
       const value = valueAsset({ type: "pick", key: pk.key }, ctx, { perspective: us });
-      assets.push({ key: pk.key, label: `${pk.season} Round ${pk.round} Pick`, type: "pick", value });
+      assets.push({ key: pk.key, label: formatPickLabel(pk), type: "pick", value });
     }
     return assets;
   }
@@ -210,8 +198,6 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     latest_offer_id: latestOffer.id,
-    their_persona: theirPersona,
-    their_band,
     our_persona: ourPersona,
     our_band,
     partner_context, // partner's direction / wants / sells / biggest hole — for the director's read

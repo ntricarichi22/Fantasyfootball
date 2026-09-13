@@ -1,44 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatPickKey, type DraftState } from "@/infrastructure/picks";
+import type { LeagueSnapshot } from "@/shared/league-data";
+import type { League, Roster, SleeperPlayer, Team } from "@/scouting/draft-room/types";
+import type { TeamProfile as DraftRoomTeamProfile, PositionKey } from "@/pro-personnel/trade-engine/profileTypes";
 
-import { isCommissionerTeamName } from "@/infrastructure/commissioner";
-import {
-  applyDraftStateToRosters,
-  buildDraftState,
-  formatPickKey,
-  logDraftPickDistribution,
-  PICK_SLOT_SEASON,
-  type DraftState,
-  type SleeperDraft,
-  type TradedPick,
-} from "@/infrastructure/picks";
-import {
-  DEMO_LEAGUE,
-  DEMO_ROSTERS,
-  DEMO_TEAMS,
-} from "@/scouting/draft-room/constants";
-import { isCacheTimestampFresh, toId } from "@/scouting/draft-room/helpers";
-import type { League, Roster, SleeperPlayer, SleeperUser, Team } from "@/scouting/draft-room/types";
+type Params = { leagueId: string; leagueIdError: string; setErrorMessage: (msg: string) => void };
 
-let playerDictCache: Record<string, SleeperPlayer> | null = null;
-let playerDictCacheTime = 0;
-
-type Params = {
-  leagueId: string;
-  leagueIdError: string;
-  setErrorMessage: (msg: string) => void;
-};
-
-/**
- * Loads all Sleeper-API-backed data required by the draft room:
- *   - league metadata, rosters, users, traded picks, drafts (one Promise.all)
- *   - the global NFL player dictionary (with module-level + localStorage cache)
- *   - player values from `/api/player-values`
- *
- * Falls back to demo data when no league ID is configured or the Sleeper
- * fetches fail. Mirrors the inline page.tsx behavior 1:1.
- */
+/** Draft-room adapter over the authenticated canonical snapshot. No browser
+ * request reaches Sleeper and live failures never fall back to demo rosters. */
 export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Params) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [commissionerRosterId, setCommissionerRosterId] = useState("");
@@ -49,215 +20,81 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
   const [rosterNames, setRosterNames] = useState<Record<number, string>>({});
   const [playerDictionary, setPlayerDictionary] = useState<Record<string, SleeperPlayer>>({});
   const [playerValues, setPlayerValues] = useState<Record<string, number>>({});
+  const [teamProfiles, setTeamProfiles] = useState<Record<string, DraftRoomTeamProfile>>({});
 
   useEffect(() => {
-    async function fetchSleeperData() {
-      const loadDemoData = (message: string) => {
-        const demoNameMap = Object.fromEntries(DEMO_TEAMS.map((t) => [t.id, t.name]));
-        const demoDraftState = buildDraftState(DEMO_ROSTERS, [], [], PICK_SLOT_SEASON);
-        const demoRosters = applyDraftStateToRosters(DEMO_ROSTERS, demoDraftState);
-        setTeams(DEMO_TEAMS);
-        setCommissionerRosterId("");
-        setLeagueData(DEMO_LEAGUE);
-        setDraftState(demoDraftState);
-        setDraftOrderAvailable(demoDraftState.draftOrderAvailable);
-        setRosters(demoRosters);
-        setRosterNames(demoNameMap);
-        logDraftPickDistribution(demoRosters, demoNameMap, DEMO_ROSTERS.length || 1);
-        setErrorMessage(message);
-      };
-
-      if (!leagueId) {
-        loadDemoData(
-          leagueIdError || "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID."
-        );
-        return;
-      }
-
+    let cancelled = false;
+    async function load() {
+      if (!leagueId) { setErrorMessage(leagueIdError || "League is not configured."); return; }
       try {
-        // In-app renames (team identity) — non-fatal extra; empty map on error.
-        const identityPromise: Promise<Record<string, string>> = fetch("/api/team-identity")
-          .then((r) => (r.ok ? r.json() : null))
-          .then((j) => {
-            const map: Record<string, string> = {};
-            for (const t of j?.teams ?? []) {
-              if (t?.rosterId && t?.teamName) map[String(t.rosterId)] = String(t.teamName);
-            }
-            return map;
-          })
-          .catch(() => ({}));
-
-        const [leagueRes, rosterRes, userRes, tradedRes, draftsRes] = await Promise.all([
-          fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
-          fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
-          fetch(`https://api.sleeper.app/v1/league/${leagueId}/users`),
-          fetch(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`),
-          fetch(`https://api.sleeper.app/v1/league/${leagueId}/drafts`),
+        const [snapshotResponse, valuesResponse] = await Promise.all([
+          fetch("/api/league/snapshot"),
+          fetch("/api/player-values"),
         ]);
+        if (!snapshotResponse.ok || !valuesResponse.ok) throw new Error("Sleeper unavailable");
+        const snapshot = await snapshotResponse.json() as LeagueSnapshot;
+        const values = await valuesResponse.json() as { data?: Record<string, number> };
+        if (snapshot.leagueId !== leagueId) throw new Error("League configuration changed");
+        if (cancelled) return;
 
-        if (!leagueRes.ok || !rosterRes.ok || !userRes.ok || !tradedRes.ok || !draftsRes.ok) {
-          throw new Error("Bad response from Sleeper");
+        const mappedTeams = snapshot.teams.map(team => ({ id: Number(team.rosterId), ownerId: team.ownerId, name: team.teamName }));
+        const names = Object.fromEntries(mappedTeams.map(team => [team.id, team.name]));
+        const mappedRosters: Roster[] = snapshot.teams.map(team => ({
+          roster_id: Number(team.rosterId), owner_id: team.ownerId,
+          players: team.playerIds, starters: team.starterIds,
+          draft_picks: (snapshot.pickOwnership[team.rosterId] ?? []).map(pick => ({
+            season: String(pick.season), round: pick.round, pick_no: pick.slot ?? undefined,
+            roster_id: Number(pick.currentRosterId), original_roster_id: Number(pick.originalRosterId),
+          })),
+        }));
+        const pickOwnerByPickKey: Record<string, number> = {};
+        const pickMetadataByPickKey: DraftState["pickMetadataByPickKey"] = {};
+        for (const [owner, picks] of Object.entries(snapshot.pickOwnership)) for (const pick of picks) {
+          if (pick.slot == null) continue;
+          const key = formatPickKey(String(pick.season), pick.round, pick.slot);
+          pickOwnerByPickKey[key] = Number(owner);
+          pickMetadataByPickKey[key] = { season: String(pick.season), round: pick.round, slot: pick.slot, originalRosterId: Number(pick.originalRosterId) };
         }
-
-        const leagueJson: League = await leagueRes.json();
-        const rosterJson: Roster[] = await rosterRes.json();
-        const userJson: SleeperUser[] = await userRes.json();
-        const tradedJson: TradedPick[] = await tradedRes.json();
-        const draftsJson: SleeperDraft[] = await draftsRes.json();
-        const nameOverrides = await identityPromise;
-
-        let detectedCommissionerRosterId = "";
-        const mappedTeams: Team[] = rosterJson.map((roster) => {
-          const user = roster.owner_id
-            ? userJson.find((u) => u.user_id === roster.owner_id)
-            : undefined;
-          // Display names prefer in-app renames; commissioner detection below
-          // stays on the raw Sleeper names, which renames never touch.
-          const preferredName =
-            nameOverrides[String(roster.roster_id)] ||
-            user?.metadata?.team_name ||
-            user?.display_name ||
-            `Roster ${roster.roster_id}`;
-          if (!detectedCommissionerRosterId) {
-            const commissionerMatch = [user?.metadata?.team_name, user?.display_name].some(
-              (name) => isCommissionerTeamName(name)
-            );
-            if (commissionerMatch) {
-              detectedCommissionerRosterId = toId(roster.roster_id);
-            }
-          }
-
-          return {
-            id: roster.roster_id,
-            ownerId: roster.owner_id,
-            name: preferredName,
-          };
-        });
-        const nameMap = Object.fromEntries(mappedTeams.map((t) => [t.id, t.name]));
-
-        const activeSeason = leagueJson?.season ?? PICK_SLOT_SEASON;
-        const computedDraftState = buildDraftState(
-          rosterJson,
-          draftsJson,
-          tradedJson,
-          activeSeason,
-          undefined,
-          leagueJson.draft_order
-        );
-        const rostersWithPicks = applyDraftStateToRosters(rosterJson, computedDraftState);
-
-        if (process.env.NODE_ENV !== "production") {
-          const roundOneOwners = Array.from({ length: computedDraftState.teamCount }, (_, idx) => {
-            const slot = idx + 1;
-            const key = formatPickKey(computedDraftState.season, 1, slot);
-            const ownerId = computedDraftState.pickOwnerByPickKey[key];
-            const ownerName =
-              ownerId != null
-                ? nameMap[ownerId] ?? `Roster ${ownerId}`
-                : "Unknown";
-            return `${String(slot).padStart(2, "0")}: ${ownerName}`;
-          });
-          console.log(
-            "[DraftState] draft",
-            computedDraftState.draftId ?? "unknown",
-            "season",
-            computedDraftState.season,
-            "round1 owners",
-            roundOneOwners
-          );
-        }
-
-        setTeams(mappedTeams);
-        setCommissionerRosterId(detectedCommissionerRosterId);
-        setLeagueData(leagueJson);
-        setDraftState(computedDraftState);
-        setDraftOrderAvailable(computedDraftState.draftOrderAvailable);
-        setRosterNames(nameMap);
-        setRosters(rostersWithPicks);
-        setErrorMessage("");
-        logDraftPickDistribution(rostersWithPicks, nameMap, rosterJson.length);
+        const state: DraftState = {
+          draftId: snapshot.draftStatus.draftId ?? undefined,
+          season: String(snapshot.draftStatus.season), teamCount: snapshot.teamCount,
+          draftOrderAvailable: Object.keys(pickMetadataByPickKey).length > 0,
+          pickOwnerByPickKey, pickMetadataByPickKey,
+        };
+        const dictionary: Record<string, SleeperPlayer> = Object.fromEntries(snapshot.players.map(player => [player.id, {
+          player_id: player.id, full_name: player.name, position: player.position,
+          fantasy_positions: [player.position] as string[], team: player.team ?? undefined,
+          years_exp: player.exp ?? undefined, age: player.age ?? undefined,
+        }]));
+        setTeams(mappedTeams); setRosterNames(names); setRosters(mappedRosters);
+        setCommissionerRosterId(snapshot.viewer?.role === "commissioner" || snapshot.viewer?.role === "admin" ? snapshot.viewer.rosterId : "");
+        setLeagueData({ roster_positions: snapshot.settings.rosterPositions, season: String(snapshot.cfcYear) });
+        setDraftState(state); setDraftOrderAvailable(state.draftOrderAvailable);
+        setPlayerDictionary(dictionary); setPlayerValues(values.data ?? {}); setErrorMessage("");
+        const positionOrder = (["QB","RB","WR","TE"] as PositionKey[]);
+        const ranks = Object.fromEntries(positionOrder.map(position => [position,
+          [...snapshot.profiles].sort((a,b) => {
+            const score = (profile: typeof a) => position === "QB" ? profile.needs.qb.score : position === "RB" ? profile.needs.rb.score : profile.needs.passCatcher.score;
+            return score(a)-score(b);
+          }).map(profile => profile.rosterId)]));
+        setTeamProfiles(Object.fromEntries(snapshot.profiles.map(profile => {
+          const positionRanks = Object.fromEntries(positionOrder.map(position => [position, ranks[position].indexOf(profile.rosterId)+1])) as Record<PositionKey,number>;
+          const mode = profile.tier === "championship" || profile.tier === "playoff" ? "contend" : profile.tier === "rebuilding" ? "rebuild" : "retool";
+          return [profile.rosterId, { rosterId: profile.rosterId, mode, posture: mode === "contend" ? "buyer" : mode === "rebuild" ? "seller" : "neutral",
+            positionRanks, positionBands: Object.fromEntries(positionOrder.map(position => [position, positionRanks[position] <= 3 ? "top tier" : positionRanks[position] >= snapshot.teamCount-1 ? "bottom 2" : "middle tier"])) as Record<PositionKey,string>,
+            needs: [profile.needs.qb,profile.needs.rb,profile.needs.passCatcher].sort((a,b)=>b.score-a.score).slice(0,2).map(need=>`needs ${need.bucket.toLowerCase()}`),
+            totalValue: profile.strength.starterValue + profile.strength.benchValue, averageAge: profile.strength.avgStarterAge }];
+        })));
       } catch (error) {
-        console.error("Error fetching Sleeper data:", error);
-        loadDemoData("Unable to reach Sleeper API. Showing demo data instead.");
+        if (!cancelled) {
+          setTeams([]); setRosters([]); setDraftState(null); setDraftOrderAvailable(false);
+          setErrorMessage(error instanceof Error ? error.message : "Sleeper unavailable");
+        }
       }
     }
-
-     
-    fetchSleeperData();
+    void load();
+    return () => { cancelled = true; };
   }, [leagueId, leagueIdError, setErrorMessage]);
 
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadPlayerDictionary() {
-      if (playerDictCache && isCacheTimestampFresh(playerDictCacheTime)) {
-        setPlayerDictionary(playerDictCache);
-        return;
-      }
-
-      // Note: we intentionally do NOT persist the Sleeper player dictionary
-      // to localStorage. The full NFL dictionary (~3000 players) routinely
-      // exceeds the 5 MB localStorage quota and triggers QuotaExceededError.
-      // The module-level `playerDictCache` above keeps it in memory across
-      // mounts within a session, which is sufficient now that the draft
-      // board is bounded.
-
-      try {
-        const res = await fetch("https://api.sleeper.app/v1/players/nfl");
-        if (!res.ok) throw new Error("Failed to fetch player dictionary");
-        const dict = await res.json();
-        if (!isMounted) return;
-        const fetchedAt = Date.now();
-        playerDictCache = dict;
-        playerDictCacheTime = fetchedAt;
-        setPlayerDictionary(dict);
-      } catch (err) {
-        console.error("Unable to load player dictionary", err);
-      }
-    }
-
-     
-    loadPlayerDictionary();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function loadPlayerValues() {
-      try {
-        const res = await fetch("/api/player-values");
-        if (!res.ok) throw new Error("Failed to fetch player values");
-        const json = await res.json();
-        if (!isMounted) return;
-        setPlayerValues(json.data ?? {});
-      } catch (error) {
-        console.warn("Unable to load player values", error);
-        if (!isMounted) return;
-        setPlayerValues({});
-      }
-    }
-
-     
-    loadPlayerValues();
-
-    return () => {
-      isMounted = false;
-    };
-  }, []);
-
-  return {
-    teams,
-    commissionerRosterId,
-    leagueData,
-    draftState,
-    draftOrderAvailable,
-    rosters,
-    rosterNames,
-    playerDictionary,
-    playerValues,
-  };
+  return { teams, commissionerRosterId, leagueData, draftState, draftOrderAvailable, rosters, rosterNames, playerDictionary, playerValues, teamProfiles };
 }

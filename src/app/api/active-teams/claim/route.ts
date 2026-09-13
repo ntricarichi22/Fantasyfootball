@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { activeCutoffIso, getSupabaseAdminClient, normalizeRosterId } from "../shared";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,8 @@ export async function POST(request: Request) {
   if (!leagueId || !rosterId || !sessionId) {
     return NextResponse.json({ error: "leagueId, rosterId, and sessionId are required" }, { status: 400 });
   }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || !currentSessionCanActForRoster(session, leagueId, rosterId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
 

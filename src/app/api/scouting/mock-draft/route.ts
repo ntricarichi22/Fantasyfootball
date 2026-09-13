@@ -3,6 +3,8 @@ import { getLeagueData, type LeagueData, type OwnedPick, type Position, type Ros
 import { buildTeamProfiles, candidatesFor, fillLineup, startingSlots, type TeamProfile } from "@/shared/team-profiles";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -125,9 +127,7 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
   const profiles = buildTeamProfiles(data);
   const grid = computeDraftFit(data, profiles);
   const you =
-    data.teams.find((t) => t.rosterId === String(teamId)) ??
-    data.teams.find((t) => /founders/i.test(t.teamName)) ??
-    data.teams[0];
+    data.teams.find((t) => t.rosterId === String(teamId));
   const youId = you?.rosterId ?? "";
   return getAllBoards(data, grid).then((boards) => {
     const { projection, reads, poolSize, ourSurvival } = runDraftEngine(data, grid, profiles, boards, order, scenario, forcedPicks, { seed, youId });
@@ -213,11 +213,14 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
-  const data = await getLeagueData();
-  if ("error" in data) return NextResponse.json(data, { status: 500 });
   const seedParam = Number(searchParams.get("seed"));
   const seed = Number.isFinite(seedParam) && seedParam > 0 ? seedParam : 1;
-  const payload = await buildPayload(data, asScenario(searchParams.get("scenario")), searchParams.get("teamId") ?? "", undefined, undefined, seed);
+  const teamId = searchParams.get("teamId") ?? "";
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const data = await getLeagueData();
+  if ("error" in data) return NextResponse.json(data, { status: 500 });
+  const payload = await buildPayload(data, asScenario(searchParams.get("scenario")), teamId, undefined, undefined, seed);
   return NextResponse.json(payload);
 }
 
@@ -230,6 +233,8 @@ export async function POST(req: Request) {
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
     tradedAway?: string[];
   };
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), body.teamId ?? "")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const data = await getLeagueData();
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const forced = new Map<number, string>();

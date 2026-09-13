@@ -21,3 +21,10 @@ export const getSupabaseAdminClient = (): SupabaseClientResult => {
 
   return { client, error: null };
 };
+
+/** Server-only fail-closed accessor for jobs which cannot operate without DB access. */
+export const requireSupabaseAdminClient = (): SupabaseClient => {
+  const result = getSupabaseAdminClient();
+  if (!result.client) throw new Error(result.error);
+  return result.client;
+};

@@ -11,8 +11,11 @@
 // already holds), so this route is fast — no league pipeline. Deterministic
 // fallback when no API key / timeout.
 
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES } from "@/shared/director-prose";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
@@ -63,12 +66,17 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  const teamId = String(body.team_id ?? "").trim();
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!teamId || !session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
   const goals = (body.goals ?? []).slice(0, 8);
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (apiKey && goals.length > 0) {
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await meteredAnthropicFetch(req, { feature: "door-beat", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 300 }, {
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         signal: AbortSignal.timeout(LLM_TIMEOUT_MS),

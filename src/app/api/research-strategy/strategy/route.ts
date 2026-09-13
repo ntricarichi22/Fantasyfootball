@@ -7,6 +7,7 @@ import {
   saveTeamStrategyProfile,
 } from "@/research-strategy/api/service";
 import type { TeamStrategyProfileInput } from "@/research-strategy/api/types";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,9 @@ export async function GET(request: NextRequest) {
     if (!teamId) {
       return NextResponse.json({ error: "teamId is required" }, { status: 400 });
     }
+    const { session } = await currentAppSessionFromRequest(request);
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    if (!currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const data = await getTeamStrategyProfile(leagueId, teamId);
     return NextResponse.json({ data });
@@ -49,6 +53,9 @@ export async function POST(request: NextRequest) {
     if (!teamId) {
       return NextResponse.json({ error: "teamId is required" }, { status: 400 });
     }
+    const { session } = await currentAppSessionFromRequest(request);
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    if (!currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const saved = await saveTeamStrategyProfile(leagueId, teamId, body.profile ?? {});
     const rebuild = await rebuildTeamTradeValuesForTeam(leagueId, teamId);

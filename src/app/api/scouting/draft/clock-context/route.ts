@@ -1,161 +1,31 @@
 import { NextResponse } from "next/server";
-
-import { getLeagueId } from "@/infrastructure/config";
-import { getTeamNameOverrides } from "@/shared/league-data/teamIdentity";
-import {
-  buildDraftState,
-  formatPickKey,
-  PICK_SLOT_SEASON,
-  type SleeperDraft,
-  type TradedPick,
-} from "@/infrastructure/picks";
-import { getSupabaseAdminClient } from "@/app/api/active-teams/shared";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { getLeagueData } from "@/shared/league-data";
 
 export const dynamic = "force-dynamic";
 
-type SleeperRoster = {
-  roster_id: number;
-  owner_id?: string | number | null;
-};
-
-type SleeperUser = {
-  user_id?: string | null;
-  display_name?: string | null;
-  metadata?: { team_name?: string | null } | null;
-};
-
-type SleeperLeague = {
-  season?: string;
-  draft_order?: Record<string, number>;
-};
-
-const safeLeagueId = () => {
-  try {
-    return getLeagueId();
-  } catch {
-    return "";
-  }
-};
-
-const fetchJson = async <T>(url: string): Promise<T | null> => {
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-};
-
-const countPicksMade = async (
-  client: ReturnType<typeof getSupabaseAdminClient>["client"]
-): Promise<number> => {
-  if (!client) return 0;
-  // Prefer the authoritative cursor on draft_state so skipped picks don't
-  // confuse the round/pick math. Falls back to (max(announced pick_index) + 1)
-  // when the column is unset (e.g. before migration 005 has been run).
-  const stateRes = await client
-    .from("draft_state")
-    .select("current_pick_index")
-    .limit(1)
-    .maybeSingle();
-  const currentIndex = (stateRes.data as { current_pick_index?: number | string | null } | null)
-    ?.current_pick_index;
-  if (currentIndex !== null && currentIndex !== undefined) {
-    const idx = typeof currentIndex === "number" ? currentIndex : Number(currentIndex);
-    if (Number.isFinite(idx) && idx >= 0) return idx;
-  }
-
-  const { data, error } = await client
-    .from("draft_log")
-    .select("pick_index")
-    .eq("is_announced", true)
-    .order("pick_index", { ascending: false })
-    .limit(1);
-
-  if (error || !data || !data.length) return 0;
-  const top = data[0] as { pick_index?: number | string | null };
-  const idx = typeof top.pick_index === "number" ? top.pick_index : Number(top.pick_index);
-  if (!Number.isFinite(idx)) return 0;
-  return idx + 1;
-};
-
-export async function GET() {
-  try {
-  const leagueId = safeLeagueId();
-  if (!leagueId) {
-    return NextResponse.json(
-      { error: "Sleeper league ID is not configured." },
-      { status: 500 }
-    );
-  }
-
+export async function GET(request: Request) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const league = await getLeagueData();
+  if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
+  if (session.leagueId !== league.leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { client } = getSupabaseAdminClient();
-
-  const [league, rosters, users, traded, drafts, nextPickIndex] = await Promise.all([
-    fetchJson<SleeperLeague>(`https://api.sleeper.app/v1/league/${leagueId}`),
-    fetchJson<SleeperRoster[]>(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
-    fetchJson<SleeperUser[]>(`https://api.sleeper.app/v1/league/${leagueId}/users`),
-    fetchJson<TradedPick[]>(`https://api.sleeper.app/v1/league/${leagueId}/traded_picks`),
-    fetchJson<SleeperDraft[]>(`https://api.sleeper.app/v1/league/${leagueId}/drafts`),
-    countPicksMade(client),
-  ]);
-
-  if (!rosters || !rosters.length) {
-    return NextResponse.json({ data: null });
+  let nextPickIndex = league.draftStatus.picks.length;
+  if (client) {
+    const { data } = await client.from("draft_state").select("current_pick_index")
+      .eq("league_id", league.leagueId).maybeSingle();
+    const cursor = Number((data as { current_pick_index?: unknown } | null)?.current_pick_index);
+    if (Number.isInteger(cursor) && cursor >= 0) nextPickIndex = cursor;
   }
-
-  const activeSeason = league?.season ?? PICK_SLOT_SEASON;
-  const draftState = buildDraftState(
-    rosters,
-    drafts ?? undefined,
-    traded ?? [],
-    activeSeason,
-    undefined,
-    league?.draft_order
-  );
-
-  const teamCount = draftState.teamCount || rosters.length;
-  if (teamCount <= 0) {
-    return NextResponse.json({ data: null });
+  const round = Math.floor(nextPickIndex / league.teamCount) + 1;
+  const slot = nextPickIndex % league.teamCount + 1;
+  let owner = "";
+  for (const [rosterId,picks] of league.pickOwnership) {
+    if (picks.some(pick => pick.season === league.draftStatus.season && pick.round === round && pick.slot === slot)) { owner=rosterId; break; }
   }
-  const round = Math.floor(nextPickIndex / teamCount) + 1;
-  const slot = (nextPickIndex % teamCount) + 1;
-  const pickKey = formatPickKey(draftState.season, round, slot);
-  const onClockRosterId = draftState.pickOwnerByPickKey[pickKey];
-
-  let onClockTeamName = "";
-  if (onClockRosterId != null) {
-    const roster = rosters.find((r) => r.roster_id === onClockRosterId);
-    const user =
-      roster?.owner_id != null
-        ? users?.find((u) => u.user_id === String(roster.owner_id))
-        : undefined;
-    // In-app renames (team_email_map) win over the Sleeper name.
-    const nameOverrides = await getTeamNameOverrides();
-    onClockTeamName =
-      nameOverrides.get(String(onClockRosterId)) ||
-      user?.metadata?.team_name ||
-      user?.display_name ||
-      `Roster ${onClockRosterId}`;
-  }
-
-  return NextResponse.json({
-    data: {
-      season: draftState.season,
-      round,
-      pick: slot,
-      pickIndex: nextPickIndex,
-      teamCount,
-      onClockRosterId: onClockRosterId != null ? String(onClockRosterId) : "",
-      onClockTeamName,
-    },
-  });
-  } catch (err) {
-    console.error('[API GET /api/scouting/draft/clock-context]', err);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
-  }
+  const teamName = league.teams.find(team => team.rosterId === owner)?.teamName ?? (owner ? `Team ${owner}` : "");
+  return NextResponse.json({ data: { season: String(league.draftStatus.season), round, pick: slot,
+    pickIndex: nextPickIndex, teamCount: league.teamCount, onClockRosterId: owner, onClockTeamName: teamName } });
 }

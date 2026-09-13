@@ -1,4 +1,4 @@
-import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profile";
+import type { PositionKey, TeamProfile } from "@/pro-personnel/trade-engine/profileTypes";
 import type {
   AvailablePlayer,
   DraftBoardFilter,
@@ -172,7 +172,7 @@ export type NflTeamContext = Partial<Record<PositionKey, NflTeamPlayer>>;
 
 /**
  * Map of NFL team code → highest-value rostered player at each position
- * (sourced from `cfc_team_trade_values_current` aggregated across the league).
+ * The value is a 0–100 percentile within the viewer-valued league roster.
  */
 export type NflTeamContextMap = Record<string, NflTeamContext>;
 

@@ -268,9 +268,9 @@ Team strategy set during onboarding. Drives AI recommendations, trade partner ra
 | created_at | timestamp | |
 | updated_at | timestamp | |
 
-**Persona ratio bands** (canonical definition lives in `src/lib/trade/studio/persona.ts` and is mirrored in `src/lib/trade/core/gap.ts`):
+**Persona ratio bands** (canonical definition lives in `src/pro-personnel/engine/core/personas.ts`):
 - straight_shooter: 0.90–1.10 (simple shapes only — no future picks, no pick swaps)
-- closer: 0.90–1.15 (any shape — adds sweetener pick on user's send side)
+- closer: 0.85–1.05 (any shape — adds sweetener pick on user's send side)
 - hustler: **1.00–99** (any shape — adds sweetener pick on partner's receive side; no upper cap, "always come out ahead")
 - architect: 0.90–1.10 (exotic shapes only — 4+ assets, pick swaps, future picks)
 
@@ -279,7 +279,7 @@ Team strategy set during onboarding. Drives AI recommendations, trade partner ra
 - Studio's `/api/trade-studio/generate` route uses the user's own `gm_persona` as the default offer-generation persona (overridable via UI toggle)
 - Position markets (qb/rb/wr/te/picks) map to onboarding's Low/Med/High via: sell=Low, hold=Med, buy=High
 - Position markets are kept for the LLM advisor's strategic reasoning, but **the market modifier no longer affects player values** — it was removed May 2026
-- **Buy markets also gate which youth-depth partner players can appear in Studio offers / Builder advisor receive suggestions** (see `src/lib/trade/studio/candidates.ts` and `src/lib/trade/advisor/engine.ts`)
+- **Buy markets also gate which youth-depth partner players can appear in Studio offers / Builder advisor receive suggestions** (see `src/pro-personnel/engine/studio/offers.ts` and `src/pro-personnel/trade-engine/advisor/engine.ts`)
 
 ### cfc_team_player_attachment
 Per-player availability tags. **The primary driver of team-level value adjustments as of May 2026.**

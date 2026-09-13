@@ -1,19 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { findCommissionerRosterId } from "@/infrastructure/commissioner";
 import { getLeagueId } from "@/infrastructure/config";
 import { INITIAL_PICK_SECONDS, normalizeDraftStateRow } from "@/scouting/draft-room/draftState";
 import { getSupabaseAdminClient } from "@/app/api/active-teams/shared";
-
-type SleeperUser = {
-  user_id?: string | null;
-  display_name?: string | null;
-  metadata?: { team_name?: string | null } | null;
-};
-
-type SleeperRoster = {
-  roster_id?: number | null;
-  owner_id?: string | null;
-};
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { getLeagueData, invalidateLeagueData } from "@/shared/league-data";
+import { resolveDraftLogNames } from "./resolveNames";
 
 type DraftLogPayload = {
   pickIndex?: number | string | null;
@@ -55,9 +46,8 @@ const normalizeDraftLogPayload = (payload: DraftLogPayload) => {
   if (
     pickIndex === null ||
     !payload.pickNumber ||
-    !payload.teamName ||
-    !payload.playerId ||
-    !payload.playerName
+    !payload.rosterId ||
+    !payload.playerId
   ) {
     return null;
   }
@@ -73,24 +63,6 @@ const normalizeDraftLogPayload = (payload: DraftLogPayload) => {
     positions: Array.isArray(payload.positions) ? payload.positions : [],
     nfl_team: payload.nflTeam ?? null,
   };
-};const fetchCommissionerRosterId = async () => {
-  try {
-    const [rosterRes, userRes] = await Promise.all([
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/rosters`),
-      fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID}/users`),
-    ]);
-
-    if (!rosterRes.ok || !userRes.ok) {
-      return "";
-    }
-
-    const rosters = (await rosterRes.json()) as SleeperRoster[];
-    const users = (await userRes.json()) as SleeperUser[];
-    return findCommissionerRosterId(users, rosters);
-  } catch (error) {
-    console.warn("Unable to resolve commissioner roster id", error);
-    return "";
-  }
 };
 
 const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>["client"]) => {
@@ -110,11 +82,14 @@ const fetchDraftState = async (client: ReturnType<typeof getSupabaseAdminClient>
 };
 
 export async function GET(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== LEAGUE_ID) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { client, error } = getSupabaseAdminClient();
 
   if (!client || error) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
+  if (!LEAGUE_ID) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
 
   // `?includeUnannounced=1` is reserved for commissioner / admin tools that
   // need to see the full log including in-flight (submitted-but-not-yet-
@@ -128,6 +103,7 @@ export async function GET(request: NextRequest) {
     .select(
       "pick_index, pick_number, team_count, team_name, roster_id, player_id, player_name, positions, nfl_team, is_announced, submitted_at, announced_at"
     )
+    .eq("league_id", LEAGUE_ID)
     .order("pick_index", { ascending: true });
 
   if (!includeUnannounced) {
@@ -140,7 +116,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: queryError.message }, { status: 500 });
   }
 
-  return NextResponse.json({ data: data ?? [] });
+  const league = await getLeagueData();
+  const resolved = "error" in league ? (data ?? []) : (data ?? []).map(row =>
+    resolveDraftLogNames(row, league.teams, league.players));
+  return NextResponse.json({ data: resolved });
 }
 
 export async function POST(request: NextRequest) {
@@ -150,11 +129,22 @@ export async function POST(request: NextRequest) {
   if (!normalized) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
   }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== LEAGUE_ID || (session.rosterId !== normalized.roster_id && session.role !== "commissioner" && session.role !== "admin"))
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error } = getSupabaseAdminClient();
 
   if (!client || error) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
+  }
+  if (!LEAGUE_ID) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+
+  const league = await getLeagueData();
+  if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
+  const authoritativeNames = resolveDraftLogNames(normalized, league.teams, league.players);
+  if (!league.teams.some(team => team.rosterId === String(normalized.roster_id)) || !league.players.has(normalized.player_id)) {
+    return NextResponse.json({ error: "Unknown roster or player" }, { status: 400 });
   }
 
   const draftState = await fetchDraftState(client);
@@ -174,6 +164,7 @@ export async function POST(request: NextRequest) {
   const { data: existingPlayerRow, error: existingPlayerError } = await client
     .from("draft_log")
     .select("pick_index, player_id")
+    .eq("league_id", LEAGUE_ID)
     .eq("player_id", normalized.player_id)
     .maybeSingle();
   if (existingPlayerError) {
@@ -214,7 +205,10 @@ export async function POST(request: NextRequest) {
 
   const { error: insertError } = await client.from("draft_log").upsert([
     {
+      league_id: LEAGUE_ID,
       ...normalized,
+      team_name: authoritativeNames.team_name,
+      player_name: authoritativeNames.player_name,
       submitted_at: submittedAt,
       is_announced: isAnnounced,
       announced_at: announcedAt,
@@ -287,6 +281,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  invalidateLeagueData();
   return NextResponse.json({ success: true, isAnnounced });
 }
 
@@ -299,9 +294,8 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: "pickIndex and rosterId are required" }, { status: 400 });
   }
 
-  const commissionerRosterId = await fetchCommissionerRosterId();
-
-  if (!commissionerRosterId || commissionerRosterId !== rosterId) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== LEAGUE_ID || !["commissioner", "admin"].includes(session.role)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
@@ -311,11 +305,13 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
   }
 
-  const { error: deleteError } = await client.from("draft_log").delete().eq("pick_index", pickIndex);
+  if (!LEAGUE_ID) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
+  const { error: deleteError } = await client.from("draft_log").delete()
+    .eq("league_id", LEAGUE_ID).eq("pick_index", pickIndex);
 
   if (deleteError) {
     return NextResponse.json({ error: deleteError.message }, { status: 500 });
   }
-
+  invalidateLeagueData();
   return NextResponse.json({ success: true });
 }

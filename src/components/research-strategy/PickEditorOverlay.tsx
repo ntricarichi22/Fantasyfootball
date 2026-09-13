@@ -7,7 +7,7 @@ import {
   formatDollars,
   type AttachmentLevel,
 } from "./availabilityConfig";
-import { formatPickBigText, formatPickSubtitle, type ParsedPick } from "./pickDisplay";
+import { formatPickBigText, formatPickSubtitle, type ParsedPickKey as ParsedPick } from "@/shared/league-data/picks";
 
 // Kept local on purpose: the shared asset-values module is server-only
 // (it touches Supabase + the league bundle), so a client component can't
@@ -55,8 +55,8 @@ export default function PickEditorOverlay({
   const [pendingStrength, setPendingStrength] = useState<ClassStrength | null>(null);
 
   const scopeOptions: { key: ClassScope; label: string }[] = [
-    { key: "all_year", label: `ALL ${parsed.year}` },
-    { key: "all_year_round", label: `ALL ${parsed.year} ${roundOrdinal(parsed.round)}S` },
+    { key: "all_year", label: `ALL ${parsed.season}` },
+    { key: "all_year_round", label: `ALL ${parsed.season} ${roundOrdinal(parsed.round)}S` },
     { key: "just_this", label: "JUST THIS PICK" },
   ];
 

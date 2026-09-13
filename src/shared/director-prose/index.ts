@@ -28,7 +28,7 @@
 // are short blurbs with small caps where thinking only adds latency and
 // truncation risk — all the analysis is already done deterministically.
 
-export const DIRECTOR_PROSE_MODEL = "claude-sonnet-5";
+export { CFC_AI_MODEL as DIRECTOR_PROSE_MODEL } from "@/shared/ai-config";
 
 // ─── Universal voice rules ────────────────────────────────────────────────
 //

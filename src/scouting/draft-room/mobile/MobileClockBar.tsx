@@ -8,8 +8,7 @@ import { computeSecondsUntilAnnouncement } from "@/scouting/draft-room/draftStat
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { playChime } from "@/scouting/draft-room/chime";
-
-const SELECTED_TEAM_CACHE_KEY = "cfc_selected_team";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 
 const BAR_BLUE = "#3366CC";
 const BAR_YELLOW = "#F5C230";
@@ -28,18 +27,7 @@ type StoredSelection = {
 };
 
 const readStoredSelection = (): StoredSelection => {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return {
-      rosterId: typeof parsed?.rosterId === "string" ? parsed.rosterId : undefined,
-      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : undefined,
-    };
-  } catch {
-    return {};
-  }
+  return readStoredTeam();
 };
 
 const formatTimer = (totalSeconds: number) => {
@@ -449,7 +437,7 @@ export function MobileClockBar() {
     : isYourPick
       ? "You're on the clock"
       : (context?.onClockTeamName ||
-        (selection.rosterId ? `Roster ${selection.rosterId}` : "Loading…"));
+        (selection.rosterId ? `Team ${selection.rosterId}` : "Loading…"));
 
   const round = context?.round ?? 0;
   const pick = context?.pick ?? 0;

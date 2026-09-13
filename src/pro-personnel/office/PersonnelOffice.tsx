@@ -9,6 +9,7 @@
 // POVs here are hand-set placeholders until the personnel intel composer ships
 // (the office/opening endpoint), mirroring how the Scouting office launched.
 
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
@@ -157,7 +158,7 @@ export function PersonnelOffice() {
       return null;
     }
     try {
-      const r = await fetch("/api/pro-personnel/office/respond", {
+      const r = await authenticatedAiFetch("/api/pro-personnel/office/respond", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ roster_id: rosterId, message: text }),

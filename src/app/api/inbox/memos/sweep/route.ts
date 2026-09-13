@@ -36,6 +36,8 @@ import { normalizePersona } from "@/pro-personnel/engine/core/personas";
 import type { Gap } from "@/pro-personnel/engine/core/types";
 import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
 import { generateOfferProse } from "./offerProse";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { isAdminRequest } from "@/infrastructure/auth/admin";
 
 export const dynamic = "force-dynamic";
 // The director's read is now LLM-written at mint time (one call per new email).
@@ -93,7 +95,7 @@ function daysAgoLabel(iso: string): string {
 }
 
 export async function POST(req: Request) {
-  let body: { team_id?: string };
+  let body: { team_id?: string; background?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -101,6 +103,15 @@ export async function POST(req: Request) {
   }
   const teamId = String(body.team_id ?? "").trim();
   if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
+  const background = body.background === true;
+  if (background) {
+    if (!(await isAdminRequest(req))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  } else {
+    const { session } = await currentAppSessionFromRequest(req);
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    if (session.leagueId !== LEAGUE_ID || session.rosterId !== teamId)
+      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
@@ -174,6 +185,11 @@ export async function POST(req: Request) {
       const ref: AssetRef = isPick ? { type: "pick", key: a.key } : { type: "player", sleeperPlayerId: key };
       return valueAsset(ref, ctx);
     };
+    const currentName = (asset: OfferAsset): string => {
+      if (asset.type === "pick" || asset.key.startsWith("pick:")) return asset.label || asset.key;
+      const id = asset.key.startsWith("player:") ? asset.key.slice(7) : asset.key;
+      return data.players.get(id)?.name ?? asset.label ?? asset.key;
+    };
 
     const rows: Record<string, unknown>[] = [];
     const now = new Date().toISOString();
@@ -212,7 +228,7 @@ export async function POST(req: Request) {
 
       // Deterministic fallback if the LLM is unavailable/fails.
       const fallbackProse =
-        `They're putting up ${names(receiveAssets)} and asking for ${names(sendAssets)}. ` +
+        `They're putting up ${names(receiveAssets.map(a => ({ ...a, label: currentName(a) })))} and asking for ${names(sendAssets.map(a => ({ ...a, label: currentName(a) })))}. ` +
         (grade.bucket === "great" || grade.bucket === "ahead" || grade.bucket === "fair"
           ? "The math works for us — I'd move on it before they rethink."
           : grade.bucket === "reaching"
@@ -227,19 +243,20 @@ export async function POST(req: Request) {
         thread_id: offer.thread_id,
         partner_team_id: offer.from_team_id,
         partner_name: partner,
-        send: sendAssets.map((a) => ({ key: a.key, name: a.label || a.key, type: a.type === "pick" || a.key.startsWith("pick:") ? "pick" : "player" })),
-        receive: receiveAssets.map((a) => ({ key: a.key, name: a.label || a.key, type: a.type === "pick" || a.key.startsWith("pick:") ? "pick" : "player" })),
+        send: sendAssets.map((a) => ({ key: a.key, name: currentName(a), type: a.type === "pick" || a.key.startsWith("pick:") ? "pick" : "player" })),
+        receive: receiveAssets.map((a) => ({ key: a.key, name: currentName(a), type: a.type === "pick" || a.key.startsWith("pick:") ? "pick" : "player" })),
         verdict,
         verdict_color: verdictColor,
       };
 
       const dealRankingLine = rankDealPieces([
-        ...sendAssets.map((a) => ({ name: a.label || a.key, value: baseValueOf(a), direction: "send" as const })),
-        ...receiveAssets.map((a) => ({ name: a.label || a.key, value: baseValueOf(a), direction: "receive" as const })),
+        ...sendAssets.map((a) => ({ name: currentName(a), value: baseValueOf(a), direction: "send" as const })),
+        ...receiveAssets.map((a) => ({ name: currentName(a), value: baseValueOf(a), direction: "receive" as const })),
       ]);
 
       const makeProse = () =>
         generateOfferProse({
+          request: req,
           client,
           leagueId: LEAGUE_ID,
           teamId,
@@ -255,6 +272,7 @@ export async function POST(req: Request) {
           otherNeedsLine: needsLineFor(offer.from_team_id, false),
           otherDirectionLine: directionLineFor(offer.from_team_id, false),
           dealRankingLine,
+          background,
         });
 
       // ── Email 1: the offer lands ─────────────────────────────────────────
@@ -320,4 +338,23 @@ export async function POST(req: Request) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return NextResponse.json({ error: message }, { status: 500 });
   }
+}
+
+/** Scheduled sweep for all league seats. Provider calls are explicitly billed
+ * to AI_BACKGROUND_USER_ID and still count against the fixed pilot ceiling. */
+export async function GET(req: Request) {
+  if (!(await isAdminRequest(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const league = await getLeagueData();
+  if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
+  let created = 0;
+  for (const team of league.teams) {
+    const response = await POST(new Request(req.url, {
+      method: "POST", headers: req.headers,
+      body: JSON.stringify({ team_id: team.rosterId, background: true }),
+    }));
+    if (!response.ok) return response;
+    const result = await response.json() as { created?: number };
+    created += result.created ?? 0;
+  }
+  return NextResponse.json({ ok: true, created });
 }

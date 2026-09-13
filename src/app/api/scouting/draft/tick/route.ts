@@ -18,7 +18,7 @@ const safeLeagueId = () => {
 
 const requireSecret = (request: NextRequest): { ok: boolean; status?: number } => {
   const expected = process.env.CRON_SECRET;
-  if (!expected) return { ok: true };
+  if (!expected) return { ok: false, status: 503 };
   const auth = request.headers.get("authorization") || "";
   const fromBearer = auth.toLowerCase().startsWith("bearer ")
     ? auth.slice(7).trim()

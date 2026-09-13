@@ -1,3 +1,4 @@
+import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 
@@ -8,13 +9,8 @@ function jsonError(message: string, status = 400) {
 }
 
 export async function GET(req: Request) {
+  if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   const url = new URL(req.url);
-
-  // Admin guard
-  const secret = url.searchParams.get("secret");
-  const adminSecret = process.env.ADMIN_SECRET;
-  if (!adminSecret) return jsonError("Missing ADMIN_SECRET env var", 500);
-  if (secret !== adminSecret) return jsonError("Unauthorized", 401);
 
   const leagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
   if (!leagueId) return jsonError("Missing NEXT_PUBLIC_SLEEPER_LEAGUE_ID env var", 500);

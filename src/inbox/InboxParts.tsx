@@ -5,6 +5,7 @@ import { Icon } from "@/shared/ui/Icon";
 import { teamColorForName } from "@/shared/league-data/clientTeamIdentity";
 import { gmNameFor } from "@/home/gmNames";
 import DirectorNote from "@/inbox/thread/DirectorNote";
+import { formatRelativeTime } from "@/shared/time/relative";
 
 const FH = "Syne, sans-serif";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
@@ -555,15 +556,7 @@ export function NegotiationTile({
 }
 
 export function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "now";
-  if (mins < 60) return `${mins}m`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d`;
-  return `${Math.floor(days / 7)}w`;
+  return formatRelativeTime(dateStr);
 }
 
 /* ------------------------------------------------------------------ */

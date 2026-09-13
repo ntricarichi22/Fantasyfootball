@@ -31,8 +31,8 @@ import type {
   GapVerdict,
   Grade,
   PersonaKey,
-} from "./types";
-import { bandFor } from "./personas";
+} from "./types.ts";
+import { bandFor } from "./personas.ts";
 
 // ─── Color tokens (mirror locked palette) ──────────────────────────────
 

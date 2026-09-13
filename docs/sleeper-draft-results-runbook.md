@@ -3,17 +3,15 @@
 ## First sync
 1. Run migration `supabase/migrations/004_sleeper_draft_results_sync.sql`.
 2. Trigger sync route:
-   - `POST /api/admin/ingest/sleeper-draft-results?secret=<ADMIN_SECRET>`
+   - `POST /api/admin/ingest/sleeper-draft-results` with header
+     `Authorization: Bearer <ADMIN_SECRET>`
    - Empty body will sync 2024 + 2025 known leagues.
-3. Rebuild master picks:
-   - `SELECT public.ff_rebuild_master_draft_picks_actual_results();`
+3. The route rebuilds `ff_master_draft_picks` after every successful mirror sync.
 4. Run validation queries from the migration.
 
 ## Re-sync (same seasons)
 1. Trigger the same POST route again (idempotent upsert on `draft_id,pick_number`).
-2. Re-run:
-   - `SELECT public.ff_rebuild_master_draft_picks_actual_results();`
-3. Re-run validation queries.
+2. Re-run validation queries. The rebuild is part of the route transaction flow.
 
 ## Sync a new future Sleeper season
 POST body example:
@@ -25,3 +23,11 @@ POST body example:
 }
 ```
 Then run rebuild + validation again.
+
+## Automation
+
+Vercel calls the same route daily at 08:30 UTC with `CRON_SECRET`. In addition
+to the two historical league ids, it syncs the configured current league id and
+the current CFC season. Keep `NEXT_PUBLIC_SLEEPER_LEAGUE_ID` unchanged until a
+coordinated season rollover. The cron endpoint has write side effects and must
+never be used as a health check.

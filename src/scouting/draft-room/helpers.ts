@@ -1,5 +1,6 @@
-import { CACHE_TTL_MS, MIN_TEAM_COUNT, SELECTED_TEAM_CACHE_KEY } from "./constants";
+import { CACHE_TTL_MS, MIN_TEAM_COUNT } from "./constants";
 import type { DraftLogEntry, DraftedPlayer, SleeperPlayer } from "./types";
+import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 
 export const isCacheTimestampFresh = (timestamp: number | null | undefined) =>
   typeof timestamp === "number" && timestamp > 0 && Date.now() - timestamp < CACHE_TTL_MS;
@@ -33,19 +34,8 @@ export const getStoredSessionSelection = () => {
   // sign in as different teams (the documented multi-tab workflow). This
   // means a hard refresh in some browsers / private windows can lose the
   // selection and bounce the user back to the team picker.
-  if (typeof window === "undefined") return { rosterId: "", sessionId: "", teamName: "" };
-  try {
-    const saved = sessionStorage.getItem(SELECTED_TEAM_CACHE_KEY);
-    if (!saved) return { rosterId: "", sessionId: "", teamName: "" };
-    const parsed = JSON.parse(saved);
-    return {
-      rosterId: toId(parsed?.rosterId),
-      sessionId: typeof parsed?.sessionId === "string" ? parsed.sessionId : "",
-      teamName: typeof parsed?.teamName === "string" ? parsed.teamName : "",
-    };
-  } catch {
-    return { rosterId: "", sessionId: "", teamName: "" };
-  }
+  const parsed = readStoredTeam();
+  return { rosterId: toId(parsed.rosterId), sessionId: parsed.sessionId ?? "", teamName: parsed.teamName ?? "" };
 };
 
 export const normalizePositions = (positions?: string[] | null, fallback?: string) => {
@@ -160,22 +150,7 @@ export const playerLabel = (playerId: string, dictionary: Record<string, Sleeper
   return { name, meta };
 };
 
-export const computeAge = (player: SleeperPlayer) => {
-  if (typeof player.age === "number") return player.age;
-  if (player.birth_date) {
-    const birthDate = new Date(player.birth_date);
-    if (!Number.isNaN(birthDate.getTime())) {
-      const now = new Date();
-      let age = now.getFullYear() - birthDate.getFullYear();
-      const hadBirthday =
-        now.getMonth() > birthDate.getMonth() ||
-        (now.getMonth() === birthDate.getMonth() && now.getDate() >= birthDate.getDate());
-      if (!hadBirthday) age -= 1;
-      return age;
-    }
-  }
-  return null;
-};
+export { playerAge as computeAge } from "@/shared/league-data/sleeper";
 
 export const calculatePickNumber = (pickIndex: number, teamCount: number) => {
   const safeTeamCount = Math.max(teamCount, MIN_TEAM_COUNT);

@@ -15,6 +15,7 @@
 // API key is missing or the call fails. Called LAZILY by the sweep — only when
 // an email is actually minted, never on every sweep pass.
 
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES, translateStrategy } from "@/shared/director-prose";
 
@@ -49,9 +50,9 @@ function attachmentLine(atts: AttachmentRow[], assets: Asset[]): string {
   return out.join("; ");
 }
 
-async function callAnthropic(system: string, user: string, apiKey: string): Promise<string | null> {
+async function callAnthropic(request: Request, system: string, user: string, apiKey: string, background: boolean): Promise<string | null> {
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await meteredAnthropicFetch(request, { feature: "memo-sweep", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 220, background }, {
       method: "POST",
       headers: {
         "x-api-key": apiKey,
@@ -80,6 +81,7 @@ async function callAnthropic(system: string, user: string, apiKey: string): Prom
 }
 
 export async function generateOfferProse(params: {
+  request: Request;
   client: SupabaseClient;
   leagueId: string;
   teamId: string; // recipient (us)
@@ -96,9 +98,10 @@ export async function generateOfferProse(params: {
   otherNeedsLine?: string | null;
   otherDirectionLine?: string | null;
   dealRankingLine?: string | null;
+  background?: boolean;
 }): Promise<string> {
   const {
-    client, leagueId, teamId, ourName, partnerName, partnerTeamId,
+    request, client, leagueId, teamId, ourName, partnerName, partnerTeamId,
     sendAssets, receiveAssets, verdict, fallback,
     myNeedsLine, myDirectionLine, otherNeedsLine, otherDirectionLine, dealRankingLine,
   } = params;
@@ -161,6 +164,6 @@ export async function generateOfferProse(params: {
     `${VOICE_RULES.translatorOnly} ` +
     "2-3 sentences, conversational, no markdown.";
 
-  const text = await callAnthropic(system, user, apiKey);
+  const text = await callAnthropic(request, system, user, apiKey, params.background === true);
   return text || fallback;
 }

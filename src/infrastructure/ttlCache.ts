@@ -18,6 +18,13 @@ export function ttlInvalidate(key: string): void {
   store.delete(key);
 }
 
+/** Invalidate every memo whose key begins with a namespace. */
+export function ttlInvalidatePrefix(prefix: string): void {
+  for (const key of store.keys()) {
+    if (key.startsWith(prefix)) store.delete(key);
+  }
+}
+
 export function ttlMemo<T>(key: string, ttlMs: number, fn: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const hit = store.get(key);

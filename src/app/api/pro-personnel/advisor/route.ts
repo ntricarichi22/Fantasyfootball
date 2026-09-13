@@ -1,5 +1,7 @@
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import {
   personaAwareGrade,
@@ -16,11 +18,12 @@ import { normalizePersona, bandFor } from "@/pro-personnel/engine/core/personas"
 import { priceDeal } from "@/pro-personnel/engine/pricing";
 import type { EngineOfferAsset, Scoreboard } from "@/pro-personnel/engine/types";
 import { buildValuationContext, valueAsset, isAging, type AssetRef, type ValuationContext } from "@/shared/asset-values";
-import { getLeagueData, type LeagueData } from "@/shared/league-data";
+import { getCFCYear, getLeagueData, type LeagueData } from "@/shared/league-data";
 import { computeNeeds, buildScrubSets, bucketOf, buildTeamProfiles } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { describeNeeds, rankDealPieces, describeDirection } from "@/shared/director-prose";
 import { getPersonality } from "@/pro-personnel/trade-engine/advisor/personality";
+import { getTeamIdentities } from "@/shared/league-data/teamIdentity";
 import {
   SYSTEM_PROMPT,
   buildUserPrompt,
@@ -64,11 +67,6 @@ type RequestBody = {
   // roster sheet is open — the chip is pure math; prose waits for sheet close.
   skip_prose?: boolean;
 };
-
-function getCFCYear(): number {
-  const n = new Date();
-  return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
-}
 
 // ── One-tap balancing package ──────────────────────────────────────────────
 // Suggestions answer ONE question: what does it take to make this deal WORK —
@@ -225,6 +223,10 @@ export async function POST(request: NextRequest) {
   const priorTake = mode === "editor_opening" ? (body.prior_prose ?? "").trim() : "";
   if (!my_team_id || !other_team_ids?.length) {
     return NextResponse.json({ error: "team IDs required" }, { status: 400 });
+  }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || !currentSessionCanActForRoster(session, LEAGUE_ID, my_team_id)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   if (!rawRosters) {
     return NextResponse.json({ error: "rosters required" }, { status: 400 });
@@ -395,7 +397,8 @@ export async function POST(request: NextRequest) {
   );
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
-  const personality = getPersonality(otherTeamName);
+  const stableIdentity = (await getTeamIdentities()).find(team => team.rosterId === otherTeamId);
+  const personality = getPersonality(stableIdentity?.baseSlug);
   const cfcYear = getCFCYear();
 
   // ── PROMPT ASSEMBLY ────────────────────────────────────────────────────
@@ -408,7 +411,8 @@ export async function POST(request: NextRequest) {
         otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster,
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
-        cfcYear, behaviorSummary, partnerRead: partner_read, partnerAngle: partner_angle,
+        cfcYear, draftStatus: leagueData && "draftStatus" in leagueData ? leagueData.draftStatus : undefined,
+        behaviorSummary, partnerRead: partner_read, partnerAngle: partner_angle,
         myNeedsLine, otherNeedsLine, dealRankingLine, myDirectionLine, otherDirectionLine,
       })
     : buildUserPrompt({
@@ -416,7 +420,8 @@ export async function POST(request: NextRequest) {
         otherTeamName, otherTeamPersonality: personality, otherProfile, otherRoster,
         dealAssets, myTeamId: my_team_id, otherTeamId,
         gap, suggestions, warnings, shapeMismatch,
-        cfcYear, behaviorSummary,
+        cfcYear, draftStatus: leagueData && "draftStatus" in leagueData ? leagueData.draftStatus : undefined,
+        behaviorSummary,
         myNeedsLine, otherNeedsLine, dealRankingLine, myDirectionLine, otherDirectionLine,
         ...(priorTake ? { priorTake } : {}),
       });
@@ -426,7 +431,7 @@ export async function POST(request: NextRequest) {
   let prose = "";
   if (apiKey && gap.verdict !== "EMPTY" && !body.skip_prose) {
     try {
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await meteredAnthropicFetch(request, { feature: "personnel-advisor", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 8000, maxOutputTokens: 350 }, {
         method: "POST",
         headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
         body: JSON.stringify({

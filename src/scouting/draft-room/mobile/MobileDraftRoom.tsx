@@ -12,7 +12,7 @@ import type {
 } from "@/scouting/draft-room/types";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import type { NflTeamContextMap, ScoutingGradeSet } from "@/scouting/draft-room/grades";
-import type { TeamProfile, PositionKey } from "@/pro-personnel/trade-engine/profile";
+import type { TeamProfile, PositionKey } from "@/pro-personnel/trade-engine/profileTypes";
 import type { StarterAsset } from "@/pro-personnel/trade-engine/starterLevel";
 import { AssistantGmPanel, type LeagueDraftContext } from "../AssistantGmPanel";
 import { LineupCard } from "../LineupCard";
@@ -66,7 +66,6 @@ type Props = {
 
 const NAV_ITEMS = [
   { href: "/scouting/draft-room/live", label: "Draft Room" },
-  { href: "/team-hq", label: "Team HQ" },
   { href: "/inbox", label: "Trade Center" },
   { href: "/historian", label: "Historian" },
 ];

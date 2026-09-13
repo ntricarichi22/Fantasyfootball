@@ -1,6 +1,8 @@
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { counterProse, type CounterPartner } from "@/inbox/thread/counterMath";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES, rankDealPieces } from "@/shared/director-prose";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -78,9 +80,9 @@ const SYSTEM =
   "\"you're…\". 2 to 4 sentences, plain prose. Output ONLY the read: no preamble, no reasoning, no headers, no bullet points. " +
   VOICE_RULES.translatorOnly;
 
-async function callAnthropic(user: string, apiKey: string): Promise<string | null> {
+async function callAnthropic(request: Request, user: string, apiKey: string): Promise<string | null> {
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await meteredAnthropicFetch(request, { feature: "counter-read", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 5000, maxOutputTokens: 320 }, {
       method: "POST",
       headers: {
         "x-api-key": apiKey,
@@ -109,6 +111,8 @@ async function callAnthropic(user: string, apiKey: string): Promise<string | nul
 }
 
 export async function POST(request: NextRequest) {
+  const { session, error: sessionError } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: sessionError }, { status: sessionError === "not_authenticated" ? 401 : 503 });
   let body: Body;
   try {
     body = (await request.json()) as Body;
@@ -144,7 +148,7 @@ export async function POST(request: NextRequest) {
       rankingLine,
       `Give me your read on this counter.`,
     ].filter(Boolean).join("\n");
-    const read = await callAnthropic(user, apiKey);
+    const read = await callAnthropic(request, user, apiKey);
     if (read) return NextResponse.json({ read, source: "llm" });
   }
 

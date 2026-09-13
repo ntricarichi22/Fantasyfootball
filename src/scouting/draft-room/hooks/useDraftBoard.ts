@@ -11,7 +11,7 @@ import type {
   SleeperPlayer,
 } from "@/scouting/draft-room/types";
 import { normalizeName } from "@/infrastructure/strings/normalize";
-import type { TeamProfile } from "@/pro-personnel/trade-engine/profile";
+import type { TeamProfile } from "@/pro-personnel/trade-engine/profileTypes";
 
 type Params = {
   playerDictionary: Record<string, SleeperPlayer>;

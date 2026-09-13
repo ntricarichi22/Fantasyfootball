@@ -1,3 +1,4 @@
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import {
   useCallback,
   useEffect,
@@ -11,7 +12,7 @@ import type {
   AvailablePlayer,
   DraftLogEntry,
 } from "@/scouting/draft-room/types";
-import type { TeamProfile } from "@/pro-personnel/trade-engine/profile";
+import type { TeamProfile } from "@/pro-personnel/trade-engine/profileTypes";
 import { BriefingCard } from "./BriefingCard";
 import {
   ChatInputBar,
@@ -255,7 +256,7 @@ export function AssistantGmPanel({
     setTrendsLoading(true);
     setTrendsError("");
 
-    fetch("/api/llm/draft-assistant", {
+    authenticatedAiFetch("/api/llm/draft-assistant", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -358,7 +359,7 @@ export function AssistantGmPanel({
     setRecommendationLoading(true);
     setRecommendationError("");
 
-    fetch("/api/llm/draft-assistant", {
+    authenticatedAiFetch("/api/llm/draft-assistant", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
@@ -457,7 +458,7 @@ export function AssistantGmPanel({
         messages: nextMessages,
       };
 
-      fetch("/api/llm/draft-assistant", {
+      authenticatedAiFetch("/api/llm/draft-assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestPayload),

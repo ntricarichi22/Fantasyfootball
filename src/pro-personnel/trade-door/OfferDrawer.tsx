@@ -9,6 +9,7 @@
 // advisor (engine partner angle + accept read), PASS / EDIT / MAKE THIS OFFER,
 // and the Edit handoff that carries the director's take into the editor.
 
+import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
@@ -110,7 +111,7 @@ export default function OfferDrawer({
       [offer.id]: { prose: prev[offer.id]?.prose ?? "", loading: true },
     }));
 
-    fetch("/api/pro-personnel/advisor", {
+    authenticatedAiFetch("/api/pro-personnel/advisor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

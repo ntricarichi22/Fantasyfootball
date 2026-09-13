@@ -20,7 +20,7 @@ import {
   type PickAnchors,
   type PickCounts,
 } from "./availabilityConfig";
-import { parsePickKey, type ParsedPick } from "./pickDisplay";
+import { parsePickKey, type ParsedPickKey as ParsedPick } from "@/shared/league-data/picks";
 
 type TradeRow = {
   sleeper_player_id: string;
@@ -88,7 +88,7 @@ const priceOf = (row: TradeRow) =>
 
 // Picks sort: year ascending, round ascending, slot ascending (unknown last).
 const sortPicks = (a: PickAsset, b: PickAsset) => {
-  if (a.parsed.year !== b.parsed.year) return a.parsed.year - b.parsed.year;
+  if (a.parsed.season !== b.parsed.season) return a.parsed.season - b.parsed.season;
   if (a.parsed.round !== b.parsed.round) return a.parsed.round - b.parsed.round;
   return (a.parsed.slot ?? 999) - (b.parsed.slot ?? 999);
 };
@@ -308,9 +308,9 @@ export default function SetAvailabilityPage() {
       scope === "just_this"
         ? [pick.key]
         : scope === "all_year"
-          ? picks.filter((p) => p.parsed.year === pick.parsed.year).map((p) => p.key)
+          ? picks.filter((p) => p.parsed.season === pick.parsed.season).map((p) => p.key)
           : picks
-              .filter((p) => p.parsed.year === pick.parsed.year && p.parsed.round === pick.parsed.round)
+              .filter((p) => p.parsed.season === pick.parsed.season && p.parsed.round === pick.parsed.round)
               .map((p) => p.key);
 
     setClassByKey((prev) => {
@@ -376,7 +376,7 @@ export default function SetAvailabilityPage() {
     const q = query.trim().toLowerCase();
     return picks
       .filter((p) => levelFilter === "ALL" || getAttachment(p.key) === levelFilter)
-      .filter((p) => !q || `${p.parsed.year} round ${p.parsed.round} ${p.ownerSuffix}`.toLowerCase().includes(q));
+      .filter((p) => !q || `${p.parsed.season} round ${p.parsed.round} ${p.ownerSuffix}`.toLowerCase().includes(q));
   }, [picks, activeTab, levelFilter, query, getAttachment]);
 
   const levelCount = useCallback(

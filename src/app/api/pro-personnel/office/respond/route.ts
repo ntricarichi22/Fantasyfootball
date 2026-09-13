@@ -20,7 +20,10 @@
 // the partner's narrative bundle and feeds it to the prose — "surface, don't
 // kill": a sacred/untouchable target gets built AND flagged as a blow-away ask.
 
+import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextResponse } from "next/server";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
@@ -204,11 +207,11 @@ Hard rules:
 
 type OfferShape = { send: string[]; read: string };
 
-async function llmProse(system: string, user: string): Promise<string | null> {
+async function llmProse(request: Request, system: string, user: string): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
   try {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const res = await meteredAnthropicFetch(request, { feature: "personnel-office", model: DIRECTOR_PROSE_MODEL, maxInputTokens: 8000, maxOutputTokens: 300 }, {
       method: "POST",
       headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
@@ -279,6 +282,8 @@ export async function POST(req: Request) {
   if (!teamId || !message) {
     return NextResponse.json({ error: "roster_id and message required" }, { status: 400 });
   }
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   try {
     const data = await getLeagueData();
@@ -336,7 +341,7 @@ export async function POST(req: Request) {
         `FENCE STATUS: ${fenceLine(payload.fence, payload.untouchable)}\n` +
         `RESULT: no package survived (our floor + their realistic range never overlapped).\n\nWrite your reply.`;
       const prose =
-        (await llmProse(SYSTEM_NO_OFFERS, user)) ??
+        (await llmProse(req, SYSTEM_NO_OFFERS, user)) ??
         noOffersFallback(match.name, match.teamName, payload.fence, payload.untouchable);
       return NextResponse.json({ prose: [prose] });
     }
@@ -351,7 +356,7 @@ export async function POST(req: Request) {
         .join("\n") +
       `\n\nWrite your reply.`;
     const prose =
-      (await llmProse(SYSTEM, user)) ??
+      (await llmProse(req, SYSTEM, user)) ??
       offersFallback(match.name, match.teamName, shapes, payload.fence, payload.untouchable);
 
     return NextResponse.json({

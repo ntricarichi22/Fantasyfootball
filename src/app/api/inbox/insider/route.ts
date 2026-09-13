@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { getLeagueData } from "@/shared/league-data";
+import { buildValuationContext, valueAsset } from "@/shared/asset-values";
+import { isVisibleNegotiationThread } from "./visibility";
 
 export const dynamic = "force-dynamic";
 
@@ -54,27 +58,23 @@ function findRootId(
   return cur.id;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const league_id = LEAGUE_ID;
   if (!league_id) {
     return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (session.leagueId !== league_id) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
-  const { data: teamRows } = await client
-    .from("team_email_map")
-    .select("roster_id, team_name");
-
-  const teamNames: Record<string, string> = {};
-  for (const row of teamRows ?? []) {
-    if (row.roster_id && row.team_name) {
-      teamNames[String(row.roster_id)] = row.team_name;
-    }
-  }
+  const [league, valuation] = await Promise.all([getLeagueData(), buildValuationContext()]);
+  if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
+  const teamNames: Record<string, string> = Object.fromEntries(league.teams.map(team => [team.rosterId, team.teamName]));
   const getTeamName = (id: string) => teamNames[id] || `Team ${id}`;
 
   const items: InsiderItem[] = [];
@@ -100,13 +100,15 @@ export async function GET() {
     .select("id, team_a_id, team_b_id, last_activity_at")
     .eq("league_id", league_id)
     .eq("status", "open")
+    .or(`team_a_id.eq.${session.rosterId},team_b_id.eq.${session.rosterId}`)
     .order("last_activity_at", { ascending: false });
 
   const playerThreadMap: Record<string, { name: string; threadIds: Set<string>; latestTimestamp: string }> = {};
 
-  if (openThreads?.length) {
-    const threadIds = openThreads.map((t) => t.id);
-    const threadById = new Map(openThreads.map((t) => [t.id, t]));
+  const visibleOpenThreads = (openThreads ?? []).filter(thread => isVisibleNegotiationThread(thread, session.rosterId));
+  if (visibleOpenThreads.length) {
+    const threadIds = visibleOpenThreads.map((t) => t.id);
+    const threadById = new Map(visibleOpenThreads.map((t) => [t.id, t]));
 
     const { data: threadOffers } = await client
       .from("trade_offers")
@@ -186,26 +188,20 @@ export async function GET() {
     .from("cfc_team_player_attachment")
     .select("team_id, sleeper_player_id, attachment, updated_at")
     .eq("league_id", league_id)
+    // Saved attachment tiers are team-private strategy inputs. They may inform
+    // this roster's own briefing, but are not a league-wide publishing switch.
+    .eq("team_id", session.rosterId)
     .in("attachment", ["listening", "moveable"])
     .order("updated_at", { ascending: false });
 
   if (blockPlayers?.length) {
     const playerIds = [...new Set(blockPlayers.map((p) => p.sleeper_player_id))];
 
-    const { data: playerValues } = await client
-      .from("cfc_trade_values_current")
-      .select("sleeper_player_id, display_name, cfc_value")
-      .in("sleeper_player_id", playerIds);
-
     const nameMap: Record<string, string> = {};
     const valueMap: Record<string, number> = {};
-    for (const row of playerValues ?? []) {
-      if (row.sleeper_player_id && row.display_name) {
-        nameMap[row.sleeper_player_id] = row.display_name;
-      }
-      if (row.sleeper_player_id && typeof row.cfc_value === "number") {
-        valueMap[row.sleeper_player_id] = row.cfc_value;
-      }
+    for (const playerId of playerIds) {
+      nameMap[playerId] = league.players.get(playerId)?.name ?? "";
+      valueMap[playerId] = valueAsset({ type: "player", sleeperPlayerId: playerId }, valuation, { perspective: session.rosterId });
     }
 
     const resolved = blockPlayers

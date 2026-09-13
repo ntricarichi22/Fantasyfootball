@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { createStatelessAuthClient } from "@/infrastructure/supabase/auth";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { claimAuthAttempt } from "@/infrastructure/auth/rateLimit";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { email?: string; password?: string };
+    const body = await boundedJson<{ email?: string; password?: string }>(request, 4096) ?? {};
     const email = body.email?.toLowerCase().trim() ?? "";
     const password = body.password ?? "";
 
@@ -13,6 +16,10 @@ export async function POST(request: NextRequest) {
     if (password.length < 8) {
       return NextResponse.json({ error: "password_too_short" }, { status: 400 });
     }
+    if (password.length > 1024) return NextResponse.json({ error: "invalid_credentials" }, { status: 400 });
+    const limit = await claimAuthAttempt(`signup:${email}`);
+    if (limit === "limited") return NextResponse.json({ error: "rate_limited" }, { status: 429 });
+    if (limit === "unavailable") return NextResponse.json({ error: "auth_unavailable" }, { status: 503 });
 
     const { client: adminClient, error: clientError } = getSupabaseAdminClient();
     if (!adminClient) {
@@ -30,18 +37,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "not_a_member" }, { status: 403 });
     }
 
-    // Create the auth user, already email-confirmed (no verification email sent)
-    const { error: createError } = await adminClient.auth.admin.createUser({
+    // Require control of the allowlisted mailbox before the new account can
+    // authenticate and be bound to its team.
+    const authClient = createStatelessAuthClient();
+    if (!authClient) {
+      return NextResponse.json({ error: "Missing Supabase configuration" }, { status: 500 });
+    }
+    const { data: signupData, error: createError } = await authClient.auth.signUp({
       email,
       password,
-      email_confirm: true,
+      options: { emailRedirectTo: `${request.nextUrl.origin}/login` },
     });
 
     if (createError) {
       return NextResponse.json({ error: createError.message }, { status: 400 });
     }
 
-    return NextResponse.json({ ok: true });
+    // A returned session means Confirm email is disabled in Supabase. Remove
+    // the unsafe account rather than letting knowledge of an address claim it.
+    if (signupData.session && signupData.user) {
+      await adminClient.auth.admin.deleteUser(signupData.user.id);
+      return NextResponse.json({ error: "email_confirmation_not_enabled" }, { status: 503 });
+    }
+
+    return NextResponse.json({ ok: true, confirmationRequired: true });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "signup_failed" },

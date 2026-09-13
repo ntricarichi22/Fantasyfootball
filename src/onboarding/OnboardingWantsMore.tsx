@@ -16,10 +16,10 @@ type Card = {
 };
 
 const CARDS: Card[] = [
-  { value: "picks", label: "Draft Capital", desc: "Picks to work the board and build long-term", accent: "#E8503A", icon: "1st" },
-  { value: "studs", label: "Elite Producers", desc: "Proven, top-end talent that wins you weeks", accent: "#3366CC", icon: "★" },
-  { value: "youth", label: "Young Upside", desc: "Under-25 talent with years of value ahead", accent: "#F5C230", icon: "↑" },
-  { value: "depth", label: "Roster Depth", desc: "Volume and coverage across all positions", accent: "#1A1A1A", icon: "≡" },
+  { value: "draft_picks", label: "Draft Capital", desc: "Picks to work the board and build long-term", accent: "#E8503A", icon: "1st" },
+  { value: "elite_producers", label: "Elite Producers", desc: "Proven, top-end talent that wins you weeks", accent: "#3366CC", icon: "★" },
+  { value: "young_upside", label: "Young Upside", desc: "Under-25 talent with years of value ahead", accent: "#F5C230", icon: "↑" },
+  { value: "roster_depth", label: "Roster Depth", desc: "Volume and coverage across all positions", accent: "#1A1A1A", icon: "≡" },
 ];
 
 export default function OnboardingWantsMore({ onBack, onComplete }: Props) {

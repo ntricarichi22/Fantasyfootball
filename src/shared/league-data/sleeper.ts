@@ -43,6 +43,15 @@ export type SleeperLeague = {
   total_rosters?: number;
 };
 
+export type SleeperDraftPick = {
+  pick_no?: number;
+  round?: number;
+  roster_id?: number;
+  player_id?: string;
+  picked_by?: string;
+  metadata?: Record<string, unknown> | null;
+};
+
 const PLAYER_TTL = 86400; // player dictionary barely changes day to day
 const LEAGUE_TTL = 300; // rosters / picks / users — fresh within a few minutes
 
@@ -66,6 +75,13 @@ export function fetchPlayers(): Promise<Record<string, SleeperPlayer>> {
     PLAYER_TTL,
     {}
   );
+}
+
+/** Uncached dictionary read for an operator-triggered value rebuild. */
+export async function fetchPlayersFresh(): Promise<Record<string, SleeperPlayer>> {
+  const response = await fetch("https://api.sleeper.app/v1/players/nfl", { cache: "no-store" });
+  if (!response.ok) throw new Error(`Sleeper player dictionary returned ${response.status}`);
+  return response.json() as Promise<Record<string, SleeperPlayer>>;
 }
 
 export function fetchRosters(leagueId: string): Promise<SleeperRoster[]> {
@@ -97,6 +113,14 @@ export function fetchTradedPicks(leagueId: string): Promise<unknown[]> {
 export function fetchDrafts(leagueId: string): Promise<unknown[]> {
   return getJson<unknown[]>(
     `https://api.sleeper.app/v1/league/${leagueId}/drafts`,
+    LEAGUE_TTL,
+    []
+  );
+}
+
+export function fetchDraftPicks(draftId: string): Promise<SleeperDraftPick[]> {
+  return getJson<SleeperDraftPick[]>(
+    `https://api.sleeper.app/v1/draft/${draftId}/picks`,
     LEAGUE_TTL,
     []
   );

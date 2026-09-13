@@ -1,50 +1,25 @@
 import { NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { buildValueMap, backfillMissingRosteredPlayers } from "@/infrastructure/identity/rosterBackfill";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { getLeagueData } from "@/shared/league-data";
+import { buildValuationContext } from "@/shared/asset-values";
+import { completeRosterValues } from "@/shared/asset-values/rosterValues";
 
 export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
-export async function GET() {
-  const { client, error: clientError } = getSupabaseAdminClient();
-
-  if (!client) {
-    return NextResponse.json({ error: clientError }, { status: 500 });
+export async function GET(request: Request) {
+  const { session, error } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error }, { status: error === "not_authenticated" ? 401 : 503 });
+  const [league, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
+  if ("error" in league) return NextResponse.json(league, { status: 503 });
+  const rosteredIds = new Set(league.teams.flatMap(team => team.playerIds));
+  const data: Record<string, number> = {};
+  const unpricedPlayerIds: string[] = [];
+  for (const [playerId, priced] of completeRosterValues(rosteredIds, session.rosterId, ctx.adjusted, league.values.value)) {
+    data[playerId] = priced.value;
+    if (league.values.unpriced?.has(playerId) || priced.source === "unpriced") unpricedPlayerIds.push(playerId);
   }
-
-  const { data, error } = await client
-    .from("cfc_trade_values_current")
-    .select("sleeper_player_id, asset_key, cfc_value");
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  // Build the initial value map from what is already in Supabase.
-  let valueMap = buildValueMap(data ?? []);
-
-  // Detect any currently-rostered players that are missing from the map and
-  // backfill them server-side before returning.  On the happy path (all
-  // rostered players already have values) the only overhead is one small
-  // Sleeper rosters API call; the heavy external fetches are skipped entirely.
-  try {
-    valueMap = await backfillMissingRosteredPlayers(client, valueMap);
-  } catch (err) {
-    // Non-fatal: return whatever we have rather than failing the whole request.
-    console.warn(
-      "[player-values] roster backfill error (continuing with existing values):",
-      err instanceof Error ? err.message : err,
-    );
-  }
-
-  const response: Record<string, unknown> = {
-    data: valueMap,
-    meta:
-      process.env.NODE_ENV === "development"
-        ? { source: "cfc_trade_values_current" }
-        : {},
-  };
-
-  return NextResponse.json(response);
+  return NextResponse.json({
+    data,
+    meta: { source: "shared-league-values", unpricedPlayerIds },
+  });
 }
-

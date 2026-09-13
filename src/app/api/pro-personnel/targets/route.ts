@@ -1,18 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
-import { getLeagueData } from "@/shared/league-data";
+import { getLeagueData, getSleeperLeagueId, formatPickLabel } from "@/shared/league-data";
 import { buildValuationContext, valueAsset, isYoung } from "@/shared/asset-values";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { targetResponse, visibleAttachment } from "./targetVisibility";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
-const LEAGUE_ID_ENV = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
-
 type AttachRow = { team_id: string; sleeper_player_id: string; attachment: string };
 type StratRow = { team_id: string; wants_more: string[]; qb_market: string; rb_market: string; pc_market: string; picks_market: string };
-type TeamValueRow = { team_id: string; sleeper_player_id: string; player_name: string; position: string; final_value: number };
-type BaseValueRow = { sleeper_player_id: string | null; display_name: string; cfc_value: number; elite_multiplier_applied: number | null };
 
 function needLevel(m: string): number { return m === "buy" ? 3 : m === "sell" ? 0 : 1; }
 function getNeedPositions(p: StratRow | null): Record<string, number> {
@@ -45,14 +42,6 @@ function wantsLabels(p: StratRow | null): string[] {
   return (p?.wants_more ?? []).map(w => w === "elite_producers" ? "Wants studs" : w === "draft_picks" ? "Wants picks" : w === "young_upside" ? "Wants youth" : w === "roster_depth" ? "Wants depth" : w);
 }
 function wantsSet(p: StratRow | null): Set<string> { return new Set(p?.wants_more ?? []); }
-function computeAge(info: { age?: number; birth_date?: string }): number | null {
-  if (typeof info.age === "number") return info.age;
-  if (!info.birth_date) return null;
-  const d = new Date(info.birth_date); if (isNaN(d.getTime())) return null;
-  const now = new Date(); let age = now.getFullYear() - d.getFullYear();
-  if (now.getMonth() < d.getMonth() || (now.getMonth() === d.getMonth() && now.getDate() < d.getDate())) age--;
-  return age;
-}
 function tierLabel(t: string): string { return t === "moveable" ? "Moveable" : t === "listening" ? "Listening" : t === "core_piece" || t === "core" ? "Core" : t === "untouchable" ? "Untouchable" : "Core"; }
 function tierSort(t: string): number { return t === "moveable" ? 0 : t === "listening" ? 1 : t === "core_piece" || t === "core" ? 2 : t === "untouchable" ? 3 : 4; }
 function posGroup(pos: string): string { return pos === "QB" ? "QB" : pos === "RB" ? "RB" : pos === "WR" || pos === "TE" ? "PASS" : pos === "PICK" ? "PICK" : "OTHER"; }
@@ -63,8 +52,11 @@ type Asset ={ key: string; name: string; meta: string; rosterMeta: string; posit
 export async function GET(request: NextRequest) {
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
   if (!teamId) return NextResponse.json({ error: "teamId required" }, { status: 400 });
-  const league_id = LEAGUE_ID;
+  const league_id = getSleeperLeagueId();
   if (!league_id) return NextResponse.json({ error: "League not configured" }, { status: 500 });
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!currentSessionCanActForRoster(session, league_id, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { client, error: ce } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: ce }, { status: 500 });
 
@@ -76,45 +68,16 @@ export async function GET(request: NextRequest) {
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 500 });
   const valCtx = await buildValuationContext();
 
-  const [attachRes, stratRes, teamRes, teamValRes, baseValRes, slRosters, slPlayers] = await Promise.all([
-    client.from("cfc_team_player_attachment").select("team_id, sleeper_player_id, attachment").eq("league_id", league_id),
-    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market").eq("league_id", league_id),
-    client.from("team_email_map").select("roster_id, team_name"),
-    client.from("cfc_team_trade_values_current").select("team_id, sleeper_player_id, player_name, position, final_value").eq("league_id", league_id),
-    client.from("cfc_trade_values_current").select("sleeper_player_id, display_name, cfc_value, elite_multiplier_applied"),
-    LEAGUE_ID_ENV ? fetch(`https://api.sleeper.app/v1/league/${LEAGUE_ID_ENV}/rosters`, { next: { revalidate: 300 } }).then(r => r.ok ? r.json() : []).catch(() => []) : Promise.resolve([]),
-    // The full players dictionary is ~5MB and changes ~daily — this was being
-    // re-downloaded uncached on every targets call.
-    LEAGUE_ID_ENV ? fetch("https://api.sleeper.app/v1/players/nfl", { next: { revalidate: 86400 } }).then(r => r.ok ? r.json() : {}).catch(() => ({})) : Promise.resolve({}),
+  const [attachRes, stratRes] = await Promise.all([
+    client.from("cfc_team_player_attachment").select("team_id, sleeper_player_id, attachment")
+      .eq("league_id", league_id).eq("team_id", teamId),
+    client.from("cfc_team_strategy_profiles").select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market")
+      .eq("league_id", league_id).eq("team_id", teamId),
   ]);
 
   const attachments = (attachRes.data ?? []) as AttachRow[];
   const strategies = (stratRes.data ?? []) as StratRow[];
-  const tNames: Record<string, string> = {};
-  for (const r of teamRes.data ?? []) if (r.roster_id && r.team_name) tNames[String(r.roster_id)] = r.team_name;
-
-  // Team-adjusted values: team_id:player_id → final_value
-  const teamValues: Record<string, number> = {};
-  for (const v of (teamValRes.data ?? []) as TeamValueRow[]) {
-    if (v.sleeper_player_id && typeof v.final_value === "number") {
-      teamValues[`${v.team_id}:${v.sleeper_player_id}`] = v.final_value;
-    }
-  }
-
-  // Stud flags by display name (player values come from teamValues; pick
-  // values now come from the canonical valuation below). Youth is NOT read
-  // from the value table — the age multiplier encodes rookie/young as > 1.0
-  // and prime as 1.0, so it can't be a youth flag. Youth comes from the
-  // canonical isYoung() (position age bands OR rookie-deal experience).
-  const baseStud: Record<string, boolean> = {};
-  for (const v of (baseValRes.data ?? []) as BaseValueRow[]) {
-    if (v.display_name && v.elite_multiplier_applied != null) baseStud[v.display_name] = v.elite_multiplier_applied > 1.0;
-  }
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pDict: Record<string, any> = slPlayers;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const rosterPlayers = (slRosters as any[]).map((r: any) => ({ rid: String(r.roster_id), players: ((r.players ?? []) as unknown[]).map(String) }));
+  const tNames = Object.fromEntries(league.teams.map(team => [team.rosterId, team.teamName]));
 
   const attMap: Record<string, string> = {};
   for (const a of attachments) attMap[`${a.team_id}:${a.sleeper_player_id}`] = a.attachment;
@@ -125,21 +88,22 @@ export async function GET(request: NextRequest) {
 
   const allRosters: Record<string, Asset[]> = {};
 
-  for (const roster of rosterPlayers) {
-    const rid = roster.rid;
+  for (const roster of league.teams) {
+    const rid = roster.rosterId;
     const assets: Asset[] = [];
 
     // Players
-    for (const pid of roster.players) {
-      const info = pDict[pid]; if (!info) continue;
-      const val = teamValues[`${rid}:${pid}`] ?? 0;
-      if (val <= 0) continue;
-      const name = info.full_name || [info.first_name, info.last_name].filter(Boolean).join(" ") || pid;
-      const pos = info.position?.toUpperCase() || "–";
-      const age = computeAge(info);
-      const att = attMap[`${rid}:${pid}`] || "core";
-      const isStud = baseStud[name] ?? false;
-      const isYouth = isYoung(pos, age, typeof info.years_exp === "number" ? info.years_exp : null);
+    for (const info of roster.players) {
+      const pid = info.id;
+      const val = valueAsset({ type: "player", sleeperPlayerId: pid }, valCtx, { perspective: teamId });
+      const name = info.name;
+      const pos = info.position;
+      const age = info.age;
+      // Only the caller's private attachment rows are loaded. Counterparty
+      // availability defaults to neutral and is never reconstructable here.
+      const att = visibleAttachment(rid, teamId, pid, attMap);
+      const isStud = league.values.isStud.get(pid) ?? false;
+      const isYouth = isYoung(pos, age, info.exp);
       const needW = myNeeds[pos] ?? 0;
       const wantsW = (myWants.has("elite_producers") && isStud) ? 25 : (myWants.has("young_upside") && isYouth) ? 20 : (myWants.has("roster_depth") && val >= 30 && val <= 120) ? 10 : 0;
       const fitScore = needW * 30 + wantsW - tierSort(att) * 3 + Math.min(val / 10, 25);
@@ -149,11 +113,8 @@ export async function GET(request: NextRequest) {
 
     // Picks — canonical ownership + projected-finish valuation (same as the engine).
     for (const pk of league.pickOwnership.get(rid) ?? []) {
-      const val = valueAsset({ type: "pick", key: pk.key }, valCtx);
-      if (val <= 0) continue;
-      const label = pk.kind === "current" && pk.slot != null
-        ? `${pk.season} ${pk.round}.${String(pk.slot).padStart(2, "0")}`
-        : `${pk.season} Rd ${pk.round}`;
+      const val = valueAsset({ type: "pick", key: pk.key }, valCtx, { perspective: teamId });
+      const label = formatPickLabel(pk);
 
       const ownerName = tNames[rid] ?? `Team ${rid}`;
       const isVia = pk.originalRosterId !== rid;
@@ -218,8 +179,5 @@ export async function GET(request: NextRequest) {
   });
   rankings.sort((a, b) => b.score - a.score);
 
-  const profileMap: Record<string, StratRow> = {};
-  for (const s of strategies) profileMap[s.team_id] = s;
-
-  return NextResponse.json({ targets, rankings, rosters: allRosters, profiles: profileMap });
+  return NextResponse.json(targetResponse({ targets, rankings, rosters: allRosters }));
 }

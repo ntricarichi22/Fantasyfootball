@@ -32,7 +32,7 @@ const TAN = "#C7BA9B"
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-")
 
 export function HomeScreen() {
-  const [teamName, setTeamName] = useState<string>("Virginia Founders")
+  const [teamName, setTeamName] = useState<string>("Your Franchise")
   const [rosterId, setRosterId] = useState<string>("")
   const [unreadCount, setUnreadCount] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
@@ -63,7 +63,7 @@ export function HomeScreen() {
         }
       })
     } catch {
-      /* keep the default placeholder team */
+      /* keep the neutral placeholder */
     }
   }, [])
 

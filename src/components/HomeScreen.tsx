@@ -338,17 +338,6 @@ export function HomeScreen({
           />
 
           <DoorCard
-            bg="#3366CC"
-            topStrip="#F5C230"
-            accentDot="#F5C230"
-            name={"Owner's\nBox"}
-            sub={"Adjust strategy\n& preferences"}
-            stat="—"
-            statLabel="Season record"
-            onClick={() => { window.location.href = "/team-hq"; }}
-          />
-
-          <DoorCard
             bg="#F5F0E6"
             topStrip="#3366CC"
             accentDot="#3366CC"

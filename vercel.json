@@ -3,6 +3,18 @@
     {
       "path": "/api/internal/refresh-values",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/admin/ingest/sleeper-draft-results",
+      "schedule": "30 8 * * *"
+    },
+    {
+      "path": "/api/internal/reconcile-trades",
+      "schedule": "45 8 * * *"
+    },
+    {
+      "path": "/api/inbox/memos/sweep",
+      "schedule": "0 14 * * *"
     }
   ]
 }

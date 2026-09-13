@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { saveTeamStrategyProfile } from "@/research-strategy/api/service";
+import { rebuildTeamTradeValuesForTeam, saveTeamStrategyProfile } from "@/research-strategy/api/service";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { invalidateLeagueData } from "@/shared/league-data";
 import type { TeamHqOwnGuysPreference } from "@/research-strategy/api/types";
 
 const VALID_ATTACHMENTS = new Set([
@@ -54,6 +56,9 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const { session } = await currentAppSessionFromRequest(request);
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    if (!currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const { client, error: clientError } = getSupabaseAdminClient();
     if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
@@ -89,6 +94,8 @@ export async function POST(request: NextRequest) {
     const modalValue = tied[0] as TeamHqOwnGuysPreference;
 
     await saveTeamStrategyProfile(leagueId, teamId, { own_guys_preference: modalValue });
+    await rebuildTeamTradeValuesForTeam(leagueId, teamId);
+    invalidateLeagueData();
 
     return NextResponse.json({ ok: true });
   } catch (error) {

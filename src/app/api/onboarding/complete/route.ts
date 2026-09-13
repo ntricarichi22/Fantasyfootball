@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { email?: string };
-    const email = body.email?.toLowerCase().trim() ?? "";
-    if (!email) return NextResponse.json({ error: "email is required" }, { status: 400 });
+    const { session } = await currentAppSessionFromRequest(request);
+    const rosterId = session?.rosterId;
+    if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const { client, error: clientError } = getSupabaseAdminClient();
     if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
@@ -13,7 +14,7 @@ export async function POST(request: NextRequest) {
     const { error } = await client
       .from("team_email_map")
       .update({ profile_complete: true, updated_at: new Date().toISOString() })
-      .eq("email", email);
+      .eq("roster_id", rosterId);
 
     if (error) throw new Error(error.message);
 

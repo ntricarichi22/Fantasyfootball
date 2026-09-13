@@ -1,3 +1,5 @@
+import type { TeamProfile as SharedTeamProfile } from "@/shared/team-profiles/types";
+
 export type Position = "QB" | "RB" | "WR" | "TE";
 
 export const POSITIONS: Position[] = ["QB", "RB", "WR", "TE"];
@@ -21,6 +23,8 @@ export type PlayerInfo = {
 export type RosteredTeam = {
   rosterId: string;
   teamName: string;
+  /** Sleeper-origin identity for mappings which must survive in-app renames. */
+  baseTeamName?: string;
   ownerId: string | null;
   playerIds: string[];
   starterIds: string[];
@@ -43,6 +47,27 @@ export type OwnedPick = {
   kind: "current" | "future";
   currentRosterId: string;
   originalRosterId: string;
+};
+
+export type DraftResultPick = {
+  source: "app" | "sleeper";
+  pickNumber: number;
+  round: number;
+  slot: number;
+  rosterId: string;
+  playerId: string;
+};
+
+export type DraftStatus = {
+  season: number;
+  draftId: string | null;
+  sleeperStatus: string | null;
+  dayOneComplete: boolean;
+  dayTwoComplete: boolean;
+  complete: boolean;
+  picks: DraftResultPick[];
+  spentPickNumbers: Set<number>;
+  firstUndraftedSeason: number;
 };
 
 // ── Per-position trade intent ──────────────────────────────────────────────
@@ -121,6 +146,9 @@ export type ValueMaps = {
   // QB-stash behavior. Empty when the source column is absent — the engine
   // treats a missing boost as 1 (not a stash candidate), so it degrades cleanly.
   rookieQbBoost: Map<string, number>;
+  // Rostered players absent from both adjusted and league-base sources. They
+  // remain in every engine/UI pool at zero and are explicitly identifiable.
+  unpriced?: Set<string>;
 };
 
 // Canonical draft-pick slot ladder. Key = "R.SS" with a ZERO-PADDED slot
@@ -140,6 +168,7 @@ export type LeagueData = {
   teams: RosteredTeam[];
   values: ValueMaps;
   pickOwnership: Map<string, OwnedPick[]>;
+  draftStatus: DraftStatus;
   strategy: Map<string, StrategyProfile>;
   attachments: Map<string, Map<string, AttachmentLevel>>;
   results: Map<string, SeasonResult>;
@@ -157,4 +186,17 @@ export type LeagueData = {
     resultsSource: ResultsSource;
     previousLeagueId: string | null;
   };
+};
+
+export type LeagueSnapshot = {
+  leagueId: string;
+  cfcYear: number;
+  teamCount: number;
+  settings: LeagueSettings;
+  teams: RosteredTeam[];
+  players: PlayerInfo[];
+  profiles: SharedTeamProfile[];
+  pickOwnership: Record<string, OwnedPick[]>;
+  draftStatus: Omit<DraftStatus, "spentPickNumbers"> & { spentPickNumbers: number[] };
+  viewer?: { rosterId: string; role: "member" | "commissioner" | "admin" };
 };

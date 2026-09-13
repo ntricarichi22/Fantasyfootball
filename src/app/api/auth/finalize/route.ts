@@ -1,5 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { appSessionCookie, createAppSession } from "@/infrastructure/auth/session";
+import { LEAGUE_ID } from "@/infrastructure/config";
+import { recordAuditChange } from "@/infrastructure/security/audit";
+import { resolveFinalizeAccess, sessionClaimsForAccess } from "@/infrastructure/auth/finalizeAuthorization";
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,14 +28,41 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid_session" }, { status: 401 });
     }
 
-    const { data: teamRow } = await adminClient
-      .from("team_email_map")
-      .select("roster_id, team_name, profile_complete")
-      .eq("email", email)
-      .maybeSingle();
+    if (!LEAGUE_ID) return NextResponse.json({ error: "league_not_configured" }, { status: 500 });
 
-    if (!teamRow) {
-      return NextResponse.json({ error: "not_a_member" }, { status: 403 });
+    const userId = userData.user.id;
+    const access = await resolveFinalizeAccess({
+      membership: async (id, league) => await adminClient.from("league_memberships")
+        .select("league_id, roster_id, role").eq("user_id", id).eq("league_id", league).maybeSingle(),
+      legacyInvitation: async (legacyEmail) => await adminClient.from("team_email_map")
+        .select("roster_id").eq("email", legacyEmail).maybeSingle(),
+      acceptInvitation: async (id, acceptedEmail, league) => {
+        const { data, error } = await adminClient.rpc("accept_league_invitation", {
+          p_user_id: id, p_email: acceptedEmail, p_league_id: league,
+        });
+        return { data: (Array.isArray(data) ? data[0] : data) ?? null, error };
+      },
+    }, userId, email, LEAGUE_ID);
+    if (access.error) return NextResponse.json({ error: access.error === "forbidden" ? "not_a_member" : "membership_lookup_failed" },
+      { status: access.error === "forbidden" ? 403 : 503 });
+    const membership = access.membership;
+
+    const { data: teamRow, error: teamError } = await adminClient.from("team_email_map")
+      .select("roster_id, team_name, profile_complete")
+      .eq("roster_id", membership.roster_id).limit(1).maybeSingle();
+    if (teamError) return NextResponse.json({ error: "team_lookup_failed" }, { status: 503 });
+    if (!teamRow) return NextResponse.json({ error: "not_a_member" }, { status: 403 });
+
+    if (access.accepted) {
+      await recordAuditChange({
+        action: "membership.accepted_invitation",
+        outcome: "success",
+        actorUserId: userId,
+        leagueId: membership.league_id,
+        targetType: "membership",
+        targetId: userId,
+        summary: { role: membership.role, roster_id: membership.roster_id },
+      }, adminClient);
     }
 
     const redirect = teamRow.profile_complete ? "/" : "/onboarding";
@@ -44,16 +75,15 @@ export async function POST(request: NextRequest) {
     };
 
     const response = NextResponse.json({ ok: true, redirect });
+    const claims = sessionClaimsForAccess(access, userId);
+    if (!claims) return NextResponse.json({ error: "not_a_member" }, { status: 403 });
+    response.cookies.set(appSessionCookie.name, await createAppSession(claims), appSessionCookie.options);
 
     response.cookies.set("cfc_roster_id", teamRow.roster_id, {
       ...cookieOptions,
       httpOnly: true,
     });
     response.cookies.set("cfc_team_name", encodeURIComponent(teamRow.team_name), {
-      ...cookieOptions,
-      httpOnly: true,
-    });
-    response.cookies.set("cfc_email", email, {
       ...cookieOptions,
       httpOnly: true,
     });
@@ -66,7 +96,6 @@ export async function POST(request: NextRequest) {
       JSON.stringify({
         rosterId: teamRow.roster_id,
         teamName: teamRow.team_name,
-        email,
       }),
       { ...cookieOptions, httpOnly: false }
     );

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { invalidateLeagueData } from "@/shared/league-data";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +52,10 @@ export async function POST(request: NextRequest) {
   if (!league_id) {
     return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!currentSessionCanActForRoster(session, league_id, team_id))
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
@@ -59,7 +65,7 @@ export async function POST(request: NextRequest) {
   // Fetch the offer to validate permissions
   const { data: offer, error: fetchError } = await client
     .from("trade_offers")
-    .select("from_team_id, to_team_id, status, thread_id")
+    .select("from_team_id, to_team_id, status, thread_id, assets_from, assets_to")
     .eq("id", offer_id)
     .eq("league_id", league_id)
     .single();
@@ -83,6 +89,16 @@ export async function POST(request: NextRequest) {
 
   const now = new Date().toISOString();
 
+  // Stage the overlay before changing the offer. Readers require accepted_at,
+  // so a failed status update cannot expose an unaccepted trade.
+  if (status === "accepted") {
+    const { error: overlayError } = await client.from("cfc_pending_trade_overlays").upsert({
+      offer_id, league_id, from_team_id: offer.from_team_id, to_team_id: offer.to_team_id,
+      assets_from: offer.assets_from, assets_to: offer.assets_to, accepted_at: null, reconciled_at: null,
+    }, { onConflict: "offer_id" });
+    if (overlayError) return NextResponse.json({ error: overlayError.message }, { status: 500 });
+  }
+
   // All resolutions are SOFT — the thread survives so the negotiation board
   // can show WITHDRAWN cards and the full version history stays browsable.
   //
@@ -98,6 +114,12 @@ export async function POST(request: NextRequest) {
 
   if (updateError) {
     return NextResponse.json({ error: updateError.message }, { status: 500 });
+  }
+  if (status === "accepted") {
+    const { error: activateError } = await client.from("cfc_pending_trade_overlays")
+      .update({ accepted_at: now }).eq("offer_id", offer_id).eq("league_id", league_id);
+    if (activateError) return NextResponse.json({ error: activateError.message }, { status: 500 });
+    invalidateLeagueData();
   }
 
   // Propagate terminal statuses to the thread

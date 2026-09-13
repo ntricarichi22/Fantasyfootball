@@ -1,5 +1,7 @@
+import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { pickSlotFromOverall, runtimeTeamCount } from "@/shared/league-data/picks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +13,7 @@ type SleeperDraft = {
   type?: string | null;
   start_time?: number | null;
   created?: number | null;
+  settings?: { teams?: number | null } | null;
 };
 
 type SleeperPick = {
@@ -75,13 +78,7 @@ function toIsoFromMetadata(metadata: Record<string, unknown> | null | undefined)
 }
 
 export async function POST(req: Request) {
-  const url = new URL(req.url);
-  const secret = url.searchParams.get("secret");
-  const adminSecret = process.env.ADMIN_SECRET;
-
-  if (!adminSecret) return jsonError("Missing ADMIN_SECRET env var", 500);
-  if (secret !== adminSecret) return jsonError("Unauthorized", 401);
-
+  if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supabaseResult.error}`, 500);
   if (!supabaseResult.client) return jsonError("Supabase admin client is null", 500);
@@ -98,14 +95,18 @@ export async function POST(req: Request) {
     body = {};
   }
 
+  const configuredLeagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim();
+  const currentSeason = new Date().getUTCMonth() >= 2 ? new Date().getUTCFullYear() : new Date().getUTCFullYear() - 1;
+  const defaultJobs = [
+    { season_year: 2024, source_league_id: "1040100278152646656" },
+    { season_year: 2025, source_league_id: "1183585976810295296" },
+    ...(configuredLeagueId ? [{ season_year: currentSeason, source_league_id: configuredLeagueId }] : []),
+  ].filter((job, index, all) => all.findIndex(other => other.source_league_id === job.source_league_id) === index);
   const jobs = Array.isArray(body.league_ids)
     ? body.league_ids
     : body.season_year && body.source_league_id
       ? [{ season_year: body.season_year, source_league_id: body.source_league_id }]
-      : [
-          { season_year: 2024, source_league_id: "1040100278152646656" },
-          { season_year: 2025, source_league_id: "1183585976810295296" },
-        ];
+      : defaultJobs;
 
   const summary: Array<{
     season_year: number;
@@ -136,6 +137,9 @@ export async function POST(req: Request) {
     }
 
     const draftId = String(selectedDraft.draft_id);
+    const leaguePayload = await fetchSleeperJson(`https://api.sleeper.app/v1/league/${sourceLeagueId}`) as { total_rosters?: number };
+    const teamCount = runtimeTeamCount(Number(selectedDraft.settings?.teams), Number(leaguePayload?.total_rosters));
+    if (!teamCount) throw new Error(`No authoritative team count for Sleeper draft ${draftId}`);
     const picksPayload = await fetchSleeperJson(`https://api.sleeper.app/v1/draft/${draftId}/picks`);
     if (!Array.isArray(picksPayload)) {
       throw new Error(`Unexpected picks payload for draft ${draftId}`);
@@ -147,7 +151,7 @@ export async function POST(req: Request) {
         const round = pick.round != null ? Number(pick.round) : null;
         if (pickNumber === null || !Number.isInteger(pickNumber)) return null;
 
-        const pickInRound = Number.isInteger(round) ? ((pickNumber - 1) % 12) + 1 : null;
+        const pickInRound = Number.isInteger(round) ? pickSlotFromOverall(pickNumber, teamCount) : null;
 
         return {
           season_year: seasonYear,
@@ -192,5 +196,17 @@ export async function POST(req: Request) {
     console.log(`[sleeper-draft-sync] done season=${seasonYear} league=${sourceLeagueId} draft=${draftId} picks=${rows.length}`);
   }
 
-  return NextResponse.json({ ok: true, summary });
+  const { error: rebuildError } = await supabaseResult.client.rpc("ff_rebuild_master_draft_picks_actual_results");
+  if (rebuildError) throw new Error(`ff_master_draft_picks rebuild failed: ${rebuildError.message}`);
+  return NextResponse.json({ ok: true, rebuilt_master: true, summary });
+}
+
+/** Vercel cron entrypoint. This route intentionally writes; do not use it as a
+ * health check. Vercel supplies Authorization: Bearer ${CRON_SECRET}. */
+export async function GET(req: Request) {
+  return POST(new Request(req.url, {
+    method: "POST",
+    headers: req.headers,
+    body: JSON.stringify({}),
+  }));
 }

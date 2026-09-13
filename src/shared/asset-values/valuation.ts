@@ -4,6 +4,8 @@ import {
   getLeagueData,
   getPickValues,
   getValues,
+  getCFCYear,
+  parsePickKey,
   type PickLadder,
 } from "@/shared/league-data";
 import { buildTeamProfiles, type Tier } from "@/shared/team-profiles";
@@ -23,35 +25,10 @@ export type ValuationContext = {
   // value: a future pick is worth the slot its ORIGINAL owner projects to.
   draftSlotByRoster: Map<string, number>;
   adjusted: Map<string, number>; // `${teamId}:${assetId}` -> stored final_value
+  pickSlotByKey: Map<string, number>;
 };
 
-function cfcYearNow(): number {
-  const n = new Date();
-  return n.getMonth() >= 2 ? n.getFullYear() : n.getFullYear() - 1;
-}
-
 const pad = (n: number): string => String(n).padStart(2, "0");
-
-// Parse a canonical pick key. Mirrors the trade-engine format:
-//   current: pick:YYYY-R-SS-RID   (4 parts; slot raw, "tbd" if unknown)
-//   future:  pick:YYYY-R-RID      (3 parts; no slot)
-// The trailing segment is always the ORIGINAL roster id.
-type ParsedPickKey = { season: number; round: number; slot: number | null; originalRosterId: string };
-function parsePickKey(key: string): ParsedPickKey | null {
-  if (!key.startsWith("pick:")) return null;
-  const parts = key.slice(5).split("-");
-  if (parts.length !== 3 && parts.length !== 4) return null;
-  const season = parseInt(parts[0], 10);
-  const round = parseInt(parts[1], 10);
-  if (Number.isNaN(season) || Number.isNaN(round)) return null;
-  const originalRosterId = parts[parts.length - 1];
-  let slot: number | null = null;
-  if (parts.length === 4) {
-    const s = parseInt(parts[2], 10);
-    slot = Number.isNaN(s) ? null : s;
-  }
-  return { season, round, slot, originalRosterId };
-}
 
 // Stored team-adjusted values (players AND picks live here once rebuilt).
 async function loadAdjusted(leagueId: string): Promise<Map<string, number>> {
@@ -86,13 +63,17 @@ async function buildValuationContextUncached(): Promise<ValuationContext> {
 
   const tierByRoster = new Map<string, Tier>();
   const draftSlotByRoster = new Map<string, number>();
-  let cfcYear = cfcYearNow();
+  const pickSlotByKey = new Map<string, number>();
+  let cfcYear = getCFCYear();
   let leagueId = "";
   if (!("error" in league)) {
     cfcYear = league.cfcYear;
     leagueId = league.leagueId;
     const profiles = buildTeamProfiles(league);
     for (const p of profiles) tierByRoster.set(p.rosterId, p.tier);
+    for (const picks of league.pickOwnership.values()) {
+      for (const pick of picks) if (pick.slot != null) pickSlotByKey.set(pick.key, pick.slot);
+    }
     // Projected draft order: weakest starting lineup picks first (slot 1).
     [...profiles]
       .sort((a, b) => a.strength.starterValue - b.strength.starterValue)
@@ -100,7 +81,7 @@ async function buildValuationContextUncached(): Promise<ValuationContext> {
   }
 
   const adjusted = await loadAdjusted(leagueId);
-  return { cfcYear, playerBase: values.value, ladder, tierByRoster, draftSlotByRoster, adjusted };
+  return { cfcYear, playerBase: values.value, ladder, tierByRoster, draftSlotByRoster, adjusted, pickSlotByKey };
 }
 
 // Cheap, synchronous valuation given a prebuilt context.
@@ -126,9 +107,11 @@ export function valueAsset(
   if (!p) return 0;
 
   if (p.season <= ctx.cfcYear) {
-    // current-year: exact slot, falling back to the round's .06 anchor
-    if (p.slot != null) {
-      const exact = ctx.ladder.get(`${p.round}.${pad(p.slot)}`);
+    // Current-year: actual order when known, otherwise the original owner's
+    // projected finish. Never infer a slot from roster index.
+    const slot = ctx.pickSlotByKey.get(asset.key) ?? ctx.draftSlotByRoster.get(p.originalRosterId);
+    if (slot != null) {
+      const exact = ctx.ladder.get(`${p.round}.${pad(slot)}`);
       if (typeof exact === "number") return exact;
     }
     return ctx.ladder.get(`${p.round}.06`) ?? 0;

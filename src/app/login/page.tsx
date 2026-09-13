@@ -43,6 +43,22 @@ function LoginForm() {
   const [resetSending, setResetSending] = useState(false);
   const [resetSent, setResetSent] = useState(false);
 
+  const signIn = async (identifier: string, secret: string) => {
+    if (!supabase) throw new Error("client_unavailable");
+    const response = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: identifier, password: secret }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.accessToken || !result.refreshToken) return false;
+    const { error } = await supabase.auth.setSession({
+      access_token: result.accessToken,
+      refresh_token: result.refreshToken,
+    });
+    return !error;
+  };
+
   const handleEmailSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const trimmed = email.trim().toLowerCase();
@@ -121,13 +137,15 @@ function LoginForm() {
         return;
       }
 
+      if (signupJson?.confirmationRequired) {
+        setFormError("Check your email to verify the account, then return here to sign in.");
+        setStep("existing-password");
+        setSubmitting(false);
+        return;
+      }
+
       // Sign in with the newly-created credentials
-      if (!supabase) throw new Error("client_unavailable");
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: trimmed,
-        password,
-      });
-      if (signInError) {
+      if (!(await signIn(trimmed, password))) {
         setFormError("Account created but sign-in failed. Please try signing in.");
         setSubmitting(false);
         return;
@@ -151,12 +169,7 @@ function LoginForm() {
     setSubmitting(true);
     setFormError("");
     try {
-      if (!supabase) throw new Error("client_unavailable");
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: trimmed,
-        password,
-      });
-      if (signInError) {
+      if (!(await signIn(trimmed, password))) {
         setFormError("Incorrect password. Please try again.");
         setSubmitting(false);
         return;

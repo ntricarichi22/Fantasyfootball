@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { getLeagueData, type OwnedPick } from "@/shared/league-data";
-import { buildTeamProfiles } from "@/shared/team-profiles";
+import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildValuationContext, valueAsset } from "@/shared/asset-values";
-import { bandFor, normalizePersona } from "@/pro-personnel/engine/core/personas";
+import { runScouting, type EngineContext } from "@/pro-personnel/engine";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
+import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
+import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -31,22 +33,21 @@ export async function POST(req: Request) {
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
   };
   const seed = typeof body.seed === "number" && body.seed > 0 ? body.seed : 1;
-  const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
-  if ("error" in data) return NextResponse.json(data, { status: 500 });
   const scenario = asScenario(body.scenario);
   const teamId = body.teamId ?? "";
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
+  if ("error" in data) return NextResponse.json(data, { status: 500 });
 
   const you =
-    data.teams.find((t) => t.rosterId === teamId) ??
-    data.teams.find((t) => /founders/i.test(t.teamName)) ??
-    data.teams[0];
+    data.teams.find((t) => t.rosterId === teamId);
   if (!you) return NextResponse.json({ error: "No teams found." }, { status: 500 });
   const youId = you.rosterId;
   const nameByRoster = new Map(data.teams.map((t) => [t.rosterId, t.teamName]));
 
   const profiles = buildTeamProfiles(data);
   const dossiers = buildTeamDossiers(profiles, data);
-  const personaByRoster = new Map(dossiers.map((d) => [d.rosterId, d.persona]));
   const val = (p: OwnedPick, perspective?: string) => valueAsset({ type: "pick", key: p.key }, ctx, perspective ? { perspective } : undefined);
 
   const forced = new Map<number, string>();
@@ -83,36 +84,23 @@ export async function POST(req: Request) {
 
   const offers: unknown[] = [];
   const seenPartners = new Set<string>();
+  const ec: EngineContext = { data, profiles, dossiers, needs: computeNeeds(data), ctx };
   for (const cand of candidates) {
     if (offers.length >= 3) break;
     if (seenPartners.has(cand.currentRosterId)) continue;
     const partnerId = cand.currentRosterId;
 
-    // The partner (who jumps to our pick) receives myPick and sends cand + the
-    // cheapest of their later picks needed to make US whole. Persona sets their
-    // ceiling, but a draft move-up commands a premium — even a tight team will
-    // pay up to ~1.18x to jump for a guy — so we floor their willingness there.
-    const band = bandFor(normalizePersona(personaByRoster.get(partnerId)));
-    const floor = Math.min(band.min, 0.85);
-    const theirReceive = val(myPick, partnerId);
-    let theirGive = val(cand, partnerId);
+    const slate = runScouting(ec, youId, {
+      pickKeys: [myPick.key], intent: "trade_back",
+      counterpartyTeamIds: [partnerId], requiredCounterpartyKeys: [cand.key],
+    });
+    const engineOffer = slate.offers.find(offer => offer.partnerTeamId === partnerId);
+    if (!engineOffer) continue;
+    const receivedKeys = new Set(engineOffer.assets.filter(asset => asset.side === "receive" && asset.type === "pick").map(asset => asset.key));
+    const getPicks = current.filter(pick => receivedKeys.has(pick.key) && pick.currentRosterId === partnerId);
+    if (!getPicks.some(pick => pick.key === cand.key)) continue;
     const ourGive = myOurVal;
-    let ourReceive = val(cand, youId);
-    const getPicks: OwnedPick[] = [cand];
-    const partnerLater = current
-      .filter((p) => p.currentRosterId === partnerId && p.overall! > cand.overall! && !forcedOveralls.has(p.overall!))
-      .map((p) => ({ p, ourV: val(p, youId), theirV: val(p, partnerId) }))
-      .sort((a, b) => a.theirV - b.theirV);
-    for (const e of partnerLater) {
-      if (ourReceive > ourGive || getPicks.length >= 4) break; // we're ahead — stop
-      if (theirReceive < floor * (theirGive + e.theirV)) break; // partner won't add more
-      getPicks.push(e.p);
-      theirGive += e.theirV;
-      ourReceive += e.ourV;
-    }
-    // The partner has to accept the final package, and sliding back has to net us
-    // MORE capital than we gave up — otherwise there's no reason to move down.
-    if (theirReceive < floor * theirGive) continue;
+    const ourReceive = getPicks.reduce((sum, pick) => sum + val(pick, youId), 0);
     if (ourReceive <= ourGive) continue;
 
     seenPartners.add(partnerId);

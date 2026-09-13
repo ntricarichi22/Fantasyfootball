@@ -9,6 +9,7 @@ import {
 } from "@/scouting/draft-room/draftState";
 import { processAutoAdvance } from "@/scouting/draft-room/draftAutoAdvance";
 import { fetchDraftState, upsertDraftState } from "./shared";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
@@ -39,11 +40,13 @@ const normalizeSeconds = (value: unknown, fallback: number = INITIAL_PICK_SECOND
  *  exclusively in `POST /api/scouting/draft/tick` (and `POST /api/scouting/draft/state` with
  *  action: "announce" for legacy callers). This eliminates the race window
  *  where multiple simultaneous polls would each try to advance the draft. */
-export async function GET() {
+export async function GET(request: NextRequest) {
   const leagueId = safeLeagueId();
   if (!leagueId) {
     return NextResponse.json({ error: "Sleeper league ID is not configured." }, { status: 500 });
   }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error } = getSupabaseAdminClient();
   if (!client || error) {
@@ -58,6 +61,10 @@ export async function POST(request: NextRequest) {
   const leagueId = safeLeagueId();
   if (!leagueId) {
     return NextResponse.json({ error: "Sleeper league ID is not configured." }, { status: 500 });
+  }
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session || session.leagueId !== leagueId || (session.role !== "commissioner" && session.role !== "admin")) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const { client, error } = getSupabaseAdminClient();
