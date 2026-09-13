@@ -101,7 +101,7 @@ export function FranchiseHome({ preview = false }: { preview?: boolean }) {
     <main className={styles.shell} onPointerDown={startSwipe} onPointerUp={finishSwipe} onPointerCancel={() => { gesture.current = null; }}>
       <div className={styles.artwork} aria-hidden="true">
         {scenes.map((item, i) => <div key={item.id} className={[styles.sceneImage, i === index ? styles.sceneVisible : "", ready[item.id] ? styles.sceneReady : ""].join(" ")}>
-          <Image src={"/ui-refresh/" + item.id + ".jpg"} alt="" fill sizes="100vw" priority={i === 0} quality={85} onLoad={() => setReady((old) => ({ ...old, [item.id]: true }))} />
+          <Image src={"/ui-refresh/" + item.id + ".jpg"} alt="" fill sizes="100vw" priority={i === 0} onLoad={() => setReady((old) => ({ ...old, [item.id]: true }))} />
         </div>)}
         <div className={styles.scrim} />
         <div key={"reveal-" + index} className={styles.settle} />
