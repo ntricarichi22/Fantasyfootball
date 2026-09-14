@@ -1,0 +1,17 @@
+Built-in image generation; one call per asset, run in parallel. Reference targets inspected before generation.
+
+studio-coach-removed.png
+Use case: precise-object-edit
+Asset type: wide 16:9 football game interface background illustration.
+Input image 1 is the EDIT TARGET, studio-coach.jpg.
+Primary request: Remove ONLY the prominent foreground coach at center-right, including his entire head, headset, microphone, body, crossed arms, clipboard, trousers, belt radio, and cord. Naturally reconstruct the stadium, distant crowd, sky, and football field that his silhouette currently occludes.
+Strict invariants: Keep EXACT original scene framing, camera perspective, composition, stadium architecture, sunset sky and mountains, field yard lines, left-side equipment trunks and water bottles, and every remaining sideline player in exactly their existing positions. Keep the original hand-drawn cinematic illustration style, precise linework, texture, warm muted sunset colors, shadows, and lighting. Do not recolor, restyle, crop, move, remove, or redesign anything outside the removed coach silhouette. Reconstruct only the missing background behind him. Keep all three prominent sideline players on the right intact and preserve the distant players on the field. Do not add new foreground subjects, people, signs, interface graphics, or text. The result must be the same existing scene, simply without that coach.
+
+studio-around-league.png
+Use case: stylized-concept
+Asset type: wide 16:9 sports game interface background illustration, around-the-league section.
+Input image 1, studio-owner.jpg, is a STYLE REFERENCE ONLY. Create a distinct new scene using its high-quality hand-drawn cinematic cel-shaded illustration language, textured painted surfaces, crisp contours, and rich atmospheric depth.
+Primary request: An empty sports broadcast box overlooking an American football stadium through broad windows. The stadium field and a large scoreboard are visible beyond the windows. A simple broadcast desk in the foreground holds headsets and a microphone, arranged as crisp readable silhouettes. No people anywhere.
+Composition: Wide 16:9 establishing scene from inside the broadcast box. Keep the left third visually quiet, dark and uncluttered for a UI overlay, with the more distinctive broadcast equipment and stadium scoreboard in the center and right. No interface is drawn.
+Lighting and palette: Cinematic sports lighting, slightly richer electric blue and hot orange accents than the reference, grounded dark neutral interior materials, atmospheric stadium glow.
+Constraints: Illustrated sports-game environment of the same sophisticated visual family as the reference; no photorealism, no pixel art, no cartoon caricature. Simple coherent geometry and crisp silhouettes. No legible text, numbers, logos, watermarks, labels, or UI. Scoreboard uses only abstract nonverbal light panels. No people, faces, person portraits, or figures.
