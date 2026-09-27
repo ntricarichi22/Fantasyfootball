@@ -3,6 +3,8 @@ import { X, ShieldCheck } from "lucide-react";
 import { useDemo } from "./DemoState";
 import { Portrait } from "./UI";
 import {
+  priceDollars,
+  formatDollars,
   playerMetrics,
   defaultPrice,
   priceText,
@@ -15,17 +17,18 @@ export function PlayerBadges({ player }: { player: Player }) {
   const m = playerMetrics(player);
   return (
     <span className={s.playerBadges}>
-      <span>
-        {m.age} <small>YRS</small>
+      <span className={s.ageNumber}>
+        <b>{m.age}</b>
+        <small>YRS</small>
       </span>
+      <b className={s.qualityChip} data-quality={m.quality}>
+        {m.quality}
+      </b>
       {m.ageStatus !== "prime" && (
         <b className={s.ageChip} data-age={m.ageStatus}>
           {m.ageStatus}
         </b>
       )}
-      <b className={s.qualityChip} data-quality={m.quality}>
-        {m.quality}
-      </b>
     </span>
   );
 }
@@ -109,6 +112,15 @@ export function PlayerDossier({
           <PlayerBadges player={player} />
         </div>
       </div>
+      {editable && (
+        <div className={s.profileValuation} aria-live="polite">
+          <div>
+            <small>YOUR PRIVATE ASKING PRICE</small>
+            <strong>{formatDollars(priceDollars(price))}</strong>
+          </div>
+          <span>{player.availability}</span>
+        </div>
+      )}
       <section className={s.dossierSection}>
         <h3>
           THIS SEASON <span>2026 · Half PPR</span>

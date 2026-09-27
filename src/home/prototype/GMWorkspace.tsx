@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import {
-  ArrowDown,
   ArrowUp,
   Check,
   ChevronRight,
@@ -9,34 +8,28 @@ import {
   GripVertical,
   Plus,
   Search,
-  Star,
   X,
 } from "lucide-react";
-import { priceText, type PickPrice } from "./playerMetrics";
+import { previewPicks } from "./pickAssets";
+import {
+  priceText,
+  defaultPrice,
+  priceDollars,
+  formatDollars,
+  type PickPrice,
+} from "./playerMetrics";
 import { PlayerBadges, PriceControls } from "./PlayerDossier";
+export { Draft } from "./DraftWorkspace";
 export { Trades } from "./TradeWorkspace";
 import { TransactionLedger } from "./TradeWorkspace";
 import { useDemo } from "./DemoState";
 import { demoLeague } from "./leagueFixture";
 import { slotEligibility } from "@/shared/team-profiles/strength";
 import { freeAgents, type Availability } from "./model";
-import {
-  Empty,
-  EventRow,
-  Portrait,
-  SectionLabel,
-  Tabs,
-  Pagination,
-} from "./UI";
+import { Empty, Portrait, SectionLabel, Tabs, Pagination } from "./UI";
 import s from "./Prototype.module.css";
-const pickAssets = [
-  "2027 · Round 1",
-  "2027 · Round 2",
-  "2027 · Round 3",
-  "2028 · Round 1",
-  "2028 · Round 2",
-  "2028 · Round 3",
-];
+const capital = previewPicks();
+const pickAssets = capital.map((p) => p.name);
 const followUps = {
   Thin: [
     {
@@ -72,7 +65,6 @@ export function Strategy() {
   const demo = useDemo();
   const [room, setRoom] = useState("QB");
   const [selected, setSelected] = useState("");
-  const [page, setPage] = useState(0);
   const [pickPrices, setPickPrices] = useState<Record<string, PickPrice>>({});
   const pickDialog = useRef<HTMLDialogElement>(null);
   const list = demo.players.filter((p) =>
@@ -80,8 +72,6 @@ export function Strategy() {
       ? ["WR", "TE"].includes(p.position)
       : p.position === room,
   );
-  const pageSize = 6;
-  const assetCount = room === "Draft Picks" ? pickAssets.length : list.length;
   const picks = room === "Draft Picks",
     need = demo.needs[room],
     current = demo.players.find((p) => p.id === selected);
@@ -154,7 +144,6 @@ export function Strategy() {
             r === "Quarterbacks" ? "QB" : r === "Running Backs" ? "RB" : r,
           );
           setSelected("");
-          setPage(0);
         }}
       />
       <div className={s.strategyGrid}>
@@ -164,79 +153,59 @@ export function Strategy() {
           </SectionLabel>
           <div className={s.strategyPlayers}>
             {picks
-              ? pickAssets
-                  .slice(page * pageSize, page * pageSize + pageSize)
-                  .map((pick, i) => (
-                    <button
-                      className={[
-                        s.assetRow,
-                        selected === pick ? s.assetSelected : "",
-                      ].join(" ")}
-                      key={pick}
-                      onClick={() => {
-                        setSelected(pick);
-                      }}
-                    >
-                      <span className={s.pickToken}>
-                        {((page * pageSize + i) % 3) + 1}
-                      </span>
-                      <span>
-                        <strong>{pick}</strong>
-                        <small>
-                          {demo.pickSettings[pick]?.availability ?? "Listening"}{" "}
-                          · Original pick
-                        </small>
-                      </span>
-                      <ChevronRight size={16} />
-                    </button>
-                  ))
-              : list
-                  .slice(page * pageSize, page * pageSize + pageSize)
-                  .map((p) => (
-                    <button
-                      className={[
-                        s.assetRow,
-                        selected === p.id ? s.assetSelected : "",
-                      ].join(" ")}
-                      key={p.id}
-                      onClick={() => {
-                        demo.openPlayer(p.id);
-                      }}
-                    >
-                      <Portrait id={p.id} name={p.name} />
-                      <span>
-                        <strong>{p.name}</strong>
-                        <small>
-                          {p.position} · {p.team} · {p.group}
-                        </small>
-                      </span>
-                      <PlayerBadges player={p} />
-                      <span
-                        className={s.assetAvailability}
-                        data-status={p.availability}
-                      >
-                        {p.availability}
-                      </span>
-                      <ChevronRight size={15} />
-                    </button>
-                  ))}
+              ? pickAssets.map((pick, i) => (
+                  <button
+                    className={[
+                      s.assetRow,
+                      selected === pick ? s.assetSelected : "",
+                    ].join(" ")}
+                    key={pick}
+                    onClick={() => {
+                      setSelected(pick);
+                    }}
+                  >
+                    <span className={s.pickToken}>{(i % 3) + 1}</span>
+                    <span>
+                      <strong>{pick}</strong>
+                      <small>
+                        {demo.pickSettings[pick]?.availability ?? "Listening"} ·{" "}
+                        {capital.find((p) => p.name === pick)?.meta}
+                      </small>
+                    </span>
+                    <ChevronRight size={16} />
+                  </button>
+                ))
+              : list.map((p) => (
+                  <button
+                    className={[s.assetRow, s.strategyAsset].join(" ")}
+                    key={p.id}
+                    onClick={() => {
+                      demo.openPlayer(p.id);
+                    }}
+                  >
+                    <Portrait id={p.id} name={p.name} />
+                    <span>
+                      <strong>{p.name}</strong>
+                      <small>
+                        {p.position} · {p.team}
+                      </small>
+                    </span>
+                    <PlayerBadges player={p} />
+                    <span className={s.assetValuation}>
+                      <strong>
+                        {formatDollars(
+                          priceDollars(
+                            demo.playerPrices[p.id] ?? defaultPrice(p),
+                          ),
+                        )}
+                      </strong>
+                      <small>{p.availability}</small>
+                    </span>
+                    <ChevronRight size={15} />
+                  </button>
+                ))}
           </div>
-          {assetCount > pageSize && (
-            <div className={s.pagination}>
-              <button disabled={page === 0} onClick={() => setPage(page - 1)}>
-                Previous
-              </button>
-              <span>
-                {page + 1} / {Math.ceil(assetCount / pageSize)}
-              </span>
-              <button
-                disabled={(page + 1) * pageSize >= assetCount}
-                onClick={() => setPage(page + 1)}
-              >
-                Next
-              </button>
-            </div>
-          )}
+
           <dialog
             aria-label="Draft pick settings"
             ref={pickDialog}
@@ -320,7 +289,7 @@ export function Strategy() {
             ))}
           </div>
           {options.length > 0 ? (
-            <>
+            <div className={s.needOptions}>
               <SectionLabel
                 title={
                   need.stance === "Thin"
@@ -354,7 +323,7 @@ export function Strategy() {
                   </span>
                 </button>
               ))}
-            </>
+            </div>
           ) : (
             <div className={s.setRoom}>
               <Check size={25} />
@@ -368,188 +337,6 @@ export function Strategy() {
   );
 }
 
-const prospects = [
-  {
-    name: "Malik Carter",
-    position: "WR",
-    school: "Coastal State",
-    tier: "Blue chip",
-  },
-  {
-    name: "Evan Brooks",
-    position: "RB",
-    school: "Western State",
-    tier: "Blue chip",
-  },
-  {
-    name: "Noah Reed",
-    position: "QB",
-    school: "Mountain Tech",
-    tier: "Round one",
-  },
-  {
-    name: "Roman Price",
-    position: "TE",
-    school: "Central University",
-    tier: "Round one",
-  },
-  {
-    name: "Darius Williams",
-    position: "WR",
-    school: "Southern State",
-    tier: "Round two",
-  },
-  {
-    name: "Miles Grant",
-    position: "RB",
-    school: "Eastern State",
-    tier: "Round two",
-  },
-];
-export function Draft({ task }: { task: string }) {
-  const [board, setBoard] = useState(prospects);
-  const [drag, setDrag] = useState("");
-  const [stars, setStars] = useState<string[]>([]);
-  const [tab, setTab] = useState("Big Board");
-  const [picks, setPicks] = useState<string[]>([]);
-  function reorder(from: string, to: string) {
-    const copy = [...board],
-      start = copy.findIndex((p) => p.name === from),
-      end = copy.findIndex((p) => p.name === to);
-    if (start < 0 || end < 0) return;
-    copy.splice(end, 0, ...copy.splice(start, 1));
-    setBoard(copy);
-  }
-  return (
-    <>
-      {task === "board" ? (
-        <>
-          <Tabs
-            label="Draft board view"
-            options={["Big Board", "Your Draft Picks"]}
-            value={tab}
-            onChange={setTab}
-          />
-          {tab === "Your Draft Picks" ? (
-            <div className={s.pickGrid}>
-              {pickAssets.map((p, i) => (
-                <div key={p} className={s.pickCard}>
-                  <span>{p.split(" · ")[0]}</span>
-                  <strong>ROUND {(i % 3) + 1}</strong>
-                  <small>Virginia Founders · Original pick</small>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <>
-              <div className={s.workspaceTools}>
-                <span className={s.subtle}>
-                  Drag to rank your board. Fictional rookie class.
-                </span>
-                <span>{stars.length} watchlisted</span>
-              </div>
-              <div className={s.prospectGrid}>
-                {board.map((p, i) => (
-                  <article
-                    className={s.prospect}
-                    key={p.name}
-                    draggable
-                    onDragStart={() => setDrag(p.name)}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={() => reorder(drag, p.name)}
-                  >
-                    <span className={s.prospectRank}>0{i + 1}</span>
-                    <button
-                      className={s.watchStar}
-                      aria-label={"Watch " + p.name}
-                      aria-pressed={stars.includes(p.name)}
-                      onClick={() =>
-                        setStars((old) =>
-                          old.includes(p.name)
-                            ? old.filter((x) => x !== p.name)
-                            : [...old, p.name],
-                        )
-                      }
-                    >
-                      <Star
-                        size={19}
-                        fill={stars.includes(p.name) ? "currentColor" : "none"}
-                      />
-                    </button>
-                    <div className={s.prospectArt}>
-                      <span>{p.position}</span>
-                    </div>
-                    <small>{p.tier}</small>
-                    <h3>{p.name}</h3>
-                    <p>{p.school}</p>
-                    <div className={s.rankButtons}>
-                      <button
-                        disabled={i === 0}
-                        aria-label={"Move " + p.name + " up"}
-                        onClick={() => reorder(p.name, board[i - 1].name)}
-                      >
-                        <ArrowUp size={15} />
-                      </button>
-                      <button
-                        disabled={i === board.length - 1}
-                        aria-label={"Move " + p.name + " down"}
-                        onClick={() => reorder(p.name, board[i + 1].name)}
-                      >
-                        <ArrowDown size={15} />
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            </>
-          )}
-        </>
-      ) : (
-        <>
-          <div className={s.workspaceTools}>
-            <span className={s.subtle}>MOCK DRAFT · YOUR PICKS</span>
-            <strong>
-              {picks.length} / {board.length}
-            </strong>
-          </div>
-          <div className={s.mockDraftGrid}>
-            <section>
-              {board
-                .filter((p) => !picks.includes(p.name))
-                .map((p) => (
-                  <button
-                    key={p.name}
-                    className={s.assetRow}
-                    onClick={() => setPicks([...picks, p.name])}
-                  >
-                    <span className={s.position}>{p.position}</span>
-                    <span>
-                      <strong>{p.name}</strong>
-                      <small>{p.school}</small>
-                    </span>
-                    <Plus size={17} />
-                  </button>
-                ))}
-            </section>
-            <section>
-              <SectionLabel title="Your draft class" />
-              {picks.map((name, i) => (
-                <EventRow
-                  key={name}
-                  title={name}
-                  detail={"Pick " + (i + 1) + " · sample selection"}
-                />
-              ))}
-              <button className={s.secondary} onClick={() => setPicks([])}>
-                Restart mock
-              </button>
-            </section>
-          </div>
-        </>
-      )}
-    </>
-  );
-}
 export function Waivers() {
   const demo = useDemo();
   const [position, setPosition] = useState("All");

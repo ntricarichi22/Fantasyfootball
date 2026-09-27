@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useDemo } from "./DemoState";
 import { Crest, Portrait, Tabs, Pagination, Empty } from "./UI";
+import { previewPicks } from "./pickAssets";
 import { teams, type Transaction } from "./model";
 import s from "./Prototype.module.css";
 type Asset = {
@@ -21,15 +22,7 @@ type Asset = {
   position: string;
   portrait?: string;
 };
-const picks = (prefix: string): Asset[] =>
-  [2027, 2028, 2029].flatMap((year) =>
-    [1, 2, 3].map((round) => ({
-      id: `${prefix}-${year}-${round}`,
-      name: `${year} Round ${round}`,
-      meta: "Original pick",
-      position: "Picks",
-    })),
-  );
+const picks = previewPicks;
 const partnerPlayers: Record<string, string[][]> = {
   Wingmen: [
     ["Lamar Jackson", "QB", "BAL"],
@@ -194,9 +187,11 @@ export function Trades({ task }: { task: string }) {
   const [note, setNote] = useState("");
   const [prompt, setPrompt] = useState("");
   const [submitted, setSubmitted] = useState("");
-  const [shop, setShop] = useState<string[]>([]);
+  const shop = demo.shopSelection,
+    setShop = demo.setShopSelection;
   const [shopPage, setShopPage] = useState(0);
-  const [offers, setOffers] = useState(false);
+  const offers = demo.shopOffers,
+    setOffers = demo.setShopOffers;
   const [offerIndex, setOfferIndex] = useState(0);
   const [saved, setSaved] = useState<string[]>([]);
   const own: Asset[] = [
@@ -216,11 +211,18 @@ export function Trades({ task }: { task: string }) {
     (a) =>
       (filter === "All" ||
         a.position === filter ||
-        (filter === "Pass Catchers" && ["WR", "TE"].includes(a.position))) &&
+        (filter === "PCs" && ["WR", "TE"].includes(a.position))) &&
       a.name.toLowerCase().includes(search.toLowerCase()),
   );
   const names = (ids: string[], source: Asset[]) =>
-    ids.map((id) => source.find((a) => a.id === id)?.name ?? id).join(" + ");
+    ids
+      .map((id) => {
+        const asset = source.find((a) => a.id === id);
+        return asset
+          ? asset.name + (asset.position === "Picks" ? " " + asset.meta : "")
+          : id;
+      })
+      .join(" + ");
   function toggle(id: string) {
     const update = browse === "Your roster" ? setSend : setReceive;
     update((old) =>
@@ -236,7 +238,7 @@ export function Trades({ task }: { task: string }) {
       note: note.trim(),
     });
     setSaved((old) => [...old, key]);
-    demo.notify("Saved to Active Negotiations · local sample");
+    demo.notify("Trade proposed · local sample only");
   }
   function choosePartner(name: string) {
     setPartner(name);
@@ -307,9 +309,9 @@ export function Trades({ task }: { task: string }) {
       offerIndex;
     const offered = shopping ? names(shop, own) : "James Cook";
     const returns = [
-      "2027 Round 1 + 2028 Round 2",
+      "2027 Rd 1 (own pick) + 2028 Rd 2 (own pick)",
       "Drake London",
-      "2027 Round 1 + 2027 Round 3",
+      "2027 Rd 1 (own pick) + 2027 Rd 3 (own pick)",
     ][offerIndex];
     return (
       <div className={s.offerCarousel} aria-label="Sample trade offers">
@@ -356,7 +358,7 @@ export function Trades({ task }: { task: string }) {
               )
             }
           >
-            {saved.includes(offerKey) ? "Saved" : "Save negotiation"}
+            {saved.includes(offerKey) ? "Proposed" : "Propose trade"}
             <Check size={16} />
           </button>
         </div>
@@ -469,7 +471,7 @@ export function Trades({ task }: { task: string }) {
               </div>
               <Tabs
                 label="Asset type"
-                options={["All", "QB", "RB", "Pass Catchers", "Picks"]}
+                options={["All", "QB", "RB", "PCs", "Picks"]}
                 value={filter}
                 onChange={setFilter}
               />
@@ -535,6 +537,10 @@ export function Trades({ task }: { task: string }) {
                 }
               }}
             >
+              <p id="trade-prompt-help" className={s.tradePromptHelp}>
+                Name a player or pick, or describe your goal: a young receiver,
+                more draft picks, or help at a position.
+              </p>
               <label htmlFor="trade-prompt">
                 What move do you have in mind?
               </label>
@@ -543,7 +549,8 @@ export function Trades({ task }: { task: string }) {
                   id="trade-prompt"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Find a young receiver for a future pick…"
+                  placeholder="e.g. Shop James Cook, move my 2027 1st, or find a young receiver…"
+                  aria-describedby="trade-prompt-help"
                 />
                 <button
                   className={s.primary}
@@ -563,27 +570,15 @@ export function Trades({ task }: { task: string }) {
       </div>
       <div hidden={task !== "shop"} className={s.shopWorkspace}>
         {offers ? (
-          <>
-            <div className={s.workspaceTools}>
-              <span>
-                Shopping {shop.length}{" "}
-                {shop.length === 1 ? "player" : "players"}
-              </span>
-              <button className={s.secondary} onClick={() => setOffers(false)}>
-                <ArrowLeft size={15} />
-                Edit block
-              </button>
-            </div>
-            {carousel(true)}
-          </>
+          <>{carousel(true)}</>
         ) : (
           <>
             <div className={s.workspaceTools}>
-              <span>Choose the players you want to shop.</span>
+              <span>Choose the players and picks you want to shop.</span>
               <b>{shop.length} selected</b>
             </div>
             <div className={s.shopGrid}>
-              {demo.players.slice(shopPage * 9, shopPage * 9 + 9).map((p) => (
+              {own.slice(shopPage * 9, shopPage * 9 + 9).map((p) => (
                 <button
                   className={s.shopPlayer}
                   key={p.id}
@@ -596,12 +591,14 @@ export function Trades({ task }: { task: string }) {
                     )
                   }
                 >
-                  <Portrait id={p.id} name={p.name} />
+                  {p.portrait ? (
+                    <Portrait id={p.portrait} name={p.name} />
+                  ) : (
+                    <span className={s.assetToken}>RD</span>
+                  )}
                   <span>
                     <strong>{p.name}</strong>
-                    <small>
-                      {p.position} · {p.team}
-                    </small>
+                    <small>{p.meta}</small>
                   </span>
                   <span className={s.checkBox}>
                     {shop.includes(p.id) && <Check size={13} />}
@@ -611,7 +608,7 @@ export function Trades({ task }: { task: string }) {
             </div>
             <Pagination
               page={shopPage}
-              total={demo.players.length}
+              total={own.length}
               size={9}
               onChange={setShopPage}
             />

@@ -143,7 +143,26 @@ function Headquarters() {
     setMenuOpen(false);
     updateHash(r, null);
   }
+  const shoppingResults =
+    feature === "trades" && task === "shop" && demo.shopOffers;
+  const shoppingPlayers = demo.shopSelection.filter(
+    (id) => !id.startsWith("own-"),
+  ).length;
+  const shoppingPicks = demo.shopSelection.length - shoppingPlayers;
+  const shoppingTitle =
+    "Shopping " +
+    [
+      shoppingPlayers &&
+        `${shoppingPlayers} Player${shoppingPlayers === 1 ? "" : "s"}`,
+      shoppingPicks && `${shoppingPicks} Pick${shoppingPicks === 1 ? "" : "s"}`,
+    ]
+      .filter(Boolean)
+      .join(" and ");
   function back() {
+    if (shoppingResults) {
+      demo.setShopOffers(false);
+      return;
+    }
     if (task && feature) {
       setTask("");
       updateHash(roleId, feature);
@@ -282,14 +301,9 @@ function Headquarters() {
               size={51}
             />
             <div>
-              <small>YOUR FRANCHISE</small>
               <h1>
                 {demo.identity.city} {demo.identity.name}
               </h1>
-              <p>
-                CFC <span>·</span> 12 teams <span>·</span> Dynasty{" "}
-                <span>·</span> Half PPR / SF
-              </p>
             </div>
           </div>
           <label className={s.calendar}>
@@ -328,10 +342,6 @@ function Headquarters() {
               </button>
             ))}
           </div>
-          <span className={s.navStatus}>
-            <i className={s.liveDot} />
-            YOUR FRANCHISE HQ
-          </span>
         </nav>
         <section
           id="role-content"
@@ -434,15 +444,35 @@ function Headquarters() {
                   className={s.backButton}
                   onClick={back}
                   aria-label={
-                    task
-                      ? "Back to " + option?.label
-                      : "Back to " + role.label + " menu"
+                    shoppingResults
+                      ? "Edit block"
+                      : task
+                        ? "Back to " + option?.label
+                        : "Back to " + role.label + " menu"
                   }
                 >
                   <ArrowLeft size={17} />
-                  <span>{task ? "Back to " + option?.label : role.label}</span>
+                  <span>
+                    {shoppingResults
+                      ? "Edit block"
+                      : task
+                        ? "Back to " + option?.label
+                        : role.label}
+                  </span>
                 </button>
-                <h2>{activeTask?.title ?? option?.label}</h2>
+                <h2>
+                  {shoppingResults
+                    ? shoppingTitle
+                    : (activeTask?.title ?? option?.label)}
+                </h2>
+                {feature === "matchup" && (
+                  <button
+                    className={s.scoreboardShortcut}
+                    onClick={() => navigate("scores")}
+                  >
+                    League scoreboard <ChevronRight size={16} />
+                  </button>
+                )}
                 <span className={s.headerMeta}>
                   {feature === "lineup"
                     ? demo.players.filter(
@@ -451,7 +481,7 @@ function Headquarters() {
                       " / " +
                       (lineupSlots.length + subLimit) +
                       " ACTIVE"
-                    : "CFC / " + demo.phase}
+                    : demo.phase}
                 </span>
               </header>
               <div className={s.workspaceBody}>
@@ -487,7 +517,12 @@ function Headquarters() {
         onCancel={() => demo.openPlayer(null)}
         onClose={() => demo.openPlayer(null)}
       >
-        {player && <PlayerDossier player={player} editable={roleId === "gm" && feature === "strategy"} />}
+        {player && (
+          <PlayerDossier
+            player={player}
+            editable={roleId === "gm" && feature === "strategy"}
+          />
+        )}
       </dialog>
     </main>
   );

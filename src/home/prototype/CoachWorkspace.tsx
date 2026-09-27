@@ -79,7 +79,8 @@ function FootballPlayer({
         <span>
           <strong>{player.name}</strong>
           <small>
-            <b>{player.position}</b> {player.team} · {player.opponent}
+            <b>{player.position}</b> {player.team} · {player.game}{" "}
+            {player.opponent.replace("vs ", "vs. ")}
           </small>
         </span>
       </span>
@@ -348,34 +349,82 @@ const opposingPlayers: Player[] = [
 }));
 function MatchIdentity({ p, now }: { p: Player; now: number }) {
   const game = sampleGame(p, now);
-  const stat = !game.started
-    ? p.points.toFixed(1) + " projected"
-    : p.position === "QB"
-      ? (game.final ? "286" : "124") +
-        " pass yds · " +
-        (game.final ? "2" : "1") +
-        " TD"
+  const stat =
+    p.position === "QB"
+      ? game.final
+        ? "286 pass yds · 2 TD"
+        : "124 pass yds · 1 TD"
       : p.position === "RB"
         ? game.final
-          ? "84 rush · 3 rec"
-          : "32 rush · 1 rec"
+          ? "84 rush yds · 3 rec"
+          : "32 rush yds · 1 rec"
         : game.final
           ? "6 rec · 81 yds"
           : "2 rec · 24 yds";
   return (
     <span className={s.matchIdentity}>
-      <strong>{p.name}</strong>
-      <small>
-        {p.team} {p.opponent}{" "}
-        <b data-live={game.started && !game.final}>{game.label}</b>
-      </small>
-      <small className={s.matchStat}>{stat}</small>
+      <span className={s.matchName}>
+        <strong>{p.name}</strong>
+        <small>
+          {p.position} · {p.team}
+        </small>
+      </span>
+      <span className={s.matchGame}>
+        <b data-live={game.started && !game.final}>
+          {game.label} {p.opponent.replace("vs ", "vs. ")}
+        </b>
+        {game.started && <small>{stat}</small>}
+      </span>
+    </span>
+  );
+}
+function ScoreMeter({
+  actual,
+  live,
+  baseline,
+  reference,
+}: {
+  actual: number;
+  live: number;
+  baseline: number;
+  reference: string;
+}) {
+  const ratio = baseline > 0 ? actual / baseline : 0;
+  return (
+    <span
+      className={s.scoreMeter}
+      title={
+        "Pregame projection: " +
+        baseline.toFixed(1) +
+        " · " +
+        Math.round(ratio * 100) +
+        "% reached"
+      }
+    >
+      <span className={s.scoreNumbers}>
+        <span>
+          <b>{actual.toFixed(1)}</b>
+          <small>ACTUAL</small>
+        </span>
+        <i>/</i>
+        <span>
+          <b>{(reference === "Pregame" ? baseline : live).toFixed(1)}</b>
+          <small>{reference === "Pregame" ? "PRE PROJ" : "LIVE PROJ"}</small>
+        </span>
+      </span>
+      <span className={s.scoreProgress}>
+        <i
+          style={{ width: Math.min(100, Math.max(0, ratio * 100)) + "%" }}
+          data-exceeded={ratio > 1}
+        />
+      </span>
     </span>
   );
 }
 export function Matchup({ onLineup }: { onLineup: () => void }) {
   const demo = useDemo(),
     [showScoring, setShowScoring] = useState(false);
+  const [projectionReference, setProjectionReference] = useState("Live");
   const plans = replacements(demo.players, sampleInjuries, demo.now);
   function score(p: Player) {
     const plan = plans.find((x) => x.starter.id === p.id);
@@ -421,7 +470,7 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
           name={demo.identity.name}
           size={58}
         />
-        <div>
+        <div className={s.matchTeamTitle}>
           <h3>
             {demo.identity.name} <small>(3–0)</small>
           </h3>
@@ -447,22 +496,21 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
         </div>
         <Crest crest="wingmen" name="Wingmen" size={58} />
       </div>
-      <div className={s.probabilityLabels}>
-        <b>{probability}%</b>
-        <span>WIN PROBABILITY · SAMPLE MODEL</span>
-        <b>{100 - probability}%</b>
-      </div>
       <div
-        className={s.scoreBar}
-        aria-label={
-          "Sample win probability: " +
-          demo.identity.name +
-          " " +
-          probability +
-          " percent"
-        }
+        className={s.probabilityTrack}
+        aria-label={"Sample win probability: " + probability + " percent"}
       >
-        <span style={{ width: probability + "%" }} />
+        <span
+          className={s.probabilityFill}
+          style={{ width: probability + "%" }}
+        />
+        <span
+          className={s.probabilityMarker}
+          style={{ left: probability + "%" }}
+          data-edge={probability > 72}
+        >
+          <b>{probability}%</b> Win Probability
+        </span>
       </div>
       <div className={s.matchupLineups}>
         {lineupSlots.map((slot, i) => {
@@ -514,32 +562,42 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
                   <strong>Open starting spot</strong>
                 )}
               </button>
-              <b className={s.matchPoints}>
-                {p ? score(p).points.toFixed(1) : "—"}
-                <small>
-                  {p
-                    ? (score(p).points + score(p).remaining).toFixed(1) +
-                      " PROJ"
-                    : ""}
-                </small>
-              </b>
+              {p ? (
+                <ScoreMeter
+                  reference={projectionReference}
+                  actual={score(p).points}
+                  live={score(p).points + score(p).remaining}
+                  baseline={p.points}
+                />
+              ) : (
+                <span>—</span>
+              )}
               <span className={s.matchupSlot}>{slot.label}</span>
-              <b className={s.matchPoints}>
-                {sampleGame(other, demo.now).points.toFixed(1)}
-                <small>
-                  {(
-                    sampleGame(other, demo.now).points +
-                    sampleGame(other, demo.now).remaining
-                  ).toFixed(1)}{" "}
-                  PROJ
-                </small>
-              </b>
+              <ScoreMeter
+                reference={projectionReference}
+                actual={sampleGame(other, demo.now).points}
+                live={
+                  sampleGame(other, demo.now).points +
+                  sampleGame(other, demo.now).remaining
+                }
+                baseline={other.points}
+              />
               <MatchIdentity p={other} now={demo.now} />
             </div>
           );
         })}
       </div>
       <div className={s.matchupFooter}>
+        <div className={s.projectionChoice}>
+          <span>Compare actual /</span>
+          <Tabs
+            label="Projection reference"
+            options={["Live", "Pregame"]}
+            value={projectionReference}
+            onChange={setProjectionReference}
+          />
+          <small>Bar tracks pregame target</small>
+        </div>
         {plans.length > 0 ? (
           <button
             onClick={() => setShowScoring(!showScoring)}

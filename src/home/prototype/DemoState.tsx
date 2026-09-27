@@ -13,7 +13,7 @@ import {
   type Transaction,
 } from "./model";
 import { movePlayer, swapRanks, rankByProjection } from "./coaching";
-import type { PickPrice } from './playerMetrics';
+import type { PickPrice } from "./playerMetrics";
 export type Claim = {
   id: string;
   playerId: string;
@@ -37,11 +37,15 @@ function useDemoState() {
     name: "Founders",
     crest: "founders",
   });
+  const [shopSelection, setShopSelection] = useState<string[]>([]);
+  const [shopOffers, setShopOffers] = useState(false);
   const [selectedPlayer, openPlayer] = useState<string | null>(null);
   const [toast, notify] = useState("");
   const [phase, setPhase] = useState("WEEK 4");
   const [now, setNow] = useState(-1);
-  const [playerPrices, setPlayerPrices] = useState<Record<string, PickPrice>>({});
+  const [playerPrices, setPlayerPrices] = useState<Record<string, PickPrice>>(
+    {},
+  );
   const [pickSettings, setPickSettings] = useState<
     Record<string, { availability: string; asking: string }>
   >({});
@@ -97,6 +101,10 @@ function useDemoState() {
     setNow(value);
   }
   return {
+    shopSelection,
+    setShopSelection,
+    shopOffers,
+    setShopOffers,
     players,
     setPlayers,
     transactions,

@@ -96,3 +96,12 @@ export const priceText = (p: PickPrice) =>
   ]
     .filter(Boolean)
     .join(" + ") || "Open to offers";
+
+// Review-only anchors from the existing Strategy editor. Live anchors remain disconnected.
+export { formatDollars } from "@/components/research-strategy/availabilityConfig";
+import {
+  composeFromPicks,
+  DEFAULT_PICK_ANCHORS,
+} from "@/components/research-strategy/availabilityConfig";
+export const priceDollars = (price: PickPrice) =>
+  composeFromPicks(price, DEFAULT_PICK_ANCHORS);
