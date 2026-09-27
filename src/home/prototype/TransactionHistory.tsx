@@ -1,8 +1,8 @@
 "use client";
-import { Minus, Plus } from "lucide-react";
+import { Minus, Plus, ArrowLeftRight } from "lucide-react";
 import { assetDisplayName, assetDetail } from "./pickAssets";
-import { Crest } from "./UI";
-import { teams, type Transaction, type TransactionAsset } from "./model";
+import { formatNumber } from "./formatting";
+import { type Transaction, type TransactionAsset } from "./model";
 import s from "./Prototype.module.css";
 
 function Assets({
@@ -41,7 +41,7 @@ export function TransactionHistory({ list }: { list: Transaction[] }) {
         <thead>
           <tr>
             <th>Date</th>
-            <th>Type / Partner</th>
+            <th>Transaction</th>
             <th>Add / Receive</th>
             <th>Drop / Send</th>
             <th>Salary cap</th>
@@ -66,7 +66,20 @@ export function TransactionHistory({ list }: { list: Transaction[] }) {
                     ["Rejected", "Withdrawn"].includes(t.status)
                   ? `${t.status === "Rejected" ? "Declined" : "Withdrawn"} by ${t.actor ?? t.partner ?? "you"}`
                   : t.status;
-            const team = teams.find((team) => team.name === t.partner);
+            const MoveIcon =
+              t.type === "Trade"
+                ? ArrowLeftRight
+                : t.type === "Drop"
+                  ? Minus
+                  : Plus;
+            const description =
+              t.type === "Trade" && t.partner
+                ? `Trade with ${t.partner}`
+                : t.type === "Waiver"
+                  ? "Waiver claim"
+                  : t.type === "Add"
+                    ? "Free agent add"
+                    : t.type;
             return (
               <tr key={t.id} className={s.historyRow}>
                 <td>
@@ -74,23 +87,10 @@ export function TransactionHistory({ list }: { list: Transaction[] }) {
                 </td>
                 <td>
                   <div className={s.historyType}>
-                    <span>
-                      <strong>
-                        {t.type === "Waiver" ? "Waiver claim" : t.type}
-                      </strong>
-                      {t.partner && (
-                        <small>
-                          {team && (
-                            <Crest
-                              name={team.name}
-                              crest={team.crest}
-                              size={20}
-                            />
-                          )}
-                          with {t.partner}
-                        </small>
-                      )}
+                    <span className={s.transactionIcon} aria-hidden="true">
+                      <MoveIcon size={16} />
                     </span>
+                    <strong>{description}</strong>
                   </div>
                 </td>
                 <td>
@@ -101,7 +101,7 @@ export function TransactionHistory({ list }: { list: Transaction[] }) {
                 </td>
                 <td>
                   <span className={s.historyAmount}>
-                    {t.bid !== undefined ? `$${t.bid}` : "—"}
+                    {t.bid !== undefined ? `$${formatNumber(t.bid)}` : "—"}
                     {t.bid !== undefined && (
                       <small>{success ? "spent" : "bid"}</small>
                     )}

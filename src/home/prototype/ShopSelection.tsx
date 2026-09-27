@@ -2,8 +2,9 @@
 import { useState, type CSSProperties } from "react";
 import { Check } from "lucide-react";
 import { useDemo } from "./DemoState";
-import { lineupSlots } from "./leagueFixture";
+import { lineupSlots, demoLeague } from "./leagueFixture";
 import { previewPicks, assetDisplayName } from "./pickAssets";
+import { PickCrest } from "./PickCrest";
 import { Portrait, SectionLabel, Tabs } from "./UI";
 import type { Player } from "./model";
 import s from "./Prototype.module.css";
@@ -44,7 +45,12 @@ export function ShopSelection() {
   return (
     <div
       className={s.shopSelection}
-      style={{ "--shop-slot-count": lineupSlots.length } as CSSProperties}
+      style={
+        {
+          "--shop-slot-count": lineupSlots.length,
+          "--reserve-count": demoLeague.practiceSquadLimit,
+        } as CSSProperties
+      }
     >
       <Tabs
         label="Shop asset group"
@@ -117,7 +123,7 @@ export function ShopSelection() {
                       aria-pressed={selected.includes(p.id)}
                       onClick={() => toggle(p.id)}
                     >
-                      <span className={s.assetToken}>RD {round}</span>
+                      <PickCrest asset={p} />
                       <span>
                         <strong>{assetDisplayName(p)}</strong>
                       </span>

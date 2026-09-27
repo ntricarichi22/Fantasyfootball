@@ -1,6 +1,7 @@
 "use client";
 import { X, ShieldCheck } from "lucide-react";
 import { useDemo } from "./DemoState";
+import { formatNumber } from "./formatting";
 import { Portrait } from "./UI";
 import {
   priceDollars,
@@ -85,7 +86,7 @@ export function PlayerDossier({
   const price = demo.playerPrices[player.id] ?? defaultPrice(player);
   const metric = (value: string | number, label: string) => (
     <div key={label}>
-      <strong>{value}</strong>
+      <strong>{formatNumber(value)}</strong>
       <small>{label}</small>
     </div>
   );
@@ -112,69 +113,71 @@ export function PlayerDossier({
           <PlayerBadges player={player} />
         </div>
       </div>
-      {editable && (
-        <div className={s.profileValuation} aria-live="polite">
-          <div>
-            <small>YOUR PRIVATE ASKING PRICE</small>
-            <strong>{formatDollars(priceDollars(price))}</strong>
+      <div className={s.dossierDashboard}>
+        <section className={s.dossierSection}>
+          <h3>
+            THIS SEASON <span>2026 · Half PPR</span>
+          </h3>
+          <div className={s.dossierMetrics}>
+            {metric(m.games ? m.seasonPoints : "—", "FANTASY POINTS")}
+            {metric(m.games ? m.average : "—", "POINTS / GAME")}
+            {metric(
+              m.games ? player.position + " " + m.seasonRank : "—",
+              "SEASON RANK",
+            )}
+            {metric(m.games, "GAMES")}
           </div>
-          <span>{player.availability}</span>
-        </div>
-      )}
-      <section className={s.dossierSection}>
-        <h3>
-          THIS SEASON <span>2026 · Half PPR</span>
-        </h3>
-        <div className={s.dossierMetrics}>
-          {metric(m.games ? m.seasonPoints : "—", "FANTASY POINTS")}
-          {metric(m.games ? m.average : "—", "POINTS / GAME")}
-          {metric(
-            m.games ? player.position + " " + m.seasonRank : "—",
-            "SEASON RANK",
-          )}
-          {metric(m.games, "GAMES")}
-        </div>
-        <p>
-          {m.games ? m.statLine : "No appearances this season"}
-          <span>
-            WK 4: {player.opponent} · {player.points.toFixed(1)} projected
-          </span>
-        </p>
-      </section>
-      <section className={s.dossierSection}>
-        <h3>
-          WITH THE {demo.identity.name.toUpperCase()}{" "}
-          <span>
-            Since {m.joined} · {m.acquisition}
-          </span>
-        </h3>
-        <div className={s.dossierMetrics}>
-          {metric(m.franchiseSeasons, "SEASONS ON TEAM")}
-          {metric(m.franchiseStarts, "STARTS")}
-          {metric(m.franchisePoints, "POINTS AS STARTER")}
-          {metric("#" + m.franchiseRank, "TEAM ALL-TIME · " + player.position)}
-        </div>
-      </section>
-      <section className={s.dossierSection}>
-        <h3>
-          CAREER <span>NFL fantasy production · Half PPR</span>
-        </h3>
-        <div className={s.careerStrip}>
-          <b>
-            {m.careerPoints} <small>CAREER POINTS</small>
-          </b>
-          <b>
-            #{m.careerRank}{" "}
-            <small>ALL-TIME {player.position} POINTS RANK</small>
-          </b>
-        </div>
-      </section>
+          <p>
+            {m.games ? m.statLine : "No appearances this season"}
+            <span>
+              WK 4: {player.opponent} · {player.points.toFixed(1)} projected
+            </span>
+          </p>
+        </section>
+        <section className={s.dossierSection}>
+          <h3>
+            WITH THE {demo.identity.name.toUpperCase()}{" "}
+            <span>
+              Since {m.joined} · {m.acquisition}
+            </span>
+          </h3>
+          <div className={s.dossierMetrics}>
+            {metric(m.franchiseSeasons, "SEASONS ON TEAM")}
+            {metric(m.franchiseStarts, "STARTS")}
+            {metric(m.franchisePoints, "POINTS AS STARTER")}
+            {metric(
+              "#" + m.franchiseRank,
+              "TEAM ALL-TIME · " + player.position,
+            )}
+          </div>
+        </section>
+        <section className={s.dossierSection}>
+          <h3>
+            CAREER <span>NFL fantasy production · Half PPR</span>
+          </h3>
+          <div className={s.careerStrip}>
+            <b>
+              {formatNumber(m.careerPoints)} <small>CAREER POINTS</small>
+            </b>
+            <b>
+              #{formatNumber(m.careerRank)}{" "}
+              <small>ALL-TIME {player.position} POINTS RANK</small>
+            </b>
+          </div>
+        </section>
+      </div>
       {editable && (
         <section className={s.privateStrategy}>
           <h3>
             <ShieldCheck size={16} /> YOUR PRIVATE VALUATION{" "}
             <small>Saved as you edit</small>
           </h3>
+          <div className={s.profileValuation} aria-live="polite">
+            <div>
+              <small>YOUR PRIVATE ASKING PRICE</small>
+              <strong>{formatDollars(priceDollars(price))}</strong>
+            </div>
+          </div>
           <div
             className={s.availabilityButtons}
             role="group"

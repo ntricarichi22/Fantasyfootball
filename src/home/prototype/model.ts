@@ -246,10 +246,7 @@ export const initialPlayers: Player[] = [
     ["aiyuk", "Brandon Aiyuk", "WR", "SF"],
     ["brooks", "Jonathon Brooks", "RB", "CAR"],
     ["watson", "Christian Watson", "WR", "GB"],
-    ["dell", "Tank Dell", "WR", "HOU"],
     ["mccarthy", "J.J. McCarthy", "QB", "MIN"],
-    ["miller", "Kendre Miller", "RB", "NO"],
-    ["musgrave", "Luke Musgrave", "TE", "GB"],
   ].map(([id, name, pos, team], i) => ({
     ...make(id, name, pos, team, 0, "IR", i),
     condition: "IR",
@@ -324,6 +321,7 @@ export const freeAgents = [
   },
 ].sort((a, b) => b.points - a.points);
 export type TransactionAsset = {
+  originTeam?: string;
   name: string;
   meta?: string;
   portrait?: string;

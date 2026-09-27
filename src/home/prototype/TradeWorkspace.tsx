@@ -13,6 +13,7 @@ import {
 import { useDemo } from "./DemoState";
 import { Crest, Portrait, Tabs, Empty } from "./UI";
 import { ShopSelection } from "./ShopSelection";
+import { PickCrest } from "./PickCrest";
 import { previewPicks, assetDisplayName, assetDetail } from "./pickAssets";
 import { teams, type Transaction, type TransactionAsset } from "./model";
 import s from "./Prototype.module.css";
@@ -22,6 +23,7 @@ type Asset = {
   meta: string;
   position: string;
   portrait?: string;
+  originTeam?: string;
 };
 const picks = previewPicks;
 const partnerPlayers: Record<string, string[][]> = {
@@ -294,9 +296,7 @@ export function Trades({ task }: { task: string }) {
                 {a.portrait ? (
                   <Portrait id={a.portrait} name={a.name} />
                 ) : (
-                  <span className={s.assetToken}>
-                    {a.position === "Picks" ? "RD" : a.position}
-                  </span>
+                  <PickCrest asset={a} owner={outgoing ? "own" : partner} />
                 )}
                 <span>
                   <strong>{assetDisplayName(a)}</strong>
@@ -368,7 +368,7 @@ export function Trades({ task }: { task: string }) {
           {assets.map((a) => (
             <div className={s.offerAsset} key={a.id}>
               {a.position === "Picks" ? (
-                <span className={s.assetToken}>RD</span>
+                <PickCrest asset={a} />
               ) : (
                 <Portrait id={a.portrait ?? "rookie-" + a.id} name={a.name} />
               )}
@@ -439,16 +439,16 @@ export function Trades({ task }: { task: string }) {
     );
   }
   if (task === "negotiations" && negotiation && !countering) {
-    const assetRows = (assets: TransactionAsset[]) => (
+    const assetRows = (assets: TransactionAsset[], owner: string) => (
       <div className={s.dealAssets}>
         {assets.map((a, i) => (
           <div key={a.name + i}>
             {a.portrait ? (
               <Portrait id={a.portrait} name={a.name} />
+            ) : a.name.includes("Rd ") ? (
+              <PickCrest asset={a} owner={owner} />
             ) : (
-              <span className={s.assetToken}>
-                {a.name.includes("Rd ") ? "RD" : ""}
-              </span>
+              <span className={s.assetToken} />
             )}
             <span>
               <strong>{assetDisplayName(a)}</strong>
@@ -474,14 +474,17 @@ export function Trades({ task }: { task: string }) {
                   crest={demo.identity.crest}
                 />
               </header>
-              {assetRows(negotiation.sent ?? [])}
+              {assetRows(negotiation.sent ?? [], "own")}
             </section>
             <section>
               <header>
                 <small>YOU RECEIVE</small>
                 <TeamName name={negotiation.partner ?? "Trade partner"} />
               </header>
-              {assetRows(negotiation.received ?? [])}
+              {assetRows(
+                negotiation.received ?? [],
+                negotiation.partner ?? "Trade partner",
+              )}
             </section>
           </div>
           <footer className={s.negotiationActions}>
@@ -651,9 +654,10 @@ export function Trades({ task }: { task: string }) {
                       {a.portrait ? (
                         <Portrait id={a.portrait} name={a.name} />
                       ) : (
-                        <span className={s.assetToken}>
-                          {a.position === "Picks" ? "RD" : a.position}
-                        </span>
+                        <PickCrest
+                          asset={a}
+                          owner={browse === "Your roster" ? "own" : partner}
+                        />
                       )}
                       <span>
                         <strong>{assetDisplayName(a)}</strong>

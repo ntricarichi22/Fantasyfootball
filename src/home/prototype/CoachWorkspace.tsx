@@ -213,7 +213,12 @@ export function Lineup() {
       </div>
       <div
         className={s.lineupGrid}
-        style={{ "--roster-count": lineupSlots.length } as React.CSSProperties}
+        style={
+          {
+            "--roster-count": lineupSlots.length,
+            "--reserve-count": demoLeague.practiceSquadLimit,
+          } as React.CSSProperties
+        }
       >
         <section
           className={s.lineupColumn}

@@ -9,6 +9,7 @@ import {
   Search,
   X,
 } from "lucide-react";
+import { PickCrest } from "./PickCrest";
 import { previewPicks, assetDisplayName } from "./pickAssets";
 import {
   priceText,
@@ -152,7 +153,7 @@ export function Strategy() {
           </SectionLabel>
           <div className={s.strategyPlayers}>
             {picks
-              ? pickAssets.map((pick, i) => (
+              ? pickAssets.map((pick) => (
                   <button
                     className={[
                       s.assetRow,
@@ -163,7 +164,7 @@ export function Strategy() {
                       setSelected(pick);
                     }}
                   >
-                    <span className={s.pickToken}>{(i % 3) + 1}</span>
+                    <PickCrest asset={capital.find((p) => p.name === pick)!} />
                     <span>
                       <strong>
                         {assetDisplayName(

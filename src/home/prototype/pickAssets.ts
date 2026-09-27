@@ -10,6 +10,7 @@ export function previewPicks(owner = "own") {
         name: formatPickLabel({ season, round }),
         meta: via ? `(via ${via})` : "",
         position: "Picks",
+        originTeam: via ?? owner,
         season,
         round,
       };

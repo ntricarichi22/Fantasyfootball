@@ -54,13 +54,13 @@ test("slots are derived from configuration and share canonical flexibility", () 
   assert.equal(lineupSlots.length, 9);
   assert.equal(subLimit, 9);
 });
-test("fixture covers nine starters, nine Subs, two Practice Squad and seven IR", () => {
+test("fixture covers nine starters, nine Subs, two Practice Squad and four IR", () => {
   const players = roster();
   assert.deepEqual(
     ["Starters", "Subs", "Practice Squad", "IR"].map(
       (g) => players.filter((p) => p.group === g).length,
     ),
-    [9, 9, 2, 7],
+    [9, 9, 2, 4],
   );
   assert.ok(
     players
@@ -189,7 +189,7 @@ test("full reserve groups reject additions instead of silently dropping players"
   assert.ok(movePlayer(roster(), "allen", "Subs", -1).error);
   assert.ok(movePlayer(roster(), "flowers", "Practice Squad", -1).error);
   assert.ok(movePlayer(roster(), "allen", "IR", -1).error);
-  assert.equal(roster().length, 27);
+  assert.equal(roster().length, 24);
 });
 
 test('click targets enforce eligibility and exact kickoff rank locks', () => {

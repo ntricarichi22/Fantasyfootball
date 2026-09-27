@@ -5600,3 +5600,107 @@
 /* Data rows keep their green; only the pending-claim control uses bronze. */
 .strategyGrid .assetRow:hover,.strategyGrid .assetRow.assetSelected { background:rgb(36 78 63 / 75%)!important; }
 .historyType small { margin-top:3px; }.historyType small img { width:16px;height:16px; }
+
+
+/* Review v11: valuation first, aligned reserves, and concise transaction records. */
+.dialog:has(.dossierDashboard) { width:780px;padding:18px 22px; }
+.dialog .profileHero { margin:10px 0 12px;gap:14px; }
+.dialog .profileHero .portrait { width:58px;height:65px; }
+.dialog .profileHero h2 { font-size:32px;margin:3px 0 6px; }
+.dossierDashboard { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 18px; }
+.dossierDashboard .dossierSection { padding:8px 0;min-width:0; }
+.dossierDashboard .dossierSection:last-child { grid-column:1/-1; }
+.dossierDashboard .dossierSection h3 { margin-bottom:8px;font-size:15px;gap:5px; }
+.dossierDashboard .dossierSection h3 span { font-size:8px; }
+.dossierDashboard .dossierMetrics { gap:6px; }
+.dossierDashboard .dossierMetrics > div { padding:0 6px;border-left-color:var(--accent); }
+.dossierDashboard .dossierMetrics strong { font-size:25px; }
+.dossierDashboard .dossierMetrics small { font-size:6px;margin-top:4px;line-height:1.3; }
+.dossierDashboard .dossierSection p { margin-top:8px;font-size:8px;flex-wrap:wrap;gap:4px; }
+.dossierDashboard .careerStrip { gap:24px; }
+.dossierDashboard .careerStrip b { font-size:22px; }
+.privateStrategy { padding:16px 18px;border-color:var(--accent);background:transparent;margin-top:8px; }
+.privateStrategy h3 { font-size:22px;margin-bottom:8px; }
+.privateStrategy h3 small { font-size:10px; }
+.privateStrategy .profileValuation { background:none;border:0;padding:0;margin:0 0 12px; }
+.privateStrategy .profileValuation small { font-size:9px; }
+.privateStrategy .profileValuation strong { font-size:42px;line-height:1.1; }
+.availabilityButtons button { font:600 21px/1.1 'Barlow Condensed',sans-serif;padding:10px 7px;min-height:42px; }
+.priceHeading { align-items:center;font:600 22px/1.2 'Barlow Condensed',sans-serif;margin:16px 0 10px; }
+.priceHeading span { font-size:19px; }
+.priceCounters > div { min-height:66px;padding:10px;gap:8px; }
+.priceCounters > div > span { font:600 21px/1 'Barlow Condensed',sans-serif;color:var(--white); }
+.priceCounters > div > div { gap:8px; }
+.priceCounters button { width:32px;height:32px;padding:0;font-size:23px;line-height:1; }
+.priceCounters output { min-width:26px;font-size:34px;line-height:1; }
+.pickCrest { display:flex;align-items:center;justify-content:center;width:30px;height:30px;flex-shrink:0; }
+.pickCrest img { width:100%;height:100%;object-fit:contain; }
+.offerAsset .pickCrest { width:43px;height:43px; }
+.historyTable th { text-align:center; }
+.historyTable td { text-align:left;padding:8px 10px; }
+.historyType { display:flex;align-items:center;gap:9px; }
+.transactionIcon { width:30px;height:30px;flex-shrink:0;border:1px solid #b9c5c470;border-radius:50%;display:grid;place-items:center;color:var(--white); }
+.transactionIcon svg { width:16px;height:16px; }
+.historyAssets > div { justify-content:flex-start;gap:6px; }
+.historyAssets > div > span { display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;text-align:left; }
+.historyAssets strong { display:inline; }
+.historyAssets small { display:inline;margin:0;white-space:nowrap; }
+.historyTable th:nth-child(2) { width:22%; }
+.historyTable th:nth-child(3),.historyTable th:nth-child(4) { width:22%; }
+.historyTable th:nth-child(5) { width:9%; }.historyTable th:nth-child(6) { width:17%; }
+@media(min-width:761px) {
+  .lineupGrid,.shopRosterGrid { container-type:size;--roster-gap:4px;--roster-heading:32px;--roster-row:calc((100cqh - var(--roster-heading) - var(--roster-count) * var(--roster-gap)) / var(--roster-count)); }
+  .shopRosterGrid { --roster-count:var(--shop-slot-count);--roster-heading:27px; }
+  .lineupColumn { display:grid;grid-template-rows:var(--roster-heading) repeat(var(--roster-count),minmax(0,1fr));gap:var(--roster-gap); }
+  .lineupView .lineupColumn > .sectionLabel,.lineupView .irSection > .sectionLabel { height:var(--roster-heading);min-height:0;margin:0; }
+  .lineupView .starterSlot,.lineupView .subDrop { min-height:0; }
+  .lineupGrid .reserveColumn,.shopRosterGrid .shopReserveColumn { display:grid;grid-template-rows:var(--roster-heading) repeat(var(--roster-count),minmax(0,1fr));gap:var(--roster-gap); }
+  .lineupGrid .irSection,.shopReserveColumn > section:first-child { grid-row:1 / calc(var(--roster-count) - var(--reserve-count) + 1);display:grid;grid-template-rows:var(--roster-heading) minmax(0,1fr);gap:var(--roster-gap); }
+  .lineupGrid .practiceSection,.shopReserveColumn > section:last-child { grid-row:calc(var(--roster-count) - var(--reserve-count) + 1) / -1;display:grid;grid-template-rows:repeat(calc(var(--reserve-count) + 1),minmax(0,1fr));gap:var(--roster-gap);margin:0; }
+  .lineupGrid .practiceSection > .sectionLabel,.shopReserveColumn > section:last-child > .sectionLabel { margin:0;min-height:0;height:auto;align-self:center; }
+  .lineupGrid .practiceSection > div:not(.sectionLabel) { height:auto;min-height:0;max-height:none; }
+  .lineupView .irPlayers { gap:var(--roster-gap);min-height:0;overflow-y:auto; }
+  .lineupView .irPlayers .footballPlayer { flex:0 0 var(--roster-row);height:var(--roster-row);min-height:var(--roster-row);max-height:none; }
+  .shopRosterGrid > section { display:grid;grid-template-rows:var(--roster-heading) minmax(0,1fr);gap:var(--roster-gap); }
+  .shopRosterGrid .sectionLabel { height:var(--roster-heading);min-height:0;margin:0; }
+  .shopRosterGrid > section > .shopRosterRows { display:grid;grid-template-rows:repeat(var(--roster-count),minmax(0,1fr));gap:var(--roster-gap); }
+  .shopReserveColumn .shopRosterRows { gap:var(--roster-gap);overflow-y:auto; }
+  .shopReserveColumn > section:first-child .shopRosterEntry { flex:0 0 var(--roster-row);height:var(--roster-row);min-height:var(--roster-row); }
+  .shopReserveColumn > section:last-child .shopRosterRows { grid-row:2/-1;display:grid;grid-template-rows:repeat(var(--reserve-count),minmax(0,1fr)); }
+  .shopReserveColumn .shopRosterPlayer { min-height:0;height:100%;padding:3px 7px; }
+  .shopReserveColumn .shopRosterPlayer strong { font-size:19px;line-height:1.05; }
+  .shopReserveColumn .shopRosterPlayer small { font-size:9px;line-height:normal;margin-top:3px; }
+  .shopReserveColumn .shopRosterPlayer .portrait { width:28px;height:30px; }
+  .shopPickGrid .sectionLabel { margin-bottom:4px; }
+}
+@media(min-width:761px) and (max-width:1350px) {
+  .shopReserveColumn .shopRosterPlayer strong { font-size:17px; }
+  .shopReserveColumn .shopRosterPlayer .portrait { width:23px;height:27px; }
+  .historyType { gap:6px; }.transactionIcon { width:26px;height:26px; }
+  .historyAssets > div > span { gap:5px; }.historyAssets small { font-size:8px; }
+}
+@media(min-width:761px) and (max-height:810px) {
+  .lineupGrid { --roster-heading:28px; }
+  .shopRosterGrid { --roster-heading:22px;--roster-gap:3px; }
+  .shopReserveColumn .shopRosterPlayer strong { font-size:16px; }
+  .shopReserveColumn .shopRosterPlayer small { font-size:8px;margin-top:2px; }
+  .shopReserveColumn .shopRosterPlayer .portrait { width:22px;height:24px; }
+  .shopPickGrid .sectionLabel { margin-bottom:3px; }
+  .privateStrategy { padding:12px 16px;margin-top:5px; }
+  .privateStrategy h3 { margin-bottom:5px; }.privateStrategy .profileValuation { margin-bottom:8px; }
+  .privateStrategy .profileValuation strong { font-size:36px; }
+  .priceHeading { margin-top:11px; }.priceCounters > div { min-height:60px; }
+}
+@media(max-width:760px) {
+  .dialog:has(.dossierDashboard) { width:calc(100% - 24px);padding:15px; }
+  .dossierDashboard { grid-template-columns:minmax(0,1fr);gap:0; }
+  .dossierDashboard .dossierMetrics small { font-size:7px; }
+  .privateStrategy { padding:12px 10px; }.privateStrategy h3 { flex-wrap:wrap;font-size:21px; }
+  .privateStrategy h3 small { font-size:9px; }
+  .availabilityButtons button { font-size:20px; }
+  .priceHeading { font-size:21px;gap:6px; }.priceHeading span { font-size:17px; }
+  .priceCounters > div { padding:8px 4px;gap:9px; }
+  .priceCounters > div > span { font-size:20px; }.priceCounters > div > div { gap:4px; }
+  .priceCounters button { width:24px;height:28px;font-size:21px; }.priceCounters output { min-width:23px;font-size:30px; }
+  .offerAsset .pickCrest { width:25px;height:30px; }
+}

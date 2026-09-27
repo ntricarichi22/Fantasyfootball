@@ -42,7 +42,7 @@ const taskOptions: Partial<Record<FeatureId, Tile[]>> = {
     },
     {
       id: "negotiations",
-      title: "Active Negotiations",
+      title: "Negotiations",
       text: "Your offers, counters, and conversations. All in one place.",
       image: "studio-owner",
       tag: "KEEP TALKS MOVING",
