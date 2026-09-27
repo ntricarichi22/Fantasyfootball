@@ -13,7 +13,7 @@ import {
 import { useDemo } from "./DemoState";
 import { Crest, Portrait, Tabs, Empty } from "./UI";
 import { ShopSelection } from "./ShopSelection";
-import { previewPicks } from "./pickAssets";
+import { previewPicks, assetDisplayName, assetDetail } from "./pickAssets";
 import { teams, type Transaction, type TransactionAsset } from "./model";
 import s from "./Prototype.module.css";
 type Asset = {
@@ -299,8 +299,8 @@ export function Trades({ task }: { task: string }) {
                   </span>
                 )}
                 <span>
-                  <strong>{a.name}</strong>
-                  <small>{a.meta}</small>
+                  <strong>{assetDisplayName(a)}</strong>
+                  <small>{assetDetail(a)}</small>
                 </span>
                 <button
                   aria-label={"Remove " + a.name}
@@ -373,8 +373,8 @@ export function Trades({ task }: { task: string }) {
                 <Portrait id={a.portrait ?? "rookie-" + a.id} name={a.name} />
               )}
               <span>
-                <strong>{a.name}</strong>
-                {a.meta && <small>{a.meta}</small>}
+                <strong>{assetDisplayName(a)}</strong>
+                {assetDetail(a) && <small>{assetDetail(a)}</small>}
               </span>
             </div>
           ))}
@@ -451,8 +451,8 @@ export function Trades({ task }: { task: string }) {
               </span>
             )}
             <span>
-              <strong>{a.name}</strong>
-              {a.meta && <small>{a.meta}</small>}
+              <strong>{assetDisplayName(a)}</strong>
+              {assetDetail(a) && <small>{assetDetail(a)}</small>}
             </span>
           </div>
         ))}
@@ -599,7 +599,7 @@ export function Trades({ task }: { task: string }) {
                 >
                   {task === "negotiations" && countering
                     ? "Send counteroffer"
-                    : "Save offer"}
+                    : "Send it"}
                   <Send size={16} />
                 </button>
               </footer>
@@ -656,8 +656,8 @@ export function Trades({ task }: { task: string }) {
                         </span>
                       )}
                       <span>
-                        <strong>{a.name}</strong>
-                        <small>{a.meta}</small>
+                        <strong>{assetDisplayName(a)}</strong>
+                        <small>{assetDetail(a)}</small>
                       </span>
                       <span className={s.checkBox}>
                         {selection.includes(a.id) ? (

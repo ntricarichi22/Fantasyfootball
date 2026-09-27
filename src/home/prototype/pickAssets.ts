@@ -16,3 +16,14 @@ export function previewPicks(owner = "own") {
     }),
   );
 }
+
+// Keep IDs and canonical names stable for trade matching. Provenance is part
+// of the visible pick identity everywhere, never secondary metadata.
+export function assetDisplayName(asset: { name: string; meta?: string }) {
+  return asset.meta?.startsWith("(via ")
+    ? `${asset.name} ${asset.meta}`
+    : asset.name;
+}
+export function assetDetail(asset: { meta?: string }) {
+  return asset.meta?.startsWith("(via ") ? "" : asset.meta;
+}

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useDemo } from "./DemoState";
 import { Crest, Tabs } from "./UI";
+import { lineupSlots } from "./leagueFixture";
 import { teams } from "./model";
 import s from "./Prototype.module.css";
 
@@ -271,32 +272,56 @@ export function Draft({ task }: { task: string }) {
                 </div>
               </>
             ) : poolTab === "Your Roster" ? (
-              <div className={s.mockPoolScroll}>
-                <h4>YOUR DRAFT CLASS</h4>
-                {mine.length ? (
-                  mine.map((p) => (
-                    <div className={s.mockPlayerRow} key={p.id}>
-                      <span>
-                        <b>{p.name}</b>
-                        <small>
-                          {p.position} · {p.school}
-                        </small>
-                      </span>
-                      <b>#{board.indexOf(p) + 1}</b>
+              <div className={s.mockRosterPanel}>
+                <section className={s.mockDraftClass}>
+                  <h4>YOUR DRAFT CLASS</h4>
+                  <div>
+                    {mine.length ? (
+                      mine.map((p) => (
+                        <div key={p.id}>
+                          <b>{p.name}</b>
+                          <small>
+                            {p.position} · #{board.indexOf(p) + 1}
+                          </small>
+                        </div>
+                      ))
+                    ) : (
+                      <p>Your selections will appear here.</p>
+                    )}
+                  </div>
+                </section>
+                <div className={s.mockRosterColumns}>
+                  <section>
+                    <h4>STARTERS</h4>
+                    <div className={s.mockRosterList}>
+                      {lineupSlots.map((slot) => {
+                        const p = demo.players.find(
+                          (p) => p.group === "Starters" && p.slot === slot.id,
+                        );
+                        return (
+                          <div className={s.mockRosterRow} key={slot.id}>
+                            <span>{slot.label}</span>
+                            <b>{p?.name ?? "Open spot"}</b>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ))
-                ) : (
-                  <p>Your selections will appear here.</p>
-                )}
-                <h4>CURRENT ROSTER</h4>
-                {demo.players
-                  .filter((p) => p.group === "Starters")
-                  .map((p) => (
-                    <div className={s.mockRosterRow} key={p.id}>
-                      <span>{p.position}</span>
-                      <b>{p.name}</b>
+                  </section>
+                  <section>
+                    <h4>SUBS</h4>
+                    <div className={s.mockRosterList}>
+                      {demo.players
+                        .filter((p) => p.group === "Subs")
+                        .sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0))
+                        .map((p) => (
+                          <div className={s.mockRosterRow} key={p.id}>
+                            <span>{p.position}</span>
+                            <b>{p.name}</b>
+                          </div>
+                        ))}
                     </div>
-                  ))}
+                  </section>
+                </div>
               </div>
             ) : (
               <aside className={s.mockDirector}>

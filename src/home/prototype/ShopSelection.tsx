@@ -1,9 +1,9 @@
 "use client";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { Check } from "lucide-react";
 import { useDemo } from "./DemoState";
 import { lineupSlots } from "./leagueFixture";
-import { previewPicks } from "./pickAssets";
+import { previewPicks, assetDisplayName } from "./pickAssets";
 import { Portrait, SectionLabel, Tabs } from "./UI";
 import type { Player } from "./model";
 import s from "./Prototype.module.css";
@@ -42,7 +42,10 @@ export function ShopSelection() {
     );
   }
   return (
-    <div className={s.shopSelection}>
+    <div
+      className={s.shopSelection}
+      style={{ "--shop-slot-count": lineupSlots.length } as CSSProperties}
+    >
       <Tabs
         label="Shop asset group"
         options={["Players", "Picks"]}
@@ -103,26 +106,27 @@ export function ShopSelection() {
               <SectionLabel
                 title={`${round}${round === 1 ? "st" : round === 2 ? "nd" : "rd"} round`}
               />
-              {picks
-                .filter((p) => p.round === round)
-                .sort((a, b) => a.season - b.season)
-                .map((p) => (
-                  <button
-                    key={p.id}
-                    className={s.shopPickRow}
-                    aria-pressed={selected.includes(p.id)}
-                    onClick={() => toggle(p.id)}
-                  >
-                    <span className={s.assetToken}>RD {round}</span>
-                    <span>
-                      <strong>{p.name}</strong>
-                      {p.meta && <small>{p.meta}</small>}
-                    </span>
-                    <span className={s.checkBox}>
-                      {selected.includes(p.id) && <Check size={13} />}
-                    </span>
-                  </button>
-                ))}
+              <div className={s.shopPickRows}>
+                {picks
+                  .filter((p) => p.round === round)
+                  .sort((a, b) => a.season - b.season)
+                  .map((p) => (
+                    <button
+                      key={p.id}
+                      className={s.shopPickRow}
+                      aria-pressed={selected.includes(p.id)}
+                      onClick={() => toggle(p.id)}
+                    >
+                      <span className={s.assetToken}>RD {round}</span>
+                      <span>
+                        <strong>{assetDisplayName(p)}</strong>
+                      </span>
+                      <span className={s.checkBox}>
+                        {selected.includes(p.id) && <Check size={13} />}
+                      </span>
+                    </button>
+                  ))}
+              </div>
             </section>
           ))}
         </div>

@@ -9,7 +9,7 @@ import {
   Search,
   X,
 } from "lucide-react";
-import { previewPicks } from "./pickAssets";
+import { previewPicks, assetDisplayName } from "./pickAssets";
 import {
   priceText,
   defaultPrice,
@@ -165,10 +165,13 @@ export function Strategy() {
                   >
                     <span className={s.pickToken}>{(i % 3) + 1}</span>
                     <span>
-                      <strong>{pick}</strong>
+                      <strong>
+                        {assetDisplayName(
+                          capital.find((p) => p.name === pick)!,
+                        )}
+                      </strong>
                       <small>
-                        {demo.pickSettings[pick]?.availability ?? "Listening"} ·{" "}
-                        {capital.find((p) => p.name === pick)?.meta}
+                        {demo.pickSettings[pick]?.availability ?? "Listening"}
                       </small>
                     </span>
                     <ChevronRight size={16} />
@@ -223,7 +226,9 @@ export function Strategy() {
                     <X size={18} />
                   </button>
                 </header>
-                <h2 className={s.pickModalTitle}>{selected}</h2>
+                <h2 className={s.pickModalTitle}>
+                  {assetDisplayName(capital.find((p) => p.name === selected)!)}
+                </h2>
                 <label className={s.field}>
                   Availability
                   <select

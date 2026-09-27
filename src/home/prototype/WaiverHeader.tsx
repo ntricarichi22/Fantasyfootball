@@ -29,12 +29,14 @@ export function WaiverHeader() {
         </span>
         <small>Sample clock</small>
       </span>
-      <span className={s.waiverHeaderCap}>
+      <span
+        className={s.waiverHeaderCap}
+        aria-label={`Salary cap remaining: $${demoLeague.salaryCapRemaining} of $${demoLeague.salaryCap}`}
+      >
         <strong>
           ${demoLeague.salaryCapRemaining}
           <span> / ${demoLeague.salaryCap}</span>
         </strong>
-        <small>Salary cap remaining</small>
       </span>
     </>
   );

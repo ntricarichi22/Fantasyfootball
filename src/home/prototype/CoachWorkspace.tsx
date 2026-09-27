@@ -115,7 +115,6 @@ export function Lineup() {
   const active = demo.players.find((p) => p.id === (dragging || moving));
   const ir = demo.players.filter((p) => p.group === "IR"),
     ps = demo.players.filter((p) => p.group === "Practice Squad");
-  const plans = replacements(demo.players, sampleInjuries, demo.now);
   const legal = (destination: string) =>
     !!active &&
     !movePlayer(demo.players, active.id, destination, demo.now).error &&
@@ -311,21 +310,6 @@ export function Lineup() {
           </div>
         </section>
       </div>
-      {plans.length > 0 && (
-        <div className={s.substitutionStrip}>
-          {plans.map((plan) => (
-            <span key={plan.starter.id}>
-              <b>{plan.starter.name.split(" ").at(-1)}</b>
-              <ArrowRight size={13} />
-              {plan.backup?.name ?? "No eligible Sub"}
-              <small>
-                {plan.provisional ? "Provisional" : "Locked"} ·{" "}
-                {plan.injury.clock}
-              </small>
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
@@ -654,7 +638,10 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
               <span className={s.matchupSlot}>{slot.label}</span>
               <div className={[s.matchHalf, s.opponentHalf].join(" ")}>
                 <div className={s.matchMain}>
-                  <MatchIdentity p={other} now={demo.now} />
+                  <div className={s.matchPlayer}>
+                    <Portrait id={other.id} name={other.name} />
+                    <MatchIdentity p={other} now={demo.now} />
+                  </div>
                   <MatchScore
                     actual={otherScore.points}
                     live={otherScore.points + otherScore.remaining}

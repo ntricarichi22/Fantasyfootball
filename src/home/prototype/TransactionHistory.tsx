@@ -1,5 +1,6 @@
 "use client";
 import { Minus, Plus } from "lucide-react";
+import { assetDisplayName, assetDetail } from "./pickAssets";
 import { Crest } from "./UI";
 import { teams, type Transaction, type TransactionAsset } from "./model";
 import s from "./Prototype.module.css";
@@ -22,8 +23,8 @@ function Assets({
               aria-label={outgoing ? "Drop or send" : "Add or receive"}
             />
             <span>
-              <strong>{a.name}</strong>
-              {a.meta && <small>{a.meta}</small>}
+              <strong>{assetDisplayName(a)}</strong>
+              {assetDetail(a) && <small>{assetDetail(a)}</small>}
             </span>
           </div>
         ))
