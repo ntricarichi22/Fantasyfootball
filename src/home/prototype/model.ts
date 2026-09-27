@@ -1,91 +1,488 @@
-import { Activity, ArrowLeftRight, BookOpen, CalendarDays, ClipboardList, GitBranch, History, Landmark, Palette, Shield, SlidersHorizontal, Trophy, Users, Wallet, type LucideIcon } from "lucide-react";
-
+import {
+  Activity,
+  ArrowLeftRight,
+  BookOpen,
+  CalendarDays,
+  ClipboardList,
+  History,
+  Landmark,
+  Palette,
+  Shield,
+  SlidersHorizontal,
+  Trophy,
+  Users,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
+import { lineupSlots, demoLeague } from "./leagueFixture";
 export type RoleId = "coach" | "gm" | "owner" | "league";
-export type FeatureId = "matchup" | "roster" | "depth" | "strategy" | "trades" | "draft" | "waivers" | "transactions" | "rules" | "meetings" | "identity" | "standings" | "scores" | "activity" | "history";
-export type Role = { id: RoleId; label: string; short: string; headline: string; description: string; image: string; options: { id: FeatureId; label: string; description: string; icon: LucideIcon }[] };
+export type FeatureId =
+  | "matchup"
+  | "lineup"
+  | "strategy"
+  | "trades"
+  | "draft"
+  | "waivers"
+  | "transactions"
+  | "rules"
+  | "meetings"
+  | "identity"
+  | "standings"
+  | "scores"
+  | "activity"
+  | "history";
+export type Role = {
+  id: RoleId;
+  label: string;
+  headline: string;
+  description: string;
+  image: string;
+  options: {
+    id: FeatureId;
+    label: string;
+    description: string;
+    icon: LucideIcon;
+  }[];
+};
 export const roles: Role[] = [
-  { id: "coach", label: "Coach", short: "Coach", headline: "Your lineup.\nYour call.", description: "Make every starting spot count.", image: "sideline-v3", options: [
-    { id: "matchup", label: "Matchup", description: "Your opponent. Your path to a win.", icon: Shield },
-    { id: "roster", label: "Roster", description: "Starters, bench, practice squad & IR.", icon: Users },
-    { id: "depth", label: "Depth Chart", description: "Know who’s next in line.", icon: GitBranch },
-  ]},
-  { id: "gm", label: "GM", short: "GM", headline: "Build for now.\nAnd what’s next.", description: "Turn your vision into a contender.", image: "studio-gm", options: [
-    { id: "strategy", label: "Strategy", description: "Set your direction and player values.", icon: SlidersHorizontal },
-    { id: "trades", label: "Trades", description: "Build offers. Find your next deal.", icon: ArrowLeftRight },
-    { id: "draft", label: "Draft", description: "Scout prospects and manage your picks.", icon: ClipboardList },
-    { id: "waivers", label: "Waivers", description: "Find available players and place claims.", icon: Wallet },
-    { id: "transactions", label: "Transactions", description: "Active moves and your team’s history.", icon: Activity },
-  ]},
-  { id: "owner", label: "Owner", short: "Owner", headline: "Your franchise.\nYour legacy.", description: "Shape the team. Shape the league.", image: "studio-owner", options: [
-    { id: "rules", label: "League Rules", description: "The rulebook and proposed changes.", icon: BookOpen },
-    { id: "meetings", label: "Owners Meetings", description: "Upcoming agendas and past decisions.", icon: Landmark },
-    { id: "identity", label: "Team Identity", description: "Your name, crest and home city.", icon: Palette },
-  ]},
-  { id: "league", label: "Around the League", short: "League", headline: "Every matchup.\nEvery storyline.", description: "Keep your eyes on the competition.", image: "league-v3", options: [
-    { id: "standings", label: "Standings", description: "Track the race to the playoffs.", icon: Trophy },
-    { id: "scores", label: "Scores", description: "The schedule, matchups and box scores.", icon: CalendarDays },
-    { id: "activity", label: "League Activity", description: "Follow moves across all twelve teams.", icon: Activity },
-    { id: "history", label: "League History", description: "Seasons, champions and rivalries.", icon: History },
-  ]},
+  {
+    id: "coach",
+    label: "Coach",
+    headline: "EVERY SPOT.\nEVERY POINT.",
+    description: "Set your starters. Trust your next man up.",
+    image: "sideline-v3",
+    options: [
+      {
+        id: "matchup",
+        label: "Matchup",
+        description: "Your opponent. Your path to a win.",
+        icon: Shield,
+      },
+      {
+        id: "lineup",
+        label: "Lineup",
+        description: "Set your starters. Rank your subs.",
+        icon: Users,
+      },
+    ],
+  },
+  {
+    id: "gm",
+    label: "GM",
+    headline: "BUILD YOUR\nADVANTAGE.",
+    description: "The next great move is yours.",
+    image: "studio-gm",
+    options: [
+      {
+        id: "strategy",
+        label: "Strategy",
+        description: "Know your rooms. Set your priorities.",
+        icon: SlidersHorizontal,
+      },
+      {
+        id: "trades",
+        label: "Trades",
+        description: "Find the deal that changes your season.",
+        icon: ArrowLeftRight,
+      },
+      {
+        id: "draft",
+        label: "Draft",
+        description: "Find the next face of your franchise.",
+        icon: ClipboardList,
+      },
+      {
+        id: "waivers",
+        label: "Waivers",
+        description: "Find your edge in the available talent.",
+        icon: Wallet,
+      },
+      {
+        id: "transactions",
+        label: "Transaction History",
+        description: "Every move. The complete record.",
+        icon: History,
+      },
+    ],
+  },
+  {
+    id: "owner",
+    label: "Owner",
+    headline: "YOUR LEAGUE.\nYOUR LEGACY.",
+    description: "Make your mark on more than the scoreboard.",
+    image: "studio-owner",
+    options: [
+      {
+        id: "rules",
+        label: "League Rules",
+        description: "The playbook for how we compete.",
+        icon: BookOpen,
+      },
+      {
+        id: "meetings",
+        label: "Owners Meetings",
+        description: "A seat at the table. A voice in the league.",
+        icon: Landmark,
+      },
+      {
+        id: "identity",
+        label: "Team Identity",
+        description: "Your city. Your colors. Your franchise.",
+        icon: Palette,
+      },
+    ],
+  },
+  {
+    id: "league",
+    label: "League",
+    headline: "THE WHOLE\nLEAGUE. LIVE.",
+    description: "Every matchup has a story.",
+    image: "league-v4",
+    options: [
+      {
+        id: "standings",
+        label: "Standings",
+        description: "The division race and playoff picture.",
+        icon: Trophy,
+      },
+      {
+        id: "scores",
+        label: "Scores",
+        description: "This week, next week, every box score.",
+        icon: CalendarDays,
+      },
+      {
+        id: "activity",
+        label: "League Activity",
+        description: "Follow the moves around the league.",
+        icon: Activity,
+      },
+      {
+        id: "history",
+        label: "League History",
+        description: "The champions. The moments. The legacy.",
+        icon: History,
+      },
+    ],
+  },
 ];
-export const defaults: Record<RoleId, FeatureId> = { coach: "matchup", gm: "strategy", owner: "rules", league: "scores" };
-export const slots = ["QB", "RB1", "RB2", "WR1", "WR2", "TE", "FLEX", "SF"];
-export type Group = "Starters" | "Bench" | "Practice Squad" | "IR";
-export type Availability = "Untouchable" | "Core piece" | "Listening" | "Moveable";
-export type Player = { id: string; name: string; position: string; group: Group; slot?: string; points: number; condition?: string; bye: number; availability: Availability; asking: string };
-const player = (id: string, name: string, position: string, group: Group, points: number, bye: number, slot?: string, condition?: string): Player => ({ id, name, position, group, points, bye, slot, condition, availability: id === "allen" ? "Untouchable" : ["bijan", "jefferson"].includes(id) ? "Core piece" : "Listening", asking: "2027 1st + 2027 2nd" });
-// All identities, statuses, projections, budgets and events below are illustrative, not live football data.
+export type Group = "Starters" | "Subs" | "IR" | "Practice Squad";
+export type Availability =
+  | "Untouchable"
+  | "Core piece"
+  | "Listening"
+  | "Moveable";
+export type Player = {
+  id: string;
+  name: string;
+  position: string;
+  team: string;
+  opponent: string;
+  kickoff: number;
+  game: string;
+  age: number;
+  points: number;
+  group: Group;
+  slot?: string;
+  rank?: number;
+  condition?: string;
+  bye: number;
+  availability: Availability;
+  asking: string;
+};
+const make = (
+  id: string,
+  name: string,
+  position: string,
+  team: string,
+  points: number,
+  group: Group,
+  i: number,
+): Player => ({
+  id,
+  name,
+  position,
+  team,
+  points,
+  group,
+  opponent: ["@ BAL", "vs NYJ", "@ DET", "vs PHI", "@ DAL"][i % 5],
+  kickoff: i % 3 === 0 ? 40 : i % 3 === 1 ? 44 : 68,
+  game: i % 3 === 0 ? "SUN 1:00" : i % 3 === 1 ? "SUN 4:05" : "MON 8:15",
+  age: 22 + (i % 8),
+  bye: 6 + (i % 8),
+  availability: i === 0 ? "Untouchable" : "Listening",
+  asking: "2027 1st-round pick",
+});
+// All schedule, status, projections and events are illustrative.
+const starters = [
+  make("allen", "Josh Allen", "QB", "BUF", 24.6, "Starters", 0),
+  make("love", "Jordan Love", "QB", "GB", 20.1, "Starters", 1),
+  make("bijan", "Bijan Robinson", "RB", "ATL", 18.2, "Starters", 2),
+  make("jefferson", "Justin Jefferson", "WR", "MIN", 19.4, "Starters", 3),
+  make("olave", "Chris Olave", "WR", "NO", 12.7, "Starters", 4),
+  make("hall", "Breece Hall", "RB", "NYJ", 16.1, "Starters", 5),
+  make("cook", "James Cook", "RB", "BUF", 14.5, "Starters", 6),
+  make("mcbride", "Trey McBride", "TE", "ARI", 13.1, "Starters", 7),
+  make("metcalf", "DK Metcalf", "WR", "PIT", 13.8, "Starters", 8),
+].map((p, i) => ({ ...p, slot: lineupSlots[i]?.id }));
+starters[2] = { ...starters[2], kickoff: 0, game: "THU 8:15" };
+starters[5] = { ...starters[5], kickoff: 48, game: "SUN 8:20" };
+const bench = [
+  make("purdy", "Brock Purdy", "QB", "SF", 19.1, "Subs", 0),
+  make("lawrence", "Trevor Lawrence", "QB", "JAX", 17.4, "Subs", 1),
+  make("flowers", "Zay Flowers", "WR", "BAL", 12.3, "Subs", 2),
+  make("reed", "Jayden Reed", "WR", "GB", 11.7, "Subs", 3),
+  make("robinson", "Brian Robinson", "RB", "SF", 10.9, "Subs", 4),
+  make("kincaid", "Dalton Kincaid", "TE", "BUF", 9.2, "Subs", 5),
+  make("downs", "Josh Downs", "WR", "IND", 9.1, "Subs", 6),
+  make("bigsby", "Tank Bigsby", "RB", "PHI", 7.8, "Subs", 7),
+  make("johnson", "Juwan Johnson", "TE", "NO", 6.2, "Subs", 8),
+]
+  .sort((a, b) => b.points - a.points)
+  .map((p, i) => ({ ...p, rank: i + 1 }));
 export const initialPlayers: Player[] = [
-  player("allen", "Josh Allen", "QB", "Starters", 24.6, 8, "QB"),
-  player("bijan", "Bijan Robinson", "RB", "Starters", 18.2, 12, "RB1", "Questionable"),
-  player("hall", "Breece Hall", "RB", "Starters", 16.1, 9, "RB2"),
-  player("jefferson", "Justin Jefferson", "WR", "Starters", 19.4, 6, "WR1"),
-  player("olave", "Chris Olave", "WR", "Starters", 0, 4, "WR2", "Bye"),
-  player("mcbride", "Trey McBride", "TE", "Starters", 13.1, 11, "TE"),
-  player("love", "Jordan Love", "QB", "Starters", 20.1, 10, "SF"),
-  player("cook", "James Cook", "RB", "Bench", 14.5, 8),
-  player("metcalf", "DK Metcalf", "WR", "Bench", 13.8, 7),
-  player("flowers", "Zay Flowers", "WR", "Bench", 12.3, 14),
-  player("reed", "Jayden Reed", "WR", "Bench", 11.7, 10),
-  player("robinson", "Brian Robinson", "RB", "Bench", 10.9, 13),
-  player("purdy", "Brock Purdy", "QB", "Bench", 19.1, 9),
-  player("kincaid", "Dalton Kincaid", "TE", "Bench", 9.2, 8),
-  player("bigsby", "Tank Bigsby", "RB", "Bench", 7.8, 8),
-  player("downs", "Josh Downs", "WR", "Bench", 9.1, 11),
-  player("shaheed", "Rashid Shaheed", "WR", "Bench", 8.9, 4),
-  player("charbonnet", "Zach Charbonnet", "RB", "Bench", 8.5, 7),
-  player("lawrence", "Trevor Lawrence", "QB", "Bench", 17.4, 8),
-  player("doubs", "Romeo Doubs", "WR", "Bench", 8.1, 10),
-  player("johnson", "Juwan Johnson", "TE", "Bench", 6.2, 4),
-  player("judkins", "Quinshon Judkins", "RB", "Practice Squad", 7.1, 9),
-  player("mcmillan", "Tetairoa McMillan", "WR", "Practice Squad", 9.4, 14),
-  player("loveland", "Colston Loveland", "TE", "Practice Squad", 5.6, 5),
-  player("aiyuk", "Brandon Aiyuk", "WR", "IR", 0, 9, undefined, "IR"),
-  player("brooks", "Jonathon Brooks", "RB", "IR", 0, 14, undefined, "IR"),
+  ...starters,
+  ...bench,
+  make("judkins", "Quinshon Judkins", "RB", "CLE", 7.1, "Practice Squad", 0),
+  make("mcmillan", "Tetairoa McMillan", "WR", "CAR", 9.4, "Practice Squad", 1),
+  ...[
+    ["aiyuk", "Brandon Aiyuk", "WR", "SF"],
+    ["brooks", "Jonathon Brooks", "RB", "CAR"],
+    ["watson", "Christian Watson", "WR", "GB"],
+    ["dell", "Tank Dell", "WR", "HOU"],
+    ["mccarthy", "J.J. McCarthy", "QB", "MIN"],
+    ["miller", "Kendre Miller", "RB", "NO"],
+    ["musgrave", "Luke Musgrave", "TE", "GB"],
+  ].map(([id, name, pos, team], i) => ({
+    ...make(id, name, pos, team, 0, "IR", i),
+    condition: "IR",
+  })),
 ];
 export const freeAgents = [
-  { id: "mooney", name: "Darnell Mooney", position: "WR", points: 10.4, trend: "+18%", note: "A FLEX option for this week" },
-  { id: "allgeier", name: "Tyler Allgeier", position: "RB", points: 7.8, trend: "+9%", note: "Depth behind your starting back" },
-  { id: "otton", name: "Cade Otton", position: "TE", points: 8.3, trend: "+12%", note: "Coverage for a future bye week" },
-  { id: "geno", name: "Geno Smith", position: "QB", points: 16.7, trend: "+6%", note: "Superflex insurance" },
-];
-export type Transaction = { id: string; title: string; detail: string; type: "Trade" | "Waiver" | "Add / drop"; status: "Pending" | "Completed" | "Declined" | "Withdrawn"; date: string; bid?: number };
+  {
+    id: "mooney",
+    name: "Darnell Mooney",
+    position: "WR",
+    team: "ATL",
+    points: 10.4,
+    age: 28,
+    average: 9.8,
+    seasonRank: 42,
+    rookie: false,
+  },
+  {
+    id: "geno",
+    name: "Geno Smith",
+    position: "QB",
+    team: "LV",
+    points: 16.7,
+    age: 35,
+    average: 17.1,
+    seasonRank: 21,
+    rookie: false,
+  },
+  {
+    id: "otton",
+    name: "Cade Otton",
+    position: "TE",
+    team: "TB",
+    points: 8.3,
+    age: 27,
+    average: 7.6,
+    seasonRank: 16,
+    rookie: false,
+  },
+  {
+    id: "allgeier",
+    name: "Tyler Allgeier",
+    position: "RB",
+    team: "ATL",
+    points: 7.8,
+    age: 26,
+    average: 6.4,
+    seasonRank: 48,
+    rookie: false,
+  },
+  {
+    id: "rookie-wr",
+    name: "Malik Carter",
+    position: "WR",
+    team: "R",
+    points: 6.3,
+    age: 21,
+    average: 5.2,
+    seasonRank: 64,
+    rookie: true,
+  },
+  {
+    id: "rookie-rb",
+    name: "Evan Brooks",
+    position: "RB",
+    team: "R",
+    points: 5.8,
+    age: 22,
+    average: 4.9,
+    seasonRank: 57,
+    rookie: true,
+  },
+].sort((a, b) => b.points - a.points);
+export type Transaction = {
+  id: string;
+  title: string;
+  detail: string;
+  type: "Trade" | "Waiver";
+  status:
+    | "Pending"
+    | "Accepted"
+    | "Rejected"
+    | "Withdrawn"
+    | "Successful"
+    | "Lost";
+  date: string;
+  note?: string;
+  bid?: number;
+};
 export const initialTransactions: Transaction[] = [
-  { id: "trade-in", title: "Offer from the Wingmen", detail: "James Cook for a 2027 1st · awaiting your response", type: "Trade", status: "Pending", date: "Today" },
-  { id: "past-waiver", title: "Added Josh Downs", detail: "$7 salary cap used · dropped a bench WR", type: "Waiver", status: "Completed", date: "Sep 23" },
-  { id: "past-trade", title: "Trade with the Browns", detail: "Acquired a 2027 2nd for a 2028 2nd + 3rd", type: "Trade", status: "Completed", date: "Sep 18" },
+  {
+    id: "trade-in",
+    title: "Offer from the Wingmen",
+    detail: "James Cook for a 2027 1st · awaiting your response",
+    type: "Trade",
+    status: "Pending",
+    date: "Today",
+  },
+  {
+    id: "past-waiver",
+    title: "Added Josh Downs",
+    detail: "$7 salary cap used · dropped a reserve receiver",
+    type: "Waiver",
+    status: "Successful",
+    date: "Sep 23",
+  },
+  {
+    id: "past-trade",
+    title: "Trade with the Browns",
+    detail: "Acquired a 2027 2nd for a 2028 2nd + 3rd",
+    type: "Trade",
+    status: "Accepted",
+    date: "Sep 18",
+  },
+  {
+    id: "rejected",
+    title: "Offer to the Destroyers",
+    detail: "2027 2nd for a young receiver",
+    type: "Trade",
+    status: "Rejected",
+    date: "Sep 16",
+  },
+  {
+    id: "lost",
+    title: "Claim for a running back",
+    detail: "$5 bid · another team won the claim",
+    type: "Waiver",
+    status: "Lost",
+    date: "Sep 16",
+  },
+  {
+    id: "withdrawn",
+    title: "Offer to the Browns",
+    detail: "Withdrew a pick swap before acceptance",
+    type: "Trade",
+    status: "Withdrawn",
+    date: "Sep 14",
+  },
 ];
 export const teams = [
-  { name: "Founders", crest: "founders", record: "3–0", points: "392.4", streak: "W3" },
-  { name: "Browns", crest: "browns", record: "2–1", points: "376.8", streak: "W2" },
-  { name: "Wingmen", crest: "wingmen", record: "2–1", points: "361.2", streak: "W1" },
-  { name: "Destroyers", crest: "destroyers", record: "2–1", points: "344.7", streak: "W1" },
-  ...["Outlaws", "Wolves", "Kings", "Renegades", "Grizzlies", "Thunder", "Knights", "Titans"].map((name, i) => ({ name, crest: "", record: i < 2 ? "2–1" : i < 7 ? "1–2" : "0–3", points: (331.4 - i * 11.7).toFixed(1), streak: "L1" })),
+  {
+    name: "Founders",
+    crest: "founders",
+    record: "3–0",
+    points: 392.4,
+    division: "East",
+  },
+  {
+    name: "Browns",
+    crest: "browns",
+    record: "2–1",
+    points: 376.8,
+    division: "West",
+  },
+  {
+    name: "Wingmen",
+    crest: "wingmen",
+    record: "2–1",
+    points: 361.2,
+    division: "East",
+  },
+  {
+    name: "Destroyers",
+    crest: "destroyers",
+    record: "2–1",
+    points: 344.7,
+    division: "West",
+  },
+  ...[
+    "Outlaws",
+    "Wolves",
+    "Kings",
+    "Renegades",
+    "Grizzlies",
+    "Thunder",
+    "Knights",
+    "Titans",
+  ].map((name, i) => ({
+    name,
+    crest: [
+      "rawdoggers",
+      "freaks",
+      "kush",
+      "onslaught",
+      "crossfitters",
+      "buschmasters",
+      "birdmen",
+      "matzos-balls",
+    ][i],
+    record: i < 2 ? "2–1" : i < 7 ? "1–2" : "0–3",
+    points: 331.4 - i * 11.7,
+    division: i % 2 ? "West" : "East",
+  })),
 ];
 export const initialRules = [
-  { title: "Roster & starting lineup", text: "25-player roster limit. Start 1 QB, 2 RB, 2 WR, 1 TE, 1 FLEX and 1 superflex. This sample league supports 3 practice-squad and 2 IR designations within the roster limit." },
-  { title: "Scoring", text: "Half PPR: 0.5 points per reception, 1 point per 10 rushing or receiving yards, and 6 per rushing or receiving touchdown. Passing: 1 per 25 yards, 4 per touchdown, −2 per interception." },
-  { title: "Salary cap & waivers", text: "$100 annual salary cap for player claims. Waivers process Wednesday at 8 PM ET in this sample calendar. Pending bids do not reduce the displayed remaining cap until a claim completes." },
-  { title: "Trading & draft picks", text: "Players and future rookie picks may be traded. Accepted trades must leave both teams with legal rosters. This preview never submits or executes a real trade." },
+  {
+    id: "rosters",
+    title: "Rosters & eligibility",
+    description: "The places on your team.",
+    text:
+      "Start " +
+      lineupSlots.map((s) => s.label).join(", ") +
+      ". Nine Subs, " +
+      demoLeague.practiceSquadLimit +
+      " Practice Squad spots and unlimited IR spots. Reserve players must be promoted before they can substitute.",
+  },
+  {
+    id: "scoring",
+    title: "Scoring",
+    description: "Every yard. Every point.",
+    text: "Sample half-PPR: 0.5 per reception, 1 per 10 rushing/receiving yards, 6 per rushing/receiving TD. Passing: 1 per 25 yards, 4 per TD, −2 per interception. Substitution scenarios illustrate proposed game-clock scoring, not live results.",
+  },
+  {
+    id: "deadlines",
+    title: "Deadlines & waivers",
+    description: "Stay one move ahead.",
+    text: "Sample salary cap: $100. Waivers process Wednesday at 8 PM ET. Each player's roster assignment and exact substitution rank lock only at their own kickoff. Pending claims do not spend cap.",
+  },
+  {
+    id: "tiebreakers",
+    title: "Playoffs & tiebreakers",
+    description: "How the race is decided.",
+    text: "Six teams qualify. The top two seeds receive a first-round bye in a three-week playoff. Mock seeding uses record, then points for; live seeding must follow the adopted constitution.",
+  },
+  {
+    id: "trading",
+    title: "Trades & draft picks",
+    description: "Build across generations.",
+    text: "Trade players and future rookie picks. Both rosters must remain legal. Owner-set values and strategy are private. The preview does not execute transactions.",
+  },
 ];
-export const featureRole = (feature: FeatureId) => roles.find((r) => r.options.some((o) => o.id === feature))!.id;
+export const featureRole = (id: FeatureId): RoleId =>
+  roles.find((r) => r.options.some((o) => o.id === id))!.id;
