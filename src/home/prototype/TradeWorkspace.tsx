@@ -11,7 +11,8 @@ import {
   X,
 } from "lucide-react";
 import { useDemo } from "./DemoState";
-import { Crest, Portrait, Tabs, Pagination, Empty } from "./UI";
+import { Crest, Portrait, Tabs, Empty } from "./UI";
+import { ShopSelection } from "./ShopSelection";
 import { previewPicks } from "./pickAssets";
 import { teams, type Transaction, type TransactionAsset } from "./model";
 import s from "./Prototype.module.css";
@@ -78,12 +79,11 @@ function TeamName({ name, crest }: { name: string; crest?: string }) {
 }
 export function TransactionLedger({
   list,
-  actions,
+  onOpen,
 }: {
   list: Transaction[];
-  actions?: boolean;
+  onOpen: (id: string) => void;
 }) {
-  const demo = useDemo();
   return (
     <div className={s.transactionLedger}>
       <div className={s.ledgerHeader}>
@@ -92,96 +92,31 @@ export function TransactionLedger({
         <span>AMOUNT</span>
         <span>DATE</span>
       </div>
-      {list.map((t) => {
-        const status =
-          t.type === "Waiver"
-            ? ((
-                {
-                  Successful: "Won",
-                  Lost: "Outbid",
-                  Withdrawn: "Cancelled",
-                } as Record<string, string>
-              )[t.status] ?? t.status)
-            : t.status === "Rejected"
-              ? "Declined"
-              : t.status;
-        const success = ["Accepted", "Successful"].includes(t.status);
-        const team = teams.find((team) => t.title.includes(team.name));
-        return (
-          <article className={s.ledgerRow} key={t.id}>
-            <div className={s.ledgerDescription}>
-              {team ? (
-                <Crest name={team.name} crest={team.crest} size={30} />
-              ) : (
-                <ArrowLeftRight size={20} />
-              )}
-              <div>
-                <strong>{t.title}</strong>
-                <small>{t.detail}</small>
-                {t.note && <p>{t.note}</p>}
-                {!success && t.status !== "Pending" && (
-                  <em>No roster change</em>
-                )}
-              </div>
-            </div>
-            <span
-              className={s.transactionStatus}
-              data-result={
-                success
-                  ? "success"
-                  : t.status === "Pending"
-                    ? "pending"
-                    : "closed"
-              }
-            >
-              {status}
+      {list.map((t) => (
+        <button
+          className={s.ledgerRow}
+          key={t.id}
+          onClick={() => onOpen(t.id)}
+          aria-label={"Open " + t.title}
+        >
+          <span className={s.ledgerDescription}>
+            <Crest
+              name={t.partner ?? "Trade partner"}
+              crest={teams.find((team) => team.name === t.partner)?.crest}
+              size={30}
+            />
+            <span>
+              <strong>{t.title}</strong>
+              <small>{t.detail}</small>
             </span>
-            <span className={s.ledgerAmount}>
-              {t.bid !== undefined ? "$" + t.bid : "—"}
-              {t.bid !== undefined && (
-                <small>{success ? "SPENT" : "BID"}</small>
-              )}
-            </span>
-            <time>{t.date}</time>
-            {actions && (
-              <div className={s.ledgerActions}>
-                {(["Accepted", "Rejected", "Withdrawn"] as const)
-                  .filter((status) =>
-                    t.direction === "sent"
-                      ? status === "Withdrawn"
-                      : status !== "Withdrawn",
-                  )
-                  .map((status) => (
-                    <button
-                      key={status}
-                      onClick={() =>
-                        demo.setTransactions((old) =>
-                          old.map((x) =>
-                            x.id === t.id
-                              ? {
-                                  ...x,
-                                  status,
-                                  actor: "you",
-                                  date: "Just now",
-                                  resolvedAt: Date.now(),
-                                }
-                              : x,
-                          ),
-                        )
-                      }
-                    >
-                      {status === "Accepted"
-                        ? "Accept"
-                        : status === "Rejected"
-                          ? "Decline"
-                          : "Withdraw"}
-                    </button>
-                  ))}
-              </div>
-            )}
-          </article>
-        );
-      })}
+          </span>
+          <span className={s.transactionStatus} data-result="pending">
+            Pending
+          </span>
+          <span className={s.ledgerAmount}>—</span>
+          <time>{t.date}</time>
+        </button>
+      ))}
     </div>
   );
 }
@@ -198,9 +133,9 @@ export function Trades({ task }: { task: string }) {
   const [note, setNote] = useState("");
   const [prompt, setPrompt] = useState("");
   const [submitted, setSubmitted] = useState("");
-  const shop = demo.shopSelection,
-    setShop = demo.setShopSelection;
-  const [shopPage, setShopPage] = useState(0);
+  const shop = demo.shopSelection;
+  const [negotiationId, setNegotiationId] = useState("");
+  const [countering, setCountering] = useState(false);
   const offers = demo.shopOffers,
     setOffers = demo.setShopOffers;
   const [offerIndex, setOfferIndex] = useState(0);
@@ -215,6 +150,9 @@ export function Trades({ task }: { task: string }) {
     })),
     ...picks("own"),
   ];
+  const negotiation = demo.transactions.find(
+    (t) => t.id === negotiationId && t.status === "Pending",
+  );
   const other = rosterFor(partner);
   const items = browse === "Your roster" ? own : other;
   const selection = browse === "Your roster" ? send : receive;
@@ -264,6 +202,78 @@ export function Trades({ task }: { task: string }) {
     });
     setSaved((old) => [...old, key]);
     demo.notify("Trade proposed · local sample only");
+  }
+  function resolveNegotiation(status: "Accepted" | "Rejected" | "Withdrawn") {
+    demo.setTransactions((old) =>
+      old.map((t) =>
+        t.id === negotiationId
+          ? {
+              ...t,
+              status,
+              actor: "you",
+              date: "Just now",
+              resolvedAt: Date.now(),
+            }
+          : t,
+      ),
+    );
+    setNegotiationId("");
+    setCountering(false);
+  }
+  function counterOffer() {
+    if (!negotiation?.partner) return;
+    const team = negotiation.partner;
+    setPartner(team);
+    setSend(
+      own
+        .filter((a) => negotiation.sent?.some((t) => t.name === a.name))
+        .map((a) => a.id),
+    );
+    setReceive(
+      rosterFor(team)
+        .filter((a) => negotiation.received?.some((t) => t.name === a.name))
+        .map((a) => a.id),
+    );
+    setNote(negotiation.note ?? "");
+    setBrowse("Your roster");
+    setFilter("All");
+    setSearch("");
+    setMode("Build it myself");
+    setCountering(true);
+  }
+  function submitManualOffer() {
+    const outgoing = own.filter((a) => send.includes(a.id)),
+      incoming = other.filter((a) => receive.includes(a.id));
+    const detail = names(send, own) + " for " + names(receive, other);
+    if (task === "negotiations" && countering && negotiation) {
+      demo.setTransactions((old) =>
+        old.map((t) =>
+          t.id === negotiationId
+            ? {
+                ...t,
+                title: "Counteroffer to the " + partner,
+                detail,
+                partner,
+                sent: outgoing,
+                received: incoming,
+                note: note.trim(),
+                direction: "sent",
+                date: "Just now",
+              }
+            : t,
+        ),
+      );
+      setCountering(false);
+      demo.notify("Counteroffer saved · local sample only");
+    } else
+      saveOffer(
+        "Offer to the " + partner,
+        detail,
+        "manual",
+        partner,
+        outgoing,
+        incoming,
+      );
   }
   function choosePartner(name: string) {
     setPartner(name);
@@ -428,9 +438,97 @@ export function Trades({ task }: { task: string }) {
       </div>
     );
   }
+  if (task === "negotiations" && negotiation && !countering) {
+    const assetRows = (assets: TransactionAsset[]) => (
+      <div className={s.dealAssets}>
+        {assets.map((a, i) => (
+          <div key={a.name + i}>
+            {a.portrait ? (
+              <Portrait id={a.portrait} name={a.name} />
+            ) : (
+              <span className={s.assetToken}>
+                {a.name.includes("Rd ") ? "RD" : ""}
+              </span>
+            )}
+            <span>
+              <strong>{a.name}</strong>
+              {a.meta && <small>{a.meta}</small>}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+    return (
+      <div className={s.negotiationDetail}>
+        <button className={s.textButton} onClick={() => setNegotiationId("")}>
+          <ArrowLeft size={15} />
+          All negotiations
+        </button>
+        <section className={s.dealBoard}>
+          <div className={s.dealColumns}>
+            <section>
+              <header>
+                <small>YOU SEND</small>
+                <TeamName
+                  name={demo.identity.name}
+                  crest={demo.identity.crest}
+                />
+              </header>
+              {assetRows(negotiation.sent ?? [])}
+            </section>
+            <section>
+              <header>
+                <small>YOU RECEIVE</small>
+                <TeamName name={negotiation.partner ?? "Trade partner"} />
+              </header>
+              {assetRows(negotiation.received ?? [])}
+            </section>
+          </div>
+          <footer className={s.negotiationActions}>
+            {negotiation.note && <p>{negotiation.note}</p>}
+            {negotiation.direction === "sent" ? (
+              <button
+                className={s.secondary}
+                onClick={() => resolveNegotiation("Withdrawn")}
+              >
+                Withdraw
+              </button>
+            ) : (
+              <>
+                <button
+                  className={s.primary}
+                  onClick={() => resolveNegotiation("Accepted")}
+                >
+                  Accept
+                </button>
+                <button
+                  className={s.secondary}
+                  onClick={() => resolveNegotiation("Rejected")}
+                >
+                  Decline
+                </button>
+                <button className={s.secondary} onClick={counterOffer}>
+                  Counter
+                </button>
+              </>
+            )}
+          </footer>
+        </section>
+      </div>
+    );
+  }
   return (
     <div className={s.tradeWorkspace}>
-      <div hidden={task !== "build"} className={s.buildWorkspace}>
+      <div
+        hidden={task !== "build" && !(task === "negotiations" && countering)}
+        className={s.buildWorkspace}
+      >
+        {task === "negotiations" && countering && (
+          <button className={s.textButton} onClick={() => setCountering(false)}>
+            <ArrowLeft size={15} />
+            Back to offer
+          </button>
+        )}
         <Tabs
           label="Build trade method"
           options={["Build it myself", "Describe the deal"]}
@@ -497,18 +595,11 @@ export function Trades({ task }: { task: string }) {
                 <button
                   className={s.primary}
                   disabled={!partner || !send.length || !receive.length}
-                  onClick={() =>
-                    saveOffer(
-                      "Offer to the " + partner,
-                      names(send, own) + " for " + names(receive, other),
-                      "manual",
-                      partner,
-                      own.filter((a) => send.includes(a.id)),
-                      other.filter((a) => receive.includes(a.id)),
-                    )
-                  }
+                  onClick={submitManualOffer}
                 >
-                  Save offer
+                  {task === "negotiations" && countering
+                    ? "Send counteroffer"
+                    : "Save offer"}
                   <Send size={16} />
                 </button>
               </footer>
@@ -603,10 +694,6 @@ export function Trades({ task }: { task: string }) {
                 }
               }}
             >
-              <p id="trade-prompt-help" className={s.tradePromptHelp}>
-                Name a player or pick, or describe your goal: a young receiver,
-                more draft picks, or help at a position.
-              </p>
               <label htmlFor="trade-prompt">
                 What move do you have in mind?
               </label>
@@ -616,7 +703,6 @@ export function Trades({ task }: { task: string }) {
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="e.g. Shop James Cook, move my 2027 1st, or find a young receiver…"
-                  aria-describedby="trade-prompt-help"
                 />
                 <button
                   className={s.primary}
@@ -643,41 +729,7 @@ export function Trades({ task }: { task: string }) {
               <span>Choose the players and picks you want to shop.</span>
               <b>{shop.length} selected</b>
             </div>
-            <div className={s.shopGrid}>
-              {own.slice(shopPage * 9, shopPage * 9 + 9).map((p) => (
-                <button
-                  className={s.shopPlayer}
-                  key={p.id}
-                  aria-pressed={shop.includes(p.id)}
-                  onClick={() =>
-                    setShop((old) =>
-                      old.includes(p.id)
-                        ? old.filter((x) => x !== p.id)
-                        : [...old, p.id],
-                    )
-                  }
-                >
-                  {p.portrait ? (
-                    <Portrait id={p.portrait} name={p.name} />
-                  ) : (
-                    <span className={s.assetToken}>RD</span>
-                  )}
-                  <span>
-                    <strong>{p.name}</strong>
-                    <small>{p.meta}</small>
-                  </span>
-                  <span className={s.checkBox}>
-                    {shop.includes(p.id) && <Check size={13} />}
-                  </span>
-                </button>
-              ))}
-            </div>
-            <Pagination
-              page={shopPage}
-              total={own.length}
-              size={9}
-              onChange={setShopPage}
-            />
+            <ShopSelection />
             <button
               className={s.primary}
               disabled={!shop.length}
@@ -692,12 +744,15 @@ export function Trades({ task }: { task: string }) {
           </>
         )}
       </div>
-      <div hidden={task !== "negotiations"}>
+      <div hidden={task !== "negotiations" || countering}>
         <TransactionLedger
           list={demo.transactions.filter(
             (t) => t.type === "Trade" && t.status === "Pending",
           )}
-          actions
+          onOpen={(id) => {
+            setNegotiationId(id);
+            setCountering(false);
+          }}
         />
         {!demo.transactions.some(
           (t) => t.type === "Trade" && t.status === "Pending",

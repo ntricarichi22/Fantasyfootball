@@ -370,7 +370,7 @@ export function Waivers() {
     demo.setClaims(copy);
   }
   return (
-    <div className={s.waiverLayout} data-has-claims={demo.claims.length > 0}>
+    <div className={s.waiverLayout} data-has-claims={true}>
       <section className={s.waiverPool}>
         <Tabs
           label="Waiver eligibility"
@@ -449,11 +449,11 @@ export function Waivers() {
           />
         )}
       </section>
-      {demo.claims.length > 0 && (
-        <aside className={s.claimLedger}>
-          <SectionLabel title="Pending claims">
-            <span>{demo.claims.length} claims</span>
-          </SectionLabel>
+      <aside className={s.claimLedger}>
+        <SectionLabel title="Pending claims">
+          <span>{demo.claims.length} claims</span>
+        </SectionLabel>
+        <div className={s.claimRows}>
           {demo.claims.map((claim, i) => (
             <div
               className={s.claimRow}
@@ -513,89 +513,89 @@ export function Waivers() {
               </button>
             </div>
           ))}
-        </aside>
-      )}
-      {candidate && (
-        <div
-          className={s.claimPopover}
-          role="dialog"
-          aria-label={"Claim " + candidate.name}
-        >
-          <header>
-            <h3>{candidate.name}</h3>
-            <button
-              aria-label="Close waiver claim"
-              onClick={() => setSelected("")}
-            >
-              <X size={18} />
-            </button>
-          </header>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (
-                !Number.isFinite(bid) ||
-                bid < 0 ||
-                bid > demoLeague.salaryCapRemaining
-              )
-                return;
-              const existing = demo.claims.find(
-                (c) => c.playerId === candidate.id,
-              );
-              if (existing)
-                demo.setClaims((old) =>
-                  old.map((c) =>
-                    c.id === existing.id ? { ...c, bid, drop } : c,
-                  ),
-                );
-              else
-                demo.setClaims((old) => [
-                  ...old,
-                  {
-                    id: "claim-" + candidate.id,
-                    playerId: candidate.id,
-                    name: candidate.name,
-                    bid,
-                    drop,
-                  },
-                ]);
-              setSelected("");
-              demo.notify(
-                "Claim saved. Salary cap is spent only if a claim succeeds.",
-              );
-            }}
-          >
-            <label className={s.field}>
-              Salary cap bid
-              <input
-                type="number"
-                required
-                min={0}
-                max={demoLeague.salaryCapRemaining}
-                value={bid}
-                onChange={(e) => setBid(e.target.valueAsNumber)}
-              />
-            </label>
-            <label className={s.field}>
-              Conditional drop
-              <select value={drop} onChange={(e) => setDrop(e.target.value)}>
-                <option value="">No drop selected</option>
-                {demo.players
-                  .filter((p) => p.group === "Subs")
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <button className={s.primary}>
-              Save claim
-              <Check size={15} />
-            </button>
-          </form>
         </div>
-      )}
+        {candidate && (
+          <div
+            className={s.claimPopover}
+            role="dialog"
+            aria-label={"Claim " + candidate.name}
+          >
+            <header>
+              <h3>{candidate.name}</h3>
+              <button
+                aria-label="Close waiver claim"
+                onClick={() => setSelected("")}
+              >
+                <X size={18} />
+              </button>
+            </header>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (
+                  !Number.isFinite(bid) ||
+                  bid < 0 ||
+                  bid > demoLeague.salaryCapRemaining
+                )
+                  return;
+                const existing = demo.claims.find(
+                  (c) => c.playerId === candidate.id,
+                );
+                if (existing)
+                  demo.setClaims((old) =>
+                    old.map((c) =>
+                      c.id === existing.id ? { ...c, bid, drop } : c,
+                    ),
+                  );
+                else
+                  demo.setClaims((old) => [
+                    ...old,
+                    {
+                      id: "claim-" + candidate.id,
+                      playerId: candidate.id,
+                      name: candidate.name,
+                      bid,
+                      drop,
+                    },
+                  ]);
+                setSelected("");
+                demo.notify(
+                  "Claim saved. Salary cap is spent only if a claim succeeds.",
+                );
+              }}
+            >
+              <label className={s.field}>
+                Salary cap bid
+                <input
+                  type="number"
+                  required
+                  min={0}
+                  max={demoLeague.salaryCapRemaining}
+                  value={bid}
+                  onChange={(e) => setBid(e.target.valueAsNumber)}
+                />
+              </label>
+              <label className={s.field}>
+                Conditional drop
+                <select value={drop} onChange={(e) => setDrop(e.target.value)}>
+                  <option value="">No drop selected</option>
+                  {demo.players
+                    .filter((p) => p.group === "Subs")
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <button className={s.primary}>
+                Save claim
+                <Check size={15} />
+              </button>
+            </form>
+          </div>
+        )}
+      </aside>
     </div>
   );
 }
@@ -608,15 +608,15 @@ export function Transactions() {
         t.status !== "Pending" &&
         (tab === "All" ||
           (tab === "Adds / Drops"
-            ? ["Add", "Drop"].includes(t.type)
-            : t.type === (tab === "Trades" ? "Trade" : "Waiver"))),
+            ? ["Waiver", "Add", "Drop"].includes(t.type)
+            : t.type === "Trade")),
     )
     .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0));
   return (
     <>
       <Tabs
         label="Transaction history"
-        options={["All", "Trades", "Waivers", "Adds / Drops"]}
+        options={["All", "Trades", "Adds / Drops"]}
         value={tab}
         onChange={setTab}
       />

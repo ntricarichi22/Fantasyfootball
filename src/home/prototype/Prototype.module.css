@@ -5180,10 +5180,9 @@
 
 /* Review v7 — quiet scoring, full-width history, and more room for player pools. */
 .app { --forest:#183c31;--forest-deep:#112c24;--forest-line:#365d4d; }
-.workspaceHeader { background:linear-gradient(100deg,#183c31e8,#132923dc); }
-.profileValuation,.privateStrategy { background:#183c3170;border-color:#416854; }
-.stanceChoices button[aria-pressed='true'],.tradeAssetRow[aria-pressed='true'],.shopPlayer[aria-pressed='true'],.availabilityButtons button[aria-pressed='true'] { background:#183c31; }
-.dealColumns header,.historyTable thead { background:#183c31; }
+.workspaceHeader { background:linear-gradient(100deg,#322b22ed,#171a19e8); }
+.tradeAssetRow[aria-pressed='true'],.shopPlayer[aria-pressed='true'] { background:#254c3d; }
+.dealColumns header { background:linear-gradient(110deg,#292720,#101817); }
 .medicalChip { display:inline-flex;align-items:center;gap:3px;border:1px solid #dfaa8b70;background:#d8936a15;border-radius:3px;padding:2px 4px;color:#efbaa0;font:600 8px/1 'DM Sans',sans-serif;white-space:nowrap;vertical-align:middle; }
 .playerNameLine { display:flex!important;align-items:center;gap:7px; }
 .lineupView .playerIdentity .playerNameLine { white-space:nowrap; }
@@ -5296,4 +5295,133 @@
  .view[data-review-view='waivers'],.waiverLayout { height:auto; }.waiverLayout,.waiverLayout[data-has-claims='true'] { display:flex;flex-direction:column;gap:14px; }.waiverPool { min-height:430px; }.waiverPool .freeAgents { max-height:420px;flex:none; }.waiverPool .freeAgent { grid-template-columns:26px minmax(0,1fr) 42px 16px;gap:6px;min-height:58px; }.waiverPool .freeAgent > b,.waiverPool .freeAgent .freeAgentStat { display:none; }.waiverPool .freeAgent .portrait { grid-column:1; }.waiverPool .freeAgent > span:nth-child(3) { grid-column:2;min-width:0; }.waiverPool .freeAgent .projection { grid-column:3; }.waiverPool .freeAgent > svg { grid-column:4; }.waiverPool .freeAgent strong { font-size:21px; }.waiverPool .freeAgent em { display:block;margin:3px 0 0; }.waiverLayout .claimLedger { max-height:240px;align-self:stretch; }.claimLedger .claimRow { grid-template-columns:12px 15px minmax(70px,1fr) 55px 24px 24px; }
  .boardRankList { grid-template-columns:minmax(0,1fr); }.boardRankRow { grid-template-columns:55px minmax(0,1fr) 65px;gap:6px; }.boardRankIdentity > strong { font-size:21px; }.boardRankIdentity > small { font-size:9px; }.boardRankRow footer small { font-size:7px; }.tierRail { gap:8px; }.tierRail > b { font-size:19px; }.tierRail > span { font-size:17px; }.tierRail > small { font-size:8px; }
  .mockBoard { display:block; }.mockBoard > header { flex-wrap:wrap;height:auto;gap:7px; }.mockBoard > header > strong { font-size:17px; }.mockBoard .subTabs button { font-size:15px;padding:5px 7px; }.mockBoard > header > small { font-size:8px; }.mockBoardSlots { grid-template-columns:1fr 1fr;grid-template-rows:repeat(6,1fr); }.mockBoardSlots > div { height:25px; }.mockBoardSlots > div b,.mockBoardSlots > div span { font-size:12px; }.mockBoardSlots img { display:none; }.mockBoardSlots > div small { display:none; }.mockPlayerHead,.mockPlayerRow { grid-template-columns:minmax(120px,1fr) 33px 47px;gap:5px; }.mockPlayerRow { height:auto;min-height:42px; }.mockPlayerRow > span:first-child { display:block; }.mockPlayerRow > span:first-child b { font-size:19px; }.mockPlayerRow > span:first-child small { display:block;font-size:9px; }.mockDirector { display:none; }
+}
+
+/* Review v8: green compact data surfaces; approved spacing and alignment fixes. */
+.workspaceHeader .scoreboardShortcut { margin-left:0;border:1px solid #f5f4ecb3!important;border-radius:3px;padding:6px 10px;color:#f5f4ec;font:500 12px 'DM Sans',sans-serif; }
+.workspaceHeader:has(.scoreboardShortcut) .headerMeta { margin-left:auto; }
+.workspaceBody:has(> .view[data-review-view='matchup']:not([hidden])) { background:var(--forest); }
+.lineupGrid .lineupColumn:not(.reserveColumn),.lineupGrid .irSection,.lineupGrid .practiceSection,
+.strategyPlayers,.rosterBrowser,.shopRosterRows,.shopPickGrid > section,.transactionLedger,
+.boardCanvas,.waiverPool,.claimLedger,.historyScroll,.divisions > section,.boxRows,
+.view[data-review-view='activity'] .event { background:var(--forest); }
+.lineupView .footballPlayer,.tradeAssetRow,.shopRosterPlayer,.shopPickRow,.assetRow,.historyRow,.ledgerRow { background:#0d251f; }
+.lineupGrid .sectionLabel,.shopRosterGrid .sectionLabel,.shopPickGrid .sectionLabel { padding-inline:7px; }
+.strategyPlayers,.rosterBrowser,.boardCanvas,.divisions > section { padding-inline:10px; }
+.strategyGrid .assetRow { padding-inline:8px; }
+.rosterBrowser > .subTabs { padding-top:3px; }
+.boardRankRow { background:#0d251f; }
+.view[data-review-view='activity'] .event { padding-inline:14px; }
+.opponentHalf .matchMain { flex-direction:row-reverse; }
+.matchupView .opponentHalf .matchIdentity { flex-direction:row-reverse;justify-content:flex-start;text-align:right; }
+.opponentHalf .matchName,.opponentHalf .matchGame { text-align:right; }
+.opponentHalf .playerNameLine { justify-content:flex-end; }
+.opponentHalf .matchScore { align-items:flex-start;text-align:left; }
+.opponentHalf .scoreBaseline { right:auto;left:0; }
+.matchScore { min-width:78px; }
+.matchupView .matchupRow[data-substitution='true'] { flex:1;min-height:40px; }
+.injuryPair { display:flex;align-items:center;gap:7px;flex:1;min-width:0; }
+.injuryPair > svg { flex-shrink:0;color:var(--gold); }
+.injuryPlayer { display:flex;align-items:center;text-align:left;gap:6px;background:none;min-width:0; }
+.injuryPlayer .portrait { width:25px;height:31px;flex-shrink:0; }
+.injuryPlayer > span:not(.portrait):not(.backupClock) { min-width:0; }
+.injuryPlayer strong { display:block;font:600 19px/1 'Barlow Condensed',sans-serif;white-space:nowrap; }
+.injuryPlayer small { display:block;font:400 9px/1.2 'DM Sans',sans-serif;color:#baccc2;margin-top:4px;white-space:nowrap; }
+.injuryPlayer .medicalChip { font-size:7px;padding:2px;gap:2px; }
+.injuryPlayer .medicalChip svg { width:9px; }
+.injuryPlayer .playerNameLine { gap:4px; }
+.backupClock { font:500 9px/1.2 'DM Sans',sans-serif;color:#ddd4b8;max-width:48px;align-self:flex-start; }
+.noSub { font-size:11px;color:#c9cbbb; }
+.offerTeams { padding-top:25px; }
+.offerCarousel { background:linear-gradient(135deg,#292c27,#101a19); }
+.offerTeamHeaders { background:linear-gradient(105deg,#292720,#101817); }
+.ledgerRow { width:100%;text-align:left;color:inherit; }
+.ledgerRow:hover { background:#254c3d; }
+.negotiationDetail { display:flex;flex-direction:column;gap:12px;height:100%;min-height:0; }
+.negotiationDetail > .dealBoard { flex:1; }
+.negotiationActions { padding:17px;border-top:1px solid var(--line);display:flex;gap:10px;flex-wrap:wrap; }
+.negotiationActions p { flex-basis:100%;font-size:13px;color:#c2c9c1; }
+.shopWorkspace { display:flex;flex-direction:column;min-height:0; }
+.shopSelection { display:flex;flex-direction:column;flex:1;min-height:0;margin-bottom:12px; }
+.shopSelection > .subTabs { flex-shrink:0;margin-bottom:9px; }
+.shopRosterGrid,.shopPickGrid { display:grid;grid-template-columns:1.25fr 1.05fr 1fr;gap:16px;flex:1;min-height:0; }
+.shopRosterGrid > section,.shopReserveColumn > section { display:flex;flex-direction:column;min-height:0; }
+.shopRosterGrid .sectionLabel,.shopPickGrid .sectionLabel { min-height:27px;height:27px;margin:0 0 5px; }
+.shopRosterGrid .sectionLabel h3,.shopPickGrid .sectionLabel h3 { font-size:23px; }
+.shopRosterRows { display:flex;flex-direction:column;gap:4px;min-height:0;flex:1; }
+.shopRosterPlayer { width:100%;min-height:30px;display:flex;gap:7px;align-items:center;text-align:left;flex:1;padding:3px 7px; }
+.shopRosterPlayer .portrait { height:30px;width:28px;flex-shrink:0; }
+.shopRosterPlayer > span:not(.portrait):not(.checkBox),.shopPickRow > span:nth-child(2) { min-width:0;flex:1; }
+.shopRosterPlayer strong,.shopPickRow strong { display:block;font:600 19px/1.05 'Barlow Condensed',sans-serif; }
+.shopRosterPlayer small,.shopPickRow small { display:block;color:#b9cbbf;font-size:9px;margin-top:3px; }
+.shopSlot { font:600 13px/1 'Barlow Condensed',sans-serif;width:51px;flex-shrink:0; }
+.shopReserveColumn { display:grid;grid-template-rows:minmax(0,7fr) minmax(0,2.7fr);gap:8px;min-height:0; }
+.shopReserveColumn .sectionLabel { height:22px;min-height:22px;margin-bottom:4px; }
+.shopReserveColumn .shopRosterRows { gap:3px; }
+.shopReserveColumn .shopRosterPlayer { min-height:28px;padding:2px 5px; }.shopReserveColumn .shopRosterPlayer strong { font-size:17px;line-height:1; }.shopReserveColumn .shopRosterPlayer small { font-size:8px;line-height:1;margin-top:3px; }.shopReserveColumn .shopRosterPlayer .portrait { height:26px; }
+.shopRosterPlayer[aria-pressed='true'],.shopPickRow[aria-pressed='true'] { box-shadow:inset 2px 0 var(--gold);background:#294d3d; }
+.shopRosterPlayer[aria-pressed='true'] .checkBox,.shopPickRow[aria-pressed='true'] .checkBox { color:var(--gold);border-color:var(--gold)!important; }
+.shopEmptySlot { flex:1;min-height:30px;padding:8px;color:#abc0b3;font-size:12px; }
+.shopPickGrid { grid-template-columns:repeat(3,minmax(0,1fr));align-items:start; }
+.shopPickRow { display:flex;align-items:center;gap:12px;width:100%;padding:14px 10px;margin-bottom:4px;text-align:left; }
+.shopPickRow strong { font-size:25px; }
+.waiverLayout,.waiverLayout[data-has-claims='true'] { grid-template-columns:minmax(0,1fr) 360px;gap:18px;--waiver-row-height:58px;--waiver-toolbar-height:92px; }
+.waiverPool { padding:0 10px; }
+.waiverPool > .subTabs { min-height:40px;height:40px;margin:0 0 8px;flex-shrink:0; }
+.waiverPool .search { height:34px;margin-bottom:10px; }
+.waiverPool .freeAgent { height:var(--waiver-row-height);min-height:var(--waiver-row-height);box-sizing:border-box;grid-template-columns:18px 30px minmax(110px,1fr) 45px 42px 42px 16px;gap:8px; }
+.waiverPool .freeAgent > svg { margin:0; }
+.waiverLayout .claimLedger { display:flex;flex-direction:column;align-self:stretch;height:100%;max-height:none;padding:0 10px;overflow:hidden;border:0; }
+.claimLedger .sectionLabel { min-height:var(--waiver-toolbar-height);height:var(--waiver-toolbar-height);margin:0;align-items:flex-start;padding-top:9px;box-sizing:border-box; }
+.claimLedger .sectionLabel h3 { font-size:22px;line-height:22px; }.claimLedger .sectionLabel > span { padding-top:5px; }
+.claimRows { flex:1;min-height:0;overflow:auto; }
+.claimLedger .claimRow { height:var(--waiver-row-height);min-height:var(--waiver-row-height);box-sizing:border-box;padding:6px 0;grid-template-columns:12px 15px minmax(100px,1fr) 46px 22px 22px;gap:5px;background:#0d251f;border-bottom:1px solid var(--line); }
+.claimLedger .claimRow strong { font-size:22px; }.claimLedger .claimRow small { font-size:9px; }
+.claimLedger .claimRow button { min-width:0;width:22px; }
+.claimLedger .claimPopover { position:static;inset:auto;transform:none;width:100%;max-width:none;margin:12px 0 10px;padding:12px;background:#15251e;border:1px solid #a99b765c;flex-shrink:0;box-shadow:none; }
+.claimLedger .claimPopover header { margin-bottom:8px; }.claimLedger .claimPopover h3 { font-size:22px; }.claimLedger .claimPopover .field { margin-bottom:9px; }.claimLedger .claimPopover .field input,.claimLedger .claimPopover .field select { padding:7px;font-size:12px; }.claimLedger .claimPopover .primary { padding:8px 12px; }
+.historyTable th { background:#102d24;font:600 20px/1.1 'Barlow Condensed',sans-serif;color:#eee6d6;padding:11px 12px; }
+.historyTable td { padding:10px 12px; }
+.historyRow { cursor:default; }.historyRow:hover { background:#0d251f; }
+.historyType strong { display:block;font:600 18px/1.1 'Barlow Condensed',sans-serif; }.historyType small { display:flex;gap:6px;align-items:center;color:#bbccbf;font-size:10px;margin-top:5px; }
+.historyAssets { gap:5px; }.historyAssets strong { font-size:18px;font-weight:500; }.historyAssets small { margin-top:2px;font-size:9px; }
+.historyAmount { font-size:20px; }.historyOutcome { font:600 19px/1.15 'Barlow Condensed',sans-serif;color:#f5d79c; }.historyOutcome[data-success='true'] { color:#d0f5df; }
+@media(min-width:761px) {
+ .mockRoom { display:grid;grid-template-columns:minmax(0,2.65fr) minmax(260px,1fr);grid-template-rows:auto auto minmax(0,1fr);gap:10px; }
+ .mockCommand { grid-column:1/-1;grid-row:1; }
+ .mockWarRoom { display:contents; }
+ .mockBoard { grid-column:2;grid-row:2;min-width:0; }
+ .mockBoard > header { flex-wrap:wrap;gap:5px 9px;height:auto;padding:6px 8px; }
+ .mockBoard > header > strong { font-size:17px; }.mockBoard > header > small { font-size:8px;margin-left:0; }
+ .mockBoard .subTabs button { padding:3px 7px;font-size:14px; }
+ .mockBoardSlots { grid-template-columns:1fr 1fr;grid-template-rows:repeat(6,1fr);gap:4px;padding:6px; }
+ .mockBoardSlots > div { min-width:0;height:26px;min-height:26px;padding:2px 4px;gap:5px; }.mockBoardSlots > div span { font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }.mockBoardSlots > div b { font-size:13px; }.mockBoardSlots > div small { display:none; }.mockBoardSlots img { width:15px;height:15px; }
+ .mockPool { grid-column:1;grid-row:2/4;border:1px solid var(--forest-line);background:var(--forest);min-height:0; }
+ .mockDirector { grid-column:2;grid-row:3;overflow:auto;min-height:0;background:#14221d; }
+ .mockPlayerHead { background:#102d24; }.mockPlayerRow { background:#0d251f;color:#f4f1df;height:30px;min-height:30px;margin-bottom:2px;border:0; }
+ .mockPlayerRow > span:first-child small { color:#b7cbbf; }.mockPlayerRow > small { color:#adbfad; }.mockPlayerRow > button { background:#345845; }
+ .mockPlayerRow > span:first-child b { font-size:19px; }.mockPlayerRow > span:first-child small { font-size:11px; }.mockRosterRow { background:#0d251f; }
+}
+@media(min-width:761px) and (max-width:1350px) {
+ .matchupView .matchScore { min-width:70px; }.injuryPair { gap:5px; }.injuryPlayer { gap:4px; }.injuryPlayer strong { font-size:16px; }.injuryPlayer small { font-size:8px; }.injuryPlayer .portrait { width:20px;height:27px; }.backupClock { font-size:8px;max-width:41px; }.injuryPlayer .medicalChip { font-size:6px; }
+ .waiverLayout,.waiverLayout[data-has-claims='true'] { grid-template-columns:minmax(0,1fr) 318px;gap:12px; }.waiverPool .freeAgent { grid-template-columns:14px 25px minmax(100px,1fr) 36px 33px 35px 14px;gap:5px; }.waiverPool .freeAgent strong,.claimLedger .claimRow strong { font-size:20px; }.waiverPool .freeAgent .portrait { width:25px; }
+ .shopRosterGrid { gap:10px; }.shopSlot { width:43px;font-size:12px; }.shopRosterPlayer { gap:5px;padding:3px 5px; }.shopRosterPlayer strong { font-size:17px; }.shopReserveColumn .shopRosterPlayer strong { font-size:16px; }.shopRosterPlayer .portrait { width:23px;height:27px; }
+}
+@media(min-width:761px) and (max-height:810px) {
+ .mockRoom { gap:7px; }.mockPlayerRow { height:25px;min-height:25px;margin-bottom:1px; }.mockPlayerRow > span:first-child b { font-size:17px; }.mockPlayerRow > span:first-child small { font-size:10px; }.mockPlayerHead { padding:5px 7px; }.mockPool > .subTabs button { padding:5px 10px; }.mockPoolTools > label { padding:4px 8px; }.mockPoolTools .subTabs button { padding:5px 8px; }
+ .mockBoardSlots > div { height:23px;min-height:23px; }.mockDirector { padding:12px; }.mockDirector h3 { font-size:23px; }.mockDirector p { margin-top:6px;font-size:11px; }
+ .shopRosterGrid .sectionLabel,.shopPickGrid .sectionLabel { min-height:22px;height:22px; }.shopRosterGrid .sectionLabel h3 { font-size:20px; }.shopRosterRows { gap:3px; }.shopRosterPlayer { min-height:26px; }.shopReserveColumn .shopRosterPlayer { min-height:24px; }.shopRosterPlayer strong { font-size:16px; }.shopRosterPlayer small { font-size:8px;margin-top:2px; }.shopRosterPlayer .portrait { width:22px;height:24px; }.shopReserveColumn { gap:8px; }
+ .shopReserveColumn { gap:6px; }.shopReserveColumn .sectionLabel { height:20px;min-height:20px;margin-bottom:2px; }.shopReserveColumn .shopRosterRows { gap:2px; }.shopReserveColumn .shopRosterPlayer { min-height:24px;padding-block:1px; }.shopReserveColumn .shopRosterPlayer strong { font-size:15px; }.shopReserveColumn .shopRosterPlayer small { font-size:7px;margin-top:2px; }.shopReserveColumn .shopRosterPlayer .portrait { height:21px;width:21px; }
+ .waiverLayout,.waiverLayout[data-has-claims='true'] { --waiver-row-height:49px; }.claimLedger .claimPopover { padding:9px;margin-top:8px; }.claimLedger .claimPopover h3 { font-size:20px; }.claimLedger .claimPopover .field { margin-bottom:6px; }
+}
+@media(max-width:760px) {
+ .workspaceHeader .scoreboardShortcut { font-size:10px;padding:5px 7px;gap:3px; }.workspaceHeader:has(.scoreboardShortcut) { gap:8px; }
+ .matchupView .opponentHalf .matchIdentity { flex-direction:column;align-items:flex-end; }.opponentHalf .matchMain > .matchIdentity { padding-left:0;padding-right:0; }.opponentHalf .matchGame { text-align:right; }
+ .matchupView .matchupRow[data-substitution='true'] { min-height:0; }.matchupView .matchScore { min-width:62px; }.matchMain { gap:7px; }
+ .injuryPair { flex-wrap:wrap;gap:6px; }.injuryPlayer strong { font-size:17px; }.injuryPlayer .portrait { width:22px;height:28px; }.injuryPlayer small { font-size:8px; }.injuryPair > svg { width:12px; }.backupClock { font-size:8px; }
+ .shopWorkspace,.shopSelection,.shopRosterGrid,.shopPickGrid { height:auto; }.shopSelection { flex:none; }.shopRosterGrid,.shopPickGrid { display:flex;flex-direction:column;gap:18px; }.shopRosterRows { flex:none; }.shopRosterPlayer,.shopReserveColumn .shopRosterPlayer { min-height:45px; }.shopReserveColumn { display:flex;flex-direction:column;gap:18px; }.shopReserveColumn .shopRosterPlayer strong { font-size:19px; }.shopPickGrid > section { width:100%; }
+ .negotiationDetail { min-height:400px;height:auto; }.negotiationActions { padding:12px; }
+ .waiverLayout,.waiverLayout[data-has-claims='true'] { display:flex;flex-direction:column;--waiver-row-height:58px; }.waiverPool .freeAgent { grid-template-columns:26px minmax(0,1fr) 42px 16px;gap:6px; }.waiverLayout .claimLedger { max-height:none;min-height:300px;height:auto;padding:0 10px; }.claimLedger .sectionLabel { height:46px;min-height:46px; }.claimRows { flex:none;max-height:260px; }.claimLedger .claimPopover { margin-top:20px; }.claimLedger .claimRow { grid-template-columns:12px 12px minmax(90px,1fr) 43px 20px 20px;gap:4px; }.claimLedger .claimRow strong { font-size:20px; }
+ .mockPool,.mockPoolScroll { background:var(--forest); }.mockPlayerRow { background:#0d251f;color:#f4f1df; }.mockPlayerRow > span:first-child small { color:#b7cbbf; }.mockPlayerRow > small { color:#adbfad; }.mockPlayerHead { background:#102d24; }
+ .historyTable th { font-size:20px; }
 }

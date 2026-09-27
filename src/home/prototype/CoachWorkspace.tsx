@@ -429,7 +429,7 @@ function MatchScore({
         </button>
       ) : (
         <small>
-          Projected finish <b>{live.toFixed(1)}</b>
+          Proj. <b>{live.toFixed(1)}</b>
         </small>
       )}
       {final && expanded && (
@@ -577,22 +577,69 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
             >
               <div className={s.matchHalf}>
                 <div className={s.matchMain}>
-                  <button
-                    className={s.matchPlayer}
-                    onClick={() =>
-                      p ? demo.openPlayer(p.id) : !weekFinal && onLineup()
-                    }
-                    disabled={!p && weekFinal}
-                  >
-                    {p ? (
-                      <>
+                  {plan && p ? (
+                    <div className={s.injuryPair}>
+                      <button
+                        className={s.injuryPlayer}
+                        onClick={() => demo.openPlayer(p.id)}
+                      >
                         <Portrait id={p.id} name={p.name} />
-                        <MatchIdentity p={p} now={demo.now} injured={!!plan} />
-                      </>
-                    ) : (
-                      <strong>Open starting spot</strong>
-                    )}
-                  </button>
+                        <span>
+                          <strong className={s.playerNameLine}>
+                            {p.name}
+                            <PlayerCondition condition="OUT" />
+                          </strong>
+                          <small>
+                            {p.position} · {p.team} ·{" "}
+                            {plan.injury.starterPoints.toFixed(1)} counted
+                          </small>
+                        </span>
+                      </button>
+                      <ArrowRight size={14} />
+                      {plan.backup ? (
+                        <button
+                          className={s.injuryPlayer}
+                          onClick={() => demo.openPlayer(plan.backup!.id)}
+                        >
+                          <Portrait
+                            id={plan.backup.id}
+                            name={plan.backup.name}
+                          />
+                          <span>
+                            <strong>{plan.backup.name}</strong>
+                            <small>
+                              {plan.backup.position} · {plan.backup.team}
+                            </small>
+                          </span>
+                          <span className={s.backupClock}>
+                            {sampleGame(plan.backup, demo.now).label.replace(
+                              " · ",
+                              " ",
+                            )}
+                          </span>
+                        </button>
+                      ) : (
+                        <span className={s.noSub}>No eligible Sub</span>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      className={s.matchPlayer}
+                      onClick={() =>
+                        p ? demo.openPlayer(p.id) : !weekFinal && onLineup()
+                      }
+                      disabled={!p && weekFinal}
+                    >
+                      {p ? (
+                        <>
+                          <Portrait id={p.id} name={p.name} />
+                          <MatchIdentity p={p} now={demo.now} />
+                        </>
+                      ) : (
+                        <strong>Open starting spot</strong>
+                      )}
+                    </button>
+                  )}
                   {p && ownScore ? (
                     <MatchScore
                       actual={ownScore.points}
@@ -609,36 +656,9 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
                     <span>—</span>
                   )}
                 </div>
-                {plan && (
-                  <div className={s.matchSubstitution}>
-                    <span>{plan.injury.starterPoints.toFixed(1)} counted</span>
-                    <ArrowRight size={14} />
-                    {plan.backup ? (
-                      <button onClick={() => demo.openPlayer(plan.backup!.id)}>
-                        <Portrait id={plan.backup.id} name={plan.backup.name} />
-                        <b>{plan.backup.name}</b>
-                        <span>
-                          {sampleGame(
-                            plan.backup,
-                            demo.now,
-                            plan.injury.cutoff,
-                          ).points.toFixed(1)}{" "}
-                          counted
-                        </span>
-                      </button>
-                    ) : (
-                      <b>No eligible Sub</b>
-                    )}
-                    <small>
-                      {plan.provisional && !weekFinal
-                        ? "Provisional"
-                        : "Locked"}
-                    </small>
-                  </div>
-                )}
               </div>
               <span className={s.matchupSlot}>{slot.label}</span>
-              <div className={s.matchHalf}>
+              <div className={[s.matchHalf, s.opponentHalf].join(" ")}>
                 <div className={s.matchMain}>
                   <MatchIdentity p={other} now={demo.now} />
                   <MatchScore
