@@ -29,7 +29,7 @@ export function buildSlots(positions: string[]): Slot[] {
   const counts: Record<string, number> = {};
   const labels: Record<string, string> = {
     SUPER_FLEX: "S-FLEX",
-    REC_FLEX: "PASS CATCHER",
+    REC_FLEX: "PC",
   };
   return positions.flatMap((code) => {
     const eligible = slotEligibility(code);

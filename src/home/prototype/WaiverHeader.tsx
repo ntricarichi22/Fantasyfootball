@@ -14,11 +14,19 @@ export function WaiverHeader() {
   return (
     <>
       <span className={s.waiverCountdown}>
-        Processing in{" "}
-        <b>
-          {Math.floor(remaining / 86400)}d {Math.floor(remaining / 3600) % 24}h{" "}
-          {Math.floor(remaining / 60) % 60}m
-        </b>
+        <span>Processing in</span>
+        <span className={s.countdownDigits}>
+          {[
+            [Math.floor(remaining / 86400), "days"],
+            [Math.floor(remaining / 3600) % 24, "hours"],
+            [Math.floor(remaining / 60) % 60, "minutes"],
+          ].map(([value, label]) => (
+            <span key={label}>
+              <b>{String(value).padStart(2, "0")}</b>
+              <small>{label}</small>
+            </span>
+          ))}
+        </span>
         <small>Sample clock</small>
       </span>
       <span className={s.waiverHeaderCap}>

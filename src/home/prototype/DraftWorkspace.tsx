@@ -213,7 +213,7 @@ export function Draft({ task }: { task: string }) {
           <section className={s.mockPool}>
             <Tabs
               label="Mock draft panel"
-              options={["Player Pool", "Your Roster"]}
+              options={["Player Pool", "Your Roster", "Scouting Director"]}
               value={poolTab}
               onChange={setPoolTab}
             />
@@ -270,7 +270,7 @@ export function Draft({ task }: { task: string }) {
                     ))}
                 </div>
               </>
-            ) : (
+            ) : poolTab === "Your Roster" ? (
               <div className={s.mockPoolScroll}>
                 <h4>YOUR DRAFT CLASS</h4>
                 {mine.length ? (
@@ -298,43 +298,46 @@ export function Draft({ task }: { task: string }) {
                     </div>
                   ))}
               </div>
+            ) : (
+              <aside className={s.mockDirector}>
+                <small>SCOUTING DIRECTOR</small>
+                <h3>
+                  {complete
+                    ? "Your class is in."
+                    : yourTurn
+                      ? "Make your selection."
+                      : "Read the board."}
+                </h3>
+                <p>
+                  {yourTurn
+                    ? "Your highest-ranked available prospect:"
+                    : "Advance to your next pick to see who is still available."}
+                </p>
+                {yourTurn && available[0] && (
+                  <>
+                    <strong>{available[0].name}</strong>
+                    <span>
+                      {available[0].position} · #
+                      {board.indexOf(available[0]) + 1} on your board
+                    </span>
+                    <button
+                      className={s.primary}
+                      onClick={() => select(available[0])}
+                    >
+                      Draft {available[0].name}
+                    </button>
+                  </>
+                )}
+                <div>
+                  <b>{mine.length}</b>
+                  <span>YOUR SELECTIONS</span>
+                </div>
+                <small>
+                  Illustrative draft order and scouting assessments.
+                </small>
+              </aside>
             )}
           </section>
-          <aside className={s.mockDirector}>
-            <small>SCOUTING DIRECTOR</small>
-            <h3>
-              {complete
-                ? "Your class is in."
-                : yourTurn
-                  ? "Make your selection."
-                  : "Read the board."}
-            </h3>
-            <p>
-              {yourTurn
-                ? "Your highest-ranked available prospect:"
-                : "Advance to your next pick to see who is still available."}
-            </p>
-            {yourTurn && available[0] && (
-              <>
-                <strong>{available[0].name}</strong>
-                <span>
-                  {available[0].position} · #{board.indexOf(available[0]) + 1}{" "}
-                  on your board
-                </span>
-                <button
-                  className={s.primary}
-                  onClick={() => select(available[0])}
-                >
-                  Draft {available[0].name}
-                </button>
-              </>
-            )}
-            <div>
-              <b>{mine.length}</b>
-              <span>YOUR SELECTIONS</span>
-            </div>
-            <small>Illustrative draft order and scouting assessments.</small>
-          </aside>
         </div>
       </div>
     );

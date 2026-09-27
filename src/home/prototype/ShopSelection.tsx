@@ -20,24 +20,25 @@ export function ShopSelection() {
   }
   function playerRow(p: Player, label?: string) {
     return (
-      <button
-        key={p.id}
-        className={s.shopRosterPlayer}
-        aria-pressed={selected.includes(p.id)}
-        onClick={() => toggle(p.id)}
-      >
+      <div key={p.id} className={s.shopRosterEntry}>
         {label && <b className={s.shopSlot}>{label}</b>}
-        <Portrait id={p.id} name={p.name} />
-        <span>
-          <strong>{p.name}</strong>
-          <small>
-            {p.position} · {p.team}
-          </small>
-        </span>
-        <span className={s.checkBox}>
-          {selected.includes(p.id) && <Check size={13} />}
-        </span>
-      </button>
+        <button
+          className={s.shopRosterPlayer}
+          aria-pressed={selected.includes(p.id)}
+          onClick={() => toggle(p.id)}
+        >
+          <Portrait id={p.id} name={p.name} />
+          <span>
+            <strong>{p.name}</strong>
+            <small>
+              {p.position} · {p.team}
+            </small>
+          </span>
+          <span className={s.checkBox}>
+            {selected.includes(p.id) && <Check size={13} />}
+          </span>
+        </button>
+      </div>
     );
   }
   return (
@@ -50,7 +51,7 @@ export function ShopSelection() {
       />
       {tab === "Players" ? (
         <div className={s.shopRosterGrid}>
-          <section>
+          <section data-roster-group="starters">
             <SectionLabel title="Starters" />
             <div className={s.shopRosterRows}>
               {lineupSlots.map((slot) => {
@@ -67,7 +68,7 @@ export function ShopSelection() {
               })}
             </div>
           </section>
-          <section>
+          <section data-roster-group="subs">
             <SectionLabel title="Subs" />
             <div className={s.shopRosterRows}>
               {demo.players

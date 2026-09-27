@@ -50,13 +50,11 @@ export function ScenarioControl() {
 }
 function FootballPlayer({
   player,
-  rank,
   selected,
   onSelect,
   onDrag,
 }: {
   player: Player;
-  rank?: number;
   selected: boolean;
   onSelect: () => void;
   onDrag: (id: string) => void;
@@ -86,9 +84,6 @@ function FootballPlayer({
         "Select " + player.name + (locked ? ", locked at kickoff" : " to move")
       }
     >
-      {rank !== undefined && (
-        <span className={s.subNumber}>{String(rank).padStart(2, "0")}</span>
-      )}
       <span className={s.playerIdentity}>
         <Portrait id={player.id} name={player.name} />
         <span>
@@ -180,11 +175,10 @@ export function Lineup() {
       </button>
     );
   }
-  const card = (p: Player, destination?: string, rank?: number) => (
+  const card = (p: Player, destination?: string) => (
     <FootballPlayer
       key={p.id}
       player={p}
-      rank={rank}
       selected={p.id === moving}
       onDrag={setDragging}
       onSelect={() => select(p, destination)}
@@ -224,6 +218,7 @@ export function Lineup() {
       >
         <section
           className={s.lineupColumn}
+          data-roster-group="starters"
           data-mobile-visible={mobileSection === "Starters"}
         >
           <SectionLabel title="Starters">
@@ -251,6 +246,7 @@ export function Lineup() {
         </section>
         <section
           className={s.lineupColumn}
+          data-roster-group="subs"
           data-mobile-visible={mobileSection === "Subs"}
         >
           <SectionLabel title="Subs">
@@ -273,12 +269,10 @@ export function Lineup() {
                 {...props}
                 className={s.subDrop + " " + props.className}
               >
-                {p
-                  ? card(p, destination, i + 1)
-                  : empty(
-                      destination,
-                      String(i + 1).padStart(2, "0") + " · Add Sub",
-                    )}
+                <span className={s.subNumber}>
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                {p ? card(p, destination) : empty(destination, "+ Add Sub")}
               </div>
             );
           })}

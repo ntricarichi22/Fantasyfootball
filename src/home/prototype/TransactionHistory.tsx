@@ -107,7 +107,13 @@ export function TransactionHistory({ list }: { list: Transaction[] }) {
                   </span>
                 </td>
                 <td>
-                  <span className={s.historyOutcome} data-success={success}>
+                  <span
+                    className={s.historyOutcome}
+                    data-success={success}
+                    data-negative={
+                      t.status === "Rejected" || t.status === "Lost"
+                    }
+                  >
                     {outcome}
                   </span>
                 </td>
