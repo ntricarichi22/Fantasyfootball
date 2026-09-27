@@ -168,10 +168,7 @@ export const roles: Role[] = [
 ];
 export type Group = "Starters" | "Subs" | "IR" | "Practice Squad";
 export type Availability =
-  | "Untouchable"
-  | "Core piece"
-  | "Listening"
-  | "Moveable";
+  "Untouchable" | "Core piece" | "Listening" | "Moveable";
 export type Player = {
   id: string;
   name: string;
@@ -326,27 +323,43 @@ export const freeAgents = [
     rookie: true,
   },
 ].sort((a, b) => b.points - a.points);
+export type TransactionAsset = {
+  name: string;
+  meta?: string;
+  portrait?: string;
+};
 export type Transaction = {
   id: string;
   title: string;
   detail: string;
-  type: "Trade" | "Waiver";
+  type: "Trade" | "Waiver" | "Add" | "Drop";
   status:
     | "Pending"
     | "Accepted"
     | "Rejected"
     | "Withdrawn"
     | "Successful"
-    | "Lost";
+    | "Lost"
+    | "Completed";
   date: string;
   note?: string;
   bid?: number;
+  partner?: string;
+  actor?: string;
+  direction?: "sent" | "received";
+  received?: TransactionAsset[];
+  sent?: TransactionAsset[];
+  resolvedAt?: number;
 };
 export const initialTransactions: Transaction[] = [
   {
     id: "trade-in",
     title: "Offer from the Wingmen",
-    detail: "James Cook for a 2027 1st · awaiting your response",
+    detail: "James Cook for 2027 Rd 1 · awaiting your response",
+    partner: "Wingmen",
+    direction: "received",
+    received: [{ name: "2027 Rd 1" }],
+    sent: [{ name: "James Cook", meta: "RB · BUF", portrait: "cook" }],
     type: "Trade",
     status: "Pending",
     date: "Today",
@@ -356,6 +369,9 @@ export const initialTransactions: Transaction[] = [
     title: "Added Josh Downs",
     detail: "Added Josh Downs · Dropped Curtis Samuel",
     bid: 7,
+    received: [{ name: "Josh Downs", meta: "WR · IND", portrait: "downs" }],
+    sent: [{ name: "Curtis Samuel", meta: "WR · BUF" }],
+    resolvedAt: Date.UTC(2026, 8, 23),
     type: "Waiver",
     status: "Successful",
     date: "Sep 23",
@@ -363,7 +379,11 @@ export const initialTransactions: Transaction[] = [
   {
     id: "past-trade",
     title: "Trade with the Browns",
-    detail: "Acquired a 2027 2nd for a 2028 2nd + 3rd",
+    detail: "2027 Rd 2 for 2028 Rd 2 and 2028 Rd 3",
+    partner: "Browns",
+    received: [{ name: "2027 Rd 2" }],
+    sent: [{ name: "2028 Rd 2", meta: "(via Browns)" }, { name: "2028 Rd 3" }],
+    resolvedAt: Date.UTC(2026, 8, 18),
     type: "Trade",
     status: "Accepted",
     date: "Sep 18",
@@ -371,7 +391,12 @@ export const initialTransactions: Transaction[] = [
   {
     id: "rejected",
     title: "Offer to the Destroyers",
-    detail: "2027 2nd for a young receiver",
+    detail: "2027 Rd 2 for Ladd McConkey",
+    partner: "Destroyers",
+    actor: "Destroyers",
+    received: [{ name: "Ladd McConkey", meta: "WR · LAC" }],
+    sent: [{ name: "2027 Rd 2" }],
+    resolvedAt: Date.UTC(2026, 8, 16, 15),
     type: "Trade",
     status: "Rejected",
     date: "Sep 16",
@@ -381,6 +406,11 @@ export const initialTransactions: Transaction[] = [
     title: "Claim for a running back",
     detail: "Claim for Tyler Allgeier · Outbid by another team",
     bid: 5,
+    received: [
+      { name: "Tyler Allgeier", meta: "RB · ATL", portrait: "allgeier" },
+    ],
+    sent: [],
+    resolvedAt: Date.UTC(2026, 8, 16, 8),
     type: "Waiver",
     status: "Lost",
     date: "Sep 16",
@@ -389,9 +419,25 @@ export const initialTransactions: Transaction[] = [
     id: "withdrawn",
     title: "Offer to the Browns",
     detail: "Withdrew a pick swap before acceptance",
+    partner: "Browns",
+    actor: "you",
+    received: [{ name: "2027 Rd 2" }],
+    sent: [{ name: "2028 Rd 2", meta: "(via Browns)" }],
+    resolvedAt: Date.UTC(2026, 8, 14),
     type: "Trade",
     status: "Withdrawn",
     date: "Sep 14",
+  },
+  {
+    id: "direct-drop",
+    title: "Dropped Tank Dell",
+    detail: "Released from the roster",
+    type: "Drop",
+    status: "Completed",
+    date: "Sep 12",
+    received: [],
+    sent: [{ name: "Tank Dell", meta: "WR · HOU", portrait: "dell" }],
+    resolvedAt: Date.UTC(2026, 8, 12),
   },
 ];
 export const teams = [

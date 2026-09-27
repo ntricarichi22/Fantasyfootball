@@ -1,6 +1,13 @@
 "use client";
 import { useState } from "react";
-import { ArrowRight, LockKeyhole, GripVertical, X } from "lucide-react";
+import {
+  ArrowRight,
+  LockKeyhole,
+  GripVertical,
+  HeartPulse,
+  Trophy,
+  X,
+} from "lucide-react";
 import { useDemo } from "./DemoState";
 import { lineupSlots, subLimit, demoLeague } from "./leagueFixture";
 import {
@@ -14,6 +21,14 @@ import {
 import type { Player } from "./model";
 import { Crest, Portrait, SectionLabel, Tabs } from "./UI";
 import s from "./Prototype.module.css";
+function PlayerCondition({ condition }: { condition?: string }) {
+  return condition ? (
+    <span className={s.medicalChip} aria-label={"Injury status: " + condition}>
+      <HeartPulse size={11} />
+      {condition}
+    </span>
+  ) : null;
+}
 export function ScenarioControl() {
   const demo = useDemo();
   return (
@@ -77,18 +92,16 @@ function FootballPlayer({
       <span className={s.playerIdentity}>
         <Portrait id={player.id} name={player.name} />
         <span>
-          <strong>{player.name}</strong>
+          <strong className={s.playerNameLine}>
+            {player.name}
+            <PlayerCondition condition={injured ? "OUT" : player.condition} />
+          </strong>
           <small>
             <b>{player.position}</b> {player.team} · {player.game}{" "}
             {player.opponent.replace("vs ", "vs. ")}
           </small>
         </span>
       </span>
-      {(injured || player.condition) && (
-        <span className={s.condition}>
-          {injured ? "OUT" : player.condition}
-        </span>
-      )}
       <span className={s.projection}>
         {player.points.toFixed(1)}
         <small>PROJ</small>
@@ -347,105 +360,113 @@ const opposingPlayers: Player[] = [
   availability: "Listening",
   asking: "",
 }));
-function MatchIdentity({ p, now }: { p: Player; now: number }) {
+function MatchIdentity({
+  p,
+  now,
+  injured = false,
+}: {
+  p: Player;
+  now: number;
+  injured?: boolean;
+}) {
   const game = sampleGame(p, now);
-  const stat =
-    p.position === "QB"
-      ? game.final
-        ? "286 pass yds · 2 TD"
-        : "124 pass yds · 1 TD"
-      : p.position === "RB"
-        ? game.final
-          ? "84 rush yds · 3 rec"
-          : "32 rush yds · 1 rec"
-        : game.final
-          ? "6 rec · 81 yds"
-          : "2 rec · 24 yds";
+  const opponent = p.opponent.replace("vs ", "vs. ");
+  const context = !game.started
+    ? `${p.game} · ${opponent}`
+    : game.final
+      ? `FINAL · ${opponent}`
+      : `${opponent} · ${game.label.replace(" · ", " ")}`;
   return (
     <span className={s.matchIdentity}>
       <span className={s.matchName}>
-        <strong>{p.name}</strong>
+        <strong className={s.playerNameLine}>
+          {p.name}
+          <PlayerCondition condition={injured ? "OUT" : p.condition} />
+        </strong>
         <small>
           {p.position} · {p.team}
         </small>
       </span>
-      <span className={s.matchGame}>
-        <b data-live={game.started && !game.final}>
-          {game.label} {p.opponent.replace("vs ", "vs. ")}
-        </b>
-        {game.started && <small>{stat}</small>}
+      <span className={s.matchGame} data-live={game.started && !game.final}>
+        {context}
       </span>
     </span>
   );
 }
-function ScoreMeter({
+function MatchScore({
   actual,
   live,
   baseline,
-  reference,
+  final,
+  label,
+  expanded,
+  onToggle,
 }: {
   actual: number;
   live: number;
   baseline: number;
-  reference: string;
+  final: boolean;
+  label: string;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
-  const ratio = baseline > 0 ? actual / baseline : 0;
+  const delta = Math.round((actual - baseline) * 10) / 10;
   return (
-    <span
-      className={s.scoreMeter}
-      title={
-        "Pregame projection: " +
-        baseline.toFixed(1) +
-        " · " +
-        Math.round(ratio * 100) +
-        "% reached"
-      }
-    >
-      <span className={s.scoreNumbers}>
-        <span>
-          <b>{actual.toFixed(1)}</b>
-          <small>ACTUAL</small>
+    <span className={s.matchScore}>
+      <strong>{actual.toFixed(1)}</strong>
+      {final ? (
+        <button
+          className={s.scoreComparison}
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={`Show pregame comparison for ${label}`}
+        >
+          <b data-direction={delta > 0 ? "up" : delta < 0 ? "down" : "even"}>
+            {delta > 0 ? "+" : delta < 0 ? "−" : ""}
+            {Math.abs(delta).toFixed(1)}
+          </b>{" "}
+          vs. pregame
+        </button>
+      ) : (
+        <small>
+          Projected finish <b>{live.toFixed(1)}</b>
+        </small>
+      )}
+      {final && expanded && (
+        <span className={s.scoreBaseline} role="status">
+          Pregame {baseline.toFixed(1)} → Final {actual.toFixed(1)}
         </span>
-        <i>/</i>
-        <span>
-          <b>{(reference === "Pregame" ? baseline : live).toFixed(1)}</b>
-          <small>{reference === "Pregame" ? "PRE PROJ" : "LIVE PROJ"}</small>
-        </span>
-      </span>
-      <span className={s.scoreProgress}>
-        <i
-          style={{ width: Math.min(100, Math.max(0, ratio * 100)) + "%" }}
-          data-exceeded={ratio > 1}
-        />
-      </span>
+      )}
     </span>
   );
 }
 export function Matchup({ onLineup }: { onLineup: () => void }) {
-  const demo = useDemo(),
-    [showScoring, setShowScoring] = useState(false);
-  const [projectionReference, setProjectionReference] = useState("Live");
+  const demo = useDemo();
+  const [showScoring, setShowScoring] = useState(false);
+  const [expandedScore, setExpandedScore] = useState("");
   const plans = replacements(demo.players, sampleInjuries, demo.now);
   function score(p: Player) {
+    const game = sampleGame(p, demo.now);
     const plan = plans.find((x) => x.starter.id === p.id);
-    if (!plan) return sampleGame(p, demo.now);
+    if (!plan) return game;
     const backup = plan.backup
       ? sampleGame(plan.backup, demo.now, plan.injury.cutoff)
-      : { points: 0, remaining: 0 };
+      : { points: 0, remaining: 0, final: true };
     return {
       points: plan.injury.starterPoints + backup.points,
       remaining: backup.remaining,
+      final:
+        game.final && backup.final && (!plan.provisional || demo.now >= 72),
     };
   }
-  const total = demo.players
-    .filter((p) => p.group === "Starters")
-    .reduce(
-      (n, p) => ({
-        points: n.points + score(p).points,
-        remaining: n.remaining + score(p).remaining,
-      }),
-      { points: 0, remaining: 0 },
-    );
+  const starters = demo.players.filter((p) => p.group === "Starters");
+  const total = starters.reduce(
+    (n, p) => ({
+      points: n.points + score(p).points,
+      remaining: n.remaining + score(p).remaining,
+    }),
+    { points: 0, remaining: 0 },
+  );
   const opponent = opposingPlayers.reduce(
     (n, p) => {
       const g = sampleGame(p, demo.now);
@@ -456,12 +477,15 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
     },
     { points: 0, remaining: 0 },
   );
+  const weekFinal = demo.now >= 72;
   const probability = sampleWinProbability(
     total.points,
     total.remaining,
     opponent.points,
     opponent.remaining,
   );
+  const won = total.points > opponent.points;
+  const tied = total.points === opponent.points;
   return (
     <div className={s.matchupView}>
       <div className={s.scoreHero}>
@@ -474,20 +498,26 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
           <h3>
             {demo.identity.name} <small>(3–0)</small>
           </h3>
-          <button className={s.editLineupButton} onClick={onLineup}>
-            Edit lineup <ArrowRight size={13} />
-          </button>
+          {!weekFinal && (
+            <button className={s.editLineupButton} onClick={onLineup}>
+              Edit lineup <ArrowRight size={13} />
+            </button>
+          )}
         </div>
-        <strong>
+        <strong data-winner={weekFinal && won}>
           {total.points.toFixed(1)}
-          <small>{(total.points + total.remaining).toFixed(1)} PROJ</small>
+          {!weekFinal && (
+            <small>{(total.points + total.remaining).toFixed(1)} PROJ</small>
+          )}
         </strong>
         <span>VS</span>
-        <strong>
+        <strong data-winner={weekFinal && !won && !tied}>
           {opponent.points.toFixed(1)}
-          <small>
-            {(opponent.points + opponent.remaining).toFixed(1)} PROJ
-          </small>
+          {!weekFinal && (
+            <small>
+              {(opponent.points + opponent.remaining).toFixed(1)} PROJ
+            </small>
+          )}
         </strong>
         <div>
           <h3>
@@ -496,108 +526,141 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
         </div>
         <Crest crest="wingmen" name="Wingmen" size={58} />
       </div>
-      <div
-        className={s.probabilityTrack}
-        aria-label={"Sample win probability: " + probability + " percent"}
-      >
-        <span
-          className={s.probabilityFill}
-          style={{ width: probability + "%" }}
-        />
-        <span
-          className={s.probabilityMarker}
-          style={{ left: probability + "%" }}
-          data-edge={probability > 72}
+      {weekFinal ? (
+        <div
+          className={s.matchResult}
+          data-result={tied ? "tie" : won ? "win" : "loss"}
+          role="status"
         >
-          <b>{probability}%</b> Win Probability
-        </span>
-      </div>
+          <Trophy size={23} />
+          <strong>
+            {tied
+              ? "MATCHUP TIED"
+              : `${won ? demo.identity.name : "Wingmen"} WIN`}
+          </strong>
+          <span>
+            FINAL
+            {!tied &&
+              ` · ${Math.abs(total.points - opponent.points).toFixed(1)} point margin`}
+          </span>
+        </div>
+      ) : (
+        <div
+          className={s.probabilityTrack}
+          aria-label={`Sample win probability: ${probability} percent`}
+        >
+          <span
+            className={s.probabilityFill}
+            style={{ width: probability + "%" }}
+          />
+          <span
+            className={s.probabilityMarker}
+            style={{ left: probability + "%" }}
+            data-edge={probability > 72}
+          >
+            <b>{probability}%</b> Win Probability
+          </span>
+        </div>
+      )}
       <div className={s.matchupLineups}>
         {lineupSlots.map((slot, i) => {
-          const p = demo.players.find(
-              (p) => p.group === "Starters" && p.slot === slot.id,
-            ),
-            plan = plans.find((x) => x.starter.id === p?.id),
-            other = opposingPlayers[i % opposingPlayers.length];
+          const p = starters.find((p) => p.slot === slot.id);
+          const plan = plans.find((x) => x.starter.id === p?.id);
+          const other = opposingPlayers[i % opposingPlayers.length];
+          const otherScore = sampleGame(other, demo.now);
+          const ownScore = p ? score(p) : null;
           return (
-            <div className={s.matchupRow} key={slot.id}>
-              <button
-                className={s.matchPlayer}
-                onClick={() => (p ? demo.openPlayer(p.id) : onLineup())}
-              >
-                {plan ? (
-                  <span className={s.subPair}>
-                    <span>
-                      <strong>{p?.name}</strong>
-                      <small>
-                        <b className={s.condition}>INJURED</b>{" "}
-                        {plan.injury.starterPoints.toFixed(1)} pts ·{" "}
-                        {plan.injury.clock}
-                      </small>
-                    </span>
-                    <span className={s.subArrow}>
-                      <small>SUB</small>
-                      <ArrowRight size={21} />
-                    </span>
-                    <span>
-                      <strong>{plan.backup?.name ?? "Uncovered"}</strong>
-                      <small>
-                        {plan.backup
-                          ? sampleGame(
-                              plan.backup,
-                              demo.now,
-                              plan.injury.cutoff,
-                            ).points.toFixed(1) + " pts"
-                          : "No eligible Sub"}{" "}
-                        · {plan.provisional ? "Provisional" : "Locked"}
-                      </small>
-                    </span>
-                  </span>
-                ) : p ? (
-                  <>
-                    <Portrait id={p.id} name={p.name} />
-                    <MatchIdentity p={p} now={demo.now} />
-                  </>
-                ) : (
-                  <strong>Open starting spot</strong>
+            <div
+              className={s.matchupRow}
+              key={slot.id}
+              data-substitution={!!plan}
+            >
+              <div className={s.matchHalf}>
+                <div className={s.matchMain}>
+                  <button
+                    className={s.matchPlayer}
+                    onClick={() =>
+                      p ? demo.openPlayer(p.id) : !weekFinal && onLineup()
+                    }
+                    disabled={!p && weekFinal}
+                  >
+                    {p ? (
+                      <>
+                        <Portrait id={p.id} name={p.name} />
+                        <MatchIdentity p={p} now={demo.now} injured={!!plan} />
+                      </>
+                    ) : (
+                      <strong>Open starting spot</strong>
+                    )}
+                  </button>
+                  {p && ownScore ? (
+                    <MatchScore
+                      actual={ownScore.points}
+                      live={ownScore.points + ownScore.remaining}
+                      baseline={p.points}
+                      final={ownScore.final}
+                      expanded={expandedScore === p.id}
+                      onToggle={() =>
+                        setExpandedScore(expandedScore === p.id ? "" : p.id)
+                      }
+                      label={p.name + (plan ? " and substitution" : "")}
+                    />
+                  ) : (
+                    <span>—</span>
+                  )}
+                </div>
+                {plan && (
+                  <div className={s.matchSubstitution}>
+                    <span>{plan.injury.starterPoints.toFixed(1)} counted</span>
+                    <ArrowRight size={14} />
+                    {plan.backup ? (
+                      <button onClick={() => demo.openPlayer(plan.backup!.id)}>
+                        <Portrait id={plan.backup.id} name={plan.backup.name} />
+                        <b>{plan.backup.name}</b>
+                        <span>
+                          {sampleGame(
+                            plan.backup,
+                            demo.now,
+                            plan.injury.cutoff,
+                          ).points.toFixed(1)}{" "}
+                          counted
+                        </span>
+                      </button>
+                    ) : (
+                      <b>No eligible Sub</b>
+                    )}
+                    <small>
+                      {plan.provisional && !weekFinal
+                        ? "Provisional"
+                        : "Locked"}
+                    </small>
+                  </div>
                 )}
-              </button>
-              {p ? (
-                <ScoreMeter
-                  reference={projectionReference}
-                  actual={score(p).points}
-                  live={score(p).points + score(p).remaining}
-                  baseline={p.points}
-                />
-              ) : (
-                <span>—</span>
-              )}
+              </div>
               <span className={s.matchupSlot}>{slot.label}</span>
-              <ScoreMeter
-                reference={projectionReference}
-                actual={sampleGame(other, demo.now).points}
-                live={
-                  sampleGame(other, demo.now).points +
-                  sampleGame(other, demo.now).remaining
-                }
-                baseline={other.points}
-              />
-              <MatchIdentity p={other} now={demo.now} />
+              <div className={s.matchHalf}>
+                <div className={s.matchMain}>
+                  <MatchIdentity p={other} now={demo.now} />
+                  <MatchScore
+                    actual={otherScore.points}
+                    live={otherScore.points + otherScore.remaining}
+                    baseline={other.points}
+                    final={otherScore.final}
+                    expanded={expandedScore === other.id}
+                    onToggle={() =>
+                      setExpandedScore(
+                        expandedScore === other.id ? "" : other.id,
+                      )
+                    }
+                    label={other.name}
+                  />
+                </div>
+              </div>
             </div>
           );
         })}
       </div>
       <div className={s.matchupFooter}>
-        <div className={s.projectionChoice}>
-          <span>Compare actual /</span>
-          <Tabs
-            label="Projection reference"
-            options={["Live", "Pregame"]}
-            value={projectionReference}
-            onChange={setProjectionReference}
-          />
-          <small>Bar tracks pregame target</small>
-        </div>
         {plans.length > 0 ? (
           <button
             onClick={() => setShowScoring(!showScoring)}
@@ -613,6 +676,13 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
       </div>
       {showScoring && (
         <div className={s.scoreExplanation}>
+          <button
+            className={s.closeScoreExplanation}
+            aria-label="Close scoring breakdown"
+            onClick={() => setShowScoring(false)}
+          >
+            <X size={16} />
+          </button>
           {plans.map((p) => (
             <p key={p.starter.id}>
               <b>
@@ -630,7 +700,9 @@ export function Matchup({ onLineup }: { onLineup: () => void }) {
               </b>{" "}
               counted from {p.backup?.name ?? "no Sub"} after the same
               game-clock cutoff.{" "}
-              {p.provisional ? "Assignment remains provisional." : ""}
+              {p.provisional ? "Assignment remains provisional." : ""} The row’s
+              score includes both players; its pregame baseline is the original
+              starter’s projection.
             </p>
           ))}
         </div>

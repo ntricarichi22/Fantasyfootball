@@ -13,7 +13,7 @@ import {
 import { useDemo } from "./DemoState";
 import { Crest, Portrait, Tabs, Pagination, Empty } from "./UI";
 import { previewPicks } from "./pickAssets";
-import { teams, type Transaction } from "./model";
+import { teams, type Transaction, type TransactionAsset } from "./model";
 import s from "./Prototype.module.css";
 type Asset = {
   id: string;
@@ -60,6 +60,7 @@ const rosterFor = (team: string): Asset[] => [
     name,
     position,
     meta: position + " · " + nfl,
+    portrait: "rookie-" + team + "-" + i,
   })),
   ...picks(team),
 ];
@@ -119,9 +120,7 @@ export function TransactionLedger({
                 <small>{t.detail}</small>
                 {t.note && <p>{t.note}</p>}
                 {!success && t.status !== "Pending" && (
-                  <em>
-                    No roster change{t.type === "Waiver" ? " · $0 spent" : ""}
-                  </em>
+                  <em>No roster change</em>
                 )}
               </div>
             </div>
@@ -146,14 +145,27 @@ export function TransactionLedger({
             <time>{t.date}</time>
             {actions && (
               <div className={s.ledgerActions}>
-                {(["Accepted", "Rejected", "Withdrawn"] as const).map(
-                  (status) => (
+                {(["Accepted", "Rejected", "Withdrawn"] as const)
+                  .filter((status) =>
+                    t.direction === "sent"
+                      ? status === "Withdrawn"
+                      : status !== "Withdrawn",
+                  )
+                  .map((status) => (
                     <button
                       key={status}
                       onClick={() =>
                         demo.setTransactions((old) =>
                           old.map((x) =>
-                            x.id === t.id ? { ...x, status } : x,
+                            x.id === t.id
+                              ? {
+                                  ...x,
+                                  status,
+                                  actor: "you",
+                                  date: "Just now",
+                                  resolvedAt: Date.now(),
+                                }
+                              : x,
                           ),
                         )
                       }
@@ -164,8 +176,7 @@ export function TransactionLedger({
                           ? "Decline"
                           : "Withdraw"}
                     </button>
-                  ),
-                )}
+                  ))}
               </div>
             )}
           </article>
@@ -210,7 +221,9 @@ export function Trades({ task }: { task: string }) {
   const visible = items.filter(
     (a) =>
       (filter === "All" ||
-        a.position === filter ||
+        a.position ===
+          (({ QBs: "QB", RBs: "RB" } as Record<string, string>)[filter] ??
+            filter) ||
         (filter === "PCs" && ["WR", "TE"].includes(a.position))) &&
       a.name.toLowerCase().includes(search.toLowerCase()),
   );
@@ -219,7 +232,8 @@ export function Trades({ task }: { task: string }) {
       .map((id) => {
         const asset = source.find((a) => a.id === id);
         return asset
-          ? asset.name + (asset.position === "Picks" ? " " + asset.meta : "")
+          ? asset.name +
+              (asset.position === "Picks" && asset.meta ? " " + asset.meta : "")
           : id;
       })
       .join(" + ");
@@ -229,13 +243,24 @@ export function Trades({ task }: { task: string }) {
       old.includes(id) ? old.filter((x) => x !== id) : [...old, id],
     );
   }
-  function saveOffer(title: string, detail: string, key: string) {
+  function saveOffer(
+    title: string,
+    detail: string,
+    key: string,
+    team: string,
+    outgoing: TransactionAsset[],
+    incoming: TransactionAsset[],
+  ) {
     demo.addTransaction({
       title,
       detail,
       type: "Trade",
       status: "Pending",
       note: note.trim(),
+      partner: team,
+      direction: "sent",
+      received: incoming,
+      sent: outgoing,
     });
     setSaved((old) => [...old, key]);
     demo.notify("Trade proposed · local sample only");
@@ -307,12 +332,45 @@ export function Trades({ task }: { task: string }) {
       (shopping ? "shop:" + shop.join(",") : "chat:" + submitted) +
       ":" +
       offerIndex;
-    const offered = shopping ? names(shop, own) : "James Cook";
-    const returns = [
-      "2027 Rd 1 (own pick) + 2028 Rd 2 (own pick)",
-      "Drake London",
-      "2027 Rd 1 (own pick) + 2027 Rd 3 (own pick)",
-    ][offerIndex];
+    const outgoing = own.filter((a) =>
+      shopping ? shop.includes(a.id) : a.id === "cook",
+    );
+    const partnerAssets = rosterFor(team);
+    const incoming =
+      offerIndex === 1
+        ? partnerAssets.filter((a) => a.name === "Drake London")
+        : partnerAssets.filter(
+            (a) =>
+              a.name === "2027 Rd 1" ||
+              a.name === (offerIndex === 0 ? "2028 Rd 2" : "2027 Rd 3"),
+          );
+    const offered = names(
+      outgoing.map((a) => a.id),
+      outgoing,
+    );
+    const returns = names(
+      incoming.map((a) => a.id),
+      incoming,
+    );
+    function offerAssets(assets: Asset[]) {
+      return (
+        <div className={s.offerAssetStack}>
+          {assets.map((a) => (
+            <div className={s.offerAsset} key={a.id}>
+              {a.position === "Picks" ? (
+                <span className={s.assetToken}>RD</span>
+              ) : (
+                <Portrait id={a.portrait ?? "rookie-" + a.id} name={a.name} />
+              )}
+              <span>
+                <strong>{a.name}</strong>
+                {a.meta && <small>{a.meta}</small>}
+              </span>
+            </div>
+          ))}
+        </div>
+      );
+    }
     return (
       <div className={s.offerCarousel} aria-label="Sample trade offers">
         <div className={s.offerCarouselTop}>
@@ -332,17 +390,19 @@ export function Trades({ task }: { task: string }) {
             </button>
           </div>
         </div>
+        <div className={s.offerTeamHeaders}>
+          <TeamName name={demo.identity.name} crest={demo.identity.crest} />
+          <TeamName name={team} />
+        </div>
         <div className={s.offerTeams}>
           <section>
-            <TeamName name={demo.identity.name} crest={demo.identity.crest} />
             <small>YOU SEND</small>
-            <h3>{offered}</h3>
+            {offerAssets(outgoing)}
           </section>
           <ArrowLeftRight size={28} />
           <section>
-            <TeamName name={team} />
             <small>YOU RECEIVE</small>
-            <h3>{returns}</h3>
+            {offerAssets(incoming)}
           </section>
         </div>
         <div className={s.offerFooter}>
@@ -355,6 +415,9 @@ export function Trades({ task }: { task: string }) {
                 "Discussion with the " + team,
                 offered + " for " + returns,
                 offerKey,
+                team,
+                outgoing,
+                incoming,
               )
             }
           >
@@ -439,6 +502,9 @@ export function Trades({ task }: { task: string }) {
                       "Offer to the " + partner,
                       names(send, own) + " for " + names(receive, other),
                       "manual",
+                      partner,
+                      own.filter((a) => send.includes(a.id)),
+                      other.filter((a) => receive.includes(a.id)),
                     )
                   }
                 >
@@ -471,7 +537,7 @@ export function Trades({ task }: { task: string }) {
               </div>
               <Tabs
                 label="Asset type"
-                options={["All", "QB", "RB", "PCs", "Picks"]}
+                options={["All", "QBs", "RBs", "PCs", "Picks"]}
                 value={filter}
                 onChange={setFilter}
               />

@@ -90,6 +90,17 @@ function useDemoState() {
       detail: "$" + claim.bid + " bid cancelled before processing",
       type: "Waiver",
       status: "Withdrawn",
+      bid: claim.bid,
+      received: [{ name: claim.name }],
+      sent: claim.drop
+        ? [
+            {
+              name:
+                players.find((p) => p.id === claim.drop)?.name ?? claim.drop,
+            },
+          ]
+        : [],
+      resolvedAt: Date.now(),
     });
     notify("Claim cancelled.");
   }

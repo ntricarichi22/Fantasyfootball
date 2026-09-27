@@ -7,17 +7,15 @@ import {
   RotateCcw,
   Search,
   Star,
-  UserRound,
 } from "lucide-react";
 import { useDemo } from "./DemoState";
 import { Crest, Tabs } from "./UI";
-import { previewPicks } from "./pickAssets";
 import { teams } from "./model";
 import s from "./Prototype.module.css";
 
 // Mirrors scouting/big-board/BigBoard's tier rails, rank/name poster cards,
 // tier-colored portrait blocks, stars, and position filtering. Fixtures only.
-const tierColors = ["#F5C230", "#3366CC", "#E8503A", "#2F7D4F"];
+const tierColors = ["#e6c36f", "#93b8a9", "#80a6b7", "#a3aba5"];
 const names = [
   "Malik Carter",
   "Evan Brooks",
@@ -87,7 +85,6 @@ export function Draft({ task }: { task: string }) {
   const [query, setQuery] = useState("");
   const [starOnly, setStarOnly] = useState(false);
   const [drag, setDrag] = useState("");
-  const [tab, setTab] = useState("Big Board");
   const [drafted, setDrafted] = useState<string[]>([]);
   const [round, setRound] = useState(1);
   const [poolTab, setPoolTab] = useState("Player Pool");
@@ -107,7 +104,13 @@ export function Draft({ task }: { task: string }) {
   }
   const matching = (p: Prospect, f: string, q: string) =>
     (f === "All" ||
-      p.position === f ||
+      p.position ===
+        ((
+          { QBs: "QB", RBs: "RB", WRs: "WR", TEs: "TE" } as Record<
+            string,
+            string
+          >
+        )[f] ?? f) ||
       (f === "PCs" && ["WR", "TE"].includes(p.position))) &&
     p.name.toLowerCase().includes(q.toLowerCase());
   const filtered = board.filter(
@@ -168,30 +171,6 @@ export function Draft({ task }: { task: string }) {
             </button>
           </div>
         </div>
-        <div className={s.draftPickStrip} aria-label="Draft order">
-          {Array.from({ length: 12 }, (_, i) => {
-            const index = (round - 1) * 12 + i;
-            const team = seats[i];
-            const p = board.find((p) => p.id === drafted[index]);
-            return (
-              <div
-                key={index}
-                data-current={drafted.length === index}
-                data-owned={i === 2}
-              >
-                <b>
-                  {round}.{String(i + 1).padStart(2, "0")}
-                </b>
-                <Crest name={team.name} crest={team.crest} size={27} />
-                <span>{i === 2 ? demo.identity.name : team.name}</span>
-                <small>
-                  {p?.name ??
-                    (drafted.length === index ? "ON THE CLOCK" : "UPCOMING")}
-                </small>
-              </div>
-            );
-          })}
-        </div>
         <section className={s.mockBoard}>
           <header>
             <strong>MOCK DRAFT</strong>
@@ -212,8 +191,19 @@ export function Draft({ task }: { task: string }) {
                   <b>
                     {round}.{String(i + 1).padStart(2, "0")}
                   </b>
+                  <Crest
+                    name={seats[i].name}
+                    crest={seats[i].crest}
+                    size={20}
+                  />
                   <span>{p?.name ?? seats[i].name}</span>
-                  <small>{p?.position ?? "—"}</small>
+                  <small>
+                    {p
+                      ? p.position
+                      : drafted.length === index
+                        ? "ON THE CLOCK"
+                        : "—"}
+                  </small>
                 </div>
               );
             })}
@@ -241,7 +231,7 @@ export function Draft({ task }: { task: string }) {
                   </label>
                   <Tabs
                     label="Mock draft position"
-                    options={["All", "QB", "RB", "PCs"]}
+                    options={["All", "QBs", "RBs", "PCs"]}
                     value={mockFilter}
                     onChange={setMockFilter}
                   />
@@ -350,193 +340,163 @@ export function Draft({ task }: { task: string }) {
     );
   return (
     <div className={s.bigBoardRoom}>
-      <Tabs
-        label="Draft board view"
-        options={["Big Board", "Your Draft Picks"]}
-        value={tab}
-        onChange={setTab}
-      />
-      {tab === "Your Draft Picks" ? (
-        <div className={s.pickGrid}>
-          {previewPicks().map((p) => (
-            <div key={p.id} className={s.pickCard}>
-              <span>{p.season}</span>
-              <strong>ROUND {p.round}</strong>
-              <small>{p.meta}</small>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <>
-          <div className={s.boardToolbar}>
-            <label>
-              <Search size={16} />
-              <input
-                aria-label="Search big board"
-                placeholder="Find a prospect"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-            </label>
-            <Tabs
-              label="Big board position"
-              options={["All", "QB", "RB", "WR", "TE"]}
-              value={filter}
-              onChange={setFilter}
-            />
-            <button
-              className={s.secondary}
-              aria-pressed={starOnly}
-              onClick={() => setStarOnly(!starOnly)}
-            >
-              <Star size={15} fill={starOnly ? "currentColor" : "none"} /> My
-              guys ({stars.length})
-            </button>
-          </div>
-          <div className={s.boardTierNav}>
-            {tierColors.map((color, i) => (
-              <button
-                key={i}
-                style={{ "--tier": color } as CSSProperties}
-                onClick={() =>
-                  document
-                    .getElementById("preview-tier-" + i)
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+      <div className={s.boardToolbar}>
+        <label>
+          <Search size={16} />
+          <input
+            aria-label="Search big board"
+            placeholder="Find a prospect"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </label>
+        <Tabs
+          label="Big board position"
+          options={["All", "QBs", "RBs", "WRs", "TEs"]}
+          value={filter}
+          onChange={setFilter}
+        />
+        <button
+          className={s.secondary}
+          aria-pressed={starOnly}
+          onClick={() => setStarOnly(!starOnly)}
+        >
+          <Star size={15} fill={starOnly ? "currentColor" : "none"} /> My guys (
+          {stars.length})
+        </button>
+      </div>
+      <div className={s.boardTierNav}>
+        {tierColors.map((color, i) => (
+          <button
+            key={i}
+            style={{ "--tier": color } as CSSProperties}
+            onClick={() =>
+              document
+                .getElementById("preview-tier-" + i)
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+          >
+            TIER {i + 1}
+          </button>
+        ))}
+        <span>
+          {selected
+            ? "Placing " + selected.name + " · choose a player or tier"
+            : "Drag to rank · click a player, then a destination to move"}
+        </span>
+      </div>
+      <div className={s.boardCanvas}>
+        {tierColors.map((color, t) => (
+          <section
+            key={t}
+            id={"preview-tier-" + t}
+            style={{ "--tier": color } as CSSProperties}
+          >
+            <header className={s.tierRail}>
+              <b>TIER {t + 1}</b>
+              <span>
+                {
+                  [
+                    "Cornerstones",
+                    "Building blocks",
+                    "Upside swings",
+                    "Development",
+                  ][t]
                 }
-              >
-                TIER {i + 1}
-              </button>
-            ))}
-            <span>
-              {selected
-                ? "Placing " + selected.name + " · choose a card or tier"
-                : "Drag to rank · click a card, then a destination to move"}
-            </span>
-          </div>
-          <div className={s.boardCanvas}>
-            {tierColors.map((color, t) => (
-              <section
-                key={t}
-                id={"preview-tier-" + t}
-                style={{ "--tier": color } as CSSProperties}
-              >
-                <header className={s.tierRail}>
-                  <b>TIER {t + 1}</b>
-                  <span>
-                    {
-                      [
-                        "Cornerstones",
-                        "Building blocks",
-                        "Upside swings",
-                        "Development",
-                      ][t]
-                    }
-                  </span>
-                  <small>
-                    {board.filter((p) => p.tier === t).length} PLAYERS
-                  </small>
-                  {drag && (
-                    <button
-                      onClick={() => {
-                        setBoard((old) =>
-                          old.map((p) =>
-                            p.id === drag ? { ...p, tier: t } : p,
-                          ),
-                        );
-                        setDrag("");
-                      }}
-                    >
-                      Move here
-                    </button>
-                  )}
-                </header>
-                <div className={s.posterGrid}>
-                  {filtered
-                    .filter((p) => p.tier === t)
-                    .map((p) => (
-                      <article
-                        className={s.posterCard}
-                        key={p.id}
-                        draggable
-                        onDragStart={() => setDrag(p.id)}
-                        onDragOver={(e) => e.preventDefault()}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          move(drag, p.id, t);
-                        }}
-                        onDragEnd={() => setDrag("")}
-                        data-selected={drag === p.id}
+              </span>
+              <small>{board.filter((p) => p.tier === t).length} PLAYERS</small>
+              {drag && (
+                <button
+                  onClick={() => {
+                    setBoard((old) =>
+                      old.map((p) => (p.id === drag ? { ...p, tier: t } : p)),
+                    );
+                    setDrag("");
+                  }}
+                >
+                  Move here
+                </button>
+              )}
+            </header>
+            <div className={s.boardRankList}>
+              {filtered
+                .filter((p) => p.tier === t)
+                .map((p) => (
+                  <article
+                    className={s.boardRankRow}
+                    key={p.id}
+                    draggable
+                    onDragStart={() => setDrag(p.id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      move(drag, p.id, t);
+                    }}
+                    onDragEnd={() => setDrag("")}
+                    data-selected={drag === p.id}
+                  >
+                    <header>
+                      <b>{board.indexOf(p) + 1}</b>
+                      <button
+                        aria-label={"Mark " + p.name + " as my guy"}
+                        aria-pressed={stars.includes(p.id)}
+                        onClick={() =>
+                          setStars((old) =>
+                            old.includes(p.id)
+                              ? old.filter((id) => id !== p.id)
+                              : [...old, p.id],
+                          )
+                        }
                       >
-                        <header>
-                          <b>{board.indexOf(p) + 1}</b>
-                          <button
-                            aria-label={"Mark " + p.name + " as my guy"}
-                            aria-pressed={stars.includes(p.id)}
-                            onClick={() =>
-                              setStars((old) =>
-                                old.includes(p.id)
-                                  ? old.filter((id) => id !== p.id)
-                                  : [...old, p.id],
-                              )
-                            }
-                          >
-                            <Star
-                              size={17}
-                              fill={
-                                stars.includes(p.id) ? "currentColor" : "none"
-                              }
-                            />
-                          </button>
-                          <span>{p.position}</span>
-                        </header>
-                        <button
-                          className={s.posterBody}
-                          aria-label={"Move " + p.name}
-                          onClick={() =>
-                            drag && drag !== p.id
-                              ? move(drag, p.id, t)
-                              : setDrag(drag === p.id ? "" : p.id)
-                          }
-                        >
-                          <strong>{p.name}</strong>
-                          <small>
-                            {p.position} · {p.school} · {p.age}
-                          </small>
-                          <span className={s.posterPhoto}>
-                            <UserRound strokeWidth={1} size={115} />
-                            <b>{p.position}</b>
-                          </span>
-                        </button>
-                        <footer>
-                          <small>CONSENSUS #{p.rank}</small>
-                          <button
-                            aria-label={"Move " + p.name + " up"}
-                            disabled={board.indexOf(p) === 0}
-                            onClick={() =>
-                              move(p.id, board[board.indexOf(p) - 1].id)
-                            }
-                          >
-                            <ArrowUp size={14} />
-                          </button>
-                          <button
-                            aria-label={"Move " + p.name + " down"}
-                            disabled={board.indexOf(p) === board.length - 1}
-                            onClick={() =>
-                              move(p.id, board[board.indexOf(p) + 1].id)
-                            }
-                          >
-                            <ArrowDown size={14} />
-                          </button>
-                        </footer>
-                      </article>
-                    ))}
-                </div>
-              </section>
-            ))}
-            {!filtered.length && <p>No prospects match these filters.</p>}
-          </div>
-        </>
-      )}
+                        <Star
+                          size={17}
+                          fill={stars.includes(p.id) ? "currentColor" : "none"}
+                        />
+                      </button>
+                      <span>{p.position}</span>
+                    </header>
+                    <button
+                      className={s.boardRankIdentity}
+                      aria-label={"Move " + p.name}
+                      onClick={() =>
+                        drag && drag !== p.id
+                          ? move(drag, p.id, t)
+                          : setDrag(drag === p.id ? "" : p.id)
+                      }
+                    >
+                      <strong>{p.name}</strong>
+                      <small>
+                        {p.position} · {p.school} · {p.age}
+                      </small>
+                    </button>
+                    <footer>
+                      <small>CONSENSUS #{p.rank}</small>
+                      <button
+                        aria-label={"Move " + p.name + " up"}
+                        disabled={board.indexOf(p) === 0}
+                        onClick={() =>
+                          move(p.id, board[board.indexOf(p) - 1].id)
+                        }
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                      <button
+                        aria-label={"Move " + p.name + " down"}
+                        disabled={board.indexOf(p) === board.length - 1}
+                        onClick={() =>
+                          move(p.id, board[board.indexOf(p) + 1].id)
+                        }
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                    </footer>
+                  </article>
+                ))}
+            </div>
+          </section>
+        ))}
+        {!filtered.length && <p>No prospects match these filters.</p>}
+      </div>
     </div>
   );
 }

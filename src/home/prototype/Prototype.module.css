@@ -5175,5 +5175,125 @@
 @media(max-width:760px) {
  .strategyAsset > .playerBadges { max-width:none;flex-wrap:nowrap;gap:6px; }
  .strategyAsset .ageChip,.strategyAsset .qualityChip { font-size:8px;padding:5px; }
- .strategyAsset .ageNumber b { font-size:21px; }
+.strategyAsset .ageNumber b { font-size:21px; }
+}
+
+/* Review v7 — quiet scoring, full-width history, and more room for player pools. */
+.app { --forest:#183c31;--forest-deep:#112c24;--forest-line:#365d4d; }
+.workspaceHeader { background:linear-gradient(100deg,#183c31e8,#132923dc); }
+.profileValuation,.privateStrategy { background:#183c3170;border-color:#416854; }
+.stanceChoices button[aria-pressed='true'],.tradeAssetRow[aria-pressed='true'],.shopPlayer[aria-pressed='true'],.availabilityButtons button[aria-pressed='true'] { background:#183c31; }
+.dealColumns header,.historyTable thead { background:#183c31; }
+.medicalChip { display:inline-flex;align-items:center;gap:3px;border:1px solid #dfaa8b70;background:#d8936a15;border-radius:3px;padding:2px 4px;color:#efbaa0;font:600 8px/1 'DM Sans',sans-serif;white-space:nowrap;vertical-align:middle; }
+.playerNameLine { display:flex!important;align-items:center;gap:7px; }
+.lineupView .playerIdentity .playerNameLine { white-space:nowrap; }
+.matchupView { height:100%;--match-name-size:22px;--match-detail-size:10px; }
+.matchupView .matchupLineups { overflow:auto; }
+.matchupView .matchupRow { grid-template-columns:minmax(0,1fr) 68px minmax(0,1fr);gap:12px;min-height:40px;flex:1;padding:2px 0;align-items:center; }
+.matchupView .matchupRow[data-substitution='true'] { flex:1.55;min-height:62px; }
+.matchHalf { min-width:0; }
+.matchMain { display:flex;align-items:center;gap:13px;min-width:0; }
+.matchMain > .matchPlayer { flex:1;min-width:0;gap:8px; }
+.matchupView .matchPlayer .portrait { display:block;width:29px;height:33px;flex-shrink:0; }
+.matchupView .matchIdentity { flex:1;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;gap:17px;min-width:0; }
+.matchupView .matchIdentity strong,.matchScore > strong { font:600 var(--match-name-size)/1 'Barlow Condensed',sans-serif;white-space:nowrap; }
+.matchupView .matchIdentity small,.matchScore > small,.scoreComparison { font:400 var(--match-detail-size)/1.2 'DM Sans',sans-serif;margin:3px 0 0;color:#afc2be;white-space:nowrap; }
+.matchupView .scoreComparison { font-size:var(--match-detail-size)!important;line-height:1.2!important;font-family:'DM Sans',sans-serif!important; }
+.workspaceBody:has(> .view[data-review-view='matchup']:not([hidden])) { padding-block:10px; }
+.matchupView .scoreHero { margin:0; }
+.matchupView .scoreHero > strong { font-size:44px; }
+.matchupView .probabilityTrack { height:21px;margin:5px 0; }
+.matchupView .matchupFooter { margin-top:6px; }
+.matchupView .matchIdentity .medicalChip { font:600 7px/1 'DM Sans',sans-serif; }
+.matchupView .matchGame { font:500 12px/1.35 'DM Sans',sans-serif;color:#c2ccc8;text-align:left;white-space:normal;max-width:138px;flex-shrink:1; }
+.matchupView .matchGame[data-live='true'] { color:#d7d5b8; }
+.matchScore { flex-shrink:0;position:relative;display:flex;flex-direction:column;align-items:flex-end;text-align:right;min-width:128px;font-variant-numeric:tabular-nums; }
+.matchScore > strong { color:#f6f5ef; }
+.matchScore > small b { color:#e9cf94;font-weight:500; }
+.scoreComparison { display:block;background:none;padding:0; }
+.scoreComparison b { font-weight:500; }
+.scoreComparison b[data-direction='up'] { color:#9fceb5; }
+.scoreComparison b[data-direction='down'] { color:#e4a799; }
+.scoreBaseline { position:absolute;right:0;top:100%;z-index:10;background:#183c31;border:1px solid #658575;padding:9px 12px;color:#eee5ce;font-size:11px;white-space:nowrap;box-shadow:0 6px 14px #0006; }
+.matchSubstitution { display:flex;align-items:center;gap:6px;margin:3px 0 0 37px;font-size:9px;min-width:0;color:#bdc8c2; }
+.matchSubstitution > svg { color:var(--gold);flex-shrink:0; }
+.matchSubstitution > button { display:flex;align-items:center;gap:6px;background:none;min-width:0;text-align:left; }
+.matchSubstitution b { font:500 15px/1.1 'Barlow Condensed',sans-serif; }
+.matchSubstitution .portrait { width:19px;height:21px; }
+.matchSubstitution small { color:#8fa69d;font-size:8px;margin-left:auto; }
+.matchResult { display:flex;align-items:center;justify-content:center;gap:12px;background:var(--forest);border-block:1px solid var(--forest-line);min-height:41px;padding:7px 14px;margin:5px 0 10px;flex-shrink:0; }
+.matchResult strong { font:600 25px/1 'Barlow Condensed',sans-serif;text-transform:uppercase;color:var(--gold); }
+.matchResult svg { color:var(--gold); }
+.matchResult > span { font-size:10px;color:#c4d3c9; }
+.scoreHero > strong[data-winner='true'] { color:var(--gold); }
+.closeScoreExplanation { float:right;background:none;color:inherit; }
+.scoreExplanation { background:var(--forest-deep); }
+.offerCarousel { background:linear-gradient(140deg,#183c3190,#101e23); }
+.offerTeamHeaders { display:grid;grid-template-columns:1fr 1fr;gap:30px;padding:18px 24px 12px; }
+.offerTeamHeaders > :last-child { justify-content:flex-end; }
+.offerTeams { align-items:start!important;padding:12px 24px 24px;gap:25px;min-height:0;overflow:auto; }
+.offerTeams > svg { align-self:center; }
+.offerTeams > section { display:flex;flex-direction:column;min-width:0; }
+.offerTeams > section > small { margin:0 0 15px;font-size:10px; }
+.offerAssetStack { display:flex;flex-direction:column;gap:10px; }
+.offerAsset { display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #b9c5bc22;min-height:62px; }
+.offerAsset strong { display:block;font:600 27px/1.1 'Barlow Condensed',sans-serif; }
+.offerAsset small { display:block;font:400 11px/1.3 'DM Sans',sans-serif;color:#b5c7c3;letter-spacing:0;margin:6px 0 0; }
+.offerAsset .portrait,.offerAsset .assetToken { width:43px;height:46px; }
+.offerTeams > section:last-child .offerAsset { flex-direction:row-reverse;text-align:right; }
+.view[data-review-view='transactions'] { height:100%;display:flex;flex-direction:column;min-height:0; }
+.historyScroll { overflow:auto;flex:1;min-height:0; }
+.historyTable { width:100%;border-collapse:collapse;text-align:left;table-layout:fixed; }
+.historyTable th { font-size:10px;font-weight:500;color:#bdcfc5;padding:13px 12px;position:sticky;top:0;background:var(--forest);z-index:1; }
+.historyTable th:nth-child(1) { width:8%; }.historyTable th:nth-child(2) { width:19%; }.historyTable th:nth-child(3),.historyTable th:nth-child(4) { width:23%; }.historyTable th:nth-child(5) { width:10%; }.historyTable th:nth-child(6) { width:17%; }
+.historyTable td { padding:17px 12px;vertical-align:middle;border-bottom:1px solid var(--line); }
+.historyRow { cursor:pointer; }.historyRow:hover,.historyRow[data-expanded='true'] { background:#183c3160; }
+.historyRow time { font-size:11px;color:#adbdba; }
+.historyOpen { width:100%;background:none;display:flex;align-items:center;justify-content:space-between;gap:7px;text-align:left; }
+.historyOpen strong { font:600 23px 'Barlow Condensed',sans-serif; }.historyOpen small { display:flex;align-items:center;gap:6px;margin-top:5px;color:#b9c8c2;font-size:11px; }
+.historyOpen em { display:block;font-size:9px;color:#8fa59c;font-style:normal;margin-top:5px; }
+.historyAssets { display:flex;flex-direction:column;gap:9px; }.historyAssets > div { display:flex;align-items:center;gap:8px; }.historyAssets svg { flex-shrink:0;color:#96b9a6; }.historyTable td:nth-child(4) .historyAssets svg { color:#cbbca8; }
+.historyAssets strong { display:block;font:600 22px/1.15 'Barlow Condensed',sans-serif; }.historyAssets small { display:block;font-size:10px;color:#a9bdb7;margin-top:3px; }.historyDash { color:#6d867b; }
+.historyAmount { font:600 24px/1.2 'Barlow Condensed',sans-serif;white-space:nowrap; }.historyAmount small { display:inline;font:400 10px 'DM Sans',sans-serif;color:#b1c0ba;margin-left:5px; }
+.historyOutcome { font-size:11px;line-height:1.5;color:#c0c9c4; }.historyOutcome[data-success='true'] { color:#a6d7bc; }
+.historyDetail td { background:#102b23;padding:15px 22px; }.historyDetail strong { display:block;font:600 20px 'Barlow Condensed',sans-serif;margin-bottom:6px; }.historyDetail span,.historyDetail p { font-size:12px; }.historyDetail small { display:block;color:#8fa99c;font-size:10px;margin-top:9px; }
+.waiverCountdown { margin-left:auto;display:flex;align-items:baseline;gap:8px;font-size:12px;color:#b6c9bd; }.waiverCountdown b { font:600 22px 'Barlow Condensed',sans-serif;color:#f0ddaa; }.waiverCountdown small { font-size:8px;color:#93aa9d; }
+.waiverHeaderCap { margin-left:auto;text-align:right; }.waiverHeaderCap strong { font:600 28px/1.1 'Barlow Condensed',sans-serif;color:var(--gold); }.waiverHeaderCap strong span { font-size:22px;color:#c6d2c7; }.waiverHeaderCap > small { display:block;font-size:8px;color:#aebfb4; }
+.view[data-review-view='waivers'] { height:100%;min-height:0; }.waiverLayout { height:100%;min-height:0;display:grid;grid-template-columns:minmax(0,1fr);gap:22px; }.waiverLayout[data-has-claims='true'] { grid-template-columns:minmax(0,1fr) 295px; }
+.waiverPool { min-width:0;min-height:0;display:flex;flex-direction:column; }.waiverPool > .subTabs { margin-bottom:8px; }.waiverPool .subTabs button { font-size:18px;padding:8px; }.waiverPool .search { margin:0 0 10px;flex-shrink:0;height:34px; }
+.waiverPool .freeAgents { display:flex;flex-direction:column;flex:1;min-height:0;overflow:auto;gap:0; }
+.waiverPool .freeAgent { display:grid;grid-template-columns:20px 32px minmax(120px,1fr) 48px 45px 45px 16px;gap:10px;align-items:center;flex-shrink:0;min-height:53px;padding:6px 3px; }
+.waiverPool .freeAgent .portrait { width:30px;height:34px; }.waiverPool .freeAgent strong { font:600 22px/1.1 'Barlow Condensed',sans-serif; }.waiverPool .freeAgent small { font-size:9px;line-height:1.2; }.waiverPool .freeAgent > b { font-size:12px; }.waiverPool .freeAgent em { font-size:8px;margin-left:8px;display:inline; }.waiverPool .freeAgentStat b,.waiverPool .projection { font:600 23px/1 'Barlow Condensed',sans-serif; }.waiverPool .projection small { font:400 7px 'DM Sans',sans-serif; }
+.waiverLayout .claimLedger { min-width:0;min-height:0;max-height:100%;overflow:auto;margin:0;padding:12px;background:var(--forest);border:1px solid var(--forest-line);align-self:start; }
+.waiverPool .freeAgentStat,.waiverPool .projection { width:auto;min-width:0; }
+.claimLedger .sectionLabel { margin-bottom:9px;min-height:24px;height:auto; }.claimLedger .sectionLabel h3 { font:600 21px 'Barlow Condensed',sans-serif; }.claimLedger .sectionLabel > span { font-size:10px; }
+.claimLedger .claimRow { display:grid;grid-template-columns:10px 12px minmax(65px,1fr) 42px 18px 18px;gap:5px;min-height:57px;padding:8px 0; }.claimLedger .claimRow strong { font:600 17px/1.1 'Barlow Condensed',sans-serif; }.claimLedger .claimRow small { font-size:9px;line-height:1.3;margin-top:4px; }.claimLedger .claimRow > b { font-size:12px; }.claimLedger .claimRow label { font-size:10px;gap:2px; }.claimLedger .claimRow input { width:31px;padding:5px 1px;font-size:12px; }.claimLedger .claimRow button { padding:2px; }.claimLedger .claimRow > span { min-width:0; }
+.boardRankList { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 16px; }
+.boardRankRow { display:grid;grid-template-columns:70px minmax(0,1fr) 96px;align-items:center;gap:10px;padding:11px 8px;min-height:61px;background:#15312860;border-bottom:1px solid #87a39140; }
+.boardRankRow[data-selected='true'] { background:#183c31;outline:1px solid var(--gold); }
+.boardRankRow > header { display:flex;align-items:center;gap:8px; }.boardRankRow header > b { color:var(--gold);font:600 25px 'Barlow Condensed',sans-serif;min-width:22px; }.boardRankRow header > span { display:none; }.boardRankRow header > button { background:none;color:#8ba898;padding:4px; }.boardRankRow header > button[aria-pressed='true'] { color:var(--gold); }
+.boardRankIdentity { background:none;text-align:left;color:inherit;min-width:0; }.boardRankIdentity > strong { display:block;font:600 23px/1.1 'Barlow Condensed',sans-serif; }.boardRankIdentity > small { display:block;font-size:10px;color:#acc3b7;margin-top:5px; }
+.boardRankRow > footer { display:grid;grid-template-columns:1fr 1fr;justify-items:end;gap:3px; }.boardRankRow footer small { grid-column:1/-1;color:#9db4a9;font-size:8px; }.boardRankRow footer button { background:none;color:#b9c7be;padding:4px; }
+.tierRail { border-bottom:1px solid #8aac9a60;padding:8px 10px;background:var(--forest);margin-bottom:9px; }.tierRail > b { background:none;color:var(--tier);padding:0;font-size:22px; }.tierRail > span { color:#dce2d8; }.tierRail > small { color:#afc2b5;font-size:10px; }.boardTierNav button { border-bottom-width:2px!important; }
+.mockRoom { gap:9px; }.mockCommand h3 { font-size:23px; }.mockCommand .primary,.mockCommand .secondary { padding:9px 12px; }.mockBoard { display:block; }.mockBoard > header { height:34px; }.mockBoardSlots { display:grid;gap:4px;padding:7px; }.mockBoardSlots > div { height:24px;min-height:24px;gap:6px; }.mockBoardSlots > div b,.mockBoardSlots > div span { font-size:15px; }.mockBoardSlots img { width:18px;height:18px; }.mockBoardSlots > div small { font-size:8px; }
+.mockPool { padding:0 10px 7px; }.mockPool > .subTabs { margin-bottom:4px; }.mockPool > .subTabs button { padding:7px 10px; }.mockPoolTools { margin-bottom:4px; }.mockPoolTools > label { padding:6px 8px; }
+.mockPlayerHead,.mockPlayerRow { grid-template-columns:minmax(160px,1fr) 34px 56px 68px 53px;gap:8px; }.mockPlayerHead { font-size:9px;padding:7px; }.mockPlayerRow { min-height:34px;height:34px;padding:3px 7px;margin-bottom:3px;font-size:19px; }.mockPlayerRow > span:first-child { display:flex;align-items:baseline;gap:12px;min-width:0; }.mockPlayerRow > span:first-child b { white-space:nowrap;font-size:20px; }.mockPlayerRow > span:first-child small { margin:0;font:400 11px 'DM Sans',sans-serif;color:#455e52; }.mockPlayerRow > small { font-size:9px; }.mockPlayerRow > button { padding:3px; }
+.mockDirector { background:#183c3160; }
+@media(min-width:761px) and (max-width:1350px) {
+ .matchupView { --match-name-size:19px;--match-detail-size:9px; }.matchupView .matchIdentity { gap:8px; }.matchupView .matchGame { font-size:10px;max-width:82px; }.matchScore { min-width:112px; }.matchMain { gap:8px; }.matchupView .matchupRow { gap:9px;grid-template-columns:minmax(0,1fr) 57px minmax(0,1fr); }.matchupView .matchPlayer .portrait { width:23px;height:29px; }.matchSubstitution { margin-left:31px;font-size:8px; }.matchSubstitution b { font-size:14px; }.matchSubstitution small { display:none; }
+ .waiverLayout[data-has-claims='true'] { grid-template-columns:minmax(0,1fr) 262px;gap:15px; }.waiverPool .freeAgent { gap:6px;grid-template-columns:16px 26px minmax(120px,1fr) 40px 40px 39px 14px; }.waiverPool .freeAgent strong { font-size:20px; }.waiverPool .subTabs button { padding:7px 6px;font-size:16px; }
+ .mockPlayerRow > span:first-child { gap:8px; }.mockPlayerRow > span:first-child small { font-size:10px; }.mockWarRoom { grid-template-columns:2.8fr 1fr; }.mockDirector { padding:12px; }
+}
+@media(min-width:761px) and (max-height:810px) {
+ .matchupView .scoreHero { margin-bottom:3px; }.matchupView .matchupRow { min-height:36px;padding:2px 0; }.matchupView .matchupRow[data-substitution='true'] { min-height:59px; }.matchSubstitution { margin-top:3px; }.matchResult { min-height:33px;margin:3px 0 5px; }.matchResult strong { font-size:23px; }.matchupFooter { margin-top:4px; }
+ .mockRoom { gap:7px; }.mockBoard > header { height:30px; }.mockBoardSlots { padding:5px;gap:3px; }.mockBoardSlots > div { height:21px;min-height:21px; }.mockCommand h3 { font-size:20px; }.mockCommand small { display:none; }.mockPlayerRow { height:31px;min-height:31px; }.waiverPool .freeAgent { min-height:47px; }
+}
+@media(max-width:760px) {
+ .matchupView { height:auto;--match-name-size:18px;--match-detail-size:9px; }.matchupView .matchupLineups { overflow:visible; }.matchupView .matchupRow { grid-template-columns:minmax(0,1fr);gap:8px;min-height:0;padding:12px 0; }.matchupView .matchupSlot { grid-row:1;justify-self:start;font-size:12px;color:var(--gold); }.matchupView .matchIdentity { flex-direction:column;align-items:flex-start;gap:5px; }.matchupView .matchGame { font-size:10px;max-width:none; }.matchMain > .matchIdentity { padding-left:31px; }.matchupView .matchIdentity strong { white-space:normal; }.matchScore { min-width:113px;align-self:flex-start; }.matchupView .matchPlayer .portrait { width:23px;height:29px; }.matchSubstitution { margin-left:31px;flex-wrap:wrap;font-size:9px; }.matchSubstitution small { margin:0; }.matchResult { flex-wrap:wrap;gap:6px 9px; }.matchResult > span { font-size:9px; }.scoreBaseline { font-size:10px; }
+ .offerTeamHeaders { padding:15px 13px 8px;gap:15px; }.offerTeamHeaders .teamLabel strong { font-size:21px; }.offerTeams { grid-template-columns:minmax(0,1fr) 16px minmax(0,1fr);padding:10px 13px;gap:9px; }.offerAsset { gap:7px;min-height:62px;align-items:flex-start; }.offerAsset strong { font-size:20px; }.offerAsset small { font-size:9px; }.offerAsset .portrait,.offerAsset .assetToken { width:25px;height:30px; }.offerTeams > svg { width:16px; }
+ .view[data-review-view='transactions'] { height:auto; }.historyScroll { overflow:auto;max-height:600px; }.historyTable { min-width:830px; }
+ .workspaceHeader:has(.waiverCountdown) { gap:8px; }.waiverCountdown { order:4;flex-basis:100%;margin:0;justify-content:center;border-top:1px solid var(--line);padding-top:7px; }.waiverCountdown b { font-size:20px; }.waiverHeaderCap strong { font-size:23px; }.waiverHeaderCap strong span { font-size:18px; }.waiverHeaderCap > small { font-size:7px; }
+ .view[data-review-view='waivers'],.waiverLayout { height:auto; }.waiverLayout,.waiverLayout[data-has-claims='true'] { display:flex;flex-direction:column;gap:14px; }.waiverPool { min-height:430px; }.waiverPool .freeAgents { max-height:420px;flex:none; }.waiverPool .freeAgent { grid-template-columns:26px minmax(0,1fr) 42px 16px;gap:6px;min-height:58px; }.waiverPool .freeAgent > b,.waiverPool .freeAgent .freeAgentStat { display:none; }.waiverPool .freeAgent .portrait { grid-column:1; }.waiverPool .freeAgent > span:nth-child(3) { grid-column:2;min-width:0; }.waiverPool .freeAgent .projection { grid-column:3; }.waiverPool .freeAgent > svg { grid-column:4; }.waiverPool .freeAgent strong { font-size:21px; }.waiverPool .freeAgent em { display:block;margin:3px 0 0; }.waiverLayout .claimLedger { max-height:240px;align-self:stretch; }.claimLedger .claimRow { grid-template-columns:12px 15px minmax(70px,1fr) 55px 24px 24px; }
+ .boardRankList { grid-template-columns:minmax(0,1fr); }.boardRankRow { grid-template-columns:55px minmax(0,1fr) 65px;gap:6px; }.boardRankIdentity > strong { font-size:21px; }.boardRankIdentity > small { font-size:9px; }.boardRankRow footer small { font-size:7px; }.tierRail { gap:8px; }.tierRail > b { font-size:19px; }.tierRail > span { font-size:17px; }.tierRail > small { font-size:8px; }
+ .mockBoard { display:block; }.mockBoard > header { flex-wrap:wrap;height:auto;gap:7px; }.mockBoard > header > strong { font-size:17px; }.mockBoard .subTabs button { font-size:15px;padding:5px 7px; }.mockBoard > header > small { font-size:8px; }.mockBoardSlots { grid-template-columns:1fr 1fr;grid-template-rows:repeat(6,1fr); }.mockBoardSlots > div { height:25px; }.mockBoardSlots > div b,.mockBoardSlots > div span { font-size:12px; }.mockBoardSlots img { display:none; }.mockBoardSlots > div small { display:none; }.mockPlayerHead,.mockPlayerRow { grid-template-columns:minmax(120px,1fr) 33px 47px;gap:5px; }.mockPlayerRow { height:auto;min-height:42px; }.mockPlayerRow > span:first-child { display:block; }.mockPlayerRow > span:first-child b { font-size:19px; }.mockPlayerRow > span:first-child small { display:block;font-size:9px; }.mockDirector { display:none; }
 }

@@ -8,7 +8,7 @@ export function previewPicks(owner = "own") {
       return {
         id: `${owner}-${season}-${round}`,
         name: formatPickLabel({ season, round }),
-        meta: via ? `(via ${via})` : "(own pick)",
+        meta: via ? `(via ${via})` : "",
         position: "Picks",
         season,
         round,

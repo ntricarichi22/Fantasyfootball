@@ -17,6 +17,7 @@ import {
   type FeatureId,
 } from "./model";
 import { PlayerDossier } from "./PlayerDossier";
+import { WaiverHeader } from "./WaiverHeader";
 import { Workspace } from "./Workspace";
 import { Crest, TaskTiles, type Tile } from "./UI";
 import { lineupSlots, subLimit } from "./leagueFixture";
@@ -473,16 +474,20 @@ function Headquarters() {
                     League scoreboard <ChevronRight size={16} />
                   </button>
                 )}
-                <span className={s.headerMeta}>
-                  {feature === "lineup"
-                    ? demo.players.filter(
-                        (p) => p.group === "Starters" || p.group === "Subs",
-                      ).length +
-                      " / " +
-                      (lineupSlots.length + subLimit) +
-                      " ACTIVE"
-                    : demo.phase}
-                </span>
+                {feature === "waivers" ? (
+                  <WaiverHeader />
+                ) : (
+                  <span className={s.headerMeta}>
+                    {feature === "lineup"
+                      ? demo.players.filter(
+                          (p) => p.group === "Starters" || p.group === "Subs",
+                        ).length +
+                        " / " +
+                        (lineupSlots.length + subLimit) +
+                        " ACTIVE"
+                      : demo.phase}
+                  </span>
+                )}
               </header>
               <div className={s.workspaceBody}>
                 <Workspace

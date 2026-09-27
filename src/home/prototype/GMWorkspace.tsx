@@ -4,7 +4,6 @@ import {
   ArrowUp,
   Check,
   ChevronRight,
-  Clock3,
   GripVertical,
   Plus,
   Search,
@@ -21,12 +20,12 @@ import {
 import { PlayerBadges, PriceControls } from "./PlayerDossier";
 export { Draft } from "./DraftWorkspace";
 export { Trades } from "./TradeWorkspace";
-import { TransactionLedger } from "./TradeWorkspace";
+import { TransactionHistory } from "./TransactionHistory";
 import { useDemo } from "./DemoState";
 import { demoLeague } from "./leagueFixture";
 import { slotEligibility } from "@/shared/team-profiles/strength";
 import { freeAgents, type Availability } from "./model";
-import { Empty, Portrait, SectionLabel, Tabs, Pagination } from "./UI";
+import { Empty, Portrait, SectionLabel, Tabs } from "./UI";
 import s from "./Prototype.module.css";
 const capital = previewPicks();
 const pickAssets = capital.map((p) => p.name);
@@ -341,44 +340,27 @@ export function Waivers() {
   const demo = useDemo();
   const [position, setPosition] = useState("All");
   const [query, setQuery] = useState("");
-  const [waiverPage, setWaiverPage] = useState(0);
   const [selected, setSelected] = useState("");
   const [bid, setBid] = useState(5);
   const [drop, setDrop] = useState("");
   const [drag, setDrag] = useState("");
-  const [remaining, setRemaining] = useState(2 * 86400 + 13 * 3600 + 45 * 60);
-  useEffect(() => {
-    const timer = setInterval(
-      () => setRemaining((x) => Math.max(0, x - 60)),
-      60000,
-    );
-    return () => clearInterval(timer);
-  }, []);
   const codes: Record<string, string> = {
+    QBs: "QB",
+    RBs: "RB",
+    WRs: "WR",
+    TEs: "TE",
     "S-FLEX": "SUPER_FLEX",
-    PC: "REC_FLEX",
+    PCs: "REC_FLEX",
   };
   const valid = slotEligibility(codes[position] ?? position);
   const list = freeAgents.filter(
     (p) =>
       (position === "All" ||
-        (position === "Rookie" && p.rookie) ||
+        (position === "Rookies" && p.rookie) ||
         valid?.includes(p.position as "QB" | "RB" | "WR" | "TE")) &&
       p.name.toLowerCase().includes(query.toLowerCase()),
   );
-  const waiverSize = demo.claims.length > 1 ? 3 : demo.claims.length ? 4 : 5;
-  const activePage = Math.min(
-    waiverPage,
-    Math.max(0, Math.ceil(list.length / waiverSize) - 1),
-  );
   const candidate = freeAgents.find((p) => p.id === selected);
-  const count = [
-    Math.floor(remaining / 86400),
-    Math.floor(remaining / 3600) % 24,
-    Math.floor(remaining / 60) % 60,
-  ]
-    .map((n) => String(n).padStart(2, "0"))
-    .join(" : ");
   function reorder(a: string, b: string) {
     const copy = [...demo.claims],
       i = copy.findIndex((c) => c.id === a),
@@ -388,26 +370,87 @@ export function Waivers() {
     demo.setClaims(copy);
   }
   return (
-    <>
-      <div className={s.capSummary}>
-        <div>
-          <small>SALARY CAP REMAINING</small>
-          <strong>
-            ${demoLeague.salaryCapRemaining}{" "}
-            <span>/ ${demoLeague.salaryCap}</span>
-          </strong>
+    <div className={s.waiverLayout} data-has-claims={demo.claims.length > 0}>
+      <section className={s.waiverPool}>
+        <Tabs
+          label="Waiver eligibility"
+          options={[
+            "All",
+            "QBs",
+            "RBs",
+            "WRs",
+            "TEs",
+            "S-FLEX",
+            "FLEX",
+            "PCs",
+            "Rookies",
+          ]}
+          value={position}
+          onChange={(value) => {
+            setPosition(value);
+          }}
+        />
+        <label className={s.search}>
+          <Search size={16} />
+          <input
+            aria-label="Search available players"
+            placeholder="Find your next difference-maker"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+            }}
+          />
+        </label>
+        <div className={s.freeAgents}>
+          {list.map((p, i) => {
+            const claim = demo.claims.find((c) => c.playerId === p.id);
+            return (
+              <button
+                className={[s.freeAgent, claim ? s.assetSelected : ""].join(
+                  " ",
+                )}
+                key={p.id}
+                onClick={() => {
+                  setSelected(p.id);
+                  setBid(claim?.bid ?? 5);
+                  setDrop(claim?.drop ?? "");
+                }}
+              >
+                <b>{i + 1}</b>
+                <Portrait id={p.id} name={p.name} />
+                <span>
+                  <strong>{p.name}</strong>
+                  <small>
+                    {p.position} · {p.team} · Age {p.age}
+                    {claim && <em>{"Claim placed · $" + claim.bid}</em>}
+                  </small>
+                </span>
+                <span className={s.freeAgentStat}>
+                  <b>#{p.seasonRank}</b>
+                  <small>POS RANK</small>
+                </span>
+                <span className={s.freeAgentStat}>
+                  <b>{p.average}</b>
+                  <small>AVG</small>
+                </span>
+                <span className={s.projection}>
+                  {p.points.toFixed(1)}
+                  <small>PROJ</small>
+                </span>
+                <Plus size={16} />
+              </button>
+            );
+          })}
         </div>
-        <div>
-          <small>WEDNESDAY · 8 PM ET</small>
-          <strong>{count}</strong>
-          <span className={s.microcopy}>
-            <Clock3 size={12} />
-            DAYS : HOURS : MINUTES · SAMPLE
-          </span>
-        </div>
-      </div>
+        {!list.length && (
+          <Empty
+            title="No matching players"
+            text="Try another name or eligibility filter."
+          />
+        )}
+      </section>
       {demo.claims.length > 0 && (
-        <div className={s.claimLedger}>
+        <aside className={s.claimLedger}>
           <SectionLabel title="Pending claims">
             <span>{demo.claims.length} claims</span>
           </SectionLabel>
@@ -425,7 +468,7 @@ export function Waivers() {
               <span>
                 <strong>{claim.name}</strong>
                 <small>
-                  Pending · Drop{" "}
+                  Drop{" "}
                   {demo.players.find((p) => p.id === claim.drop)?.name ??
                     "none"}
                 </small>
@@ -470,93 +513,7 @@ export function Waivers() {
               </button>
             </div>
           ))}
-        </div>
-      )}
-      <Tabs
-        label="Waiver eligibility"
-        options={[
-          "All",
-          "QB",
-          "RB",
-          "WR",
-          "TE",
-          "S-FLEX",
-          "FLEX",
-          "PC",
-          "Rookie",
-        ]}
-        value={position}
-        onChange={(value) => {
-          setPosition(value);
-          setWaiverPage(0);
-        }}
-      />
-      <label className={s.search}>
-        <Search size={16} />
-        <input
-          aria-label="Search available players"
-          placeholder="Find your next difference-maker"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setWaiverPage(0);
-          }}
-        />
-      </label>
-      <div className={s.freeAgents}>
-        {list
-          .slice(activePage * waiverSize, activePage * waiverSize + waiverSize)
-          .map((p, i) => {
-            const claim = demo.claims.find((c) => c.playerId === p.id);
-            return (
-              <button
-                className={[s.freeAgent, claim ? s.assetSelected : ""].join(
-                  " ",
-                )}
-                key={p.id}
-                onClick={() => {
-                  setSelected(p.id);
-                  setBid(claim?.bid ?? 5);
-                  setDrop(claim?.drop ?? "");
-                }}
-              >
-                <b>{activePage * waiverSize + i + 1}</b>
-                <Portrait id={p.id} name={p.name} />
-                <span>
-                  <strong>{p.name}</strong>
-                  <small>
-                    {p.position} · {p.team} · Age {p.age}
-                    {claim && <em>{"Claim placed · $" + claim.bid}</em>}
-                  </small>
-                </span>
-                <span className={s.freeAgentStat}>
-                  <b>#{p.seasonRank}</b>
-                  <small>POS RANK</small>
-                </span>
-                <span className={s.freeAgentStat}>
-                  <b>{p.average}</b>
-                  <small>AVG</small>
-                </span>
-                <span className={s.projection}>
-                  {p.points.toFixed(1)}
-                  <small>PROJ</small>
-                </span>
-                <Plus size={16} />
-              </button>
-            );
-          })}
-      </div>
-      <Pagination
-        page={activePage}
-        total={list.length}
-        size={waiverSize}
-        onChange={setWaiverPage}
-      />
-      {!list.length && (
-        <Empty
-          title="No matching players"
-          text="Try another name or eligibility filter."
-        />
+        </aside>
       )}
       {candidate && (
         <div
@@ -639,26 +596,31 @@ export function Waivers() {
           </form>
         </div>
       )}
-    </>
+    </div>
   );
 }
 export function Transactions() {
   const { transactions } = useDemo();
   const [tab, setTab] = useState("All");
-  const list = transactions.filter(
-    (t) =>
-      t.status !== "Pending" &&
-      (tab === "All" || t.type === (tab === "Trades" ? "Trade" : "Waiver")),
-  );
+  const list = transactions
+    .filter(
+      (t) =>
+        t.status !== "Pending" &&
+        (tab === "All" ||
+          (tab === "Adds / Drops"
+            ? ["Add", "Drop"].includes(t.type)
+            : t.type === (tab === "Trades" ? "Trade" : "Waiver"))),
+    )
+    .sort((a, b) => (b.resolvedAt ?? 0) - (a.resolvedAt ?? 0));
   return (
     <>
       <Tabs
         label="Transaction history"
-        options={["All", "Trades", "Waivers"]}
+        options={["All", "Trades", "Waivers", "Adds / Drops"]}
         value={tab}
         onChange={setTab}
       />
-      <TransactionLedger list={list} />
+      <TransactionHistory list={list} />
       {!list.length && (
         <Empty
           title="No completed moves"
