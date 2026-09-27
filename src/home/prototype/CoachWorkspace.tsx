@@ -1,23 +1,15 @@
 "use client";
-import { useState, type DragEvent } from "react";
-import {
-  ArrowDown,
-  ArrowUp,
-  ArrowRight,
-  Check,
-  LockKeyhole,
-  MoreHorizontal,
-  X,
-} from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, LockKeyhole, GripVertical, X } from "lucide-react";
 import { useDemo } from "./DemoState";
-import { lineupSlots, subLimit, demoLeague, type Slot } from "./leagueFixture";
+import { lineupSlots, subLimit, demoLeague } from "./leagueFixture";
 import {
-  eligible,
   isLocked,
+  movePlayer,
   replacements,
   sampleInjuries,
-  samplePlays,
-  subs,
+  sampleGame,
+  sampleWinProbability,
 } from "./coaching";
 import type { Player } from "./model";
 import { Crest, Portrait, SectionLabel, Tabs } from "./UI";
@@ -43,31 +35,26 @@ export function ScenarioControl() {
 }
 function FootballPlayer({
   player,
-  compact = false,
   rank,
-  onMove,
+  selected,
+  onSelect,
   onDrag,
-  selected = false,
 }: {
   player: Player;
-  compact?: boolean;
   rank?: number;
-  onMove: (id: string) => void;
+  selected: boolean;
+  onSelect: () => void;
   onDrag: (id: string) => void;
-  selected?: boolean;
 }) {
   const demo = useDemo(),
-    locked = isLocked(player, demo.now),
-    bench = subs(demo.players),
-    index = bench.findIndex((p) => p.id === player.id);
-  const injury = sampleInjuries.some(
+    locked = isLocked(player, demo.now);
+  const injured = sampleInjuries.some(
     (i) => i.playerId === player.id && i.occurred <= demo.now,
   );
   return (
-    <div
+    <button
       className={[
         s.footballPlayer,
-        compact ? s.compactPlayer : "",
         selected ? s.playerSelected : "",
         locked ? s.locked : "",
       ].join(" ")}
@@ -77,73 +64,38 @@ function FootballPlayer({
         onDrag(player.id);
       }}
       onDragEnd={() => onDrag("")}
+      onClick={onSelect}
       data-player-id={player.id}
+      aria-pressed={selected}
+      aria-label={
+        "Select " + player.name + (locked ? ", locked at kickoff" : " to move")
+      }
     >
       {rank !== undefined && (
         <span className={s.subNumber}>{String(rank).padStart(2, "0")}</span>
       )}
-      <button
-        className={s.playerIdentity}
-        onClick={() => demo.openPlayer(player.id)}
-        aria-label={"Open " + player.name + " player card"}
-      >
+      <span className={s.playerIdentity}>
         <Portrait id={player.id} name={player.name} />
         <span>
           <strong>{player.name}</strong>
           <small>
-            <b>{player.position}</b> {player.team} <i>·</i> {player.opponent}
-            {!compact && (
-              <>
-                <i>·</i>
-                {player.game}
-              </>
-            )}
+            <b>{player.position}</b> {player.team} · {player.opponent}
           </small>
         </span>
-      </button>
-      {(injury || player.condition) && (
-        <span className={s.condition}>{injury ? "OUT" : player.condition}</span>
+      </span>
+      {(injured || player.condition) && (
+        <span className={s.condition}>
+          {injured ? "OUT" : player.condition}
+        </span>
       )}
       <span className={s.projection}>
         {player.points.toFixed(1)}
         <small>PROJ</small>
       </span>
-      {rank !== undefined && !locked && (
-        <span className={s.rankButtons}>
-          <button
-            aria-label={"Move " + player.name + " up"}
-            disabled={index <= 0 || isLocked(bench[index - 1], demo.now)}
-            onClick={() => demo.reorder(player.id, bench[index - 1].id)}
-          >
-            <ArrowUp size={12} />
-          </button>
-          <button
-            aria-label={"Move " + player.name + " down"}
-            disabled={
-              index >= bench.length - 1 || isLocked(bench[index + 1], demo.now)
-            }
-            onClick={() => demo.reorder(player.id, bench[index + 1].id)}
-          >
-            <ArrowDown size={12} />
-          </button>
-        </span>
-      )}
-      {locked ? (
-        <LockKeyhole
-          className={s.lockIcon}
-          size={13}
-          aria-label="Locked at kickoff"
-        />
-      ) : (
-        <button
-          className={s.iconButton}
-          onClick={() => onMove(player.id)}
-          aria-label={"Move " + player.name}
-        >
-          <MoreHorizontal size={17} />
-        </button>
-      )}
-    </div>
+      <span className={s.moveIndicator}>
+        {locked ? <LockKeyhole size={13} /> : <GripVertical size={13} />}
+      </span>
+    </button>
   );
 }
 export function Lineup() {
@@ -151,61 +103,96 @@ export function Lineup() {
   const [moving, setMoving] = useState("");
   const [dragging, setDragging] = useState("");
   const [mobileSection, setMobileSection] = useState("Starters");
-  const [irPage, setIrPage] = useState(0);
-  const bench = subs(demo.players),
-    ir = demo.players.filter((p) => p.group === "IR"),
-    ps = demo.players.filter((p) => p.group === "Practice Squad");
   const active = demo.players.find((p) => p.id === (dragging || moving));
+  const ir = demo.players.filter((p) => p.group === "IR"),
+    ps = demo.players.filter((p) => p.group === "Practice Squad");
   const plans = replacements(demo.players, sampleInjuries, demo.now);
-  function move(destination: string) {
-    if (active && demo.move(active.id, destination)) {
-      setMoving("");
-      setDragging("");
+  const legal = (destination: string) =>
+    !!active &&
+    !movePlayer(demo.players, active.id, destination, demo.now).error &&
+    !(destination === active.slot || destination === "SUB:" + active.rank);
+  function select(p: Player, destination?: string) {
+    if (active && active.id !== p.id && destination) {
+      if (legal(destination)) {
+        demo.move(active.id, destination);
+        setMoving("");
+        setDragging("");
+      } else
+        demo.notify(
+          "That destination is locked or ineligible. Choose a highlighted slot.",
+        );
+      return;
     }
+    if (isLocked(p, demo.now)) {
+      demo.notify(p.name + " is locked at kickoff (" + p.game + ").");
+      return;
+    }
+    setMoving(moving === p.id ? "" : p.id);
   }
-  function drop(e: DragEvent, destination: string) {
-    e.preventDefault();
-    const id = e.dataTransfer.getData("text/player");
-    if (id) demo.move(id, destination);
-    setDragging("");
+  function target(destination: string) {
+    return {
+      className: legal(destination) ? s.eligibleTarget : "",
+      onDragOver: (e: React.DragEvent) => {
+        if (legal(destination)) e.preventDefault();
+      },
+      onDrop: (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = e.dataTransfer.getData("text/player");
+        if (id) demo.move(id, destination);
+        setDragging("");
+        setMoving("");
+      },
+    };
   }
-  function subDrop(e: DragEvent, p: Player) {
-    e.preventDefault();
-    const id = e.dataTransfer.getData("text/player");
-    const incoming = demo.players.find((x) => x.id === id);
-    if (incoming?.group === "Subs") demo.reorder(id, p.id);
-    else if (incoming?.slot) demo.move(p.id, incoming.slot);
-    else if (incoming) demo.move(id, "Subs");
-    setDragging("");
+  function empty(destination: string, label: string) {
+    return (
+      <button
+        className={s.emptyRosterSlot}
+        onClick={() => {
+          if (active && legal(destination)) {
+            demo.move(active.id, destination);
+            setMoving("");
+          } else
+            demo.notify(
+              "Select a player first, then choose a highlighted slot.",
+            );
+        }}
+      >
+        {label}
+        <small>
+          {active && legal(destination) ? "Move here" : "Open spot"}
+        </small>
+      </button>
+    );
   }
-  const playerView = (p: Player, compact = false, rank?: number) => (
+  const card = (p: Player, destination?: string, rank?: number) => (
     <FootballPlayer
       key={p.id}
       player={p}
-      compact={compact}
       rank={rank}
-      onMove={setMoving}
+      selected={p.id === moving}
       onDrag={setDragging}
-      selected={moving === p.id}
+      onSelect={() => select(p, destination)}
     />
   );
-  function slotState(slot: Slot) {
-    const current = demo.players.find(
-      (p) => p.slot === slot.id && p.group === "Starters",
-    );
-    return (
-      active &&
-      !isLocked(active, demo.now) &&
-      eligible(active, slot) &&
-      (!current || !isLocked(current, demo.now))
-    );
-  }
   return (
     <div className={s.lineupView}>
       <div className={s.workspaceTools}>
-        <span className={s.subtle}>
-          <span className={s.liveDot} />
-          Drag to move · Each player locks at kickoff
+        <span className={s.lineupInstruction}>
+          {active ? (
+            <>
+              <b>{active.name}</b> · Choose a highlighted slot{" "}
+              <button
+                aria-label="Cancel player move"
+                onClick={() => setMoving("")}
+              >
+                <X size={14} />
+              </button>
+            </>
+          ) : (
+            "Click or drag a player to move · Locks at kickoff"
+          )}
         </span>
         <ScenarioControl />
       </div>
@@ -217,7 +204,10 @@ export function Lineup() {
           onChange={setMobileSection}
         />
       </div>
-      <div className={s.lineupGrid}>
+      <div
+        className={s.lineupGrid}
+        style={{ "--roster-count": lineupSlots.length } as React.CSSProperties}
+      >
         <section
           className={s.lineupColumn}
           data-mobile-visible={mobileSection === "Starters"}
@@ -228,45 +218,19 @@ export function Lineup() {
               {lineupSlots.length}
             </span>
           </SectionLabel>
-          <p className={s.columnHint}>Make every starting spot count.</p>
           {lineupSlots.map((slot) => {
             const p = demo.players.find(
-              (x) => x.group === "Starters" && x.slot === slot.id,
+              (p) => p.slot === slot.id && p.group === "Starters",
             );
+            const props = target(slot.id);
             return (
               <div
                 key={slot.id}
-                className={[
-                  s.starterSlot,
-                  slotState(slot) ? s.eligibleTarget : "",
-                ].join(" ")}
-                onDragOver={(e) => {
-                  if (slotState(slot)) e.preventDefault();
-                }}
-                onDrop={(e) => drop(e, slot.id)}
+                {...props}
+                className={s.starterSlot + " " + props.className}
               >
                 <span className={s.slotLabel}>{slot.label}</span>
-                {p ? (
-                  playerView(p)
-                ) : (
-                  <button
-                    className={s.emptyStarting}
-                    onClick={() => {
-                      setMobileSection("Subs");
-                      demo.notify(
-                        "Select a Sub and use Move, or drag a player into this slot.",
-                      );
-                    }}
-                  >
-                    + Add starter
-                  </button>
-                )}
-                {active && slotState(slot) && (
-                  <span className={s.swapDelta}>
-                    {active.points - (p?.points ?? 0) >= 0 ? "+" : ""}
-                    {(active.points - (p?.points ?? 0)).toFixed(1)} PROJ
-                  </span>
-                )}
+                {p ? card(p, slot.id) : empty(slot.id, "+ Add starter")}
               </div>
             );
           })}
@@ -274,80 +238,68 @@ export function Lineup() {
         <section
           className={s.lineupColumn}
           data-mobile-visible={mobileSection === "Subs"}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => {
-            if (e.target === e.currentTarget) drop(e, "Subs");
-          }}
         >
           <SectionLabel title="Subs">
-            <span>
-              {bench.length}/{subLimit}
-            </span>
-          </SectionLabel>
-          <div className={s.columnHint}>
-            <span>Ranked replacement priority</span>
-            <button
-              onClick={demo.autoRank}
-              title="Re-rank unlocked Subs by projections"
-              aria-label="Rank Subs by projections"
-            >
+            <button className={s.rankReset} onClick={demo.autoRank}>
               Rank by projections
             </button>
-          </div>
-          {bench.map((p) => (
-            <div
-              key={p.id}
-              className={s.subDrop}
-              onDragOver={(e) => {
-                if (!isLocked(p, demo.now)) e.preventDefault();
-              }}
-              onDrop={(e) => subDrop(e, p)}
-            >
-              {playerView(p, true, p.rank)}
-            </div>
-          ))}
+            <span>
+              {demo.players.filter((p) => p.group === "Subs").length}/{subLimit}
+            </span>
+          </SectionLabel>
+          {Array.from({ length: subLimit }, (_, i) => {
+            const p = demo.players.find(
+              (p) => p.group === "Subs" && p.rank === i + 1,
+            );
+            const destination = "SUB:" + (i + 1),
+              props = target(destination);
+            return (
+              <div
+                key={i}
+                {...props}
+                className={s.subDrop + " " + props.className}
+              >
+                {p
+                  ? card(p, destination, i + 1)
+                  : empty(
+                      destination,
+                      String(i + 1).padStart(2, "0") + " · Add Sub",
+                    )}
+              </div>
+            );
+          })}
         </section>
         <section
           className={s.reserveColumn}
           data-mobile-visible={mobileSection === "Reserves"}
         >
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => drop(e, "IR")}
-          >
+          <div className={s.irSection}>
             <SectionLabel title="IR">
               <span>{ir.length} · No limit</span>
             </SectionLabel>
-            {ir
-              .slice(irPage * 7, irPage * 7 + 7)
-              .map((p) => playerView(p, true))}
-            {ir.length > 7 && (
-              <div className={s.pagination}>
-                <button
-                  disabled={irPage === 0}
-                  onClick={() => setIrPage(irPage - 1)}
-                >
-                  Previous
-                </button>
-                <button
-                  disabled={(irPage + 1) * 7 >= ir.length}
-                  onClick={() => setIrPage(irPage + 1)}
-                >
-                  Next
-                </button>
-              </div>
-            )}
+            <div className={s.irPlayers}>
+              {ir.map((p) => card(p))}
+              {!ir.length && (
+                <span className={s.irEmpty}>No players on IR</span>
+              )}
+              {active && active.group !== "IR" && legal("IR") && (
+                <div {...target("IR")}>{empty("IR", "+ Move to IR")}</div>
+              )}
+            </div>
           </div>
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => drop(e, "Practice Squad")}
-          >
+          <div className={s.practiceSection}>
             <SectionLabel title="Practice Squad">
               <span>
                 {ps.length}/{demoLeague.practiceSquadLimit}
               </span>
             </SectionLabel>
-            {ps.map((p) => playerView(p, true))}
+            {Array.from({ length: demoLeague.practiceSquadLimit }, (_, i) => (
+              <div key={i} {...(!ps[i] ? target("Practice Squad") : {})}>
+                {ps[i]
+                  ? card(ps[i])
+                  : empty("Practice Squad", "+ Add prospect")}
+              </div>
+            ))}
           </div>
         </section>
       </div>
@@ -359,209 +311,270 @@ export function Lineup() {
               <ArrowRight size={13} />
               {plan.backup?.name ?? "No eligible Sub"}
               <small>
-                {plan.provisional
-                  ? "Projected replacement"
-                  : "Locked assignment"}{" "}
-                · {plan.injury.clock}
+                {plan.provisional ? "Provisional" : "Locked"} ·{" "}
+                {plan.injury.clock}
               </small>
             </span>
           ))}
         </div>
       )}
-      {moving && active && (
-        <div
-          className={s.moveSheet}
-          role="dialog"
-          aria-label={"Move " + active.name}
-        >
-          <header>
-            <div>
-              <small>MOVE PLAYER</small>
-              <h3>{active.name}</h3>
-            </div>
-            <button
-              aria-label="Close move controls"
-              onClick={() => setMoving("")}
-            >
-              <X size={19} />
-            </button>
-          </header>
-          <div className={s.moveChoices}>
-            {lineupSlots
-              .filter((slot) => eligible(active, slot))
-              .map((slot) => (
-                <button
-                  key={slot.id}
-                  disabled={!slotState(slot)}
-                  onClick={() => move(slot.id)}
-                >
-                  {slot.label}
-                  <small>
-                    {demo.players.find((p) => p.slot === slot.id)?.name ??
-                      "Open slot"}
-                  </small>
-                </button>
-              ))}
-            {["Subs", "IR", "Practice Squad"]
-              .filter((g) => g !== active.group)
-              .map((group) => (
-                <button key={group} onClick={() => move(group)}>
-                  {group}
-                </button>
-              ))}
-          </div>
-          {active.group === "Starters" && (
-            <>
-              <p>Swap with an eligible, unlocked Sub</p>
-              <div className={s.moveChoices}>
-                {bench
-                  .filter(
-                    (p) =>
-                      !isLocked(p, demo.now) &&
-                      eligible(
-                        p,
-                        lineupSlots.find((slot) => slot.id === active.slot)!,
-                      ),
-                  )
-                  .map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => {
-                        if (demo.move(p.id, active.slot!)) setMoving("");
-                      }}
-                    >
-                      {p.name}
-                      <small>{p.points} projected</small>
-                    </button>
-                  ))}
-              </div>
-            </>
-          )}
-        </div>
-      )}
     </div>
   );
 }
+const opposingPlayers: Player[] = [
+  ["Lamar Jackson", "QB", "BAL", 24],
+  ["Jared Goff", "QB", "DET", 20],
+  ["Jonathan Taylor", "RB", "IND", 17],
+  ["CeeDee Lamb", "WR", "DAL", 19.7],
+  ["A.J. Brown", "WR", "PHI", 15.1],
+  ["Kyren Williams", "RB", "LAR", 14],
+  ["DeVonta Smith", "WR", "PHI", 10.1],
+  ["Sam LaPorta", "TE", "DET", 9.2],
+  ["George Kittle", "TE", "SF", 10.3],
+].map(([name, position, team, points], i) => ({
+  id: "opponent-" + i,
+  name: String(name),
+  position: String(position),
+  team: String(team),
+  points: Number(points),
+  opponent: ["vs BUF", "@ GB", "vs PIT"][i % 3],
+  game: i % 3 === 0 ? "SUN 1:00" : i % 3 === 1 ? "SUN 4:05" : "MON 8:15",
+  kickoff: i % 3 === 0 ? 40 : i % 3 === 1 ? 44 : 68,
+  age: 27,
+  bye: 8,
+  group: "Starters",
+  availability: "Listening",
+  asking: "",
+}));
+function MatchIdentity({ p, now }: { p: Player; now: number }) {
+  const game = sampleGame(p, now);
+  const stat = !game.started
+    ? p.points.toFixed(1) + " projected"
+    : p.position === "QB"
+      ? (game.final ? "286" : "124") +
+        " pass yds · " +
+        (game.final ? "2" : "1") +
+        " TD"
+      : p.position === "RB"
+        ? game.final
+          ? "84 rush · 3 rec"
+          : "32 rush · 1 rec"
+        : game.final
+          ? "6 rec · 81 yds"
+          : "2 rec · 24 yds";
+  return (
+    <span className={s.matchIdentity}>
+      <strong>{p.name}</strong>
+      <small>
+        {p.team} {p.opponent}{" "}
+        <b data-live={game.started && !game.final}>{game.label}</b>
+      </small>
+      <small className={s.matchStat}>{stat}</small>
+    </span>
+  );
+}
 export function Matchup({ onLineup }: { onLineup: () => void }) {
-  const demo = useDemo();
-  const [showScoring, setShowScoring] = useState(false);
+  const demo = useDemo(),
+    [showScoring, setShowScoring] = useState(false);
   const plans = replacements(demo.players, sampleInjuries, demo.now);
-  const final = demo.now >= 72;
-  const score = (p: Player) => {
-    const sub = plans.find((x) => x.starter.id === p.id);
-    return final
-      ? sub
-        ? sub.injury.starterPoints + (sub.points ?? 0)
-        : samplePlays(p).reduce((n, x) => n + x.points, 0)
-      : p.points;
-  };
+  function score(p: Player) {
+    const plan = plans.find((x) => x.starter.id === p.id);
+    if (!plan) return sampleGame(p, demo.now);
+    const backup = plan.backup
+      ? sampleGame(plan.backup, demo.now, plan.injury.cutoff)
+      : { points: 0, remaining: 0 };
+    return {
+      points: plan.injury.starterPoints + backup.points,
+      remaining: backup.remaining,
+    };
+  }
   const total = demo.players
     .filter((p) => p.group === "Starters")
-    .reduce((n, p) => n + score(p), 0);
-  const opponentNames = [
-    "Lamar Jackson",
-    "Jared Goff",
-    "Jonathan Taylor",
-    "CeeDee Lamb",
-    "A.J. Brown",
-    "Kyren Williams",
-    "DeVonta Smith",
-    "Sam LaPorta",
-    "George Kittle",
-  ];
-  const opponentPoints = [24, 20, 17, 19.7, 15.1, 14, 10.1, 9.2, 10.3];
-  const opponent = opponentPoints.reduce((a, b) => a + b, 0);
+    .reduce(
+      (n, p) => ({
+        points: n.points + score(p).points,
+        remaining: n.remaining + score(p).remaining,
+      }),
+      { points: 0, remaining: 0 },
+    );
+  const opponent = opposingPlayers.reduce(
+    (n, p) => {
+      const g = sampleGame(p, demo.now);
+      return {
+        points: n.points + g.points,
+        remaining: n.remaining + g.remaining,
+      };
+    },
+    { points: 0, remaining: 0 },
+  );
+  const probability = sampleWinProbability(
+    total.points,
+    total.remaining,
+    opponent.points,
+    opponent.remaining,
+  );
   return (
     <div className={s.matchupView}>
-      <div className={s.workspaceTools}>
-        <span className={s.subtle}>
-          WEEK 4 · {final ? "ILLUSTRATIVE FINAL" : "PROJECTED POINTS"}
-        </span>
-        <ScenarioControl />
-      </div>
       <div className={s.scoreHero}>
         <Crest
           crest={demo.identity.crest}
           name={demo.identity.name}
-          size={66}
+          size={58}
         />
         <div>
-          <small>3–0 · YOUR TEAM</small>
-          <h3>{demo.identity.name}</h3>
+          <h3>
+            {demo.identity.name} <small>(3–0)</small>
+          </h3>
+          <button className={s.editLineupButton} onClick={onLineup}>
+            Edit lineup <ArrowRight size={13} />
+          </button>
         </div>
-        <strong>{total.toFixed(1)}</strong>
+        <strong>
+          {total.points.toFixed(1)}
+          <small>{(total.points + total.remaining).toFixed(1)} PROJ</small>
+        </strong>
         <span>VS</span>
-        <strong>{opponent.toFixed(1)}</strong>
+        <strong>
+          {opponent.points.toFixed(1)}
+          <small>
+            {(opponent.points + opponent.remaining).toFixed(1)} PROJ
+          </small>
+        </strong>
         <div>
-          <small>2–1 · OPPONENT</small>
-          <h3>Wingmen</h3>
+          <h3>
+            Wingmen <small>(2–1)</small>
+          </h3>
         </div>
-        <Crest crest="wingmen" name="Wingmen" size={66} />
+        <Crest crest="wingmen" name="Wingmen" size={58} />
       </div>
-      <div className={s.scoreBar} aria-label="Share of combined team points">
-        <span style={{ width: (total / (total + opponent)) * 100 + "%" }} />
+      <div className={s.probabilityLabels}>
+        <b>{probability}%</b>
+        <span>WIN PROBABILITY · SAMPLE MODEL</span>
+        <b>{100 - probability}%</b>
       </div>
-      <div className={s.matchupCaption}>
-        <span>TEAM POINTS COMPARISON</span>
-        <button onClick={onLineup}>
-          Edit lineup
-          <ArrowRight size={13} />
-        </button>
+      <div
+        className={s.scoreBar}
+        aria-label={
+          "Sample win probability: " +
+          demo.identity.name +
+          " " +
+          probability +
+          " percent"
+        }
+      >
+        <span style={{ width: probability + "%" }} />
       </div>
       <div className={s.matchupLineups}>
         {lineupSlots.map((slot, i) => {
           const p = demo.players.find(
-              (x) => x.group === "Starters" && x.slot === slot.id,
+              (p) => p.group === "Starters" && p.slot === slot.id,
             ),
-            plan = plans.find((x) => x.starter.id === p?.id);
+            plan = plans.find((x) => x.starter.id === p?.id),
+            other = opposingPlayers[i % opposingPlayers.length];
           return (
             <div className={s.matchupRow} key={slot.id}>
-              <button onClick={() => (p ? demo.openPlayer(p.id) : onLineup())}>
-                {p && <Portrait id={p.id} name={p.name} />}
-                <span>
-                  <strong>{p?.name ?? "Open starting spot"}</strong>
-                  <small>
-                    {plan
-                      ? "SUB: " + (plan.backup?.name ?? "Uncovered")
-                      : (p?.team ?? "") + " · " + (p?.opponent ?? "")}
-                  </small>
-                </span>
+              <button
+                className={s.matchPlayer}
+                onClick={() => (p ? demo.openPlayer(p.id) : onLineup())}
+              >
+                {plan ? (
+                  <span className={s.subPair}>
+                    <span>
+                      <strong>{p?.name}</strong>
+                      <small>
+                        <b className={s.condition}>INJURED</b>{" "}
+                        {plan.injury.starterPoints.toFixed(1)} pts ·{" "}
+                        {plan.injury.clock}
+                      </small>
+                    </span>
+                    <span className={s.subArrow}>
+                      <small>SUB</small>
+                      <ArrowRight size={21} />
+                    </span>
+                    <span>
+                      <strong>{plan.backup?.name ?? "Uncovered"}</strong>
+                      <small>
+                        {plan.backup
+                          ? sampleGame(
+                              plan.backup,
+                              demo.now,
+                              plan.injury.cutoff,
+                            ).points.toFixed(1) + " pts"
+                          : "No eligible Sub"}{" "}
+                        · {plan.provisional ? "Provisional" : "Locked"}
+                      </small>
+                    </span>
+                  </span>
+                ) : p ? (
+                  <>
+                    <Portrait id={p.id} name={p.name} />
+                    <MatchIdentity p={p} now={demo.now} />
+                  </>
+                ) : (
+                  <strong>Open starting spot</strong>
+                )}
               </button>
-              <b>{p ? score(p).toFixed(1) : "—"}</b>
+              <b className={s.matchPoints}>
+                {p ? score(p).points.toFixed(1) : "—"}
+                <small>
+                  {p
+                    ? (score(p).points + score(p).remaining).toFixed(1) +
+                      " PROJ"
+                    : ""}
+                </small>
+              </b>
               <span className={s.matchupSlot}>{slot.label}</span>
-              <b>{opponentPoints[i % opponentPoints.length].toFixed(1)}</b>
-              <span className={s.opponentName}>
-                {opponentNames[i % opponentNames.length]}
-              </span>
+              <b className={s.matchPoints}>
+                {sampleGame(other, demo.now).points.toFixed(1)}
+                <small>
+                  {(
+                    sampleGame(other, demo.now).points +
+                    sampleGame(other, demo.now).remaining
+                  ).toFixed(1)}{" "}
+                  PROJ
+                </small>
+              </b>
+              <MatchIdentity p={other} now={demo.now} />
             </div>
           );
         })}
       </div>
-      {plans.length > 0 && (
-        <div className={s.scoringDetails}>
+      <div className={s.matchupFooter}>
+        {plans.length > 0 ? (
           <button
             onClick={() => setShowScoring(!showScoring)}
             aria-expanded={showScoring}
           >
-            <Check size={15} />
             {plans.length} injury substitutions ·{" "}
-            {showScoring ? "Hide" : "View"} scoring breakdown
+            {showScoring ? "Hide" : "View"} breakdown
           </button>
-          {showScoring &&
-            plans.map((p) => (
-              <p key={p.starter.id}>
-                <b>
-                  {p.starter.name}: {p.injury.starterPoints.toFixed(1)}
-                </b>{" "}
-                through {p.injury.clock} +{" "}
-                <b>{p.points === null ? "pending" : p.points.toFixed(1)}</b>{" "}
-                from {p.backup?.name ?? "no eligible sub"} after that game-clock
-                cutoff.{" "}
-                {p.provisional
-                  ? "Projected assignment; unlocked Subs can still change."
-                  : "Assignment locked."}
-              </p>
-            ))}
+        ) : (
+          <span />
+        )}
+        <ScenarioControl />
+      </div>
+      {showScoring && (
+        <div className={s.scoreExplanation}>
+          {plans.map((p) => (
+            <p key={p.starter.id}>
+              <b>
+                {p.starter.name}: {p.injury.starterPoints.toFixed(1)}
+              </b>{" "}
+              through {p.injury.clock} +{" "}
+              <b>
+                {p.backup
+                  ? sampleGame(
+                      p.backup,
+                      demo.now,
+                      p.injury.cutoff,
+                    ).points.toFixed(1)
+                  : "0.0"}
+              </b>{" "}
+              counted from {p.backup?.name ?? "no Sub"} after the same
+              game-clock cutoff.{" "}
+              {p.provisional ? "Assignment remains provisional." : ""}
+            </p>
+          ))}
         </div>
       )}
     </div>

@@ -1,7 +1,23 @@
 "use client";
 import Image from "next/image";
 import { useState, type ReactNode } from "react";
-import { ArrowRight, ChevronRight, UserRound } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronRight,
+  UserRound,
+  ArrowLeftRight,
+  Radio,
+  MessagesSquare,
+  ListOrdered,
+  Timer,
+  Repeat2,
+  BookOpen,
+  CalendarDays,
+  History,
+  Shield,
+  Flag,
+  Trophy,
+} from "lucide-react";
 import s from "./Prototype.module.css";
 export function Tabs({
   options,
@@ -34,7 +50,16 @@ export function Crest({
   size?: number;
 }) {
   return crest ? (
-    <Image src={"/teams/" + crest + ".png"} alt="" width={size} height={size} />
+    <Image
+      src={
+        crest === "founders"
+          ? "/teams/founders.png"
+          : "/ui-refresh/crests/" + crest + ".webp"
+      }
+      alt=""
+      width={size}
+      height={size}
+    />
   ) : (
     <span className={s.letterCrest}>{name.slice(0, 1)}</span>
   );
@@ -129,40 +154,58 @@ export function TaskTiles({
 }) {
   return (
     <div className={s.taskGallery} aria-label={label}>
-      {tiles.map((t, i) => (
-        <button
-          key={t.id}
-          className={s.taskTile}
-          disabled={t.disabled}
-          onClick={() => onSelect(t.id)}
-          aria-label={t.title}
-          style={
-            { "--tile-position": t.position ?? "center" } as React.CSSProperties
-          }
-        >
-          <Image
-            src={"/ui-refresh/" + t.image + ".jpg"}
-            alt=""
-            fill
-            sizes="(max-width:760px) 85vw, 30vw"
-          />
-          <span className={s.tileShade} />
-          <span className={s.tileTop}>
-            <b>0{i + 1}</b>
-            <span>
-              {t.disabled ? "COMING SOON" : (t.tag ?? "FRANCHISE HQ")}
+      {tiles.map((t, i) => {
+        const Icon =
+          (
+            {
+              build: ArrowLeftRight,
+              shop: Radio,
+              negotiations: MessagesSquare,
+              board: ListOrdered,
+              room: Timer,
+              mock: Repeat2,
+              upcoming: CalendarDays,
+              past: History,
+              rosters: Shield,
+              scoring: Trophy,
+              deadlines: Timer,
+              tiebreakers: Flag,
+              trading: ArrowLeftRight,
+            } as Record<string, typeof BookOpen>
+          )[t.id] ?? BookOpen;
+        return (
+          <button
+            key={t.id}
+            className={s.taskTile}
+            disabled={t.disabled}
+            onClick={() => onSelect(t.id)}
+            aria-label={t.title}
+            style={
+              {
+                "--tile-position": t.position ?? "center",
+              } as React.CSSProperties
+            }
+          >
+            <span className={s.tileGlyph}>
+              <Icon strokeWidth={1.3} />
             </span>
-          </span>
-          <span className={s.tileCopy}>
-            <strong>{t.title}</strong>
-            <small>{t.text}</small>
-            <span className={s.tileAction}>
-              {t.disabled ? "Draft inactive" : "Enter"}
-              <ArrowRight size={18} />
+            <span className={s.tileTop}>
+              <b>0{i + 1}</b>
+              <span>
+                {t.disabled ? "COMING SOON" : (t.tag ?? "FRANCHISE HQ")}
+              </span>
             </span>
-          </span>
-        </button>
-      ))}
+            <span className={s.tileCopy}>
+              <strong>{t.title}</strong>
+              <small>{t.text}</small>
+              <span className={s.tileAction}>
+                {t.disabled ? "Draft inactive" : "Enter"}
+                <ArrowRight size={18} />
+              </span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

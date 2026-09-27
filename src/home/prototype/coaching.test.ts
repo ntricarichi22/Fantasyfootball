@@ -12,10 +12,36 @@ import {
   samplePlays,
   subs,
   swapRanks,
+  sampleGame,
+  sampleWinProbability,
 } from "./coaching";
+import { qualityTier, playerMetrics } from './playerMetrics';
+import { IMPACT_TOPN, SCRUB_RANK_FLOOR } from '@/shared/team-profiles/impact';
 const roster = () => initialPlayers.map((p) => ({ ...p }));
 const get = (players: Player[], id: string) =>
   players.find((p) => p.id === id)!;
+
+test('quality chips reuse canonical positional value ranks and stud flags', () => {
+  assert.equal(qualityTier('QB', IMPACT_TOPN.QB, false), 'Impact');
+  assert.equal(qualityTier('QB', IMPACT_TOPN.QB + 1, false), 'Depth');
+  assert.equal(qualityTier('TE', SCRUB_RANK_FLOOR.PASS_CATCHER, false), 'Depth');
+  assert.equal(qualityTier('WR', SCRUB_RANK_FLOOR.PASS_CATCHER + 1, false), 'Scrub');
+  assert.equal(qualityTier('RB', 2, true), 'Stud');
+  assert.equal(playerMetrics(get(roster(), 'johnson')).ageStatus, 'aging');
+  assert.equal(playerMetrics(get(roster(), 'mccarthy')).ageStatus, 'young');
+  assert.equal(playerMetrics(get(roster(), 'allen')).ageStatus, 'prime');
+});
+test('sample probability uses remaining projection and resolves final outcomes', () => {
+  assert.equal(sampleWinProbability(100, 20, 100, 20), 50);
+  assert.ok(sampleWinProbability(100, 40, 100, 20) > 50);
+  assert.equal(sampleWinProbability(101, 0, 100, 0), 100);
+  assert.equal(sampleWinProbability(99, 0, 100, 0), 0);
+  assert.equal(sampleWinProbability(100, 0, 100, 0), 50);
+  const p = get(roster(), 'allen');
+  assert.equal(sampleGame(p, -1).points, 0);
+  assert.equal(sampleGame(p, 72).remaining, 0);
+  assert.equal(sampleGame(p, 72, 2280).points, samplePlays(p).filter(x => x.at > 2280).reduce((n,x) => n+x.points,0));
+});
 
 test("slots are derived from configuration and share canonical flexibility", () => {
   const custom = buildSlots(["WR", "BN", "REC_FLEX", "SUPER_FLEX", "WR"]);
@@ -164,4 +190,23 @@ test("full reserve groups reject additions instead of silently dropping players"
   assert.ok(movePlayer(roster(), "flowers", "Practice Squad", -1).error);
   assert.ok(movePlayer(roster(), "allen", "IR", -1).error);
   assert.equal(roster().length, 27);
+});
+
+test('click targets enforce eligibility and exact kickoff rank locks', () => {
+  const before = roster();
+  const legal = movePlayer(before, 'lawrence', 'SUB:3', 41);
+  assert.equal(get(legal.players, 'lawrence').rank, 3);
+  assert.equal(get(legal.players, 'flowers').rank, 2);
+  assert.ok(movePlayer(before, 'lawrence', 'SUB:1', 41).error);
+  assert.ok(movePlayer(before, 'purdy', 'SUB:3', 41).error);
+  assert.ok(movePlayer(before, 'allen', 'SUB:3', -1).error);
+});
+test('empty Sub ranks accept reserves without duplicating or moving locked ranks', () => {
+  const before = roster().filter(p => p.id !== 'bigsby');
+  const result = movePlayer(before, 'mcmillan', 'SUB:8', 41);
+  assert.equal(result.error, undefined);
+  assert.equal(get(result.players, 'mcmillan').rank, 8);
+  assert.equal(get(result.players, 'purdy').rank, 1);
+  const bench = subs(result.players);
+  assert.equal(new Set(bench.map(p => p.rank)).size, bench.length);
 });

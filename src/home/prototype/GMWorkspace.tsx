@@ -1,9 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  ArrowLeftRight,
   Check,
   ChevronRight,
   Clock3,
@@ -13,6 +12,10 @@ import {
   Star,
   X,
 } from "lucide-react";
+import { priceText, type PickPrice } from "./playerMetrics";
+import { PlayerBadges, PriceControls } from "./PlayerDossier";
+export { Trades } from "./TradeWorkspace";
+import { TransactionLedger } from "./TradeWorkspace";
 import { useDemo } from "./DemoState";
 import { demoLeague } from "./leagueFixture";
 import { slotEligibility } from "@/shared/team-profiles/strength";
@@ -70,12 +73,14 @@ export function Strategy() {
   const [room, setRoom] = useState("QB");
   const [selected, setSelected] = useState("");
   const [page, setPage] = useState(0);
+  const [pickPrices, setPickPrices] = useState<Record<string, PickPrice>>({});
+  const pickDialog = useRef<HTMLDialogElement>(null);
   const list = demo.players.filter((p) =>
     room === "Pass Catchers"
       ? ["WR", "TE"].includes(p.position)
       : p.position === room,
   );
-  const pageSize = selected ? 4 : 6;
+  const pageSize = 6;
   const assetCount = room === "Draft Picks" ? pickAssets.length : list.length;
   const picks = room === "Draft Picks",
     need = demo.needs[room],
@@ -105,6 +110,10 @@ export function Strategy() {
             },
           ]
         : followUps[need.stance as "Thin" | "Deep"];
+  useEffect(() => {
+    if (selected && picks) pickDialog.current?.showModal();
+    else pickDialog.current?.close();
+  }, [selected, picks]);
   function updateSettings(field: "availability" | "asking", value: string) {
     if (picks)
       demo.setPickSettings((old) => ({
@@ -127,10 +136,23 @@ export function Strategy() {
     <>
       <Tabs
         label="Position room"
-        options={["QB", "RB", "Pass Catchers", "Draft Picks"]}
-        value={room}
+        options={[
+          "Quarterbacks",
+          "Running Backs",
+          "Pass Catchers",
+          "Draft Picks",
+        ]}
+        value={
+          room === "QB"
+            ? "Quarterbacks"
+            : room === "RB"
+              ? "Running Backs"
+              : room
+        }
         onChange={(r) => {
-          setRoom(r);
+          setRoom(
+            r === "Quarterbacks" ? "QB" : r === "Running Backs" ? "RB" : r,
+          );
           setSelected("");
           setPage(0);
         }}
@@ -153,7 +175,6 @@ export function Strategy() {
                       key={pick}
                       onClick={() => {
                         setSelected(pick);
-                        setPage(Math.floor(pickAssets.indexOf(pick) / 4));
                       }}
                     >
                       <span className={s.pickToken}>
@@ -179,10 +200,7 @@ export function Strategy() {
                       ].join(" ")}
                       key={p.id}
                       onClick={() => {
-                        setSelected(p.id);
-                        setPage(
-                          Math.floor(list.findIndex((x) => x.id === p.id) / 4),
-                        );
+                        demo.openPlayer(p.id);
                       }}
                     >
                       <Portrait id={p.id} name={p.name} />
@@ -192,6 +210,7 @@ export function Strategy() {
                           {p.position} · {p.team} · {p.group}
                         </small>
                       </span>
+                      <PlayerBadges player={p} />
                       <span
                         className={s.assetAvailability}
                         data-status={p.availability}
@@ -218,21 +237,25 @@ export function Strategy() {
               </button>
             </div>
           )}
-          {selected && settings ? (
-            <div className={s.inlineEditor}>
-              <SectionLabel title={current?.name ?? selected}>
-                <button
-                  className={s.iconButton}
-                  aria-label="Close asset settings"
-                  onClick={() => {
-                    setSelected("");
-                    setPage(0);
-                  }}
-                >
-                  <X size={15} />
-                </button>
-              </SectionLabel>
-              <div className={s.formGrid}>
+          <dialog
+            aria-label="Draft pick settings"
+            ref={pickDialog}
+            className={s.dialog}
+            onCancel={() => setSelected("")}
+            onClose={() => setSelected("")}
+          >
+            {selected && settings && picks && (
+              <>
+                <header>
+                  <span>YOUR DRAFT CAPITAL</span>
+                  <button
+                    aria-label="Close pick settings"
+                    onClick={() => setSelected("")}
+                  >
+                    <X size={18} />
+                  </button>
+                </header>
+                <h2 className={s.pickModalTitle}>{selected}</h2>
                 <label className={s.field}>
                   Availability
                   <select
@@ -248,31 +271,34 @@ export function Strategy() {
                     )}
                   </select>
                 </label>
-                <label className={s.field}>
-                  Your asking price
-                  <input
-                    value={settings.asking}
-                    placeholder="Players, picks, or a combination"
-                    onChange={(e) => updateSettings("asking", e.target.value)}
-                  />
-                </label>
-              </div>
-              <small className={s.subtle}>Saved as you edit.</small>
-            </div>
-          ) : (
-            <p className={s.microcopy}>
-              Select an asset to set its availability and your asking price.
-            </p>
-          )}
+                <div className={s.priceHeading}>
+                  <strong>Your asking price</strong>
+                  <span>
+                    {priceText(
+                      pickPrices[selected] ?? {
+                        firsts: 1,
+                        seconds: 0,
+                        thirds: 0,
+                      },
+                    )}
+                  </span>
+                </div>
+                <PriceControls
+                  value={
+                    pickPrices[selected] ?? { firsts: 1, seconds: 0, thirds: 0 }
+                  }
+                  onChange={(next) => {
+                    setPickPrices((old) => ({ ...old, [selected]: next }));
+                    updateSettings("asking", priceText(next));
+                  }}
+                />
+              </>
+            )}
+          </dialog>
         </section>
         <aside className={s.needsPanel}>
-          <span className={s.eyebrow}>YOUR ASSESSMENT</span>
-          <h3>
-            HOW DOES
-            <br />
-            THIS ROOM LOOK?
-          </h3>
-          <p>Tell your personnel department where to focus.</p>
+          <h3>HOW DOES THIS ROOM LOOK?</h3>
+
           <div className={s.stanceChoices}>
             {["Thin", "Set", "Deep"].map((stance, i) => (
               <button
@@ -341,278 +367,7 @@ export function Strategy() {
     </>
   );
 }
-export function Trades({ task }: { task: string }) {
-  const demo = useDemo();
-  const [mode, setMode] = useState("Build it myself");
-  const [partner, setPartner] = useState("Wingmen");
-  const [outgoing, setOutgoing] = useState("cook");
-  const [incoming, setIncoming] = useState("2027 1st-round pick");
-  const [note, setNote] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [suggestion, setSuggestion] = useState(false);
-  const [shop, setShop] = useState<string[]>([]);
-  const [shopPage, setShopPage] = useState(0);
-  const [offers, setOffers] = useState(false);
-  function save() {
-    demo.addTransaction({
-      title: "Offer to the " + partner,
-      detail:
-        (demo.players.find((p) => p.id === outgoing)?.name ?? outgoing) +
-        " for " +
-        incoming,
-      type: "Trade",
-      status: "Pending",
-      note: note.trim(),
-    });
-    demo.notify("Offer saved in Active Negotiations. This is a local sample.");
-  }
-  return (
-    <>
-      <div hidden={task !== "build"}>
-        <Tabs
-          label="Build trade method"
-          options={["Build it myself", "Describe the deal"]}
-          value={mode}
-          onChange={setMode}
-        />
-        {mode === "Describe the deal" && (
-          <div className={s.directorPrompt}>
-            <span className={s.eyebrow}>DIRECTOR OF PRO PERSONNEL</span>
-            <label className={s.field}>
-              What move do you have in mind?
-              <textarea
-                rows={2}
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Find me a young receiver for a future pick…"
-              />
-            </label>
-            <button
-              className={s.secondary}
-              disabled={!prompt.trim()}
-              onClick={() => setSuggestion(true)}
-            >
-              Preview example proposal
-            </button>
-            {suggestion && (
-              <p className={s.subtle}>
-                Scripted example: shop a veteran for future capital. Edit the
-                offer below. No AI request was sent.
-              </p>
-            )}
-          </div>
-        )}
-        <label className={s.field}>
-          Trade partner
-          <select value={partner} onChange={(e) => setPartner(e.target.value)}>
-            {["Wingmen", "Browns", "Destroyers"].map((t) => (
-              <option key={t}>{t}</option>
-            ))}
-          </select>
-        </label>
-        <div className={s.tradeSides}>
-          <section>
-            <span className={s.eyebrow}>YOU SEND</span>
-            <h3>{demo.identity.name}</h3>
-            <label className={s.field}>
-              Your player or pick
-              <select
-                value={outgoing}
-                onChange={(e) => setOutgoing(e.target.value)}
-              >
-                {demo.players.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} · {p.position}
-                  </option>
-                ))}
-                {pickAssets.map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-            </label>
-            {demo.players.find((p) => p.id === outgoing) && (
-              <div className={s.tradePlayer}>
-                <Portrait id={outgoing} name="Your selected player" />
-                <strong>
-                  {demo.players.find((p) => p.id === outgoing)?.name}
-                </strong>
-              </div>
-            )}
-          </section>
-          <ArrowLeftRight className={s.tradeSwap} />
-          <section>
-            <span className={s.eyebrow}>YOU RECEIVE</span>
-            <h3>{partner}</h3>
-            <label className={s.field}>
-              Player or pick
-              <select
-                value={incoming}
-                onChange={(e) => setIncoming(e.target.value)}
-              >
-                {[
-                  "2027 1st-round pick",
-                  "2027 2nd + 2028 2nd",
-                  "DeVonta Smith",
-                  "Sam LaPorta",
-                ].map((p) => (
-                  <option key={p}>{p}</option>
-                ))}
-              </select>
-            </label>
-            <div className={s.tradePlayer}>
-              <span className={s.pickToken}>↗</span>
-              <strong>{incoming}</strong>
-            </div>
-          </section>
-        </div>
-        <label className={s.field}>
-          Offer note
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Add context for the other GM"
-          />
-        </label>
-        <button className={s.primary} onClick={save}>
-          Save offer
-          <ArrowLeftRight size={16} />
-        </button>
-      </div>
-      <div hidden={task !== "shop"}>
-        <div className={s.workspaceTools}>
-          <span className={s.subtle}>Choose the players you want to shop.</span>
-          <b>{shop.length} selected</b>
-        </div>
-        <div className={s.shopGrid}>
-          {demo.players.slice(shopPage * 9, shopPage * 9 + 9).map((p) => (
-            <button
-              className={s.shopPlayer}
-              key={p.id}
-              aria-pressed={shop.includes(p.id)}
-              onClick={() => {
-                setShop((old) =>
-                  old.includes(p.id)
-                    ? old.filter((x) => x !== p.id)
-                    : [...old, p.id],
-                );
-                setOffers(false);
-              }}
-            >
-              <Portrait id={p.id} name={p.name} />
-              <span>
-                <strong>{p.name}</strong>
-                <small>
-                  {p.position} · {p.team}
-                </small>
-              </span>
-              <span className={s.checkBox}>
-                {shop.includes(p.id) && <Check size={13} />}
-              </span>
-            </button>
-          ))}
-        </div>
-        <Pagination
-          page={shopPage}
-          total={demo.players.length}
-          size={9}
-          onChange={setShopPage}
-        />
-        <button
-          className={s.primary}
-          disabled={!shop.length}
-          onClick={() => setOffers(true)}
-        >
-          Preview trade offers
-          <ArrowLeftRight size={16} />
-        </button>
-        {offers && (
-          <div className={s.offerResult}>
-            <span className={s.eyebrow}>
-              ILLUSTRATIVE RETURN · NO CALLS MADE
-            </span>
-            <h3>Wingmen offer a 2027 1st</h3>
-            <p>
-              For{" "}
-              {shop
-                .map((id) => demo.players.find((p) => p.id === id)?.name)
-                .join(" + ")}
-              .
-            </p>
-            <button
-              className={s.secondary}
-              onClick={() => {
-                demo.addTransaction({
-                  title: "Discussion with the Wingmen",
-                  detail:
-                    shop
-                      .map((id) => demo.players.find((p) => p.id === id)?.name)
-                      .join(" + ") + " for a 2027 1st",
-                  type: "Trade",
-                  status: "Pending",
-                });
-                demo.notify("Added to Active Negotiations.");
-              }}
-            >
-              Save negotiation
-            </button>
-          </div>
-        )}
-      </div>
-      <div hidden={task !== "negotiations"}>
-        {demo.transactions
-          .filter((t) => t.type === "Trade" && t.status === "Pending")
-          .map((t) => (
-            <EventRow
-              key={t.id}
-              title={t.title}
-              detail={t.detail}
-              tag="AWAITING A DECISION"
-            >
-              {t.note && <p className={s.offerNote}>{t.note}</p>}
-              <div className={s.buttonRow}>
-                {["Accepted", "Rejected", "Withdrawn"].map((status) => (
-                  <button
-                    className={status === "Accepted" ? s.primary : s.secondary}
-                    key={status}
-                    onClick={() => {
-                      demo.setTransactions((old) =>
-                        old.map((x) =>
-                          x.id === t.id
-                            ? {
-                                ...x,
-                                status: status as
-                                  | "Accepted"
-                                  | "Rejected"
-                                  | "Withdrawn",
-                              }
-                            : x,
-                        ),
-                      );
-                      demo.notify("Sample offer " + status.toLowerCase() + ".");
-                    }}
-                  >
-                    {status === "Accepted"
-                      ? "Accept"
-                      : status === "Rejected"
-                        ? "Decline"
-                        : "Withdraw"}
-                  </button>
-                ))}
-              </div>
-            </EventRow>
-          ))}
-        {!demo.transactions.some(
-          (t) => t.type === "Trade" && t.status === "Pending",
-        ) && (
-          <Empty
-            title="No open negotiations"
-            text="Build an offer or shop your guys to start a conversation."
-          />
-        )}
-      </div>
-    </>
-  );
-}
+
 const prospects = [
   {
     name: "Malik Carter",
@@ -1116,14 +871,7 @@ export function Transactions() {
         value={tab}
         onChange={setTab}
       />
-      {list.map((t) => (
-        <EventRow
-          key={t.id}
-          title={t.title}
-          detail={t.detail}
-          tag={t.date + " · " + t.status.toUpperCase()}
-        />
-      ))}
+      <TransactionLedger list={list} />
       {!list.length && (
         <Empty
           title="No completed moves"

@@ -4525,3 +4525,393 @@
     margin-bottom: 5px;
   }
 }
+
+/* Review v5: stronger task surfaces, purposeful density, contextual controls. */
+.app:has(.taskSelection) .scrim { background: linear-gradient(90deg,#071015e8,#081118a8 65%,#07101670); }
+.taskTile { background: linear-gradient(140deg,#1b262e,#0c151ceF); border:1px solid #c3d1dc40!important; box-shadow:0 20px 44px #0006; overflow:hidden; }
+.taskTile:hover { background:linear-gradient(135deg,#253038,#121c23); border-color:var(--gold)!important; transform:translateY(-3px); }
+.tileGlyph { position:absolute; top:24%; left:22px; color:var(--gold); padding:15px; border:1px solid #efbd6035; border-radius:5px; background:#e9bd6210; }
+.tileGlyph svg { width:42px; height:42px; }
+.tileCopy { background:none; }
+.tileCopy > strong { color:#fff; }
+.tileCopy > small { color:#c5cbd0; }
+.tileTop { color:#bfc6cc; }
+.tileTop b { color:var(--gold); }
+.taskTile::after { content:''; position:absolute; bottom:0; left:0; width:100%; height:3px; background:linear-gradient(90deg,var(--gold),#f4c36116); }
+.taskGallery:has(> .taskTile:nth-child(4)) .tileGlyph { top:24%; padding:8px; }
+.taskGallery:has(> .taskTile:nth-child(4)) .tileGlyph svg { height:26px;width:26px; }
+.headerMeta { font:600 27px 'Barlow Condensed',sans-serif; letter-spacing:.02em; color:#e0e6e8; }
+.workspaceHeader h2 { font-size:27px; }
+.focused .radialMenu { padding-top:4px; }
+.view[data-review-view='lineup'],.view[data-review-view='matchup'],.view[data-review-view='trades'] { height:100%; }
+.lineupView { display:flex; flex-direction:column; height:100%; min-height:0; }
+.lineupView .workspaceTools { flex-shrink:0; margin-bottom:12px; }
+.lineupInstruction { gap:6px; font-size:10px; color:#bdc7c8; }
+.lineupInstruction button { color:var(--gold);background:none;display:inline-flex; }
+.lineupGrid { flex:1; min-height:0; grid-template-columns:minmax(0,1.3fr) minmax(0,1.1fr) minmax(0,.95fr); gap:18px; }
+.lineupColumn { display:flex;flex-direction:column;gap:4px;min-height:0; }
+.lineupView .sectionLabel { min-height:28px;height:28px;flex-shrink:0;margin:0 0 4px;gap:6px; }
+.lineupView .sectionLabel h3 { font-size:25px; }
+.lineupView .starterSlot,.lineupView .subDrop { flex:1;min-height:32px;margin:0;display:flex; }
+.lineupView .footballPlayer { text-align:left;width:100%;height:100%;min-height:0;gap:6px;padding:3px 6px; }
+.lineupView .footballPlayer .portrait { width:32px;height:34px; }
+.lineupView .footballPlayer .playerIdentity { pointer-events:none;min-width:0;flex:1; }
+.lineupView .playerIdentity strong { font-size:18px; }
+.lineupView .playerIdentity small { font-size:8px;white-space:nowrap; }
+.lineupView .slotLabel { width:65px; font-size:16px; font-weight:700; }
+.lineupView .subNumber { font-size:17px;color:#ded5be; }
+.lineupView .projection { width:36px;flex-shrink:0;font-size:21px; margin-left:auto; }
+.lineupView .projection small { font-size:6px; }
+.moveIndicator { width:14px; flex-shrink:0;color:#a5b3b4; }
+.rankReset { background:none;color:var(--gold)!important;font-size:8px!important;margin-left:auto; }
+.emptyRosterSlot { width:100%;min-height:32px;height:100%;display:flex;align-items:center;justify-content:space-between;text-align:left;padding:8px;background:#c8d7db06;border:1px dashed #c8d7db35!important;color:#aebcbf!important;font-size:11px!important; }
+.emptyRosterSlot small { font-size:8px; }
+.reserveColumn { gap:10px; min-height:0;display:flex; }
+.irSection { min-height:0; flex:1;display:flex;flex-direction:column; }
+.irPlayers { min-height:0;overflow:auto;display:flex;flex-direction:column;gap:4px; }
+.lineupView .irPlayers .footballPlayer { height:calc((100vh - 428px) / 9);min-height:27px;max-height:40px;flex-shrink:0;margin:0; }
+.lineupView .reserveColumn .playerIdentity strong { font-size:16px; }
+.lineupView .reserveColumn .playerIdentity small { font-size:7px; }
+.lineupView .reserveColumn .portrait { width:25px;height:28px; }
+.irEmpty { color:var(--muted);font-size:11px;padding:12px 0; }
+.practiceSection { margin-top:auto;flex-shrink:0;display:flex;flex-direction:column;gap:4px; }
+.practiceSection > div:not(.sectionLabel) { height:calc((100vh - 354px) / 9);min-height:32px;max-height:68px; }
+.practiceSection .footballPlayer { margin:0; }
+.lineupView .substitutionStrip { flex-shrink:0;font-size:10px;min-height:22px;margin-top:8px;padding:6px 0 0; }
+.matchupView { min-height:0;display:flex;flex-direction:column; }
+.matchupView .scoreHero { flex-shrink:0;margin:0 0 10px;grid-template-columns:48px minmax(0,1fr) auto 30px auto minmax(0,1fr) 48px;gap:12px; }
+.scoreHero > img { height:48px;width:48px; }
+.scoreHero h3 { font-size:25px; }
+.scoreHero h3 small { font:500 15px 'Barlow Condensed',sans-serif;display:inline;color:#b6c2c3; }
+.scoreHero > strong { font-size:54px;line-height:1;display:flex;flex-direction:column;gap:4px; }
+.scoreHero > strong small { font:500 9px 'DM Sans',sans-serif;color:#b4c2c6;white-space:nowrap; }
+.editLineupButton { background:#efc36220;color:var(--gold)!important;border:1px solid #edc46060!important;display:flex;align-items:center;gap:8px;padding:5px 8px;margin-top:6px;font-size:10px!important; }
+.probabilityLabels { display:flex;justify-content:space-between;align-items:center;font-size:11px;margin-bottom:5px;flex-shrink:0; }
+.probabilityLabels span { font-size:8px;letter-spacing:.15em;color:#aab7ba; }
+.probabilityLabels b:first-child { color:var(--gold); }
+.matchupView .scoreBar { height:5px;background:#679eae55;flex-shrink:0;margin-bottom:10px; }
+.matchupLineups { display:flex;flex-direction:column;flex:1;min-height:0; }
+.matchupView .matchupRow { display:grid;grid-template-columns:minmax(0,1fr) 48px 80px 48px minmax(0,1fr);gap:8px;min-height:38px;flex:1;padding:4px 7px; }
+.matchPlayer { min-width:0;display:flex;gap:8px;align-items:center;text-align:left;background:none; }
+.matchIdentity { display:flex;flex-direction:column;gap:3px;min-width:0; }
+.matchupView .matchIdentity strong,.matchupView .subPair strong { font:600 20px/1 'Barlow Condensed',sans-serif;display:block;white-space:nowrap; }
+.matchupView .matchIdentity small,.matchupView .subPair small { font-size:8px;color:#a8b9bf;line-height:1.2;display:block; }
+.matchIdentity small b { font-size:8px;margin-left:6px;font-weight:500;color:#c5d0d3; }
+.matchIdentity small b[data-live='true'] { color:var(--green); }
+.matchupView .matchStat { color:#d0d9db; }
+.matchupRow > .matchIdentity { text-align:right; }
+.matchupView .matchupSlot { text-align:center;font-size:17px;font-weight:700;line-height:1; }
+.matchupView .matchPoints { display:flex;flex-direction:column;font:600 25px/1 'Barlow Condensed',sans-serif;text-align:center;gap:4px; }
+.matchupView .matchPoints small { font:500 7px 'DM Sans',sans-serif;color:#aebcc1;white-space:nowrap; }
+.subPair { width:100%;display:grid;grid-template-columns:minmax(0,1fr) 30px minmax(0,1fr);align-items:center;gap:8px; }
+.matchupView .subPair strong { font-size:18px; }
+.subArrow { display:flex;flex-direction:column;align-items:center;color:var(--gold); }
+.subArrow small { color:var(--gold)!important;font-size:7px!important; }
+.subPair .condition { display:inline-block;font-size:6px; }
+.matchupFooter { display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-shrink:0; }
+.matchupFooter > button { background:none;color:var(--gold);font-size:10px; }
+.scoreExplanation { position:absolute;bottom:50px;left:25px;right:25px;background:#15232c;border:1px solid #eac16055;padding:18px;z-index:5;box-shadow:0 15px 40px #0008; }
+.scoreExplanation p { font-size:11px;line-height:1.6; }
+.strategyGrid { grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:25px; }
+.strategyGrid .assetRow { padding:8px 0;gap:10px;min-height:57px; }
+.strategyGrid .assetRow strong { font-size:22px; }
+.strategyGrid .assetAvailability { display:none; }
+.playerBadges { display:flex;align-items:center;gap:7px;flex-shrink:0;font-size:13px;color:#dde2e4; }
+.playerBadges > span { white-space:nowrap; }
+.playerBadges small { display:inline!important;font-size:7px!important;margin:0!important;color:#9eaeb6; }
+.ageChip,.qualityChip { font-size:8px;letter-spacing:.07em;font-weight:600;text-transform:uppercase;padding:4px 6px;white-space:nowrap;border:1px solid #c8d9db35;border-radius:3px; }
+.ageChip[data-age='young'] { color:#96d8be;border-color:#96d8be55;background:#70ca9e13; }
+.ageChip[data-age='aging'] { color:#ddac98;border-color:#ddac9855;background:#ddac9812; }
+.qualityChip[data-quality='Stud'] { color:#ffda85;background:#d5ae4920;border-color:#d5ae4960; }
+.qualityChip[data-quality='Impact'] { color:#abd2ee;background:#699bd51a; }
+.qualityChip[data-quality='Scrub'] { color:#a8afb7; }
+.needsPanel { padding:0 0 0 25px; }
+.needsPanel > h3 { font-size:28px;margin:0 0 12px;line-height:1.05; }
+.stanceChoices { margin:12px 0; }
+.stanceChoices button { min-height:80px;padding:10px; }
+.needOption { padding:11px 0; }
+.dialog { width:720px;max-height:94dvh;padding:20px 24px;background:linear-gradient(140deg,#202b33,#101a22); }
+.dialog header small { color:#8e9fa9;font-size:8px; }
+.dialog .profileHero { margin:14px 0;gap:18px; }
+.dialog .profileHero .portrait { width:78px;height:82px; }
+.dialog .profileHero h2 { font-size:38px;margin:5px 0 9px; }
+.dossierSection { border-top:1px solid var(--line);padding:12px 0; }
+.dossierSection h3,.privateStrategy h3 { display:flex;align-items:center;gap:8px;font:600 16px 'Barlow Condensed',sans-serif;letter-spacing:.04em;margin:0 0 10px; }
+.dossierSection h3 span { margin-left:auto;font:400 9px 'DM Sans',sans-serif;color:#a3b4bb;letter-spacing:0; }
+.dossierMetrics { display:grid;grid-template-columns:repeat(4,1fr);gap:10px; }
+.dossierMetrics > div { border-left:2px solid #e6c37d60;padding:0 10px; }
+.dossierMetrics strong { display:block;font:600 29px/1 'Barlow Condensed',sans-serif; }
+.dossierMetrics small { display:block;font-size:7px;letter-spacing:.05em;color:#a7b8c0;margin-top:6px; }
+.dossierSection p { font-size:9px;color:#b6c5cb;margin-top:12px;display:flex;justify-content:space-between;gap:8px; }
+.careerStrip { display:flex;gap:35px; }
+.careerStrip b { font:600 24px 'Barlow Condensed',sans-serif; }
+.careerStrip small { margin-left:6px;font:400 8px 'DM Sans',sans-serif;color:#a6b7bf; }
+.privateStrategy { background:#e4bd5c0b;border:1px solid #e4bd5c40;border-radius:4px;padding:14px;margin-top:4px; }
+.privateStrategy h3 { color:var(--gold); }
+.privateStrategy h3 small { margin-left:auto;font:400 9px 'DM Sans',sans-serif;letter-spacing:0;color:#a9b6ba; }
+.availabilityButtons { display:grid;grid-template-columns:repeat(4,1fr);gap:6px; }
+.availabilityButtons button { background:#0e181f;padding:9px 5px;border:1px solid #c4d3d32a!important;font-size:10px; }
+.availabilityButtons button[aria-pressed='true'] { border-color:var(--gold)!important;background:#d5ae4920;color:var(--gold); }
+.priceHeading { display:flex;justify-content:space-between;font-size:11px;margin:14px 0 8px; }
+.priceHeading span { color:var(--gold); }
+.priceCounters { display:grid;grid-template-columns:repeat(3,1fr);gap:10px; }
+.priceCounters > div { display:flex;align-items:center;justify-content:space-between;background:#09151c70;border:1px solid var(--line);padding:5px 8px; }
+.priceCounters > div > span { font-size:10px;color:#b6c7ce; }
+.priceCounters > div > div { display:flex;align-items:center;gap:7px; }
+.priceCounters button { padding:4px 6px;background:#293742;color:var(--gold);font-size:17px; }
+.priceCounters output { min-width:16px;text-align:center;font:600 24px 'Barlow Condensed',sans-serif; }
+.tradeWorkspace,.buildWorkspace { height:100%;min-height:0; }
+.buildWorkspace { display:flex;flex-direction:column; }
+.buildWorkspace > .subTabs { flex-shrink:0; }
+.tradeBuilderGrid { flex:1;min-height:0;display:grid;grid-template-columns:1.2fr 1fr;gap:20px; }
+.dealBoard { display:flex;flex-direction:column;min-height:0;border:1px solid var(--line);background:#0a141965; }
+.dealColumns { display:grid;grid-template-columns:1fr 1fr;min-height:0;flex:1; }
+.dealColumns > section { min-width:0;min-height:0;display:flex;flex-direction:column; }
+.dealColumns > section + section { border-left:1px solid var(--line); }
+.dealColumns header { padding:12px;border-bottom:1px solid var(--line);position:relative;flex-shrink:0;min-height:86px; }
+.dealColumns header > small { display:block;color:#a9b8be;font-size:8px;letter-spacing:.12em;margin-bottom:8px; }
+.teamLabel { display:flex;align-items:center;gap:8px;min-width:0; }
+.teamLabel strong { font:600 24px 'Barlow Condensed',sans-serif; }
+.partnerButton { background:none;display:flex;align-items:center;gap:7px;text-align:left;font-size:12px!important;min-height:32px; }
+.partnerPicker { position:absolute;top:100%;left:0;min-width:235px;max-width:80vw;background:#17262f;border:1px solid #e2bd6370;padding:6px;z-index:15;box-shadow:0 15px 45px #000a; }
+.partnerPicker > button { display:flex;width:100%;align-items:center;justify-content:space-between;padding:9px;background:none;border-bottom:1px solid var(--line)!important; }
+.partnerPicker > button:hover { background:#ebc56b16; }
+.dealAssets { padding:10px;overflow:auto;flex:1;min-height:0; }
+.dealAssets > div { display:flex;gap:7px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line); }
+.dealAssets strong { display:block;font:600 19px 'Barlow Condensed',sans-serif; }
+.dealAssets small { display:block;font-size:8px;color:#a7b6be; }
+.dealAssets .portrait { width:30px;height:34px; }
+.dealAssets button { background:none;color:#b9c6cb; }
+.dealAssets > div > button { margin-left:auto; }
+.addToDeal { display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;width:100%;min-height:105px;color:var(--gold)!important;border:1px dashed #b6c6cf40!important;background:none;font-size:11px!important;padding:12px; }
+.dealFooter { padding:12px;border-top:1px solid var(--line);flex-shrink:0; }
+.dealFooter .field { margin-bottom:8px; }
+.dealFooter .field input { padding:9px;font-size:11px; }
+.dealFooter > button { width:100%;justify-content:center; }
+.rosterBrowser { display:flex;flex-direction:column;min-height:0; }
+.rosterBrowser > .subTabs { flex-shrink:0;margin-bottom:9px; }
+.rosterBrowser > .subTabs button { padding:8px;font-size:10px; }
+.rosterSearch { display:flex;gap:8px;align-items:center;border:1px solid var(--line);background:#0b151a66;padding:8px 10px;margin-bottom:9px; }
+.rosterSearch input { background:none;outline:none;border:0;width:100%;font-size:11px; }
+.tradeAssetList { overflow:auto;flex:1;min-height:0; }
+.tradeAssetRow { display:flex;align-items:center;text-align:left;gap:10px;padding:8px 9px;width:100%;border-bottom:1px solid var(--line)!important;background:transparent; }
+.tradeAssetRow[aria-pressed='true'] { background:#e0b75e15;box-shadow:inset 2px 0 var(--gold); }
+.tradeAssetRow > span:nth-child(2) { flex:1; }
+.tradeAssetRow strong { display:block;font:600 20px 'Barlow Condensed',sans-serif; }
+.tradeAssetRow small { display:block;font-size:8px;color:#a0b3bd; }
+.tradeAssetRow .portrait { width:31px;height:33px; }
+.assetToken { display:grid;place-items:center;width:31px;height:33px;background:#93b9d315;color:#c6d8e5;font:600 15px 'Barlow Condensed',sans-serif;flex-shrink:0; }
+.chatTrade { overflow:auto;min-height:0; }
+.chatComposer { padding:16px 20px;border:1px solid #d6c08955;background:#12212b; }
+.chatComposer label { display:block;font:600 25px 'Barlow Condensed',sans-serif;margin-bottom:10px; }
+.chatComposer > div { display:flex;gap:9px; }
+.chatComposer input { flex:1;min-width:0;background:#08121a;border:1px solid var(--line);padding:12px;color:white; }
+.chatComposer > small { display:block;font-size:8px;color:#9dafba;margin-top:8px; }
+.chatBubble { margin-bottom:12px;border-left:2px solid var(--gold);padding:8px 14px;background:#b6d0e112; }
+.chatBubble span { font-size:8px;color:var(--gold); }
+.chatBubble p { font-size:12px;margin-top:5px; }
+.offerCarousel { margin-top:15px;border:1px solid #dfc07960;background:linear-gradient(135deg,#23313b,#101c26);box-shadow:0 12px 35px #0004; }
+.offerCarouselTop { display:flex;justify-content:space-between;align-items:center;padding:12px 18px;border-bottom:1px solid var(--line);font-size:9px;letter-spacing:.1em;color:var(--gold); }
+.offerCarouselTop > div { display:flex;gap:7px; }
+.offerCarouselTop button { background:#ffffff0b;border:1px solid var(--line)!important;padding:7px; }
+.offerTeams { display:grid;grid-template-columns:1fr 28px 1fr;gap:20px;align-items:center;padding:24px; }
+.offerTeams > svg { color:var(--gold); }
+.offerTeams small { display:block;font-size:8px;color:#9eb3c1;letter-spacing:.08em;margin-top:18px; }
+.offerTeams h3 { margin-top:8px;font:600 32px/1.1 'Barlow Condensed',sans-serif; }
+.offerFooter { display:flex;justify-content:space-between;align-items:center;gap:15px;padding:14px 18px;border-top:1px solid var(--line); }
+.offerFooter p { font-size:9px;color:#a4b5bf; }
+.shopWorkspace { height:100%; }
+.shopWorkspace:has(.offerCarousel) { display:flex;flex-direction:column; }
+.shopWorkspace .offerCarousel { flex:1;display:flex;flex-direction:column;min-height:0;margin-top:0; }
+.shopWorkspace .offerTeams { flex:1; }
+.transactionLedger { width:100%; }
+.ledgerHeader,.ledgerRow { display:grid;grid-template-columns:minmax(0,1fr) 100px 70px 80px;gap:15px;align-items:center; }
+.ledgerHeader { color:#9badb7;font-size:8px;letter-spacing:.08em;padding:10px 12px;border-bottom:1px solid #a9c4d044; }
+.ledgerRow { padding:13px 12px;border-bottom:1px solid var(--line);background:#a7b8c006; }
+.ledgerRow:nth-child(odd) { background:#a7b8c00e; }
+.ledgerDescription { display:flex;align-items:center;gap:12px;min-width:0; }
+.ledgerDescription > svg { color:#9bb7c5; }
+.ledgerDescription strong { display:block;font:600 21px 'Barlow Condensed',sans-serif; }
+.ledgerDescription small { display:block;color:#b1c2ca;font-size:10px;margin-top:4px; }
+.ledgerDescription p { color:#c3ccd0;font-size:10px;margin-top:5px; }
+.ledgerDescription em { display:block;font-size:8px;font-style:normal;color:#899da9;margin-top:4px; }
+.transactionStatus { font-size:9px;padding:5px 7px;border:1px solid #b2bdc546;border-radius:3px;width:fit-content;color:#bdc6cc; }
+.transactionStatus[data-result='success'] { color:#a1dfba;border-color:#75c79555;background:#75c79510; }
+.transactionStatus[data-result='pending'] { color:var(--gold);border-color:#efd48966; }
+.ledgerAmount { font:600 22px 'Barlow Condensed',sans-serif; }
+.ledgerAmount small { display:block;color:#9bacb7;font:400 7px 'DM Sans',sans-serif; }
+.ledgerRow time { font-size:10px;color:#bcc9cf; }
+.ledgerActions { grid-column:1/-1;display:flex;gap:8px; }
+.ledgerActions button { padding:7px 13px;background:#c1cfdb0e;border:1px solid var(--line)!important;font-size:10px; }
+.ledgerActions button:first-child { color:var(--gold);border-color:#e1c27655!important; }
+@media (min-width:981px) and (max-height:810px) {
+  .lineupView .footballPlayer .portrait { width:25px;height:28px; }
+  .lineupView .playerIdentity strong { font-size:16px; }
+  .lineupView .playerIdentity small { font-size:7px; }
+  .lineupView .slotLabel { font-size:15px;width:60px; }
+  .lineupView .sectionLabel h3 { font-size:22px; }
+  .lineupView .sectionLabel { height:25px;min-height:25px; }
+  .lineupView .irPlayers .footballPlayer { height:27px; }
+  .lineupView .reserveColumn .playerIdentity strong { font-size:14px; }
+  .lineupView .substitutionStrip { font-size:9px;margin-top:5px;padding-top:5px; }
+  .matchupView .matchupRow { min-height:33px;padding:2px 6px; }
+  .matchupView .matchIdentity strong { font-size:18px; }
+  .matchupView .matchIdentity small { font-size:7px; }
+  .matchupView .subPair strong { font-size:16px; }
+  .matchupView .subPair small { font-size:7px; }
+  .matchupView .scoreHero { margin-bottom:6px; }
+  .matchupView .scoreHero > strong { font-size:43px; }
+  .matchupView .scoreHero h3 { font-size:23px; }
+  .matchupFooter { margin-top:6px; }
+  .strategyGrid .assetRow { min-height:48px;padding:6px 0; }
+  .needsPanel > h3 { font-size:25px;margin:0 0 10px; }
+  .stanceChoices button { min-height:70px;padding:8px; }
+  .stanceChoices { margin:10px 0; }
+  .needOption { padding:9px 0; }
+}
+@media (max-width:1100px) and (min-width:761px) {
+  .lineupGrid { gap:10px;grid-template-columns:1.2fr 1fr .95fr; }
+  .lineupView .playerIdentity strong { font-size:15px; }
+  .lineupView .footballPlayer .portrait { display:none; }
+  .lineupView .slotLabel { width:48px;font-size:13px; }
+  .playerBadges { gap:4px;font-size:11px; }
+  .strategyGrid { gap:15px; }
+  .strategyGrid .assetRow .portrait { display:none; }
+  .strategyGrid .assetRow strong { font-size:20px; }
+  .qualityChip,.ageChip { padding:3px;font-size:7px; }
+  .tradeBuilderGrid { grid-template-columns:1fr 1fr;gap:12px; }
+}
+@media (max-width:760px) {
+  .headerMeta,.workspaceHeader h2 { font-size:21px; }
+  .workspaceHeader { gap:9px; }
+  .headerMeta { white-space:nowrap; }
+  .tileGlyph { top:20%;left:20px; }
+  .tileGlyph svg { width:34px;height:34px; }
+  .view[data-review-view='lineup'],.view[data-review-view='matchup'],.view[data-review-view='trades'] { height:auto; }
+  .lineupView { height:auto; }
+  .lineupGrid { display:block; }
+  .lineupColumn { gap:5px; }
+  .lineupView .footballPlayer { min-height:48px; }
+  .lineupView .playerIdentity strong { font-size:20px; }
+  .lineupView .playerIdentity small { font-size:9px; }
+  .lineupView .slotLabel { font-size:16px;width:55px; }
+  .lineupView .sectionLabel { margin-bottom:9px; }
+  .lineupView .irPlayers .footballPlayer { height:48px;max-height:none; }
+  .practiceSection { margin-top:18px; }
+  .practiceSection > div:not(.sectionLabel) { height:48px; }
+  .lineupView .workspaceTools { flex-direction:column;align-items:flex-start;gap:8px; }
+  .matchupView .scoreHero { grid-template-columns:30px 1fr 1fr 30px;gap:8px;margin-bottom:10px; }
+  .scoreHero > img { width:30px;height:30px; }
+  .scoreHero > img:last-child { grid-column:4;grid-row:1; }
+  .scoreHero > div:last-of-type { grid-column:3;grid-row:1;text-align:right; }
+  .scoreHero > strong:first-of-type { grid-row:2;grid-column:1/3; }
+  .scoreHero > strong:last-of-type { grid-row:2;grid-column:3/5;align-items:flex-end; }
+  .scoreHero > span { display:none; }
+  .scoreHero h3 { font-size:21px; }
+  .scoreHero h3 small { font-size:12px; }
+  .matchupView .matchupRow { grid-template-columns:minmax(0,1fr) 30px 42px 30px minmax(0,1fr);gap:3px;padding:8px 0;min-height:64px; }
+  .matchupView .matchIdentity strong { font-size:16px;white-space:normal; }
+  .matchupView .matchIdentity small { font-size:7px; }
+  .matchupView .matchIdentity small b { font-size:7px;display:block;margin:1px 0 0; }
+  .matchupView .matchPlayer .portrait { display:none; }
+  .matchupView .matchupSlot { font-size:12px; }
+  .matchupView .matchPoints { font-size:20px; }
+  .matchupView .matchPoints small { font-size:6px;white-space:normal; }
+  .subPair { display:flex;flex-direction:column;gap:3px;align-items:flex-start; }
+  .subArrow { flex-direction:row;gap:4px; }
+  .subArrow svg { width:15px;height:12px; }
+  .matchupView .subPair strong { font-size:15px;white-space:normal; }
+  .matchupView .subPair small { font-size:6px; }
+  .matchupFooter { flex-wrap:wrap; }
+  .strategyGrid { display:block; }
+  .strategyGrid .assetRow { gap:8px;min-height:62px; }
+  .strategyGrid .assetRow .portrait { width:30px; }
+  .strategyGrid .assetRow strong { font-size:20px; }
+  .playerBadges { gap:4px;font-size:11px;flex-wrap:wrap;max-width:108px;justify-content:flex-end; }
+  .qualityChip,.ageChip { font-size:7px;padding:3px 4px; }
+  .needsPanel { margin-top:20px;padding:18px 0 0;border-left:0;border-top:1px solid var(--line); }
+  .dialog { padding:16px;max-width:95vw; }
+  .dialog .profileHero .portrait { width:58px;height:70px; }
+  .dialog .profileHero h2 { font-size:30px; }
+  .dialog .playerBadges { max-width:none;justify-content:flex-start; }
+  .dossierSection h3 { flex-wrap:wrap;font-size:15px; }
+  .dossierSection h3 span { margin-left:0;font-size:8px; }
+  .dossierMetrics { gap:6px;grid-template-columns:repeat(2,1fr); }
+  .dossierMetrics strong { font-size:27px; }
+  .dossierSection p { display:block;line-height:1.7; }
+  .dossierSection p span { display:block; }
+  .careerStrip { flex-direction:column;gap:5px; }
+  .privateStrategy { padding:10px; }
+  .privateStrategy h3 { font-size:14px;flex-wrap:wrap; }
+  .privateStrategy h3 small { margin-left:0; }
+  .availabilityButtons { grid-template-columns:repeat(2,1fr); }
+  .priceCounters { gap:5px; }
+  .priceCounters > div { flex-direction:column;gap:5px; }
+  .tradeBuilderGrid { display:flex;flex-direction:column; }
+  .tradeWorkspace,.buildWorkspace { height:auto; }
+  .dealBoard { min-height:300px; }
+  .dealColumns header { padding:9px;min-height:75px; }
+  .teamLabel strong { font-size:21px; }
+  .teamLabel img { width:25px;height:25px; }
+  .partnerButton { font-size:10px!important; }
+  .dealAssets { max-height:200px; }
+  .dealAssets .portrait { display:none; }
+  .dealAssets strong { font-size:17px; }
+  .rosterBrowser { margin-top:16px; }
+  .tradeAssetList { max-height:350px; }
+  .offerTeams { padding:17px 12px;gap:12px;grid-template-columns:1fr 20px 1fr; }
+  .offerTeams h3 { font-size:25px; }
+  .offerFooter { flex-direction:column;align-items:stretch;padding:12px; }
+  .offerFooter > button { justify-content:center; }
+  .chatComposer { padding:12px; }
+  .chatComposer input { padding:9px;font-size:11px; }
+  .ledgerHeader,.ledgerRow { grid-template-columns:minmax(0,1fr) 62px 40px;gap:7px; }
+  .ledgerHeader span:last-child { display:none; }
+  .ledgerRow { padding:11px 0; }
+  .ledgerDescription { gap:7px; }
+  .ledgerDescription > img { width:24px;height:24px; }
+  .ledgerDescription strong { font-size:18px; }
+  .ledgerDescription small { font-size:9px;line-height:1.4; }
+  .ledgerRow time { grid-column:1/-1;font-size:8px; }
+  .transactionStatus { font-size:8px;padding:4px; }
+  .ledgerAmount { font-size:20px; }
+}
+@media (min-width:761px) {
+  .lineupGrid { container-type:size; }
+  .irSection { gap:4px; }
+  .irPlayers { flex:1; }
+  .lineupView .irPlayers .footballPlayer { height:auto; min-height:25px; max-height:40px;flex:1 1 0; }
+  .practiceSection > div:not(.sectionLabel) { height:calc((100cqh - 64px) / var(--roster-count));min-height:32px;max-height:none; }
+}
+@media (min-width:761px) {
+  .matchupView { height:100%; }
+  .matchupView .matchupRow { flex:1 1 0;padding:2px 7px; }
+  .matchupView .matchIdentity small,.matchupView .subPair small { margin:0; }
+  .matchupView .matchIdentity { gap:2px; }
+  .matchupView .matchIdentity strong { font-size:18px; }
+  .matchupView .scoreHero { margin-bottom:6px; }
+  .matchupView .scoreHero > strong { font-size:43px; }
+  .matchupView .scoreHero h3 { line-height:1; }
+  .matchupView .editLineupButton { padding:4px 8px;margin-top:5px; }
+}
+@media (min-width:981px) and (max-height:810px) {
+  .matchupView .matchupRow { min-height:31px;padding:1px 5px; }
+  .matchupView .matchIdentity { gap:1px; }
+  .matchupView .matchIdentity strong { font-size:16px; }
+  .matchupView .matchIdentity small { font-size:6px; }
+  .matchIdentity small b { font-size:6px; }
+  .matchupView .matchPoints { font-size:21px;gap:2px; }
+  .matchupView .scoreHero > strong { font-size:38px; }
+  .matchupView .scoreHero h3 { font-size:21px; }
+  .matchupView .scoreHero > img { height:40px;width:40px; }
+  .matchupView .scoreBar { margin-bottom:6px; }
+  .matchupView .matchupFooter { margin-top:5px; }
+  .matchupView .matchupSlot { font-size:15px; }
+}
+.tileGlyph { top:62px;left:18px;padding:10px; }
+.tileGlyph svg { width:32px;height:32px; }
+.taskGallery:has(> .taskTile:nth-child(4)) .tileGlyph { top:43px;left:auto;right:18px;padding:6px; }
+@media(max-width:760px) { .tileGlyph { top:50px; } }
+.lineupView .practiceSection .footballPlayer { height:100%;margin:0; }
+.lineupView .irPlayers .portrait { height:22px; }
+.pickModalTitle { font:600 32px 'Barlow Condensed',sans-serif;margin:18px 0!important; }

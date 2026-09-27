@@ -13,6 +13,7 @@ import {
   type Transaction,
 } from "./model";
 import { movePlayer, swapRanks, rankByProjection } from "./coaching";
+import type { PickPrice } from './playerMetrics';
 export type Claim = {
   id: string;
   playerId: string;
@@ -40,6 +41,7 @@ function useDemoState() {
   const [toast, notify] = useState("");
   const [phase, setPhase] = useState("WEEK 4");
   const [now, setNow] = useState(-1);
+  const [playerPrices, setPlayerPrices] = useState<Record<string, PickPrice>>({});
   const [pickSettings, setPickSettings] = useState<
     Record<string, { availability: string; asking: string }>
   >({});
@@ -121,6 +123,8 @@ function useDemoState() {
     setNeeds,
     pickSettings,
     setPickSettings,
+    playerPrices,
+    setPlayerPrices,
   };
 }
 const DemoContext = createContext<ReturnType<typeof useDemoState> | null>(null);

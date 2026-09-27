@@ -7,7 +7,7 @@ import {
   type KeyboardEvent,
   type PointerEvent,
 } from "react";
-import { ArrowLeft, Check, ChevronRight, Menu, X } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight } from "lucide-react";
 import { DemoProvider, useDemo } from "./DemoState";
 import {
   initialRules,
@@ -15,10 +15,10 @@ import {
   featureRole,
   type RoleId,
   type FeatureId,
-  type Availability,
 } from "./model";
+import { PlayerDossier } from "./PlayerDossier";
 import { Workspace } from "./Workspace";
-import { Crest, Portrait, TaskTiles, type Tile } from "./UI";
+import { Crest, TaskTiles, type Tile } from "./UI";
 import { lineupSlots, subLimit } from "./leagueFixture";
 import s from "./Prototype.module.css";
 const taskOptions: Partial<Record<FeatureId, Tile[]>> = {
@@ -354,14 +354,6 @@ function Headquarters() {
                 setMenuOpen(false);
             }}
           >
-            <button
-              className={s.menuToggle}
-              aria-label={menuOpen ? "Close navigation" : "Open navigation"}
-              aria-expanded={menuOpen}
-              onClick={() => setMenuOpen(!menuOpen)}
-            >
-              {menuOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
             <div className={s.hero}>
               <span className={s.heroRule} />
               <h2>{role.headline}</h2>
@@ -495,76 +487,7 @@ function Headquarters() {
         onCancel={() => demo.openPlayer(null)}
         onClose={() => demo.openPlayer(null)}
       >
-        {player && (
-          <>
-            <header>
-              <span>PLAYER PROFILE</span>
-              <button
-                aria-label="Close player profile"
-                onClick={() => demo.openPlayer(null)}
-              >
-                <X size={20} />
-              </button>
-            </header>
-            <div className={s.profileHero}>
-              <Portrait id={player.id} name={player.name} />
-              <div>
-                <small>
-                  {player.position} · {player.team} · {player.group}
-                </small>
-                <h2>{player.name}</h2>
-                <p>
-                  {player.opponent} · {player.game}
-                </p>
-              </div>
-            </div>
-            <div className={s.profileStats}>
-              <div>
-                <strong>{player.points.toFixed(1)}</strong>
-                <small>PROJECTED</small>
-              </div>
-              <div>
-                <strong>{player.bye}</strong>
-                <small>BYE WEEK</small>
-              </div>
-              <div>
-                <strong>{player.condition ?? "Healthy"}</strong>
-                <small>STATUS</small>
-              </div>
-            </div>
-            <div className={s.profileEditor}>
-              <label className={s.field}>
-                Availability
-                <select
-                  value={player.availability}
-                  onChange={(e) =>
-                    demo.editPlayer(player.id, {
-                      availability: e.target.value as Availability,
-                    })
-                  }
-                >
-                  {["Untouchable", "Core piece", "Listening", "Moveable"].map(
-                    (a) => (
-                      <option key={a}>{a}</option>
-                    ),
-                  )}
-                </select>
-              </label>
-              <label className={s.field}>
-                Your asking price
-                <input
-                  value={player.asking}
-                  onChange={(e) =>
-                    demo.editPlayer(player.id, { asking: e.target.value })
-                  }
-                />
-              </label>
-              <small className={s.subtle}>
-                Your strategy settings are visible only to you.
-              </small>
-            </div>
-          </>
-        )}
+        {player && <PlayerDossier player={player} editable={roleId === "gm" && feature === "strategy"} />}
       </dialog>
     </main>
   );

@@ -354,7 +354,8 @@ export const initialTransactions: Transaction[] = [
   {
     id: "past-waiver",
     title: "Added Josh Downs",
-    detail: "$7 salary cap used · dropped a reserve receiver",
+    detail: "Added Josh Downs · Dropped Curtis Samuel",
+    bid: 7,
     type: "Waiver",
     status: "Successful",
     date: "Sep 23",
@@ -378,7 +379,8 @@ export const initialTransactions: Transaction[] = [
   {
     id: "lost",
     title: "Claim for a running back",
-    detail: "$5 bid · another team won the claim",
+    detail: "Claim for Tyler Allgeier · Outbid by another team",
+    bid: 5,
     type: "Waiver",
     status: "Lost",
     date: "Sep 16",

@@ -40,6 +40,22 @@ export function movePlayer(
       players,
       error: "This player's game has started. His assignment is locked.",
     };
+  if (destination.startsWith('SUB:')) {
+    const rank = Number(destination.slice(4));
+    if (!Number.isInteger(rank) || rank < 1 || rank > subLimit) return { players, error: 'Invalid Sub slot.' };
+    const target = players.find(x => x.group === 'Subs' && x.rank === rank);
+    if (target?.id === id) return { players };
+    if (target && isLocked(target, now)) return { players, error: 'That Sub rank is locked at kickoff.' };
+    if (p.group === 'Subs') return { players: target ? swapRanks(players, id, target.id, now) : players.map(x => x.id === id ? { ...x, rank } : x) };
+    if (target && p.slot) return movePlayer(players, target.id, p.slot, now);
+    if (target) return { players, error: 'Choose an empty Sub slot to promote a reserve.' };
+    const result = movePlayer(players, id, 'Subs', now);
+    if (result.error) return result;
+    // Projection insertion can fill this rank. Swap only unlocked ranks to honor
+    // an explicit click target without displacing a player whose game started.
+    const occupant = result.players.find(x => x.group === 'Subs' && x.rank === rank && x.id !== id);
+    return { players: occupant ? swapRanks(result.players, id, occupant.id, now) : result.players.map(x => x.id === id ? { ...x, rank } : x) };
+  }
   const slot = lineupSlots.find((s) => s.id === destination);
   if (slot) {
     if (!eligible(p, slot))
@@ -93,6 +109,26 @@ export function movePlayer(
   );
   if (group === "Subs") next = projectionInsert(next, id, now);
   return { players: next };
+}
+
+// Finite sample game timeline; real live scoring will use timestamped plays.
+export function sampleGame(p: Player, now: number, after = 0) {
+  const elapsed = Math.max(0, Math.min(3600, (now - p.kickoff) * 900));
+  const started = now >= p.kickoff, final = elapsed === 3600;
+  const points = samplePlays(p).filter(x => x.at > after && x.at <= elapsed).reduce((n, x) => n + x.points, 0);
+  const remaining = final ? 0 : p.points * (3600 - Math.max(after, elapsed)) / 3600;
+  const quarter = Math.min(4, Math.floor(elapsed / 900) + 1);
+  const clock = 900 - elapsed % 900;
+  return { points, remaining, elapsed, started, final,
+    label: !started ? p.game : final ? 'FINAL' : `Q${quarter} · ${Math.floor(clock / 60)}:${String(clock % 60).padStart(2, '0')}` };
+}
+// Illustrative probability: actual + REMAINING projection, with uncertainty
+// that shrinks as players finish. Not a calibrated production model.
+export function sampleWinProbability(actual: number, remaining: number, against: number, otherRemaining: number) {
+  const margin = actual + remaining - against - otherRemaining;
+  if (remaining + otherRemaining === 0) return margin === 0 ? 50 : margin > 0 ? 100 : 0;
+  const uncertainty = Math.max(3, Math.sqrt(remaining + otherRemaining) * 2.3);
+  return Math.max(1, Math.min(99, Math.round(100 / (1 + Math.exp(-margin / uncertainty)))));
 }
 export function swapRanks(
   players: Player[],
