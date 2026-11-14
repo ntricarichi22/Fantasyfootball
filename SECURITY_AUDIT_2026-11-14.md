@@ -1,6 +1,6 @@
 # Fantasyfootball code and security audit — 2026-11-14
 
-The audit fixes are deployed. The next release implements league isolation and atomic draft/trade transactions; its pull request is undergoing the final database/browser release gates. This improves the foundation substantially, but does not make the application a complete commercial fantasy platform.
+The audit fixes are deployed. League isolation and atomic draft/trade transactions pass the full database/browser release gates. Expansion migrations are live; the controlled runtime cutover and matching application promotion remain pending at this report revision. This improves the foundation substantially, but does not make the application a complete commercial fantasy platform.
 
 ## Release evidence
 
@@ -9,7 +9,8 @@ The audit fixes are deployed. The next release implements league isolation and a
 - Audit CI passed on the reviewed head and merge: quality/security, CodeQL, clean/staged Supabase migrations, 50 pgTAP assertions, AI database concurrency, and real authenticated HTTP/revocation tests. The read-only hosted migration gate also passed.
 - Live Supabase project: `owkxkpkdffhcordlxqte`, PostgreSQL 17.6.1.063. Historian least privilege, Edge worker v3, and session/draft-visibility migration 021 are confirmed live. Its hosted alias is `20261114181422_audit_session_revocation_and_draft_visibility`.
 - Production signing key rotated. Preview uses independent signing/audit secrets. Historian league scope and verified TLS configuration were checked without exposing credentials.
-- League-hardening release: [PR 165](https://github.com/ntricarichi22/Fantasyfootball/pull/165). The implementation and manual rollout are described in `PRODUCTION_HARDENING_PLAN.md` and `supabase/operations/LEAGUE_RUNTIME_ROLLOUT.md`. At this report revision, runtime migrations 022/023 and cutover are not yet live; the PR contains the current release status.
+- League-hardening release: [PR 165](https://github.com/ntricarichi22/Fantasyfootball/pull/165), verified application head `2061f63966d39bf93115fbbd0828822e4094c270`. PostgreSQL 15/17 [CI run 43638912114](https://github.com/ntricarichi22/Fantasyfootball/actions/runs/43638912114), quality/security and CodeQL all pass. Expansion 022/023 are live as `20261114205045_league_runtime_expansion` and `20261114233534_league_atomic_commands`, with exact normalized SQL hashes checked. Runtime remains uninitialized with writes disabled; the old application remains compatible until cutover. See `PRODUCTION_HARDENING_PLAN.md` and `supabase/operations/LEAGUE_RUNTIME_ROLLOUT.md`.
+- Existing obsolete Vercel deployment hosts and version IDs have finite retirement rules. Both authenticated old-host probes returned 403; ordinary production requests remained available. Vercel's supported Skew Protection threshold was set through its deployment UI after the connector returned an unexplained 404. Old query/header pins now resolve to the current audited build; old cookie pins are denied. Advance the threshold to the league release during cutover. Future previews remain usable and still require an isolated database/credentials.
 
 ## Scope and source of truth
 
@@ -35,13 +36,13 @@ The CSP remains partial; script-execution/XSS policy still needs a dedicated com
 
 ## Validation and limits
 
-The league release passed 113 local Node tests, TypeScript, production build, 16 production-router boundary checks, migration ordering, and staged secret scanning before the final compatibility repairs. ESLint has zero errors and 39 existing advisories: images, full-page navigation, and the root-layout font. Quality/security CI and CodeQL passed on its initial review head.
+The league release passes 121 Node tests, TypeScript, production build, 16 production-router boundary checks, migration ordering, and staged secret scanning. ESLint has zero errors and 39 existing advisories: images, full-page navigation, and the root-layout font. Quality/security CI and CodeQL pass on the reviewed application head.
 
-PostgreSQL 15 and 17 CI exercise the real schema-011 upgrade and clean reset, pgTAP, independent database connections competing for shared locks, failure/rollback injection, authenticated HTTP isolation, and browser login/league/account switching. Both versions must pass on the final source before runtime deployment. The first browser run exposed readiness/timing defects being repaired; passing HTTP checks alone does not waive that gate. Local PostgreSQL-WASM checks are supplemental because Docker is unavailable here.
+PostgreSQL 15 and 17 each pass the real schema-011 upgrade and clean reset, strict SQL lint, all 75 pgTAP assertions, AI database concurrency, and all 12 runtime race/rollback checks using independent connections. Both upgraded and clean authenticated HTTP/browser journeys pass, including stale league tabs and another account switching into the same league. The tests exposed and repaired hydration timing, a missing confirmed catalog fixture, and leftover database-only Auth fixtures. Local PostgreSQL-WASM checks are supplemental because Docker is unavailable here.
 
 Initial audit scanners: Semgrep 1.185.0 checked 355 files with zero findings/parse errors; Gitleaks 8.30.1 covered 1,007 baseline commits and the staged diff. One browser-storage constant was exactly allowlisted; no actual credential finding remained. Generated ignored Next build keys were not treated as tracked credentials.
 
-Production checks do not include signing in as a real customer, making a customer trade/draft selection, purchasing AI credits, or a restore/load drill. Disposable test accounts cover authenticated behavior without modifying real accounts. Production WAF currently has default protection, and backups/SMTP/restore effectiveness are not certified by this review.
+Production checks do not include signing in as a real customer, making a customer trade/draft selection, purchasing AI credits, or a restore/load drill. Disposable test accounts cover authenticated behavior without modifying real accounts. Production WAF retains platform protection plus finite obsolete-deployment retirement rules; backups/SMTP/restore effectiveness are not certified by this review.
 
 ## Existing-league compatibility
 
