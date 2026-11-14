@@ -60,47 +60,6 @@ export default function ClockBar() {
   const selection = useStoredTeam();
   const leagueId = selection.leagueId ?? "";
 
-  // The countdown value currently displayed on screen: when a pick is "in"
-  // (submitted, awaiting announcement) we show the announcement countdown;
-  // otherwise we show the on-the-clock countdown. This is the single value
-  // the auto-tick effect watches.
-  const timeLeft = isPickIn ? announceSeconds : tickedSeconds;
-
-  // When the displayed countdown hits 0 while the draft is running, POST to
-  // /api/scouting/draft/tick. The server handles everything — announcing the pick,
-  // auto-skipping, advancing current_pick_index. The endpoint is idempotent
-  // so multiple clients calling it concurrently is safe. A ref-based 2s
-  // debounce guards against firing more than once per zero-crossing.
-  const tickFiredRef = useRef(false);
-  useEffect(() => {
-    if (timeLeft > 0) {
-      tickFiredRef.current = false;
-      return;
-    }
-    if (state?.status !== "running") return;
-    if (tickFiredRef.current) return;
-    tickFiredRef.current = true;
-    fetch("/api/scouting/draft/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "tick" }) })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!(Number(data?.steps) > 0)) {
-          tickFiredRef.current = false;
-          return;
-        }
-        // Tick advanced state server-side (announce / auto-skip just fired).
-        // Fan out the same refetch signal DraftStatusProvider's 3s poll
-        // uses so the board removes the drafted player at the exact moment
-        // the reveal animation starts on this client, instead of waiting up
-        // to 3s for the next poll.
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("draft-log-refetch-requested"));
-        }
-      })
-      .catch(() => {
-        tickFiredRef.current = false;
-      });
-  }, [timeLeft, state?.status, fetch]);
-
   // ----- Reveal animation + chime + mute ----------------------------------
   // When the server flips a draft_log row from is_announced=false → true
   // (the "auto-announce" moment), drive a 3-phase animation on every

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { requestMatchesActiveLeague, requestMatchesActiveIdentity, resolveCurrentSession } from "../src/infrastructure/auth/authorization.ts";
 import { commandEnvelope } from "../src/infrastructure/auth/commandContract.ts";
-import { dueDraftDeadline } from "../src/infrastructure/auth/draftDeadline.ts";
+import { dueDraftDeadline } from "../src/shared/league-data/draftDeadline.ts";
 import { isCfcLeague, requireCfcValuation } from "../src/shared/league-data/capabilities.ts";
 import type { AppSession } from "../src/infrastructure/auth/session.ts";
 

@@ -87,3 +87,22 @@ test("same-league account or roster switches cannot silently reuse the old tab i
   assert.equal(headers[1].get("x-cfc-user-id"), "new-user");
   assert.equal(headers[1].get("x-cfc-roster-id"), "2");
 });
+
+test("draft retries ignore regenerated timestamps and display metadata but preserve selection intent", async () => {
+  const commands: Array<Record<string, unknown>> = [];
+  const send: typeof fetch = async (input, init) => {
+    if (input === "/api/league/runtime") return Response.json({ revision: 7, draft_state: { draft_season: 2026 } });
+    commands.push(JSON.parse(String(init?.body)));
+    if (commands.length === 1) throw new Error("response lost after commit");
+    return Response.json({ ok: true, revision: 8 });
+  };
+  const request = createLeagueRequester({ leagueId: "league-a", userId: "user-a", rosterId: "1" }, send);
+  const original = { pickIndex: 0, playerId: "123", rosterId: "1", submittedAt: "2026-11-15T12:00:00Z", teamName: "Before" };
+  await assert.rejects(request("/api/scouting/draft/log", { method: "POST", body: JSON.stringify(original) }));
+  await request("/api/scouting/draft/log", { method: "POST", body: JSON.stringify({ ...original, submittedAt: "2026-11-15T12:00:05Z", teamName: "After" }) });
+  assert.deepEqual(commands[0], commands[1]);
+  assert.equal(commands[0].submittedAt, undefined);
+  assert.equal(commands[0].teamName, undefined);
+  await request("/api/scouting/draft/log", { method: "POST", body: JSON.stringify({ ...original, playerId: "456" }) });
+  assert.notEqual(commands[0].request_id, commands[2].request_id);
+});

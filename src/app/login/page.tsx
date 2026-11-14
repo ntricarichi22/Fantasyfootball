@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { finalizeLeagueSession, listLeagueChoices, type LeagueChoice } from "@/infrastructure/identity/leagueSelection";
 import { LeagueChoiceList } from "@/shared/ui/LeagueSwitcher";
@@ -35,7 +35,10 @@ function LoginErrorMessage() {
 
 type Step = "email" | "new-password" | "existing-password";
 
+const subscribeToHydration = () => () => {};
+
 function LoginForm() {
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   const searchParams = useSearchParams();
   const [leagues, setLeagues] = useState<LeagueChoice[] | null>(null);
   const [step, setStep] = useState<Step>("email");
@@ -325,6 +328,7 @@ function LoginForm() {
 
               <input
                 type="email"
+                disabled={!hydrated}
                 inputMode="email"
                 autoComplete="email"
                 placeholder="you@example.com"

@@ -1,3 +1,4 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { currentAppSessionFromRequest, currentSessionCanAccessTeamPair } from "@/infrastructure/auth/currentSession";
@@ -59,7 +60,7 @@ export async function GET(
 
   return NextResponse.json({
     thread: threadRes.data,
-    offers: offersRes.data ?? [],
+    offers: (offersRes.data ?? []).map(normalizeTradeOffer),
   });
   } catch (err) {
     console.error('[API GET /api/inbox/threads/:threadId]', err);

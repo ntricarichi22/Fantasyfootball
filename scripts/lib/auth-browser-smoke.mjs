@@ -11,8 +11,21 @@ export async function runAuthBrowserSmoke({ base, pool, league, otherLeague, mem
   const browser = await chromium.launch({ executablePath: await chromiumBinary.executablePath(), args: chromiumBinary.args,
     headless: true, timeout: 20_000 });
   let timer;
+  let context;
+  const diagnostics = [];
+  const redact = value => String(value).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email]")
+    .replace(/eyJ[A-Za-z0-9_.-]+/g, "[token]").replace(/(https?:\/\/[^\s?]+)\?[^\s]*/g, "$1?[redacted]").slice(0, 240);
   try {
-    const context = await browser.newContext({ viewport: { width: 1365, height: 900 } });
+    context = await browser.newContext({ viewport: { width: 1365, height: 900 } });
+    context.on("page", page => {
+      page.on("pageerror", error => diagnostics.push({ event: "pageerror", error: redact(error.message) }));
+      page.on("response", response => {
+        const url = new URL(response.url());
+        if (url.origin === new URL(base).origin && url.pathname.startsWith("/api/")) {
+          diagnostics.push({ event: "api", method: response.request().method(), path: url.pathname, status: response.status() });
+        }
+      });
+    });
     context.setDefaultTimeout(15_000);
     context.setDefaultNavigationTimeout(20_000);
     // Fonts/icons are presentation-only. No auth, app API, provider, or data response is mocked.
@@ -28,11 +41,16 @@ export async function runAuthBrowserSmoke({ base, pool, league, otherLeague, mem
       assert.equal(headers["x-cfc-roster-id"], rosterId, "component sends its verified roster assertion");
     };
     const choose = async (page, leagueId, rosterId) => {
-      const navigation = page.waitForEvent("domcontentloaded");
-      const response = postResponse(page, "/api/auth/finalize");
-      await page.getByRole("button", { name: `League ${leagueId} · Team ${rosterId}`, exact: true }).click();
-      assert.equal((await response).status(), 200, "real UI membership selection succeeds");
-      await navigation;
+      const choice = page.getByRole("button", { name: `League ${leagueId} · Team ${rosterId}`, exact: true });
+      // The chooser is rendered only after the initial finalize returns 409.
+      // Start response/navigation waits afterwards, so they cannot capture that bootstrap response.
+      await choice.waitFor({ state: "visible" });
+      const [response] = await Promise.all([
+        postResponse(page, "/api/auth/finalize"),
+        page.waitForEvent("domcontentloaded"),
+        choice.click(),
+      ]);
+      assert.equal(response.status(), 200, "real UI membership selection succeeds");
       await page.getByRole("button", { name: "Team settings", exact: true }).waitFor();
     };
     const login = async (page, email, leagueId, rosterId) => {
@@ -40,9 +58,11 @@ export async function runAuthBrowserSmoke({ base, pool, league, otherLeague, mem
       await page.locator('input[type="email"]').fill(email);
       await page.getByRole("button", { name: "Continue", exact: true }).click();
       await page.locator('input[type="password"]').fill(password);
-      const result = postResponse(page, "/api/auth/login");
-      await page.getByRole("button", { name: "Sign In", exact: true }).click();
-      assert.equal((await result).status(), 200, "browser signs in through the actual password endpoint");
+      const [result] = await Promise.all([
+        postResponse(page, "/api/auth/login"),
+        page.getByRole("button", { name: "Sign In", exact: true }).click(),
+      ]);
+      assert.equal(result.status(), 200, "browser signs in through the actual password endpoint");
       await choose(page, leagueId, rosterId);
     };
     const openRename = async (page, name) => {
@@ -51,14 +71,14 @@ export async function runAuthBrowserSmoke({ base, pool, league, otherLeague, mem
       await page.locator('input[maxlength="30"]').fill(name);
     };
     const save = async (page, identity, accepted) => {
-      const navigation = accepted ? page.waitForEvent("domcontentloaded") : null;
-      const response = postResponse(page, "/api/team-identity");
-      await page.getByRole("button", { name: "Save Name", exact: true }).click();
-      const result = await response;
+      const [result] = await Promise.all([
+        postResponse(page, "/api/team-identity"),
+        ...(accepted ? [page.waitForEvent("domcontentloaded")] : []),
+        page.getByRole("button", { name: "Save Name", exact: true }).click(),
+      ]);
       await assertIdentity(result, ...identity);
       if (accepted) {
         assert.equal(result.status(), 200, "real component rename succeeds");
-        await navigation;
         await page.getByRole("button", { name: "Team settings", exact: true }).waitFor();
       } else {
         assert.ok([401, 403, 409].includes(result.status()), "stale UI mutation is rejected despite the shared cookie change");
@@ -93,6 +113,17 @@ export async function runAuthBrowserSmoke({ base, pool, league, otherLeague, mem
     await Promise.race([journey(), new Promise((_, reject) => {
       timer = setTimeout(() => reject(new Error("Disposable browser journey exceeded 90 seconds")), 90_000);
     })]);
+  } catch (error) {
+    // No input values, request bodies, credentials, cookies or provider responses are logged.
+    for (const page of context?.pages() ?? []) {
+      const controls = await page.locator("button,input").evaluateAll(elements => elements.map(element => ({
+        tag: element.tagName, type: element.getAttribute("type"), disabled: element.hasAttribute("disabled"),
+        label: element.tagName === "BUTTON" ? element.textContent?.trim().slice(0, 100) : null,
+      }))).catch(() => []);
+      console.error("Browser failure UI", { path: new URL(page.url()).pathname, controls });
+    }
+    console.error("Browser failure events", diagnostics.slice(-25));
+    throw error;
   } finally {
     clearTimeout(timer);
     await browser.close();

@@ -103,11 +103,45 @@ async function raw(league) {
 try {
   await pool.query("INSERT INTO public.rookie_prospects(player_id,player_name,position,nfl_team) VALUES('RUNTIME_TEST_ROOKIE','Synthetic Rookie','WR','KC') ON CONFLICT(player_id) DO NOTHING");
   const cutover = await fixture();
+  cutover.source.observed_at = new Date(Date.now() + 1000).toISOString();
+  cutover.source.assets.push(...[["101","1"],["102","2"],["103","3"],["104","2"]].map(([id, owner]) =>
+    ({ asset_key: `player:${id}`, asset_kind: "player", owner_roster_id: owner, consumed: false })));
+  await rpc("cfc_refresh_runtime_snapshot_system", [cutover.league, randomUUID(), (await state(cutover.league)).revision, cutover.source]);
+  const legacyOffers = [];
+  for (const [send, receive] of [["101", "102"], ["103", "104"], ["101", null], [null, "102"]]) {
+    const thread = (await pool.query("INSERT INTO public.trade_threads(league_id,team_a_id,team_b_id,created_by_team_id) VALUES($1,'1','2','1') RETURNING id", [cutover.league])).rows[0].id;
+    const legacy = (await pool.query(`INSERT INTO public.trade_offers(league_id,from_team_id,to_team_id,assets_from,assets_to,from_value,to_value,grade_label,thread_id,asset_summary)
+      VALUES($1,'1','2',$2,$3,10,12,'Legacy fixture',$4,'{"preserve":true}') RETURNING to_jsonb(trade_offers) row`,
+      [cutover.league, JSON.stringify(send === null ? [] : [{ key: send, type: "player", label: "Synthetic sender", value: 10, detail: { preserve: true } }]),
+        JSON.stringify(receive === null ? [] : [{ key: receive, type: "player", label: "Synthetic receiver", value: 12 }]), thread])).rows[0].row;
+    legacyOffers.push(legacy);
+  }
   const admin = await pool.connect();
   try {
     await admin.query("SET cfc.runtime_cutover='approved'");
     await admin.query(await readFile(new URL("../supabase/operations/league_runtime_cutover.sql", import.meta.url), "utf8"));
   } finally { admin.release(); }
+  for (const before of legacyOffers) {
+    const after = (await pool.query("SELECT to_jsonb(o) row FROM public.trade_offers o WHERE id=$1", [before.id])).rows[0].row;
+    const expected = structuredClone(before);
+    for (const side of ["assets_from", "assets_to"]) expected[side] = expected[side].map((a) => ({ ...a, key: `player:${a.key}` }));
+    assert.deepEqual(after, expected, "cutover changes only canonical keys, preserving array order/metadata/parties/status/timestamps");
+  }
+  const beforeRepeat = await raw(cutover.league), repeatAdmin = await pool.connect();
+  try {
+    await repeatAdmin.query("SET cfc.runtime_cutover='approved'");
+    await repeatAdmin.query(await readFile(new URL("../supabase/operations/league_runtime_cutover.sql", import.meta.url), "utf8"));
+  } finally { repeatAdmin.release(); }
+  assert.deepEqual(await raw(cutover.league), beforeRepeat, "repeated cutover does not rewrite canonical offers");
+  await resolve(cutover, legacyOffers[0].id, "2", (await state(cutover.league)).revision);
+  const beforeStale = await raw(cutover.league);
+  await rejectCode(resolve(cutover, legacyOffers[1].id, "2", (await state(cutover.league)).revision), "PT409", "ownership_changed");
+  assert.deepEqual(await raw(cutover.league), beforeStale, "stale legacy proposal rejects without changing any state");
+  for (const invalid of legacyOffers.slice(2)) {
+    await rejectCode(resolve(cutover, invalid.id, "2", (await state(cutover.league)).revision), "PT400", "invalid_trade_assets");
+    assert.deepEqual(await raw(cutover.league), beforeStale, "one-sided legacy proposal remains preserved but cannot be accepted");
+  }
+  check("cutover preserves legacy metadata/empty arrays, accepts valid proposal, rejects stale/one-sided proposals and reruns safely");
   const acl = (await pool.query("SELECT has_column_privilege('service_role','public.trade_offers','status','UPDATE') domain_write, has_column_privilege('service_role','public.trade_offers','read_at','UPDATE') read_marker, has_table_privilege('service_role','public.cfc_asset_ownership','UPDATE') ledger_write")).rows[0];
   assert.deepEqual(acl, { domain_write: false, read_marker: true, ledger_write: false });
   const scopedEmail = `${randomUUID()}@example.invalid`;

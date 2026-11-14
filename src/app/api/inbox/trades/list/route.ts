@@ -1,3 +1,4 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
@@ -32,7 +33,7 @@ export async function GET(request: NextRequest) {
 
   // Single offer fetch
   if (offerId) {
-    const { data, error } = await client
+    const { data: storedOffer, error } = await client
       .from("trade_offers")
       .select("*")
       .eq("id", offerId)
@@ -40,7 +41,8 @@ export async function GET(request: NextRequest) {
       .or(`from_team_id.eq.${session.rosterId},to_team_id.eq.${session.rosterId}`)
       .maybeSingle();
 
-    if (error || !data) return NextResponse.json({ error: "offer_unavailable" }, { status: 404 });
+    if (error || !storedOffer) return NextResponse.json({ error: "offer_unavailable" }, { status: 404 });
+    const data = normalizeTradeOffer(storedOffer);
     if (!isCfcLeague(session.leagueId)) return NextResponse.json({ data, live_grade: null });
     const ctx = await buildValuationContext(session.leagueId);
     const fromViewer = session.rosterId === data.from_team_id;
@@ -84,7 +86,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ data: data ?? [] });
+  return NextResponse.json({ data: (data ?? []).map(normalizeTradeOffer) });
   } catch (err) {
     console.error('[API GET /api/inbox/trades/list]', err);
     return NextResponse.json(

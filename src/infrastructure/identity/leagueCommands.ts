@@ -29,7 +29,12 @@ export function createLeagueRequester(identity: ExpectedAppIdentity | undefined,
     let preparation: Promise<Command | Response> | undefined;
     if (method !== "GET" && method !== "HEAD" && COMMAND_PATHS.has(url.pathname)) {
       if (init?.body != null && typeof init.body !== "string") throw new Error("Commands require a JSON body");
-      const body = init?.body ? JSON.parse(init.body) as Record<string, unknown> : {};
+      const parsedBody = init?.body ? JSON.parse(init.body) as Record<string, unknown> : {};
+      // Atomic draft intent excludes regenerated timestamps and display metadata.
+      const body = method === "POST" && url.pathname === "/api/scouting/draft/log"
+        ? { pickIndex: parsedBody.pickIndex, playerId: parsedBody.playerId, rosterId: parsedBody.rosterId,
+          ...(parsedBody.draft_season !== undefined ? { draft_season: parsedBody.draft_season } : {}) }
+        : parsedBody;
       fingerprint = `${method}:${url.pathname}:${JSON.stringify(body)}`;
       preparation = pending.get(fingerprint);
       if (!preparation) {

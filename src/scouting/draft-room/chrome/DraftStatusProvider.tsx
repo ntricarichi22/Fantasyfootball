@@ -1,6 +1,7 @@
 "use client";
 
-import { createDraftTickPoller, shouldPollDraftTick } from "@/scouting/draft-room/draftTick";
+import { createDraftTickPoller, startDraftTickPolling } from "@/scouting/draft-room/draftTick";
+import { draftTickDeadline } from "@/shared/league-data/draftDeadline";
 import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
 
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
@@ -56,18 +57,18 @@ export function DraftStatusProvider({
     [clockStatus, isActive, secondsRemaining, isLoading, pickSubmitted, pickAnnouncedAt, currentPickIndex, startsAt, clockStartedAt, baseSeconds]
   );
 
-  // One owner for scheduled-start and active-clock retry polling. HTTP conflicts
-  // never latch the clock in not_started; the next poll reads a fresh revision.
+  const deadline = draftTickDeadline(state);
+  // Presentation bars never write clock state. One poller owns the exact
+  // deadline wakeup, retries, and focus recovery for every screen layout.
   useEffect(() => {
-    if (clockStatus !== "running" && !(clockStatus === "not_started" && startsAt)) return;
+    if (disabled || deadline === null) return;
     const poll = createDraftTickPoller(fetch,
       () => window.dispatchEvent(new Event("draft-log-refetch-requested")),
-      () => shouldPollDraftTick(clockStatus, startsAt));
-    void poll();
-    const timer = window.setInterval(poll, 3000);
+      () => Date.now() >= deadline);
+    const stop = startDraftTickPolling(poll, deadline, disabled);
     window.addEventListener("focus", poll);
-    return () => { window.clearInterval(timer); window.removeEventListener("focus", poll); };
-  }, [clockStatus, fetch, startsAt]);
+    return () => { stop(); window.removeEventListener("focus", poll); };
+  }, [deadline, disabled, fetch]);
 
   return (
     <DraftStatusContext.Provider value={value}>

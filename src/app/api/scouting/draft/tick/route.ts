@@ -1,4 +1,4 @@
-import { dueDraftDeadline } from "@/infrastructure/auth/draftDeadline";
+import { dueDraftDeadline } from "@/shared/league-data/draftDeadline";
 import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { registeredMachineLeague } from "@/infrastructure/auth/admin";

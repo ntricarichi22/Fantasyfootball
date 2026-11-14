@@ -192,35 +192,6 @@ export function MobileClockBar() {
     };
   }, [leagueId, triggerReveal]);
 
-  // Auto-tick on zero (same logic as desktop).
-  const timeLeft = isPickIn ? announceSeconds : tickedSeconds;
-  const tickFiredRef = useRef(false);
-  useEffect(() => {
-    if (timeLeft > 0) {
-      tickFiredRef.current = false;
-      return;
-    }
-    if (state?.status !== "running") return;
-    if (tickFiredRef.current) return;
-    tickFiredRef.current = true;
-    fetch("/api/scouting/draft/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "tick" }) })
-      .then((r) => r.json())
-      .then((data) => {
-        if (!(Number(data?.steps) > 0)) {
-          tickFiredRef.current = false;
-          return;
-        }
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("draft-log-refetch-requested"));
-        }
-      })
-      .catch(() => {
-        tickFiredRef.current = false;
-      });
-  }, [timeLeft, state?.status, fetch]);
-
-  // Scheduled starts are retried centrally by DraftStatusProvider.
-
   // ---------------- Render ----------------
   // Reveal animation takes over the whole bar for ~9.75s.
   if (revealedPick) {

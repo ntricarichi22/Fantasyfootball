@@ -25,6 +25,54 @@ DO $$ BEGIN
   (a.asset_key IS NULL OR a.draft_season IS DISTINCT FROM l.draft_season OR a.draft_pick_index IS DISTINCT FROM l.pick_index)) THEN
   RAISE EXCEPTION 'Current selections are missing runtime links; refresh under mutation pause'; END IF;
 END $$;
+-- Legacy offers used both raw numeric player IDs and player:<id>. Normalize
+-- pending proposals losslessly before the canonical acceptance RPC takes over.
+-- Historical proposals remain immutable; readers support their original shape.
+DO $$
+DECLARE prior record; after_row jsonb; converted integer:=0; stale_count integer;
+ missing_count integer; consumed_count integer;
+BEGIN
+ FOR prior IN SELECT id,to_jsonb(o) original FROM public.trade_offers o WHERE status='pending' LOOP
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements((prior.original->'assets_from')||(prior.original->'assets_to'))a
+   WHERE a->>'key' IS NULL OR a->>'type' IS NULL OR NOT (
+    (a->>'type'='player' AND (a->>'key'~'^[0-9]+$' OR a->>'key'~'^player:[A-Za-z0-9_-]+$'))
+    OR (a->>'type'='pick' AND a->>'key'~'^pick:[0-9]{4}-[1-9][0-9]*-[A-Za-z0-9_-]+$'))) THEN
+   RAISE EXCEPTION 'Unrecognized pending asset representation; explicit review required'; END IF;
+  IF EXISTS(SELECT 1 FROM jsonb_array_elements((prior.original->'assets_from')||(prior.original->'assets_to'))a
+   GROUP BY CASE WHEN a->>'type'='player' AND a->>'key'~'^[0-9]+$' THEN 'player:'||(a->>'key') ELSE a->>'key' END HAVING count(*)>1) THEN
+   RAISE EXCEPTION 'Canonical normalization would duplicate an asset in an offer'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM jsonb_array_elements((prior.original->'assets_from')||(prior.original->'assets_to'))a
+   WHERE a->>'type'='player' AND a->>'key'~'^[0-9]+$') THEN CONTINUE; END IF;
+  SELECT count(*)+converted INTO converted FROM jsonb_array_elements((prior.original->'assets_from')||(prior.original->'assets_to'))a
+   WHERE a->>'type'='player' AND a->>'key'~'^[0-9]+$';
+  UPDATE public.trade_offers o SET
+   assets_from=coalesce((SELECT jsonb_agg(CASE WHEN a->>'type'='player' AND a->>'key'~'^[0-9]+$'
+    THEN jsonb_set(a,'{key}',to_jsonb('player:'||(a->>'key'))) ELSE a END ORDER BY ord)
+    FROM jsonb_array_elements(o.assets_from) WITH ORDINALITY e(a,ord)),'[]'::jsonb),
+   assets_to=coalesce((SELECT jsonb_agg(CASE WHEN a->>'type'='player' AND a->>'key'~'^[0-9]+$'
+    THEN jsonb_set(a,'{key}',to_jsonb('player:'||(a->>'key'))) ELSE a END ORDER BY ord)
+    FROM jsonb_array_elements(o.assets_to) WITH ORDINALITY e(a,ord)),'[]'::jsonb)
+   WHERE o.id=prior.id RETURNING to_jsonb(o) INTO after_row;
+  IF (after_row-'assets_from'-'assets_to') IS DISTINCT FROM (prior.original-'assets_from'-'assets_to')
+   OR EXISTS(SELECT 1 FROM (VALUES('assets_from'),('assets_to'))side(k)
+    WHERE (SELECT jsonb_agg(a-'key' ORDER BY ord) FROM jsonb_array_elements(after_row->side.k) WITH ORDINALITY e(a,ord))
+     IS DISTINCT FROM (SELECT jsonb_agg(a-'key' ORDER BY ord) FROM jsonb_array_elements(prior.original->side.k) WITH ORDINALITY e(a,ord))) THEN
+   RAISE EXCEPTION 'Lossless pending asset normalization verification failed'; END IF;
+ END LOOP;
+ WITH proposed AS (
+  SELECT o.id,o.league_id,o.from_team_id seller,a->>'key' asset_key FROM public.trade_offers o
+   CROSS JOIN LATERAL jsonb_array_elements(o.assets_from)a WHERE o.status='pending'
+  UNION ALL SELECT o.id,o.league_id,o.to_team_id,a->>'key' FROM public.trade_offers o
+   CROSS JOIN LATERAL jsonb_array_elements(o.assets_to)a WHERE o.status='pending'
+ ) SELECT count(DISTINCT p.id) FILTER(WHERE a.owner_roster_id IS DISTINCT FROM p.seller OR a.consumed OR a.asset_key IS NULL),
+  count(*) FILTER(WHERE a.asset_key IS NULL),count(*) FILTER(WHERE a.consumed)
+ INTO stale_count,missing_count,consumed_count FROM proposed p LEFT JOIN public.cfc_asset_ownership a
+  ON a.league_id=p.league_id AND a.asset_key=p.asset_key;
+ -- Do not "fix" a stale offer by substituting parties/assets or expiring it.
+ -- The acceptance RPC rechecks current ownership and rejects it atomically.
+ RAISE NOTICE 'Normalized pending player keys %, stale pending offers %, missing assets %, consumed assets %',
+  converted,stale_count,missing_count,consumed_count;
+END $$;
 REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON public.trade_offers,public.trade_threads,
  public.cfc_pending_trade_overlays,public.draft_state,public.draft_log FROM PUBLIC,anon,authenticated,service_role;
 GRANT SELECT ON public.trade_offers,public.trade_threads,public.trade_messages,public.cfc_pending_trade_overlays,

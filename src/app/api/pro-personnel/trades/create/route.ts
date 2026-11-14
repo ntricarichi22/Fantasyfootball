@@ -1,3 +1,4 @@
+import { tradeAssetKeys } from "@/shared/trade-offers/normalize";
 import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { commandEnvelope, executeLeagueCommand } from "@/infrastructure/auth/leagueCommand";
 import { isCfcLeague } from "@/shared/league-data/capabilities";
@@ -86,19 +87,6 @@ function summarizeAssets(assets: IncomingAsset[], playerMap: Record<string, Play
   return { totalValue, summary };
 }
 
-function assetKeys(input: unknown): string[] | null {
-  if (!Array.isArray(input) || input.length < 1 || input.length > 100) return null;
-  const keys: string[] = [];
-  for (const asset of input) {
-    if (!asset || typeof asset !== "object" || typeof asset.key !== "string") return null;
-    const key = asset.key.startsWith("pick:") || asset.key.startsWith("player:") ? asset.key : `player:${asset.key}`;
-    if (!/^player:[A-Za-z0-9_-]{1,64}$/.test(key) && !/^pick:[0-9]{4}-[1-9][0-9]?-[A-Za-z0-9_]{1,64}$/.test(key)) return null;
-    if (keys.includes(key)) return null;
-    keys.push(key);
-  }
-  return keys;
-}
-
 export async function POST(request: NextRequest) {
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
@@ -111,8 +99,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_trade_command" }, { status: 400 });
   }
   if (!currentSessionCanActForRoster(session, session.leagueId, from)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const fromKeys = assetKeys(body.assets_from);
-  const toKeys = assetKeys(body.assets_to);
+  const fromKeys = tradeAssetKeys(body.assets_from);
+  const toKeys = tradeAssetKeys(body.assets_to);
   if (!fromKeys || !toKeys || fromKeys.some((key) => toKeys.includes(key))) return NextResponse.json({ error: "invalid_trade_assets" }, { status: 400 });
   const dictionary = [...fromKeys, ...toKeys].some((key) => key.startsWith("player:")) ? await getPlayerDictionary() : new Map();
   const canonical = (keys: string[]): IncomingAsset[] => keys.map((key) => {

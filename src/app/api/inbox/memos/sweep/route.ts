@@ -1,3 +1,4 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { isCfcLeague } from "@/shared/league-data/capabilities";
 // POST /api/inbox/memos/sweep  { team_id }
@@ -142,7 +143,7 @@ export async function POST(req: Request) {
     if (offersRes.error) return NextResponse.json({ error: offersRes.error.message }, { status: 500 });
     if (memosRes.error) return NextResponse.json({ error: memosRes.error.message }, { status: 500 });
 
-    const offers = (offersRes.data ?? []) as PendingOffer[];
+    const offers = (offersRes.data ?? []).map(normalizeTradeOffer) as PendingOffer[];
     if (offers.length === 0) return NextResponse.json({ created: 0 });
 
     // Dedupe index: kind:offer_id → memo status + sent time (status modulates

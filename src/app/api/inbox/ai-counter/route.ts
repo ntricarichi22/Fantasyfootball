@@ -1,3 +1,4 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
 
   if (offersError || !offers?.length) return denyThread();
 
-  const latestOffer = offers[0];
+  const latestOffer = normalizeTradeOffer(offers[0]);
   if (!offerBelongsToThreadParticipants(thread, latestOffer)) return denyThread();
   const us = String(counter_team_id);
   const them =

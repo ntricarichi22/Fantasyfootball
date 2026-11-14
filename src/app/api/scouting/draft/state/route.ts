@@ -1,4 +1,4 @@
-import { dueDraftDeadline } from "@/infrastructure/auth/draftDeadline";
+import { dueDraftDeadline } from "@/shared/league-data/draftDeadline";
 import { NextResponse } from "next/server";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { boundedJson } from "@/infrastructure/auth/boundedJson";

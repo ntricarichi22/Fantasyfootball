@@ -1,3 +1,4 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
@@ -117,7 +118,7 @@ export async function GET(request: Request) {
       .in("thread_id", threadIds)
       .order("created_at", { ascending: true });
 
-    const offers = (threadOffers ?? []) as ThreadOffer[];
+    const offers = (threadOffers ?? []).map(normalizeTradeOffer) as ThreadOffer[];
     const byId = new Map<string, ThreadOffer>();
     for (const o of offers) byId.set(o.id, o);
 

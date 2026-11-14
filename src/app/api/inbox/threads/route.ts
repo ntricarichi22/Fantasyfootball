@@ -1,3 +1,4 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest) {
   // card's version chips flip through every revision of the deal.
   const latestOffer = new Map<string, unknown>();
   const offerHistory = new Map<string, unknown[]>();
-  for (const o of offersRes.data ?? []) {
+  for (const o of (offersRes.data ?? []).map(normalizeTradeOffer)) {
     if (!latestOffer.has(o.thread_id)) latestOffer.set(o.thread_id, o);
     const hist = offerHistory.get(o.thread_id) ?? [];
     hist.unshift(o);
@@ -101,8 +102,3 @@ export async function GET(request: NextRequest) {
     })),
   });
 }
-
-/* ------------------------------------------------------------------ */
-/*  POST /api/inbox/threads                                           */
-/*  Find or create a thread between two teams.                         */
-/* ------------------------------------------------------------------ */

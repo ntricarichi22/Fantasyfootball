@@ -1,3 +1,4 @@
+import { normalizeTradeMemo } from "../../../../shared/trade-offers/normalize.ts";
 import { boundedJson } from "../../../../infrastructure/auth/boundedJson.ts";
 import { NextResponse } from "next/server.js";
 import type { AppSession } from "../../../../infrastructure/auth/session.ts";
@@ -37,11 +38,11 @@ export function createMemoHandlers(deps: MemoHandlerDependencies) {
             return NextResponse.json({ error: "Memo not found" }, { status: 404 });
           memo.status = "read";
         }
-        return NextResponse.json({ memo });
+        return NextResponse.json({ memo: normalizeTradeMemo(memo) });
       }
       const memos = await deps.store.listOwned(session.leagueId, session.rosterId,
         url.searchParams.get("includeTrashed") === "1", url.searchParams.get("includeArchived") === "1");
-      return NextResponse.json({ memos });
+      return NextResponse.json({ memos: memos.map(normalizeTradeMemo) });
     },
     POST: async (request: Request) => {
       const session = await authorized(request);
