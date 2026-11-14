@@ -2,7 +2,7 @@
 
 The audit repaired confirmed authorization, privacy, database privilege, dependency, and reliability defects. The application is a stronger single-league pilot after these changes; it is **not yet ready for unrestricted multi-league accounts or paid league credits**. The launch blockers below are substantive engineering work, not a request to finish the new-league creation UI.
 
-**Deployment status:** historian database privilege hardening and Edge worker v3 are confirmed live. Application repairs are on the audit branch. Migration 021 requires Supabase's separate tool confirmation; its earlier confirmation expired, and deployment has not been verified. Do not deploy the new app until that prerequisite is applied and checked.
+**Deployment status:** historian database privilege hardening, Edge worker v3, and the session/draft-visibility migration are confirmed live. Application repairs are committed on the audit branch; the web application has not been deployed. Supabase recorded application migration 021 as `20261114181422_audit_session_revocation_and_draft_visibility`; retain this mapping when reconciling migration history.
 
 ## Scope and source of truth
 
@@ -44,7 +44,7 @@ Additional hardening: server-only imports for privileged modules; API private/no
 | Semgrep 1.185.0 | Next.js, TypeScript, and secrets rules across 355 files; zero findings and zero parse errors. Scanner coverage is not proof that all vulnerabilities are absent. |
 | Gitleaks 8.30.1 | Git-history scan covered 1,007 baseline commits. One historical browser-storage constant was reviewed and exactly allowlisted; no actual credential finding. Exact staged-source diff also passed. A filesystem scan identified generated Next build keys in ignored `.next` files; those are not tracked source credentials. |
 | Migration filename/rejection fixtures | All 21 uniquely ordered migrations passed; malformed/duplicate/conflict fixtures rejected. |
-| Live database checks | Confirmed least-privilege historian ACLs, function search paths, and worker authorization. See operations runbook for final session/policy deployment and verification. |
+| Live database checks | Confirmed least-privilege historian ACLs, function search paths, worker authorization, service-only session RPC execution, false results for null/unknown sessions, and the sole narrowed draft SELECT policy. See operations runbook for migration IDs and remaining real-session tests. |
 
 The disposable Supabase reset, pgTAP, true database concurrency, and authenticated signup/logout/recovery smoke suites are wired into CI, but **were not run locally because Docker is unavailable**. Browser end-to-end account switching, real member workflows, hosted AI/database TLS, restore drills, and load tests remain unverified. Source regression tests and unsigned production probes do not substitute for those checks. Vercel configuration, WAF, domain/SMTP setup, paid-plan backup settings, GitHub environment approvals, and secret values could not be inspected with connected tools. No claim of certification or exhaustive penetration testing is made.
 
