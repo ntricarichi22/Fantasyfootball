@@ -45,6 +45,7 @@ export default function DevLoginClient() {
   const refreshCurrent = useCallback(() => setCurrent(readCurrentIdentity()), []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate the development identity from browser cookies after SSR.
     refreshCurrent();
     fetch("/api/dev/login")
       .then((r) => r.json())

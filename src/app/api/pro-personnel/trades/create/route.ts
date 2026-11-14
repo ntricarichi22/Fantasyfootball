@@ -1,8 +1,10 @@
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { canonicalTradeAssets } from "@/shared/league-data/tradeAssets";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { isYoung, buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
-import { getPlayerDictionary, getValues, parsePickKey } from "@/shared/league-data";
+import { getPlayerDictionary, getValues, parsePickKey, getLeagueData, invalidateLeagueData } from "@/shared/league-data";
 import { priceDeal } from "@/pro-personnel/engine/pricing";
 import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
 import { normalizePersona } from "@/pro-personnel/engine/core/personas";
@@ -85,10 +87,8 @@ function summarizeAssets(assets: IncomingAsset[], playerMap: Record<string, Play
 }
 
 export async function POST(request: NextRequest) {
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
+  const body = await boundedJson<Record<string, unknown>>(request, 64 * 1024);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
@@ -97,20 +97,16 @@ export async function POST(request: NextRequest) {
   // columns held three different meanings. They're computed server-side below,
   // from the canonical engine, for every offer regardless of which door sent it.
   const {
-    from_team_id, to_team_id, assets_from, assets_to, parent_offer_id,
+    from_team_id, to_team_id, assets_from: rawAssetsFrom, assets_to: rawAssetsTo, parent_offer_id,
   } = body as {
     from_team_id?: string; to_team_id?: string;
     assets_from?: IncomingAsset[]; assets_to?: IncomingAsset[];
     parent_offer_id?: string;
   };
 
-  if (!from_team_id || !to_team_id) {
+  if (typeof from_team_id !== "string" || typeof to_team_id !== "string" || !from_team_id || !to_team_id) {
     return NextResponse.json({ error: "from_team_id and to_team_id are required" }, { status: 400 });
   }
-  if (!Array.isArray(assets_from) || !Array.isArray(assets_to) || assets_from.length === 0 || assets_to.length === 0) {
-    return NextResponse.json({ error: "Both assets_from and assets_to must be non-empty arrays" }, { status: 400 });
-  }
-
   const league_id = LEAGUE_ID;
   if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   const { session } = await currentAppSessionFromRequest(request);
@@ -120,6 +116,13 @@ export async function POST(request: NextRequest) {
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
+
+  invalidateLeagueData();
+  const league = await getLeagueData();
+  if ("error" in league) return NextResponse.json({ error: "League data unavailable" }, { status: 503 });
+  const assets_from = canonicalTradeAssets(rawAssetsFrom, from_team_id, league);
+  const assets_to = canonicalTradeAssets(rawAssetsTo, to_team_id, league);
+  if (!assets_from || !assets_to) return NextResponse.json({ error: "Invalid assets or ownership changed" }, { status: 400 });
 
   const now = new Date().toISOString();
 
@@ -191,13 +194,15 @@ export async function POST(request: NextRequest) {
   if (parent_offer_id) {
     const { data: parent, error: parentError } = await client
       .from("trade_offers")
-      .select("thread_id, from_team_id, to_team_id")
+      .select("thread_id, from_team_id, to_team_id, status")
       .eq("id", parent_offer_id)
       .eq("league_id", league_id)
       .single();
     if (parentError || !parent) {
       return NextResponse.json({ error: "Parent offer not found" }, { status: 404 });
     }
+    if (parent.status !== "pending" || parent.to_team_id !== from_team_id)
+      return NextResponse.json({ error: "Pending received offer required" }, { status: 409 });
     const parentTeams = [String(parent.from_team_id), String(parent.to_team_id)].sort();
     const requestTeams = [from_team_id, to_team_id].sort();
     if (parentTeams[0] !== requestTeams[0] || parentTeams[1] !== requestTeams[1])
@@ -206,15 +211,16 @@ export async function POST(request: NextRequest) {
 
     // Mark the parent as countered. Only changes status if it's still pending —
     // accepting/declining a parent that was already terminal stays terminal.
-    const { error: counterError } = await client
+    const { data: countered, error: counterError } = await client
       .from("trade_offers")
       .update({ status: "countered", updated_at: now })
       .eq("id", parent_offer_id)
       .eq("league_id", league_id)
-      .eq("status", "pending");
+      .eq("status", "pending").select("id").maybeSingle();
     if (counterError) {
-      return NextResponse.json({ error: "Failed to update parent offer: " + counterError.message }, { status: 500 });
+      return NextResponse.json({ error: "Failed to update parent offer" }, { status: 500 });
     }
+    if (!countered) return NextResponse.json({ error: "Parent offer changed; reload and retry" }, { status: 409 });
   }
 
   // Either no parent (new deal) or parent had no thread (legacy data) → new thread
@@ -259,7 +265,7 @@ export async function POST(request: NextRequest) {
     })
     .select("id").single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: "Failed to create offer" }, { status: 500 });
 
   await client
     .from("trade_threads")

@@ -84,11 +84,6 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
   const [toast, setToast] = useState("");
   const [rosterSearch, setRosterSearch] = useState("");
   const advisorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Fresh entry (?seed=fresh) starts with NO partner team. When the user takes
-  // an action that needs one (tapping their own player, "+ Add from their
-  // roster"), we open the team picker and stash the intended add here so it
-  // completes right after they choose.
-  const pendingAddRef = useRef<{ key: string; name: string } | null>(null);
   // While the carried-over director take is on screen, hold the live advisor
   // back until the deal actually changes (the effect also re-fires when the
   // async roster fetch lands — that must not clobber his words).
@@ -160,6 +155,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     if (!dealAssets.length || Object.keys(rosters).length === 0 || otherTeams.length === 0) return;
     openingFiredRef.current = true;
     let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Mark the initial advisor request pending before starting the network operation.
     setAdvisorLoading(true);
     authenticatedAiFetch("/api/pro-personnel/advisor", {
       method: "POST",
@@ -212,6 +208,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     const hasSendSide = dealAssets.some(a => a.fromTeamId === myTeamId);
     const hasRecvSide = dealAssets.some(a => a.toTeamId === myTeamId);
     if (!hasSendSide || !hasRecvSide) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Clear stale advisor feedback when the request inputs become incomplete.
       setAdvisorProse(
         !hasSendSide && !hasRecvSide
           ? "Add players or picks to both sides to get my take."
@@ -377,12 +374,8 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     const newTeamName = allTeamsList.find(t => t.id === newTeamId)?.name ?? `Team ${newTeamId}`;
     const oldOtherId = otherTeams[0]?.id;
 
-    // No partner yet (fresh entry): this "swap" SETS the partner. Complete any
-    // pending roster add that triggered the picker, with explicit names (the
-    // `teams` state hasn't updated yet inside this closure).
+    // No partner yet: set the partner and fill the destination of our existing assets.
     if (!oldOtherId) {
-      const pending = pendingAddRef.current;
-      pendingAddRef.current = null;
       setTeams(prev => {
         const me = prev.find(t => t.id === myTeamId);
         return [
@@ -397,18 +390,8 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
           ? { ...a, toTeamId: newTeamId, toTeamName: newTeamName }
           : a
       ));
-      if (pending) {
-        setDealAssets(prev => prev.some(a => a.key === pending.key) ? prev : [...prev, {
-          key: pending.key, name: pending.name,
-          fromTeamId: myTeamId, toTeamId: newTeamId,
-          fromTeamName: myTeamName || `Team ${myTeamId}`,
-          toTeamName: newTeamName,
-        }]);
-        // They were browsing their own roster — keep them there.
-      } else {
-        setActiveTab(newTeamId);
-        setSheetOpen(newTeamId); // mobile: show their roster right away
-      }
+      setActiveTab(newTeamId);
+      setSheetOpen(newTeamId); // mobile: show their roster right away
       setRosterSearch("");
       return;
     }
@@ -437,16 +420,14 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
   }, [myTeamId, myTeamName, otherTeams, allTeamsList]);
 
   // Player tapped inside the picker's cross-roster search (fresh build, no
-  // partner yet). Locks the partner to his team, completes any pending add
-  // from our roster, and adds him to our receive side. The picker stays open
+  // partner yet). Locks the partner to his team and adds him to our receive
+  // side. The picker stays open
   // (same-team browsing) until the user hits Done.
   const handlePickerPlayer = useCallback((teamId: string, key: string, name: string) => {
     if (teamId === myTeamId) return;
     const teamName = allTeamsList.find(t => t.id === teamId)?.name ?? `Team ${teamId}`;
     const myName = myTeamName || `Team ${myTeamId}`;
     if (!otherTeams[0]) {
-      const pending = pendingAddRef.current;
-      pendingAddRef.current = null;
       setTeams(prev => {
         const me = prev.find(t => t.id === myTeamId);
         return [me ?? { id: myTeamId, name: myName }, { id: teamId, name: teamName }];
@@ -457,13 +438,6 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
           ? { ...a, toTeamId: teamId, toTeamName: teamName }
           : a
       ));
-      if (pending) {
-        setDealAssets(prev => prev.some(a => a.key === pending.key) ? prev : [...prev, {
-          key: pending.key, name: pending.name,
-          fromTeamId: myTeamId, toTeamId: teamId,
-          fromTeamName: myName, toTeamName: teamName,
-        }]);
-      }
     } else if (otherTeams[0].id !== teamId) {
       return; // search is constrained to the partner once one exists
     }
@@ -633,7 +607,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
           teams={pickerProps.teams}
           excludeIds={pickerProps.excludeIds}
           onSelect={pickerProps.onSelect}
-          onClose={() => { pendingAddRef.current = null; setPickerMode(null); }}
+          onClose={() => setPickerMode(null)}
           fitRanking={fitRanking}
           // Player search only for sessions opened with no partner — once one
           // exists the roster panel/sheet is the add surface; the picker is

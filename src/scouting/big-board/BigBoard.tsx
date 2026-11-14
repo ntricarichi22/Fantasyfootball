@@ -300,6 +300,7 @@ export function BigBoard() {
 
   useEffect(() => {
     if (!rosterId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Resolve the initial request state when no browser roster is available.
       setLoading(false);
       return;
     }
@@ -648,7 +649,7 @@ export function BigBoard() {
     tier?: Tier;
     rows: DisplayRow[];
   }) => {
-    const { color, title, tier, rows } = opts;
+    const { color, title, tier } = opts;
     const editing = tier && editingTierId === tier.id;
     // Tap-to-place: while a card is in hand, the whole rail is a drop target
     // (land at the end of this tier).

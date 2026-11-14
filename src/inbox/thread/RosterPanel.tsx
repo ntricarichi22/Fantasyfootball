@@ -82,9 +82,8 @@ export default function RosterPanel({
   const [side, setSide] = useState<AddSide>(initialSide);
   const [query, setQuery] = useState("");
 
-  const assets = pools[side] ?? [];
-
   const filtered = useMemo(() => {
+    const assets = pools[side] ?? [];
     const q = query.trim().toLowerCase();
     if (!q) return assets;
     return assets.filter(
@@ -92,7 +91,7 @@ export default function RosterPanel({
         extractName(a.label).toLowerCase().includes(q) ||
         metaFor(a).toLowerCase().includes(q),
     );
-  }, [assets, query]);
+  }, [pools, side, query]);
 
   const sections = useMemo(
     () =>

@@ -253,6 +253,7 @@ async function fetchAppDraftPicks(leagueId: string, season: number, teamCount: n
     .select("pick_number, roster_id, player_id, submitted_at, cfc_year")
     .eq("league_id", leagueId)
     .eq("cfc_year", season)
+    .eq("is_announced", true)
     .not("submitted_at", "is", null);
   for (const row of (data ?? []) as Array<{ pick_number: string | null; roster_id: string | null; player_id: string | null }>) {
     const match = String(row.pick_number ?? "").match(/^(\d+)\.(\d+)$/);
@@ -328,6 +329,7 @@ async function fetchDraftedPlayers(cfcYear: number, leagueId: string): Promise<A
     .select("roster_id, player_id, submitted_at, cfc_year")
     .eq("league_id", leagueId)
     .eq("cfc_year", cfcYear)
+    .eq("is_announced", true)
     .not("submitted_at", "is", null);
   for (const row of (data ?? []) as Array<{ roster_id: string | null; player_id: string | null }>) {
     if (row.roster_id && row.player_id) {

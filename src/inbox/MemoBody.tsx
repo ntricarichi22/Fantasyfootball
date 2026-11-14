@@ -207,6 +207,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
   useEffect(() => {
     if (!memo || memo.play_mode !== "offer_card") return;
     const payload = memo.play_payload as OfferCardPayload;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize actionable offer state with the loaded server memo.
     if (!payload.offer_id) { setOfferLive("resolved"); return; }
     let cancelled = false;
     (async () => {

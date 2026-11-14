@@ -1,6 +1,7 @@
+import { fetchMfl } from "@/infrastructure/ingest/source-http";
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { requireSupabaseAdminClient as getSupabaseAdmin } from "@/infrastructure/supabase/admin";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
@@ -8,74 +9,9 @@ export const dynamic = "force-dynamic";
 
 const MFL_BATCH_SIZE = 200;
 
-const getSupabaseAdmin = requireSupabaseAdminClient;
 
 function sha256(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
-}
-
-function safeJsonParse(text: string) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function buildUrl(
-  seasonYear: number,
-  params: Record<string, string | number | boolean | undefined>
-) {
-  const url = new URL(`https://api.myfantasyleague.com/${seasonYear}/export`);
-
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue;
-    url.searchParams.append(key, String(value));
-  }
-
-  url.searchParams.append("JSON", "1");
-
-  return url.toString();
-}
-
-async function fetchMfl(
-  seasonYear: number,
-  params: Record<string, string | number | boolean | undefined>
-) {
-  const requestUrl = buildUrl(seasonYear, params);
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30000);
-
-  try {
-    const res = await fetch(requestUrl, {
-      method: "GET",
-      headers: {
-        accept: "application/json,text/plain,*/*",
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
-
-    const bodyText = await res.text();
-    const bodyJson = safeJsonParse(bodyText);
-
-    return {
-      ok: res.ok,
-      status: res.status,
-      requestUrl,
-      requestParams: {
-        ...Object.fromEntries(
-          Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
-        ),
-        JSON: 1,
-      } as Record<string, string | number | boolean>,
-      bodyText,
-      bodyJson,
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
 }
 
 async function upsertRawGlobalRow(
@@ -88,11 +24,11 @@ async function upsertRawGlobalRow(
     endpoint_group: string;
     endpoint_name: string;
     request_url: string;
-    request_params: Record<string, any>;
+    request_params: Record<string, unknown>;
     source_key: string;
     entity_id?: string | null;
     week?: number | null;
-    payload_json?: any | null;
+    payload_json?: unknown;
     payload_text?: string | null;
     http_status: number;
     notes?: string | null;
@@ -281,13 +217,13 @@ async function runMflPlayersJob(
     }
 
     return summary;
-  } catch (error: any) {
+  } catch (error: unknown) {
     await supabase
       .from("mfl_raw_smoke")
       .update({
         status: "error",
         completed_at: new Date().toISOString(),
-        error_text: error?.message ?? "Unknown MFL players ingest error",
+        error_text: error instanceof Error ? error.message : "Unknown MFL players ingest error",
       })
       .eq("smoke_id", smokeId);
 
@@ -303,11 +239,11 @@ export async function GET(req: NextRequest) {
     const seasonYear = Number(url.searchParams.get("seasonYear"));
     const sourceLeagueId = url.searchParams.get("sourceLeagueId");
 
-    if (!seasonYear || !sourceLeagueId) {
+    if (!Number.isInteger(seasonYear) || seasonYear < 1900 || seasonYear > 2100 || !sourceLeagueId || !/^\d{1,24}$/.test(sourceLeagueId)) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Missing required query params: seasonYear, sourceLeagueId",
+          error: "Invalid or missing query params: seasonYear, sourceLeagueId",
         },
         { status: 400 }
       );
@@ -324,11 +260,11 @@ export async function GET(req: NextRequest) {
       ok: true,
       summary,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
       {
         ok: false,
-        error: error?.message ?? "Unknown MFL players ingest error",
+        error: error instanceof Error ? error.message : "Unknown MFL players ingest error",
       },
       { status: 500 }
     );

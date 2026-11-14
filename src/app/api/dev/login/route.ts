@@ -117,6 +117,7 @@ export async function POST(request: NextRequest) {
   // Same cookie contract as /api/auth/finalize.
   res.cookies.set(appSessionCookie.name, await createAppSession({
     userId: `dev:${rid}`,
+    sessionId: crypto.randomUUID(),
     leagueId: LEAGUE_ID,
     rosterId: rid,
     role: "admin",

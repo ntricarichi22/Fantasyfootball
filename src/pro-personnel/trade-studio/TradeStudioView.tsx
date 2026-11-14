@@ -1,5 +1,8 @@
 "use client";
 
+import { browserStorageKey, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+
 import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
@@ -62,6 +65,7 @@ function toCardAssets(items: StudioOffer["send"]): CardAsset[] {
 }
 
 export default function TradeStudioView() {
+  const storageScope = useBrowserStorageScope();
   const { rosterId = "", teamName = "" } = readStoredTeam();
   const isMobile = useIsMobile() === true;
   // Mobile shows one pane at a time once offers exist: the block (roster
@@ -279,15 +283,15 @@ export default function TradeStudioView() {
     const offer = offers[activeIndex];
     if (!offer) return;
     try {
-      sessionStorage.setItem("cfc_studio_seed_deal", JSON.stringify({
+      writeBrowserJson("sessionStorage", browserStorageKey("studio-seed-deal", storageScope), {
         partner_team_id: offer.partnerTeamId,
         partner_team_name: offer.partnerTeamName,
         send: offer.send,
         receive: offer.receive,
-      }));
+      });
     } catch {}
     window.location.href = "/pro-personnel/trade-builder?seed=studio";
-  }, [offers, activeIndex]);
+  }, [offers, activeIndex, storageScope]);
 
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const handleMakeOffer = useCallback(async (note: string) => {

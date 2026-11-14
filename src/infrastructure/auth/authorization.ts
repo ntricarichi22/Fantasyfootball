@@ -7,9 +7,10 @@ export function resolveCurrentSession(
   userExists: boolean,
   membership: MembershipSnapshot,
   stateAvailable = true,
+  providerSessionActive = false,
 ) {
   if (!stateAvailable) return { session: null, error: "auth_state_unavailable" as const };
-  if (!userExists || !membership) return { session: null, error: "not_authenticated" as const };
+  if (!userExists || !membership || !providerSessionActive) return { session: null, error: "not_authenticated" as const };
   if (typeof membership.league_id !== "string" ||
       (typeof membership.roster_id !== "string" && typeof membership.roster_id !== "number") ||
       !["member", "commissioner", "admin"].includes(String(membership.role))) {

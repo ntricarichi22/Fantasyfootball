@@ -102,6 +102,7 @@ export function DraftRoomLobby() {
   // starts selected even when the first render ran before hydration.
   useEffect(() => {
     const id = readStoredTeam().rosterId;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate the selected seat from the browser identity cookie.
     if (id) setSeats((prev) => (prev.size === 0 ? new Set([id]) : prev));
   }, []);
 

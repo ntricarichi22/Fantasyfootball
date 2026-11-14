@@ -1,5 +1,8 @@
 "use client";
 
+import { browserStorageKey, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+
 // Goal-scoped offer carousel for the Build-a-Trade door (director_office.md).
 // Desktop: rendered inside the right half of the split — the chat stays live
 // on the left. Mobile: rendered as a near-full bottom sheet (drag handle,
@@ -86,13 +89,12 @@ export default function OfferDrawer({
   advisorByOffer, setAdvisorByOffer, inFlightRef,
   onPass, onClose, flash, isMobile,
 }: Props) {
+  const storageScope = useBrowserStorageScope();
   const [activeIndex, setActiveIndex] = useState(0);
   const [sendingOffer, setSendingOffer] = useState(false);
 
   // Clamp index when passes shrink the list.
-  useEffect(() => {
-    if (activeIndex >= offers.length && offers.length > 0) setActiveIndex(offers.length - 1);
-  }, [offers.length, activeIndex]);
+  if (activeIndex >= offers.length && offers.length > 0) setActiveIndex(offers.length - 1);
 
   const currentOffer = offers[activeIndex] ?? null;
   const currentAdvisor = currentOffer ? advisorByOffer[currentOffer.id] : null;
@@ -157,7 +159,7 @@ export default function OfferDrawer({
     if (!offer) return;
     const adv = advisorByOffer[offer.id];
     try {
-      sessionStorage.setItem("cfc_builder_seed_deal", JSON.stringify({
+      writeBrowserJson("sessionStorage", browserStorageKey("builder-seed-deal", storageScope), {
         partner_team_id: offer.partnerTeam.id,
         partner_team_name: offer.partnerTeam.name,
         send: offer.sendAssets,
@@ -167,10 +169,10 @@ export default function OfferDrawer({
           grade: offer.grade?.label ?? adv?.grade ?? "",
           gradeColor: offer.grade?.color ?? adv?.gradeColor ?? "#019942",
         },
-      }));
+      });
     } catch {}
     window.location.href = "/pro-personnel/trade-builder?seed=cycler";
-  }, [offers, activeIndex, advisorByOffer]);
+  }, [offers, activeIndex, advisorByOffer, storageScope]);
 
   const [sendModalOpen, setSendModalOpen] = useState(false);
   const handleMakeOffer = useCallback(async (note: string) => {

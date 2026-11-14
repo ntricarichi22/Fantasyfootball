@@ -38,16 +38,18 @@ export function DraftStatusProvider({
   // changed. `state` (the raw DraftStateRow) is intentionally excluded from
   // the dependency list because it is reconstructed on every poll; any
   // semantically-meaningful change in it is already reflected in `status`,
-  // `isActive`, or `secondsRemaining`.
+  // the display and clock-anchor fields listed below.
   const { status: clockStatus, isActive, secondsRemaining, isLoading, state } = status;
   const pickSubmitted = state?.pick_submitted === true;
   const pickAnnouncedAt = state?.pick_announced_at ?? null;
   const currentPickIndex = state?.current_pick_index ?? null;
   const startsAt = state?.starts_at ?? null;
+  const clockStartedAt = state?.clock_started_at ?? null;
+  const baseSeconds = state?.seconds_remaining ?? null;
   const value = useMemo<DraftStatus>(
     () => ({ status: clockStatus, isActive, secondsRemaining, isLoading, state }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clockStatus, isActive, secondsRemaining, isLoading, pickSubmitted, pickAnnouncedAt, currentPickIndex, startsAt]
+    [clockStatus, isActive, secondsRemaining, isLoading, pickSubmitted, pickAnnouncedAt, currentPickIndex, startsAt, clockStartedAt, baseSeconds]
   );
 
   // ----- /api/scouting/draft/tick safety net ---------------------------------------

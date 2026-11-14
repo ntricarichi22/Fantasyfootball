@@ -1,5 +1,8 @@
 "use client";
 
+import { browserStorageKey, readBrowserJson } from "@/infrastructure/identity/browserStorage";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
@@ -65,6 +68,7 @@ function LoadingScreen() {
 }
 
 function TradeBuilderPageInner() {
+  const storageScope = useBrowserStorageScope();
   const searchParams = useSearchParams();
   const seed = searchParams?.get("seed") ?? null;
   const [mode, setMode] = useState<RouteMode>({ kind: "loading" });
@@ -72,6 +76,7 @@ function TradeBuilderPageInner() {
   useEffect(() => {
     // No seed param → cycler
     if (!seed) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Consume a browser session-storage handoff when the route seed changes.
       setMode({ kind: "cycler" });
       return;
     }
@@ -83,14 +88,14 @@ function TradeBuilderPageInner() {
     }
 
     // Seeded editor — read sessionStorage key based on which surface seeded it
-    const seedKey = seed === "studio" ? "cfc_studio_seed_deal" : "cfc_builder_seed_deal";
+    const seedKey = browserStorageKey(seed === "studio" ? "studio-seed-deal" : "builder-seed-deal", storageScope);
     try {
-      const raw = sessionStorage.getItem(seedKey);
-      if (!raw) {
+      const saved = readBrowserJson("sessionStorage", seedKey);
+      if (!saved || !seedKey) {
         setMode({ kind: "cycler" });
         return;
       }
-      const data = JSON.parse(raw) as SeedDeal;
+      const data = saved as SeedDeal;
       const stored = readStoredTeam();
       const myTeamId = stored.rosterId ?? "";
       const myTeamName = stored.teamName ?? "";
@@ -126,7 +131,7 @@ function TradeBuilderPageInner() {
     } catch {
       setMode({ kind: "cycler" });
     }
-  }, [seed]);
+  }, [seed, storageScope]);
 
   const handleBack = () => {
     // Manual editor's back button returns to the cycler (clean URL)

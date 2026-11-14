@@ -490,68 +490,18 @@ async function seedBoardWithTiers(
   return { tiers, rankings: rankingsData as RankingRow[] };
 }
 
-async function stubDraftPosition(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "draft-position intel — needs draft order + team tendencies wired" },
-    { status: 501 }
-  );
-}
+const unavailableHandler = (todo: string): ((request: NextRequest) => Promise<NextResponse>) =>
+  async () => NextResponse.json({ todo }, { status: 501 });
 
-async function stubTradePartners(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "trade-partners intel — needs cfc_team_trade_values_current queries wired" },
-    { status: 501 }
-  );
-}
-
-async function stubBoardHygiene(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "board-hygiene intel — needs cfc_trade_values_current value drift queries wired" },
-    { status: 501 }
-  );
-}
-
-async function stubDraftFit(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "draft-fit intel — needs roster + Strategy wants_more queries wired" },
-    { status: 501 }
-  );
-}
-
-async function stubOpening(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "office/opening — composes POVs from intel handlers" },
-    { status: 501 }
-  );
-}
-
-async function stubRespond(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "office/respond — LLM integration for director chat replies" },
-    { status: 501 }
-  );
-}
-
-async function stubTradePartnerMemo(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "trade-partner memo generator — writes to cfc_director_memos" },
-    { status: 501 }
-  );
-}
-
-async function stubBoardUpdateMemo(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "board-update memo generator — weekly digest" },
-    { status: 501 }
-  );
-}
-
-async function stubPreDraftMemo(_req: NextRequest): Promise<NextResponse> {
-  return NextResponse.json(
-    { todo: "pre-draft memo generator — calendar-triggered, 2x per cycle" },
-    { status: 501 }
-  );
-}
+const stubDraftPosition = unavailableHandler("draft-position intel — needs draft order + team tendencies wired");
+const stubTradePartners = unavailableHandler("trade-partners intel — needs cfc_team_trade_values_current queries wired");
+const stubBoardHygiene = unavailableHandler("board-hygiene intel — needs cfc_trade_values_current value drift queries wired");
+const stubDraftFit = unavailableHandler("draft-fit intel — needs roster + Strategy wants_more queries wired");
+const stubOpening = unavailableHandler("office/opening — composes POVs from intel handlers");
+const stubRespond = unavailableHandler("office/respond — LLM integration for director chat replies");
+const stubTradePartnerMemo = unavailableHandler("trade-partner memo generator — writes to cfc_director_memos");
+const stubBoardUpdateMemo = unavailableHandler("board-update memo generator — weekly digest");
+const stubPreDraftMemo = unavailableHandler("pre-draft memo generator — calendar-triggered, 2x per cycle");
 
 export const board = {
   rankings: {

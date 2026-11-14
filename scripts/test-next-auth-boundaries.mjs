@@ -17,7 +17,7 @@ await new Promise((done) => listener.close(done));
 const base = `http://127.0.0.1:${port}`;
 const secret = randomBytes(32).toString("hex");
 const payload = Buffer.from(JSON.stringify({
-  userId: randomUUID(), leagueId: "router-security-fixture", rosterId: "1",
+  userId: randomUUID(), sessionId: randomUUID(), leagueId: "router-security-fixture", rosterId: "1",
   role: "member", expiresAt: Math.floor(Date.now() / 1000) + 300,
 })).toString("base64url");
 const signature = createHmac("sha256", secret).update(payload).digest("base64url");

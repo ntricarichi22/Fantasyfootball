@@ -179,6 +179,7 @@ const scrollToBottom = useCallback(() => {
 
   useEffect(() => {
     if (typeof window !== "undefined" && window.location.hash === "#counter") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Consume and clear the browser hash once after hydration.
       setCounterMode(true);
       window.history.replaceState(null, "", window.location.pathname);
     }
@@ -218,6 +219,7 @@ const scrollToBottom = useCallback(() => {
   }, [threadId, currentLabels]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Start remote thread polling and its loading state on mount.
     fetchThread();
     const iv = setInterval(fetchThread, 10_000);
     return () => clearInterval(iv);
@@ -232,9 +234,10 @@ const scrollToBottom = useCallback(() => {
         setMessages(j.data ?? []);
       }
     } catch { /* silent */ }
-  }, [threadId]);
+  }, [threadId, setMessages]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Start remote message polling on mount.
     fetchMsgs();
     const iv = setInterval(fetchMsgs, 5_000);
     return () => clearInterval(iv);
@@ -290,9 +293,7 @@ const scrollToBottom = useCallback(() => {
   // Don't exit counter mode while the thread is still loading — latestPending is
   // null during the initial fetch, which would otherwise cancel a #counter
   // deep-link (from the inbox memo's COUNTER button) before the offer arrives.
-  useEffect(() => {
-    if (!loading && counterMode && !latestPending) setCounterMode(false);
-  }, [counterMode, latestPending, loading]);
+  if (!loading && counterMode && !latestPending) setCounterMode(false);
 
   // Opening the thread reads the offer's latest state: as recipient of a
   // pending offer it stops the card's pulse; as the non-actor on a resolved

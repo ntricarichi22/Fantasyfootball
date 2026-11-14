@@ -260,6 +260,7 @@ export default function SetAvailabilityPage() {
   }, [rosterId, fetchAttachments, fetchClassStrengths, fetchPicks]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Start the initial server load and synchronize its loading state.
     void load();
   }, [load]);
 
@@ -269,6 +270,7 @@ export default function SetAvailabilityPage() {
     rows.forEach((row) => {
       next[row.sleeper_player_id] = decomposeToPicks(priceOf(row), anchors);
     });
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset the editable pick buffer when server prices or valuation anchors change.
     setPickState(next);
   }, [rows, anchors]);
 

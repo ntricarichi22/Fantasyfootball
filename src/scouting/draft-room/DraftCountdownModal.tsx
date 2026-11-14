@@ -30,6 +30,7 @@ export default function DraftCountdownModal({ startsAt, draftStatus, onAutoStart
   }, [startsAt]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Synchronize the countdown with an external scheduled timestamp.
     setRemaining(getRemaining());
     const interval = setInterval(() => {
       const r = getRemaining();

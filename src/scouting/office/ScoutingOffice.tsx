@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { browserStorageKey, readBrowserJson, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
@@ -12,7 +14,6 @@ import {
 } from "@/shared/director-chat";
 
 const DIRECTOR_LABEL = "SCOUTING DIRECTOR";
-const VISITED_KEY = "cfc_scouting_office_visited";
 
 const FIRST_TIME_WELCOME =
   "Boss — good to finally sit down.";
@@ -29,27 +30,6 @@ const CLOSING_EMPTY_FIRST_TIME = "Nothing on fire yet — what's on your mind?";
 const RETURNING_WELCOME_3 = "Welcome back, boss. Couple things to flag:";
 const RETURNING_WELCOME_1 = "Welcome back, boss. One thing on my mind:";
 const RETURNING_WELCOME_0 = "Welcome back, boss. Nothing new on my end. Anything you want to dig into?";
-
-const SAMPLE_POVS: POV[] = [
-  {
-    id: "pov-pick-position",
-    number: 1,
-    text: "We're picking 4th. Word is the three teams ahead are leaning QB, QB, RB — both our top WR targets should be there at 4. I'd hold and let it come to us.",
-    anchor: "Let's dig into pick 4.",
-  },
-  {
-    id: "pov-value-drift",
-    number: 2,
-    text: "Mendoza's value popped 18% this month and we still have him at 22 on our board. Time to bump him up.",
-    anchor: "Walk me through Mendoza.",
-  },
-  {
-    id: "pov-trade-partner",
-    number: 3,
-    text: "Founders and Outlaws are both light on picks and need WR help. We've got WR depth to spare. Worth opening a conversation.",
-    anchor: "Talk to me about Founders and Outlaws.",
-  },
-];
 
 function buildFirstTimeOpening(povs: POV[]): Extract<Message, { kind: "director_opening" }> {
   if (povs.length === 0) {
@@ -119,6 +99,8 @@ function buildReturningOpening(povs: POV[]): Extract<Message, { kind: "director_
 }
 
 export function ScoutingOffice() {
+  const storageScope = useBrowserStorageScope();
+  const visitedKey = browserStorageKey("scouting-office-visited", storageScope);
   const stored = readStoredTeam();
   const rosterId = stored.rosterId ?? "";
   const teamName = stored.teamName ?? "";
@@ -130,14 +112,13 @@ export function ScoutingOffice() {
 
   useEffect(() => {
     let cancelled = false;
-    const isFirstTime = typeof window !== "undefined" && !localStorage.getItem(VISITED_KEY);
+    const isFirstTime = readBrowserJson("localStorage", visitedKey) !== true;
 
     if (!rosterId) {
-      const built = isFirstTime ? buildFirstTimeOpening(SAMPLE_POVS) : buildReturningOpening(SAMPLE_POVS);
+      const built = isFirstTime ? buildFirstTimeOpening([]) : buildReturningOpening([]);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate the opening from browser identity and visit storage.
       setOpening(built);
-      if (isFirstTime && typeof window !== "undefined") {
-        localStorage.setItem(VISITED_KEY, "1");
-      }
+      setLoadFailed(true);
       return;
     }
 
@@ -152,26 +133,21 @@ export function ScoutingOffice() {
         if (r.ok) {
           const j = await r.json();
           povs = j.povs ?? [];
-        } else if (r.status === 501) {
-          povs = SAMPLE_POVS;
-        }
+        } else if (!cancelled) setLoadFailed(true);
       } catch (err) {
-        console.error("Opening fetch failed; using sample POVs", err);
-        povs = SAMPLE_POVS;
-        setLoadFailed(true);
+        console.error("Opening fetch failed", err);
+        if (!cancelled) setLoadFailed(true);
       }
 
       if (cancelled) return;
       const built = isFirstTime ? buildFirstTimeOpening(povs) : buildReturningOpening(povs);
       setOpening(built);
 
-      if (isFirstTime && typeof window !== "undefined") {
-        localStorage.setItem(VISITED_KEY, "1");
-      }
+      if (isFirstTime) writeBrowserJson("localStorage", visitedKey, true);
     })();
 
     return () => { cancelled = true; };
-  }, [rosterId]);
+  }, [rosterId, visitedKey]);
 
   const handleUserMessage = useCallback(async (text: string): Promise<Extract<Message, { kind: "director_response" }> | null> => {
     try {
@@ -256,7 +232,7 @@ export function ScoutingOffice() {
             marginTop: 6,
             textTransform: "uppercase",
           }}>
-            ⚠ Using sample POVs — intel backend not reachable
+            Scouting insights are unavailable. Please try again later.
           </div>
         )}
       </div>

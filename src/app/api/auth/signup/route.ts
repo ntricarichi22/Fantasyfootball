@@ -6,11 +6,11 @@ import { claimAuthAttempt } from "@/infrastructure/auth/rateLimit";
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await boundedJson<{ email?: string; password?: string }>(request, 4096) ?? {};
-    const email = body.email?.toLowerCase().trim() ?? "";
-    const password = body.password ?? "";
+    const body = await boundedJson<{ email?: unknown; password?: unknown }>(request, 4096) ?? {};
+    const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+    const password = typeof body.password === "string" ? body.password : "";
 
-    if (!email) {
+    if (!email || email.length > 320) {
       return NextResponse.json({ error: "email is required" }, { status: 400 });
     }
     if (password.length < 8) {
@@ -27,14 +27,16 @@ export async function POST(request: NextRequest) {
     }
 
     // Must be in the league email map
-    const { data: teamRow } = await adminClient
+    const { data: teamRow, error: teamError } = await adminClient
       .from("team_email_map")
       .select("email")
       .eq("email", email)
       .maybeSingle();
 
+    if (teamError) return NextResponse.json({ error: "signup_unavailable" }, { status: 503 });
     if (!teamRow) {
-      return NextResponse.json({ error: "not_a_member" }, { status: 403 });
+      // Do not disclose whether an email address belongs to the private league.
+      return NextResponse.json({ ok: true, confirmationRequired: true });
     }
 
     // Require control of the allowlisted mailbox before the new account can
@@ -50,7 +52,7 @@ export async function POST(request: NextRequest) {
     });
 
     if (createError) {
-      return NextResponse.json({ error: createError.message }, { status: 400 });
+      return NextResponse.json({ error: "signup_failed" }, { status: 400 });
     }
 
     // A returned session means Confirm email is disabled in Supabase. Remove
@@ -61,9 +63,9 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ ok: true, confirmationRequired: true });
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "signup_failed" },
+      { error: "signup_failed" },
       { status: 500 }
     );
   }

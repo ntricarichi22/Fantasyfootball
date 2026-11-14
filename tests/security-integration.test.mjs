@@ -18,7 +18,7 @@ test("admin handlers enforce route-level authorization and do not accept URL sec
 
 test("migration versions are unique and production follows live 011 in safe order", async () => {
   const files = (await readdir("supabase/migrations")).filter((name) => name.endsWith(".sql")).sort();
-  assert.deepEqual(files.slice(-9), [
+  assert.deepEqual(files.slice(-10), [
     "012_security_multitenancy_foundation.sql",
     "013_ai_usage_limits.sql",
     "014_security_monitoring_audit.sql",
@@ -28,6 +28,7 @@ test("migration versions are unique and production follows live 011 in safe orde
     "018_pending_trade_overlays_and_pick_keys.sql",
     "019_fixed_pick_ladder_v1.sql",
     "020_normalize_league_invitation_email.sql",
+    "021_session_revocation_and_draft_visibility.sql",
   ]);
   assert.equal(new Set(files.map((name) => name.split("_")[0])).size, files.length);
 });

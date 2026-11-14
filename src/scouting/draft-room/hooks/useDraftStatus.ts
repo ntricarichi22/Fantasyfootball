@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   computeRemainingSeconds,
@@ -72,13 +72,14 @@ const safeLeagueId = (): string => {
 export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus {
   const { pollMs = DEFAULT_POLL_MS, disabled = false } = options;
   const [snapshot, setSnapshot] = useState<DraftStatus>(DEFAULT_STATUS);
-  const cancelledRef = useRef(false);
-
   useEffect(() => {
-    cancelledRef.current = false;
+    let cancelled = false;
+    let inFlight = false;
+    let realtimeRevision = 0;
+    const controller = new AbortController();
 
     const apply = (state: DraftStateRow | null) => {
-      if (cancelledRef.current) return;
+      if (cancelled) return;
       const status: DraftClockStatus = state?.status ?? "not_started";
       setSnapshot({
         status,
@@ -90,16 +91,19 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
     };
 
     const fetchOnce = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
+      const revision = realtimeRevision;
       try {
-        const res = await fetch("/api/scouting/draft/state", { cache: "no-store" });
-        if (!res.ok) {
-          apply(null);
-          return;
-        }
+        const res = await fetch("/api/scouting/draft/state", { cache: "no-store", signal: controller.signal });
+        if (!res.ok) return;
         const json = (await res.json()) as { data?: DraftStateRow | null };
-        apply(json?.data ?? null);
+        if (revision === realtimeRevision) apply(json?.data ?? null);
       } catch {
-        apply(null);
+        // A temporary failure must not replace an active clock with "not started".
+      } finally {
+        inFlight = false;
+        if (!cancelled) setSnapshot((current) => current.isLoading ? { ...current, isLoading: false } : current);
       }
     };
 
@@ -107,7 +111,8 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
 
     if (disabled) {
       return () => {
-        cancelledRef.current = true;
+        cancelled = true;
+        controller.abort();
       };
     }
 
@@ -133,6 +138,7 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
                     null
                 );
                 if (next) {
+                  realtimeRevision += 1;
                   apply(next);
                 } else {
                   // Unrecognized payload (e.g. DELETE without filter match) — refetch.
@@ -153,7 +159,8 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
     // Fallback poll at a long interval in case Realtime drops silently.
     const interval = window.setInterval(fetchOnce, Math.max(MIN_POLL_MS, pollMs));
     return () => {
-      cancelledRef.current = true;
+      cancelled = true;
+      controller.abort();
       window.clearInterval(interval);
       if (channel && supabase) {
         try {

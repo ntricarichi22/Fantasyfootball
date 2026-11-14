@@ -98,7 +98,7 @@ const processStep = async (
   }
 
   if (!announcementReady && skipReady && currentIndex !== null) {
-    const { error: insertSkipError } = await client.from("draft_log").upsert(
+    const { data: insertedSkip, error: insertSkipError } = await client.from("draft_log").upsert(
       [
         {
           league_id: leagueId,
@@ -117,13 +117,17 @@ const processStep = async (
           is_skip: true,
         },
       ],
-      { onConflict: "league_id,pick_index" }
-    );
+      { onConflict: "league_id,pick_index", ignoreDuplicates: true }
+    ).select("pick_index");
     if (insertSkipError) {
       console.warn(
         `[draft-tick] Unable to write skip row for pick_index=${currentIndex}`,
         insertSkipError
       );
+    } else if (!insertedSkip?.length) {
+      const existing = await client.from("draft_log").select("is_skip").eq("league_id", leagueId)
+        .eq("pick_index", currentIndex).maybeSingle();
+      if (existing.error || existing.data?.is_skip !== true) return { data: state, status: "not_ready" };
     } else {
       console.log(
         `[draft-tick] auto-skip fired for pick_index=${currentIndex} (league=${leagueId})`

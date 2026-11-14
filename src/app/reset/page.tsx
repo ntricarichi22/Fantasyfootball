@@ -4,12 +4,13 @@ import { Suspense, useEffect, useState, type FormEvent } from "react";
 import { supabase } from "@/infrastructure/supabase/client";
 
 function ResetForm() {
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(Boolean(supabase));
   const [ready, setReady] = useState(false);
-  const [linkError, setLinkError] = useState(false);
+  const [linkError, setLinkError] = useState(!supabase);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
   const [formError, setFormError] = useState("");
   const [logoFailed, setLogoFailed] = useState(false);
 
@@ -18,11 +19,7 @@ function ResetForm() {
   // which is what lets us call updateUser() below. If nothing establishes a
   // session, the link was invalid or expired.
   useEffect(() => {
-    if (!supabase) {
-      setChecking(false);
-      setLinkError(true);
-      return;
-    }
+    if (!supabase) return;
     const client = supabase;
     let resolved = false;
     const markReady = () => {
@@ -79,11 +76,22 @@ function ResetForm() {
     setSubmitting(true);
     setFormError("");
     try {
-      const { error: updateError } = await supabase.auth.updateUser({ password });
-      if (updateError) {
-        setFormError(
-          "Couldn't update your password. This link may have expired — request a new one from the login page."
-        );
+      if (!passwordUpdated) {
+        const { error: updateError } = await supabase.auth.updateUser({ password });
+        if (updateError) {
+          setFormError(
+            "Couldn't update your password. This link may have expired — request a new one from the login page."
+          );
+          setSubmitting(false);
+          return;
+        }
+        setPasswordUpdated(true);
+      }
+
+      // Keep the recovery session but revoke every other device after a reset.
+      const { error: revokeError } = await supabase.auth.signOut({ scope: "others" });
+      if (revokeError) {
+        setFormError("Your password was updated, but other sessions could not be signed out. Please try again.");
         setSubmitting(false);
         return;
       }
@@ -269,6 +277,7 @@ function ResetForm() {
                 autoComplete="new-password"
                 placeholder="New password"
                 value={password}
+                disabled={passwordUpdated}
                 onChange={(e) => setPassword(e.target.value)}
                 style={inputStyle}
               />
@@ -289,6 +298,7 @@ function ResetForm() {
                 autoComplete="new-password"
                 placeholder="Confirm new password"
                 value={confirm}
+                disabled={passwordUpdated}
                 onChange={(e) => setConfirm(e.target.value)}
                 style={inputStyle}
               />
@@ -314,7 +324,7 @@ function ResetForm() {
                   ...(canSubmit ? activeButtonStyle : disabledButtonStyle),
                 }}
               >
-                {submitting ? "Saving…" : "Set New Password"}
+                {submitting ? "Saving…" : passwordUpdated ? "Finish Password Reset" : "Set New Password"}
               </button>
             </form>
           )}

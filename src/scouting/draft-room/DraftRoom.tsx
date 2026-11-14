@@ -1,6 +1,8 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
+import { browserStorageKey, readBrowserJson, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import DraftCountdownModal from "@/scouting/draft-room/DraftCountdownModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -10,18 +12,12 @@ import {
 import { getLeagueId } from "@/infrastructure/config";
 import { supabase } from "@/infrastructure/supabase/client";
 import {
-  ACTIVE_TEAMS_REFRESH_MS,
-  DRAFTED_CACHE_KEY,
-  DRAFT_LOG_CACHE_KEY,
   HEARTBEAT_INTERVAL_MS,
-  LINEUP_CACHE_KEY,
   MIN_TEAM_COUNT,
   PRECOMPUTED_GRADES_COUNT,
   STATUS_MESSAGE_TIMEOUT_MS,
 } from "@/scouting/draft-room/constants";
 import type {
-  ActiveTeamApiRow,
-  ActiveTeamRecord,
   AvailablePlayer,
   DraftLogEntry,
   DraftedPlayer,
@@ -33,7 +29,6 @@ import {
   generateSessionId,
   getStoredSessionSelection,
   isBenchSlot,
-  normalizeDraftLogEntry,
   nextPickIndexFromLog,
   resolveDraftedPlayer,
   toId,
@@ -45,7 +40,6 @@ import { AssistantGmPanel } from "@/scouting/draft-room/AssistantGmPanel";
 import { RosterPanel } from "@/scouting/draft-room/RosterPanel";
 import { ScoutingCardModal } from "@/scouting/draft-room/ScoutingCardModal";
 import { MobileDraftRoom } from "@/scouting/draft-room/mobile/MobileDraftRoom";
-import { WelcomeScreen } from "@/scouting/draft-room/WelcomeScreen";
 import { useDraftBoard } from "@/scouting/draft-room/hooks/useDraftBoard";
 import { useDraftClock } from "@/scouting/draft-room/hooks/useDraftClock";
 import { useDraftRoomLog } from "@/scouting/draft-room/hooks/useDraftRoomLog";
@@ -59,6 +53,9 @@ import { buildScoutingGrades, type ScoutingGradeSet } from "@/scouting/draft-roo
 import { HomeScreen } from "@/components/HomeScreen";
 
 export default function DraftRoom() {
+  const storageScope = useBrowserStorageScope();
+  const lineupStorageKey = browserStorageKey("lineup-overrides", storageScope);
+  const [lineupHydrated, setLineupHydrated] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
   const isDraftRoute = pathname?.startsWith("/scouting/draft-room");
@@ -84,13 +81,11 @@ export default function DraftRoom() {
   );
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
-  const [draftedPlayersState, setDraftedPlayersState] = useState<Record<string, DraftedPlayer[]>>(
-    {}
-  );
 
   useEffect(() => {
     const identity = readStoredTeam();
     if (identity.rosterId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate roster display preferences from the browser identity cookie.
       setSelectedTeam(identity.rosterId);
       setTeamSelectionInput(identity.rosterId);
     }
@@ -99,7 +94,6 @@ export default function DraftRoom() {
     draftLog,
     setDraftLog,
     persistDraftLogEntry,
-    deleteDraftLogEntry,
   } = useDraftRoomLog({
     supabase,
     selectedTeam,
@@ -108,7 +102,6 @@ export default function DraftRoom() {
   });
   const [lineupOverrides, setLineupOverrides] = useState<Record<string, string[]>>({});
   const [rosterPanelOpen, setRosterPanelOpen] = useState(true);
-  const [activeTeams, setActiveTeams] = useState<ActiveTeamRecord[]>([]);
   const [claimingTeam, setClaimingTeam] = useState(false);
   const [openTradeCount, setOpenTradeCount] = useState(0);
 
@@ -192,7 +185,7 @@ handleStartClockRequest,
     .filter(([, owner]) => toId(owner) === selectedTeam)
     .map(([pickKey]) => pickKey)
     .sort();
-}, [draftState?.pickOwnerByPickKey, selectedTeam]);
+}, [draftState, selectedTeam]);
 
   const onClockTeamName = useMemo(() => {
     if (!onClockRosterId) return "";
@@ -208,54 +201,21 @@ handleStartClockRequest,
     return () => clearTimeout(timer);
   }, [statusMessage]);
 
+  // Draft results come only from the canonical API. Persist user preferences,
+  // never a stale second copy of server-owned picks or derived drafted rosters.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const savedDrafted = localStorage.getItem(DRAFTED_CACHE_KEY);
-    if (savedDrafted) {
-      try {
-        setDraftedPlayersState(JSON.parse(savedDrafted));
-      } catch {
-        // ignore corrupted cache
-      }
+    const saved = readBrowserJson("localStorage", lineupStorageKey);
+    if (saved && typeof saved === "object" && !Array.isArray(saved)
+      && Object.values(saved).every((row) => Array.isArray(row) && row.every((id) => typeof id === "string"))) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate optional scoped browser preferences before persisting edits.
+      setLineupOverrides(saved as Record<string, string[]>);
     }
-    const savedDraftLog = localStorage.getItem(DRAFT_LOG_CACHE_KEY);
-    if (savedDraftLog) {
-      try {
-        const parsed: Partial<DraftLogEntry>[] = JSON.parse(savedDraftLog);
-        // Backward compatibility: normalize entries that predate pickIndex/teamCount fields
-        const normalizedLog = parsed
-          .map((entry) => normalizeDraftLogEntry(entry))
-          .filter((entry): entry is DraftLogEntry => entry !== null)
-          .sort((a, b) => a.pickIndex - b.pickIndex);
-        setDraftLog(normalizedLog);
-      } catch {
-        // ignore corrupted cache
-      }
-    }
-    const savedLineup = localStorage.getItem(LINEUP_CACHE_KEY);
-    if (savedLineup) {
-      try {
-        setLineupOverrides(JSON.parse(savedLineup));
-      } catch {
-        // ignore corrupted cache
-      }
-    }
-  }, [setDraftLog]);
+    setLineupHydrated(true);
+  }, [lineupStorageKey]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(DRAFTED_CACHE_KEY, JSON.stringify(draftedPlayersState));
-  }, [draftedPlayersState]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(DRAFT_LOG_CACHE_KEY, JSON.stringify(draftLog));
-  }, [draftLog]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    localStorage.setItem(LINEUP_CACHE_KEY, JSON.stringify(lineupOverrides));
-  }, [lineupOverrides]);
+    if (lineupHydrated) writeBrowserJson("localStorage", lineupStorageKey, lineupOverrides);
+  }, [lineupHydrated, lineupStorageKey, lineupOverrides]);
 
   const buildDraftedPlayersFromLog = useCallback(
     (log: DraftLogEntry[]) => {
@@ -282,9 +242,10 @@ handleStartClockRequest,
     [teams]
   );
 
-  useEffect(() => {
-    setDraftedPlayersState(buildDraftedPlayersFromLog(draftLog));
-  }, [buildDraftedPlayersFromLog, draftLog]);
+  const draftedPlayersState = useMemo(
+    () => buildDraftedPlayersFromLog(draftLog),
+    [buildDraftedPlayersFromLog, draftLog],
+  );
 
   const clearSessionSelection = useCallback(() => {
     setSelectedTeam("");
@@ -324,39 +285,6 @@ handleStartClockRequest,
       return "";
     }
   }, [sessionId, setErrorMessage]);
-
-  const fetchActiveTeams = useCallback(async () => {
-    if (!leagueId) return;
-    try {
-      const res = await fetch(`/api/active-teams?leagueId=${leagueId}`, { cache: "no-store" });
-      if (!res.ok) throw new Error("Failed to fetch active teams");
-      const json = await res.json();
-      const rows: ActiveTeamApiRow[] = Array.isArray(json?.data) ? json.data : [];
-      const normalized = rows
-        .map(
-          (row): ActiveTeamRecord => ({
-            rosterId: toId(row?.rosterId ?? row?.roster_id),
-            sessionId:
-              typeof row?.sessionId === "string"
-                ? row.sessionId
-                : typeof row?.session_id === "string"
-                  ? row.session_id
-                  : "",
-          })
-        )
-        .filter((row): row is ActiveTeamRecord => Boolean(row.rosterId));
-      setActiveTeams(normalized);
-    } catch (error) {
-      console.warn("Unable to load active teams", error);
-    }
-  }, [leagueId]);
-
-  useEffect(() => {
-    if (selectedTeam || !leagueId) return;
-    fetchActiveTeams();
-    const interval = setInterval(fetchActiveTeams, ACTIVE_TEAMS_REFRESH_MS);
-    return () => clearInterval(interval);
-  }, [fetchActiveTeams, leagueId, selectedTeam]);
 
   useEffect(() => {
     if (!selectedTeam || !sessionId || !leagueId) return;
@@ -427,17 +355,6 @@ handleStartClockRequest,
 
   const isCommissionerSelected =
     !!commissionerRosterId && selectedTeam === commissionerRosterId;
-
-  const availableTeams = useMemo(
-    () =>
-      teams.filter((team) => {
-        const rosterId = toId(team.id);
-        const activeRecord = activeTeams.find((row) => row.rosterId === rosterId);
-        if (!activeRecord) return true;
-        return activeRecord.sessionId === sessionId;
-      }),
-    [activeTeams, sessionId, teams]
-  );
 
   const rosterPositions = useMemo(
     () => leagueData?.roster_positions || [],
@@ -723,11 +640,6 @@ handleStartClockRequest,
         return true;
       }
 
-      setDraftedPlayersState((prev) => ({
-        ...prev,
-        [rosterKey]: [...(prev[rosterKey] || []), drafted],
-      }));
-
       setDraftLog((prev) => [...prev, entry].sort((a, b) => a.pickIndex - b.pickIndex));
       return true;
     },
@@ -782,7 +694,6 @@ handleStartClockRequest,
       });
 
       if (!res.ok) {
-        await fetchActiveTeams();
         setErrorMessage(
           res.status === 409
             ? "That team is currently taken. Please choose another team."
@@ -806,7 +717,7 @@ handleStartClockRequest,
     } finally {
       setClaimingTeam(false);
     }
-  }, [draftRoute, ensureSession, fetchActiveTeams, leagueId, leagueIdError, router, teamSelectionInput]);
+  }, [draftRoute, ensureSession, leagueId, leagueIdError, teamSelectionInput, teams]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -850,30 +761,11 @@ handleStartClockRequest,
     }
   };
 
-  const handleUndoPick = useCallback(
-    (entry: DraftLogEntry) => {
-      if (typeof window !== "undefined") {
-        const confirmed = window.confirm("Undo this pick?");
-        if (!confirmed) return;
-      }
-
-      setDraftLog((prev) => prev.filter((item) => item.pickIndex !== entry.pickIndex));
-      deleteDraftLogEntry(entry.pickIndex);
-      if (entry.pickIndex === nextPickIndex - 1) {
-        setStatusMessage("Rewound to the previous pick.");
-      }
-    },
-    [deleteDraftLogEntry, nextPickIndex, setDraftLog]
-  );
-  // Reserved for future commissioner controls (the Assistant GM panel
-  // replaces the draft log on desktop, so the inline undo button is gone).
-  void handleUndoPick;
-
-  const hasActiveSession = !!selectedTeam && !!sessionId;
   const showWelcome = !isDraftRoute;
 
   return (
     <main className="relative min-h-screen text-[var(--cfc-ink)]">
+      {errorMessage && <p role="alert" className="relative z-20 mx-auto max-w-4xl bg-red-50 p-3 text-red-800">{errorMessage}</p>}
       {leagueIdError && (
         <div
           className="relative z-20 mx-auto mb-4 mt-4 w-[calc(100%-2rem)] max-w-4xl px-4 py-3"

@@ -48,7 +48,7 @@ jobs:
         run: ./scripts/validate-supabase-migrations.bash
 
       - name: Install pinned Supabase CLI
-        uses: supabase/setup-cli@v1
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
         with:
           version: 2.45.5
 

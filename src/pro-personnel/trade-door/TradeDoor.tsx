@@ -18,6 +18,8 @@
 
 import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { browserStorageKey } from "@/infrastructure/identity/browserStorage";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
@@ -65,6 +67,8 @@ type Response = Extract<Message, { kind: "director_response" }>;
 const headlineShort = (h: string) => h.replace(/\s+—.*$/, "");
 
 export default function TradeDoor() {
+  const storageScope = useBrowserStorageScope();
+  const threadStorageKey = browserStorageKey("trade-door-thread", storageScope);
   const { rosterId = "", teamName = "" } = readStoredTeam();
   const isMobile = useIsMobile();
 
@@ -492,7 +496,8 @@ export default function TradeDoor() {
               onUserMessage={handleUserMessage}
               onCommit={handleCommit}
               placeholder="Ask the Personnel Director…"
-              persistKey={`cfc_trade_door_thread:${rosterId}`}
+              key={`${threadStorageKey ?? "ephemeral"}:${rosterId}`}
+              persistKey={threadStorageKey ? `${threadStorageKey}:${encodeURIComponent(rosterId)}` : undefined}
             />
           ) : (
             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FM, fontSize: 11, letterSpacing: "0.18em", color: "#8C7E6A", fontWeight: 700, textTransform: "uppercase" }}>

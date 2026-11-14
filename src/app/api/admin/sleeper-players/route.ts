@@ -47,7 +47,6 @@ async function fetchJsonWithRetry(url: string, timeoutMs = 30_000, retries = 2) 
 
 export async function GET(req: Request) {
   if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  const url = new URL(req.url);
 
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supabaseResult.error}`, 500);
@@ -65,7 +64,7 @@ export async function GET(req: Request) {
         endpoint: "players_nfl",
         request_url: requestUrl,
         status_code: res.status,
-        payload: res.ok ? (res.json as any) : null,
+        payload: res.ok ? res.json : null,
         error: res.ok ? null : res.error,
       },
       { onConflict: "request_url" }
@@ -74,7 +73,7 @@ export async function GET(req: Request) {
   if (upsertErr) return jsonError(`DB upsert failed: ${upsertErr.message}`, 500);
 
   // payload is huge; don’t return it
-  const payloadKeys = res.ok && res.json && typeof res.json === "object" ? Object.keys(res.json as any).length : 0;
+  const payloadKeys = res.ok && res.json && typeof res.json === "object" ? Object.keys(res.json).length : 0;
 
   return NextResponse.json({
     ok: true,

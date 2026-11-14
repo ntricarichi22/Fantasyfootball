@@ -1,4 +1,8 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { browserStorageScope } from "@/infrastructure/identity/browserStorage";
+import { BrowserStorageScopeProvider } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -14,11 +18,14 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // A live session scopes browser caches; revoked sessions cannot reopen private history.
+  const { session } = await currentAppSessionFromRequest(new Request("https://app.local", { headers: await headers() }));
+  const storageScope = browserStorageScope(session);
   return (
     <html lang="en">
       <head>
@@ -30,7 +37,7 @@ export default function RootLayout({
         />
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Bowlby+One+SC&family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&family=Syne:wght@700;800&display=swap"
+          href={"https://fonts.googleapis.com/css2?family=Bowlby+One+SC&family=DM+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&family=Syne:wght@700;800&display=swap"}
         />
         {/* Tabler icon webfont — `ti ti-*` classes (persona icons on the offer
             cards, the phone on the trade door's reply button, etc.). These
@@ -41,7 +48,9 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
-        {children}
+        <BrowserStorageScopeProvider key={storageScope ?? "signed-out"} scope={storageScope}>
+          {children}
+        </BrowserStorageScopeProvider>
       </body>
     </html>
   );

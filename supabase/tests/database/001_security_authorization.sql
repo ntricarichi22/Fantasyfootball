@@ -16,9 +16,9 @@ VALUES
  ('10000000-0000-0000-0000-000000000001', 'security-league-a', '1'),
  ('20000000-0000-0000-0000-000000000002', 'security-league-b', '2');
 INSERT INTO public.draft_state (league_id) VALUES ('security-league-a'), ('security-league-b');
-INSERT INTO public.draft_log (league_id, pick_index, player_id, submitted_at)
-VALUES ('security-league-a', 900001, 'security-player-a', now()),
-       ('security-league-b', 900001, 'security-player-b', now());
+INSERT INTO public.draft_log (league_id, pick_index, player_id, submitted_at, is_announced)
+VALUES ('security-league-a', 900001, 'security-player-a', now(), true),
+       ('security-league-b', 900001, 'security-player-b', now(), true);
 
 INSERT INTO public.league_invitations (league_id,email,roster_id)
 VALUES ('security-league-a','invited@example.invalid','3');

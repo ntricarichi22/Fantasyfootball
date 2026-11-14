@@ -7,12 +7,12 @@ import { Menu, PanelLeftClose, PanelLeftOpen, ScrollText } from "lucide-react";
 import { ChatInput } from "./ChatInput";
 import { ChatMessage, TypingIndicator } from "./ChatMessage";
 import { ConversationSidebar } from "./ConversationSidebar";
+import { historianReducer } from "./state";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { WelcomeScreen } from "./WelcomeScreen";
 import {
   type ChatMessage as ChatMessageType,
-  type Conversation,
-  FUN_FACT_SESSION_KEY,
-  deriveTitle,
+  funFactStorageKey,
   loadConversations,
   saveConversations,
   uid,
@@ -21,77 +21,10 @@ import {
 const FUN_FACT_QUESTION =
   "Give me one fun or surprising fact about CFC league history. Pick something random and interesting — a crazy stat, a wild trade, an unlikely comeback, a record that still stands, etc. Keep it to 2-3 sentences and make it engaging.";
 
-type State = {
-  conversations: Conversation[];
-  activeId: string | null;
-};
-
 type Quota = { used_micros: number; remaining_micros: number; reset_at: string };
 
 function dollars(micros: number) {
   return `$${(micros / 1_000_000).toFixed(2)}`;
-}
-
-type Action =
-  | { type: "hydrate"; conversations: Conversation[] }
-  | { type: "select"; id: string | null }
-  | { type: "new" }
-  | { type: "delete"; id: string }
-  | { type: "appendMessage"; message: ChatMessageType };
-
-function touchAndSort(list: Conversation[]): Conversation[] {
-  return [...list].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-}
-
-function reducer(state: State, action: Action): State {
-  switch (action.type) {
-    case "hydrate":
-      return {
-        conversations: touchAndSort(action.conversations),
-        activeId: null,
-      };
-    case "select":
-      return { ...state, activeId: action.id };
-    case "new":
-      return { ...state, activeId: null };
-    case "delete": {
-      const next = state.conversations.filter((c) => c.id !== action.id);
-      return {
-        conversations: next,
-        activeId: state.activeId === action.id ? null : state.activeId,
-      };
-    }
-    case "appendMessage": {
-      const now = new Date().toISOString();
-      const activeId = state.activeId;
-      if (activeId) {
-        const next = state.conversations.map((c) =>
-          c.id === activeId
-            ? { ...c, updatedAt: now, messages: [...c.messages, action.message] }
-            : c,
-        );
-        return { conversations: touchAndSort(next), activeId };
-      }
-      // Create a new conversation seeded with this message.
-      // Title is derived from the first user message; otherwise a generic label.
-      const title =
-        action.message.role === "user"
-          ? deriveTitle(action.message.content)
-          : "New conversation";
-      const newConv: Conversation = {
-        id: uid(),
-        title,
-        updatedAt: now,
-        messages: [action.message],
-      };
-      return {
-        conversations: touchAndSort([newConv, ...state.conversations]),
-        activeId: newConv.id,
-      };
-    }
-    default:
-      return state;
-  }
 }
 
 async function askHistorian(question: string, signal?: AbortSignal): Promise<string> {
@@ -121,9 +54,11 @@ async function askHistorian(question: string, signal?: AbortSignal): Promise<str
 }
 
 export default function HistorianChat() {
-  const [state, dispatch] = useReducer(reducer, {
+  const storageScope = useBrowserStorageScope();
+  const [state, dispatch] = useReducer(historianReducer, {
     conversations: [],
     activeId: null,
+    hydrated: false,
   });
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -137,13 +72,11 @@ export default function HistorianChat() {
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const hydratedRef = useRef(false);
 
   // Hydrate conversations from localStorage on mount.
   useEffect(() => {
-    dispatch({ type: "hydrate", conversations: loadConversations() });
-    hydratedRef.current = true;
-  }, []);
+    dispatch({ type: "hydrate", conversations: loadConversations(storageScope) });
+  }, [storageScope]);
 
   const refreshQuota = useCallback(async () => {
     try {
@@ -153,36 +86,42 @@ export default function HistorianChat() {
     } catch { /* The chat error remains the actionable failure surface. */ }
   }, []);
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- Load the authenticated remote quota after mount.
   useEffect(() => { void refreshQuota(); }, [refreshQuota]);
 
   // Persist conversations whenever they change (after hydration).
   useEffect(() => {
-    if (!hydratedRef.current) return;
-    saveConversations(state.conversations);
-  }, [state.conversations]);
+    if (!state.hydrated) return;
+    saveConversations(storageScope, state.conversations);
+  }, [state.conversations, state.hydrated, storageScope]);
 
   // Open the sidebar by default on desktop.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- The browser media query is unavailable during server rendering.
     setSidebarOpen(window.matchMedia("(min-width: 768px)").matches);
   }, []);
 
   // Fun fact: load from sessionStorage cache or fetch.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const cached = window.sessionStorage.getItem(FUN_FACT_SESSION_KEY);
+    const cacheKey = funFactStorageKey(storageScope);
+    let cached: string | null = null;
+    try { if (cacheKey) cached = window.sessionStorage.getItem(cacheKey); } catch { /* storage is optional */ }
     if (cached) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate the optional browser cache before making a paid request.
       setFunFact(cached);
       return;
     }
     let cancelled = false;
+    const controller = new AbortController();
     setFunFactLoading(true);
-    askHistorian(FUN_FACT_QUESTION)
+    askHistorian(FUN_FACT_QUESTION, controller.signal)
       .then((answer) => {
         if (cancelled) return;
         setFunFact(answer);
         try {
-          window.sessionStorage.setItem(FUN_FACT_SESSION_KEY, answer);
+          if (cacheKey) window.sessionStorage.setItem(cacheKey, answer);
         } catch {
           // ignore storage errors
         }
@@ -200,8 +139,9 @@ export default function HistorianChat() {
       });
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, []);
+  }, [storageScope]);
 
   const activeConversation = useMemo(
     () => state.conversations.find((c) => c.id === state.activeId) ?? null,
@@ -230,7 +170,8 @@ export default function HistorianChat() {
   const sendQuestion = useCallback(
     async (question: string) => {
       const trimmed = question.trim();
-      if (!trimmed || isLoading) return;
+      if (!trimmed || isLoading || !state.hydrated) return;
+      const conversationId = state.activeId ?? uid();
 
       const userMsg: ChatMessageType = {
         id: uid(),
@@ -238,7 +179,7 @@ export default function HistorianChat() {
         content: trimmed,
         timestamp: new Date().toISOString(),
       };
-      dispatch({ type: "appendMessage", message: userMsg });
+      dispatch({ type: "appendMessage", conversationId, message: userMsg });
       setInput("");
       setIsLoading(true);
 
@@ -248,8 +189,10 @@ export default function HistorianChat() {
 
       try {
         const answer = await askHistorian(trimmed, controller.signal);
+        if (controller.signal.aborted) return;
         dispatch({
           type: "appendMessage",
+          conversationId,
           message: {
             id: uid(),
             role: "assistant",
@@ -265,6 +208,7 @@ export default function HistorianChat() {
             : "Something went wrong contacting the historian.";
         dispatch({
           type: "appendMessage",
+          conversationId,
           message: {
             id: uid(),
             role: "assistant",
@@ -275,11 +219,13 @@ export default function HistorianChat() {
         });
       } finally {
         void refreshQuota();
-        if (abortRef.current === controller) abortRef.current = null;
-        setIsLoading(false);
+        if (abortRef.current === controller) {
+          abortRef.current = null;
+          setIsLoading(false);
+        }
       }
     },
-    [isLoading, refreshQuota],
+    [isLoading, refreshQuota, state.activeId, state.hydrated],
   );
 
   const handleSend = useCallback(() => {

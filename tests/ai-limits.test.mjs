@@ -66,7 +66,7 @@ test("parallel reservations cannot overrun a hard budget", async () => {
 });
 
 test("every Anthropic dispatch is behind the metered server module", async () => {
-  assert.deepEqual(await sourceFilesContaining(/api\.anthropic\.com/), ["src/infrastructure/ai/server.ts"]);
+  assert.deepEqual((await sourceFilesContaining(/api\.anthropic\.com/)).map(file => file.replaceAll("\\", "/")), ["src/infrastructure/ai/server.ts"]);
 });
 
 test("covered source paths use only the verified Sonnet 5 model", async () => {

@@ -59,34 +59,11 @@ function LoginForm() {
     return !error;
   };
 
-  const handleEmailSubmit = async (e: FormEvent<HTMLFormElement>) => {
+  const handleEmailSubmit = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed || submitting) return;
-    setSubmitting(true);
+    if (!email.trim() || submitting) return;
     setFormError("");
-    try {
-      const res = await fetch("/api/auth/prepare", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: trimmed }),
-      });
-      const json = await res.json();
-      if (!res.ok) {
-        if (json?.error === "not_a_member") {
-          setFormError("This email isn't registered with the CFC league.");
-        } else {
-          setFormError("Something went wrong. Please try again.");
-        }
-        setSubmitting(false);
-        return;
-      }
-      setStep(json.exists ? "existing-password" : "new-password");
-      setSubmitting(false);
-    } catch {
-      setFormError("Something went wrong. Please try again.");
-      setSubmitting(false);
-    }
+    setStep("existing-password");
   };
 
   const finalizeAndRedirect = async () => {
@@ -120,7 +97,7 @@ function LoginForm() {
     setSubmitting(true);
     setFormError("");
     try {
-      // Create the auth user server-side with email_confirm: true
+      // Create an invited account only after mailbox confirmation.
       const signupRes = await fetch("/api/auth/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,7 +115,7 @@ function LoginForm() {
       }
 
       if (signupJson?.confirmationRequired) {
-        setFormError("Check your email to verify the account, then return here to sign in.");
+        setFormError("If this address is invited, check your email to verify the account, then return here to sign in.");
         setStep("existing-password");
         setSubmitting(false);
         return;
@@ -170,7 +147,7 @@ function LoginForm() {
     setFormError("");
     try {
       if (!(await signIn(trimmed, password))) {
-        setFormError("Incorrect password. Please try again.");
+        setFormError("Unable to sign in. Check your email and password.");
         setSubmitting(false);
         return;
       }
@@ -362,7 +339,7 @@ function LoginForm() {
                   ...(hasEmail ? activeButtonStyle : disabledButtonStyle),
                 }}
               >
-                {submitting ? "Checking…" : "Continue"}
+                Continue
               </button>
             </form>
           )}
@@ -378,7 +355,7 @@ function LoginForm() {
                   marginBottom: 6,
                 }}
               >
-                First time here. Create a password.
+                Create a password for your invited account.
               </div>
               <div
                 style={{
@@ -420,7 +397,7 @@ function LoginForm() {
                   ...(passwordLongEnough ? activeButtonStyle : disabledButtonStyle),
                 }}
               >
-                {submitting ? "Creating…" : "Create & Sign In"}
+                {submitting ? "Creating…" : "Create Account"}
               </button>
 
               <button
@@ -460,7 +437,7 @@ function LoginForm() {
                   marginBottom: 6,
                 }}
               >
-                Welcome back. Enter your password.
+                Enter your password to sign in.
               </div>
               <div
                 style={{
@@ -492,6 +469,14 @@ function LoginForm() {
                 }}
               >
                 {submitting ? "Signing in…" : "Sign In"}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setStep("new-password"); setPassword(""); setFormError(""); }}
+                style={{ background: "transparent", border: "none", color: "#888", cursor: "pointer", marginTop: 16, width: "100%", textDecoration: "underline" }}
+              >
+                Create an invited account
               </button>
 
               {resetSent ? (

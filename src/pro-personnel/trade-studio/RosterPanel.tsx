@@ -24,7 +24,6 @@ type Props = {
   buttonDisabled?: boolean;
 };
 
-const F = "var(--font-body, 'DM Sans', sans-serif)";
 const FM = "var(--font-mono, 'JetBrains Mono', monospace)";
 const FH = "var(--font-headline, 'Syne', sans-serif)";
 

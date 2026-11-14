@@ -1,3 +1,4 @@
+import { isRecord } from "@/infrastructure/json";
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
@@ -362,9 +363,9 @@ export async function GET(req: Request) {
     const week = Number(weekMatch[1]);
     if (!Array.isArray(row.payload)) continue;
 
-    const matchupGroups = new Map<number, Array<any>>();
+    const matchupGroups = new Map<number, Array<Record<string, unknown>>>();
 
-    for (const match of row.payload) {
+    for (const match of row.payload.filter(isRecord)) {
       const matchupId = typeof match?.matchup_id === "number" ? match.matchup_id : null;
       if (matchupId === null) continue;
 
@@ -372,7 +373,7 @@ export async function GET(req: Request) {
       matchupGroups.get(matchupId)!.push(match);
     }
 
-    for (const match of row.payload) {
+    for (const match of row.payload.filter(isRecord)) {
       const rosterId = match?.roster_id ?? null;
       if (!rosterId) continue;
 
@@ -468,11 +469,7 @@ export async function GET(req: Request) {
     mode: "starters",
     upserted,
   });
-  } catch (err) {
-    console.error('[API GET /api/admin/lineup-stats]', err);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

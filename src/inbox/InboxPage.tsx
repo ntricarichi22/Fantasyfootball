@@ -141,6 +141,17 @@ async function fetchRosterNames(): Promise<Record<string, string>> {
 /*  Main Page — staff mail up top, the negotiation board below          */
 /* ------------------------------------------------------------------ */
 
+const isActiveTile = (t: NegotiationTileData) =>
+  t.status === "our_court" || t.status === "on_them";
+
+const matchesFilter = (t: NegotiationTileData, f: BoardFilter) => {
+  if (f === "active") return isActiveTile(t);
+  if (f === "closed") return !isActiveTile(t);
+  if (f === "proposed") return t.proposedByUs;
+  if (f === "received") return !t.proposedByUs;
+  return true;
+};
+
 export default function InboxPage() {
   const stored = readStoredTeam() as
     | { rosterId?: string; teamName?: string; name?: string }
@@ -158,6 +169,11 @@ export default function InboxPage() {
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   const flash = useCallback((m: string) => {
     setToast(m);
@@ -172,6 +188,7 @@ export default function InboxPage() {
   // negotiations, archive → closed deals, trash → staff trash.
   useEffect(() => {
     const p = new URLSearchParams(window.location.search).get("filter");
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Consume the browser deep-link filter after hydration.
     if (p === "sent") setBoardFilter("active");
     else if (p === "archive") setBoardFilter("closed");
     else if (p === "trash") setMailTab("trash");
@@ -324,7 +341,7 @@ export default function InboxPage() {
       // one (withdrawn flips back to the recipient). Freshness-capped so
       // pre-feature resolutions (read_at was never stamped) don't flare up.
       const fresh =
-        Date.now() - new Date(latest.updated_at).getTime() < CLOSURE_WINDOW_MS;
+        now - new Date(latest.updated_at).getTime() < CLOSURE_WINDOW_MS;
       const unseen =
         (pending && isReceiver && !latest.read_at) ||
         (!pending &&
@@ -351,18 +368,7 @@ export default function InboxPage() {
     }
     out.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return out;
-  }, [threads, rosterNames, rosterId]);
-
-  const isActiveTile = (t: NegotiationTileData) =>
-    t.status === "our_court" || t.status === "on_them";
-
-  const matchesFilter = (t: NegotiationTileData, f: BoardFilter) => {
-    if (f === "active") return isActiveTile(t);
-    if (f === "closed") return !isActiveTile(t);
-    if (f === "proposed") return t.proposedByUs;
-    if (f === "received") return !t.proposedByUs;
-    return true;
-  };
+  }, [threads, rosterNames, rosterId, now]);
 
   const boardCounts = useMemo<Record<BoardFilter, number>>(
     () => ({

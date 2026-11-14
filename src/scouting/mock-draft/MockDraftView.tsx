@@ -83,6 +83,7 @@ function ClockFill({ seconds, simSeconds, running }: { seconds: number; simSecon
   const barRef = useRef<HTMLDivElement>(null);
   const [drain, setDrain] = useState(false);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reset the imperative CSS transition before starting a new clock animation.
     setDrain(false);
     if (!running || seconds <= 0) return;
     // Brief delay so the snap commits before the drain target starts the

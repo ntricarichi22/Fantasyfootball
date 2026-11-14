@@ -1,6 +1,6 @@
 import "server-only";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { appSessionFromRequest, isMissingDatabaseRelation, type AppSession } from "./session";
+import { appSessionFromRequest, type AppSession } from "./session";
 import { resolveCurrentSession } from "./authorization";
 export { currentSessionCanActForRoster, currentSessionCanAccessTeamPair } from "./authorization";
 
@@ -39,19 +39,14 @@ export async function currentAppSessionFromRequest(
   const { client } = dependencies.getAdminClient();
   if (!client) return { session: null, error: "auth_state_unavailable" };
 
-  const [{ data: userData, error: userError }, { data, error }] = await Promise.all([
+  const [{ data: userData, error: userError }, { data, error }, providerSession] = await Promise.all([
     client.auth.admin.getUserById(signed.userId),
     client.from("league_memberships")
       .select("league_id, roster_id, role")
       .eq("user_id", signed.userId)
       .eq("league_id", signed.leagueId)
       .maybeSingle(),
+    client.rpc("is_auth_session_active", { p_session_id: signed.sessionId, p_user_id: signed.userId }),
   ]);
-  // Compatibility window for the auto-deployed app before migration 012. Only
-  // the exact missing relation is accepted, the Auth user must still exist,
-  // and mutable privilege claims are downgraded to member.
-  if (!userError && userData.user && isMissingDatabaseRelation(error, "league_memberships")) {
-    return { session: { ...signed, role: "member" }, error: null };
-  }
-  return resolveCurrentSession(signed, Boolean(userData.user), data, !(userError || error));
+  return resolveCurrentSession(signed, Boolean(userData.user), data, !(userError || error || providerSession.error), providerSession.data === true);
 }
