@@ -1,11 +1,13 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import {
   useState, useEffect, useMemo, useCallback, useRef,
   type DragEvent as RDragEvent,
   type TouchEvent as RTouchEvent,
 } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import { NFL_TEAM_FULL_NAME, POSITION_FULL_NAME } from "@/components/research-strategy/availabilityConfig";
@@ -270,7 +272,8 @@ function TierDropZone({
 }
 
 export function BigBoard() {
-  const { rosterId = "" } = readStoredTeam();
+  const fetch = useLeagueFetch();
+  const { rosterId = "" } = useStoredTeam();
   const isMobile = useIsMobile() === true;
 
   const [pool, setPool] = useState<BoardPlayer[]>([]);
@@ -324,7 +327,7 @@ export function BigBoard() {
       }
     })();
     return () => { cancelled = true; };
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   const rankingByPlayer = useMemo(() => {
     const m = new Map<string, Ranking>();
@@ -401,7 +404,7 @@ export function BigBoard() {
         return { ...s, stars: [...others, { playerId, starred: currentlyStarred }] };
       });
     }
-  }, [starredSet, rosterId]);
+  }, [starredSet, fetch, rosterId]);
 
   const addTier = useCallback(async (label?: string) => {
     const nextOrder = (tiersByOrder[tiersByOrder.length - 1]?.order ?? 0) + 1;
@@ -432,7 +435,7 @@ export function BigBoard() {
     } catch (err) {
       console.error("Add tier failed", err);
     }
-  }, [tiersByOrder, rosterId]);
+  }, [tiersByOrder, fetch, rosterId]);
 
   const deleteTier = useCallback((tierId: string) => {
     setState((s) => {
@@ -447,7 +450,7 @@ export function BigBoard() {
       }).catch((err) => console.error("Delete tier failed", err));
       return { ...s, tiers: updatedTiers, rankings: updatedRankings };
     });
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   const persistRankings = useCallback((renumbered: Ranking[]) => {
     fetch("/api/scouting/big-board/rankings", {
@@ -455,7 +458,7 @@ export function BigBoard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ roster_id: rosterId, action: "reorder_players", rankings: renumbered }),
     }).catch((err) => console.error("Reorder failed", err));
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   // The board's canonical sequence is the VISUAL one: tier 1's players, then
   // tier 2's, ..., then unranked — by stored rank within each group. Stored
@@ -526,7 +529,7 @@ export function BigBoard() {
     } catch (err) {
       console.error("Tier label save failed", err);
     }
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   // Re-cut the tier lines from clear CFC value drops along the current order.
   // Confirmation lives in the director modal (suggestOpen), not window.confirm.
@@ -547,7 +550,7 @@ export function BigBoard() {
     } finally {
       setSuggesting(false);
     }
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   // Desktop mouse drag.
   const handleDragStart = useCallback((playerId: string) => setDraggingId(playerId), []);

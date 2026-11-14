@@ -4,9 +4,9 @@
 //      team_email_map (the canonical display-name store) and refreshes the
 //      identity cookies so the topbar/storedTeam pick up the new name at once.
 //
-// Auth: the httpOnly cfc_roster_id cookie set by /api/auth/finalize (and the
-// dev login mirror). Falls back to the readable cfc_identity JSON cookie.
+// Auth: verified signed session and current membership, scoped to its active league.
 
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
@@ -19,10 +19,12 @@ import { invalidateLeagueData } from "@/shared/league-data";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
   try {
-    const { session } = await currentAppSessionFromRequest(request);
-    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-    const identities = await getTeamIdentities();
+
+    const identities = await getTeamIdentities(session.leagueId);
     return NextResponse.json({
       teams: identities.map((t) => ({
         rosterId: t.rosterId,
@@ -49,15 +51,16 @@ const NAME_MIN = 3;
 const NAME_MAX = 30;
 
 export async function POST(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
   try {
-    const { session } = await currentAppSessionFromRequest(request);
-    if (!session) {
-      return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
-    }
+
     const rosterId = session.rosterId;
 
-    const body = (await request.json().catch(() => ({}))) as { teamName?: string };
-    const teamName = (body.teamName ?? "").replace(/\s+/g, " ").trim();
+    const body = await boundedJson<{ teamName?: unknown }>(request, 4096);
+    if (!body || typeof body.teamName !== "string") return NextResponse.json({ error: "invalid_team_name" }, { status: 400 });
+    const teamName = body.teamName.replace(/\s+/g, " ").trim();
     if (teamName.length < NAME_MIN || teamName.length > NAME_MAX) {
       return NextResponse.json(
         { error: `Team name must be ${NAME_MIN}–${NAME_MAX} characters.` },
@@ -74,7 +77,7 @@ export async function POST(request: NextRequest) {
     // Names double as crest lookup keys league-wide — keep them unique.
     const { data: allRows } = await client
       .from("team_email_map")
-      .select("roster_id, team_name");
+      .select("roster_id, team_name").eq("league_id", session.leagueId);
     const taken = (allRows ?? []).some(
       (r) =>
         String(r.roster_id) !== rosterId &&
@@ -87,11 +90,11 @@ export async function POST(request: NextRequest) {
     const { error } = await client
       .from("team_email_map")
       .update({ team_name: teamName, updated_at: new Date().toISOString() })
-      .eq("roster_id", rosterId);
+      .eq("league_id", session.leagueId).eq("roster_id", rosterId);
     if (error) throw new Error(error.message);
 
-    invalidateTeamIdentities();
-    invalidateLeagueData();
+    invalidateTeamIdentities(session.leagueId);
+    invalidateLeagueData(session.leagueId);
 
     // Same cookie contract as /api/auth/finalize.
     const cookieOptions = {
@@ -107,7 +110,7 @@ export async function POST(request: NextRequest) {
     });
     response.cookies.set(
       "cfc_identity",
-      JSON.stringify({ rosterId, teamName }),
+      JSON.stringify({ leagueId: session.leagueId, rosterId, teamName }),
       { ...cookieOptions, httpOnly: false }
     );
     return response;

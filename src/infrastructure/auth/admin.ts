@@ -1,6 +1,6 @@
 import "server-only";
 import { timingSafeEqual } from "node:crypto";
-import { currentAppSessionFromRequest } from "./currentSession";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 
 const safeEqual = (left: string, right: string) => {
   const a = Buffer.from(left);
@@ -8,14 +8,26 @@ const safeEqual = (left: string, right: string) => {
   return a.length === b.length && timingSafeEqual(a, b);
 };
 
-/** Global ingestion/maintenance routes require a machine secret or global admin. */
+/** League membership roles never grant global ingestion or maintenance privileges. */
 export async function isAdminRequest(request: Request) {
   const authorization = request.headers.get("authorization") ?? "";
   const bearer = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   const configured = [process.env.ADMIN_SECRET, process.env.CRON_SECRET].filter(
     (value): value is string => Boolean(value),
   );
-  if (bearer && configured.some((secret) => safeEqual(bearer, secret))) return true;
-  const { session } = await currentAppSessionFromRequest(request);
-  return session?.role === "admin";
+  return Boolean(bearer && configured.some((secret) => safeEqual(bearer, secret)));
+}
+
+/** A machine credential is global; each job must still name a registered league explicitly. */
+export async function registeredMachineLeague(request: Request): Promise<string | null> {
+  if (!(await isAdminRequest(request))) return null;
+  const query = new URL(request.url).searchParams.get("leagueId");
+  const header = request.headers.get("x-cfc-league-id");
+  if (header && query && header !== query) return null;
+  const leagueId = header || query;
+  if (!leagueId || leagueId.length > 128) return null;
+  const { client } = getSupabaseAdminClient();
+  if (!client) return null;
+  const { data, error } = await client.rpc("cfc_get_league_runtime_public", { p_league_id: leagueId });
+  return !error && data?.initialized === true ? leagueId : null;
 }

@@ -1,8 +1,7 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
-import { authorizeThreadCreation } from "./threadAuthorization";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +17,9 @@ export const dynamic = "force-dynamic";
 /* ------------------------------------------------------------------ */
 
 export async function GET(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
   const includeLatest = request.nextUrl.searchParams.get("include") === "latest";
 
@@ -25,13 +27,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "teamId is required" }, { status: 400 });
   }
 
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
+  const league_id = session.leagueId;
 
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
   if (session.leagueId !== league_id || session.rosterId !== teamId)
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
@@ -84,7 +81,7 @@ export async function GET(request: NextRequest) {
   // card's version chips flip through every revision of the deal.
   const latestOffer = new Map<string, unknown>();
   const offerHistory = new Map<string, unknown[]>();
-  for (const o of offersRes.data ?? []) {
+  for (const o of (offersRes.data ?? []).map(normalizeTradeOffer)) {
     if (!latestOffer.has(o.thread_id)) latestOffer.set(o.thread_id, o);
     const hist = offerHistory.get(o.thread_id) ?? [];
     hist.unshift(o);
@@ -104,92 +101,4 @@ export async function GET(request: NextRequest) {
       offer_count: (offerHistory.get(t.id) ?? []).length,
     })),
   });
-}
-
-/* ------------------------------------------------------------------ */
-/*  POST /api/inbox/threads                                           */
-/*  Find or create a thread between two teams.                         */
-/* ------------------------------------------------------------------ */
-
-export async function POST(request: NextRequest) {
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const { team_a_id, team_b_id, created_by_team_id } = body as {
-    team_a_id?: string;
-    team_b_id?: string;
-    created_by_team_id?: string;
-  };
-
-  if (!team_a_id || !team_b_id || !created_by_team_id) {
-    return NextResponse.json(
-      { error: "team_a_id, team_b_id, and created_by_team_id are required" },
-      { status: 400 },
-    );
-  }
-
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
-
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-  const { client, error: clientError } = getSupabaseAdminClient();
-  if (!client) {
-    return NextResponse.json({ error: clientError }, { status: 500 });
-  }
-
-  // league_memberships is the authoritative league/roster registry. Requiring
-  // both participants prevents cross-league or invented roster identifiers.
-  const authorized = await authorizeThreadCreation(session, league_id, team_a_id, team_b_id,
-    created_by_team_id, async (league, teams) => {
-      const { data, error } = await client.from("league_memberships").select("roster_id")
-        .eq("league_id", league).in("roster_id", teams);
-      return error ? null : (data ?? []).map((row) => String(row.roster_id));
-    });
-  if (!authorized)
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-
-  // Normalise pair so we always search both orderings
-  const { data: existing } = await client
-    .from("trade_threads")
-    .select("id")
-    .eq("league_id", league_id)
-    .eq("status", "open")
-    .or(
-      `and(team_a_id.eq.${team_a_id},team_b_id.eq.${team_b_id}),and(team_a_id.eq.${team_b_id},team_b_id.eq.${team_a_id})`,
-    )
-    .maybeSingle();
-
-  if (existing?.id) {
-    return NextResponse.json({ id: existing.id, created: false });
-  }
-
-  const now = new Date().toISOString();
-  const { data, error } = await client
-    .from("trade_threads")
-    .insert({
-      league_id,
-      team_a_id,
-      team_b_id,
-      created_by_team_id,
-      status: "open",
-      last_activity_at: now,
-      last_offer_at: now,
-      created_at: now,
-      updated_at: now,
-    })
-    .select("id")
-    .single();
-
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
-  }
-
-  return NextResponse.json({ id: data.id, created: true });
 }

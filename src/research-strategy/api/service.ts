@@ -1,3 +1,5 @@
+import { requireCfcValuation } from "@/shared/league-data/capabilities";
+import { getPlayerDictionary } from "@/shared/league-data";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { getLeagueData, getPickValues, invalidateLeagueData } from "@/shared/league-data";
 
@@ -148,15 +150,15 @@ const getClientOrThrow = () => {
 };
 
 const getOwnedPlayerIds = async (leagueId: string, teamId: string): Promise<string[]> => {
-  const league = await getLeagueData();
-  if ("error" in league || league.leagueId !== leagueId) return [];
+  const league = await getLeagueData(leagueId);
+  if ("error" in league) throw new Error(league.error);
+  if (league.leagueId !== leagueId) throw new Error("League context mismatch");
   return league.teams.find(team => team.rosterId === teamId)?.playerIds ?? [];
 };
 
 const getPlayersDictionary = async (): Promise<Record<string, PlayerMeta>> => {
-  const league = await getLeagueData();
-  if ("error" in league) throw new Error(league.error);
-  return Object.fromEntries([...league.players].map(([id, player]) => [id, {
+  const players = await getPlayerDictionary();
+  return Object.fromEntries([...players].map(([id, player]) => [id, {
     full_name: player.name,
     position: player.position,
     team: player.team,
@@ -210,8 +212,9 @@ const getAttachmentModifier = (attachment: string | undefined | null): number =>
   return ATTACHMENT_MODIFIERS[normalized];
 };
 
-export async function readTeamTradeChartAnchors(): Promise<TeamTradeChartAnchors> {
-  const ladder = await getPickValues();
+export async function readTeamTradeChartAnchors(leagueId: string): Promise<TeamTradeChartAnchors> {
+  requireCfcValuation(leagueId);
+  const ladder = await getPickValues(leagueId);
   const first = ladder.get("1.06");
   const second = ladder.get("2.06");
   const third = ladder.get("3.06");
@@ -295,7 +298,7 @@ export async function saveTeamStrategyProfile(
   if (error) {
     throw new Error(error.message);
   }
-  invalidateLeagueData();
+  invalidateLeagueData(leagueId);
 
   return {
     league_id: leagueId,
@@ -441,14 +444,15 @@ const upsertComputedRows = async (
 // Owned pick keys for a team, read from the shared ownership fact (same source
 // pickService uses). Picks live in the per-team values table alongside players;
 // the stale-cleanup must treat them as owned so it sweeps only traded-away assets.
-const getOwnedPickKeys = async (teamId: string): Promise<string[]> => {
-  const league = await getLeagueData();
-  if ("error" in league) return [];
+const getOwnedPickKeys = async (leagueId: string, teamId: string): Promise<string[]> => {
+  const league = await getLeagueData(leagueId);
+  if ("error" in league) throw new Error(league.error);
   const picks = league.pickOwnership.get(teamId) ?? [];
   return picks.map((pick) => pick.key).filter(Boolean);
 };
 
 export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: string) {
+  requireCfcValuation(leagueId);
   const client = getClientOrThrow();
   const strategyProfile = await getTeamStrategyProfile(leagueId, teamId);
   const strategy = { wants_more: strategyProfile.wants_more };
@@ -458,7 +462,7 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
   // pickService; including their keys here means the stale-cleanup treats them
   // as owned and never sweeps a pick that's still ours.
   const ownedPlayerIds = await getOwnedPlayerIds(leagueId, teamId);
-  const ownedPickKeys = await getOwnedPickKeys(teamId);
+  const ownedPickKeys = await getOwnedPickKeys(leagueId, teamId);
   const ownedAssetIdSet = new Set<string>([...ownedPlayerIds, ...ownedPickKeys]);
 
   // Recompute the player rows. (Picks are recomputed by pickService; we leave
@@ -496,7 +500,7 @@ export async function rebuildTeamTradeValuesForTeam(leagueId: string, teamId: st
     }
   }
 
-  invalidateLeagueData();
+  invalidateLeagueData(leagueId);
   return { upserted, deleted: staleIds.length };
 }
 
@@ -505,6 +509,7 @@ export async function rebuildTeamTradeValueForPlayer(
   teamId: string,
   sleeperPlayerId: string,
 ) {
+  requireCfcValuation(leagueId);
   const client = getClientOrThrow();
   const ownedPlayerIds = await getOwnedPlayerIds(leagueId, teamId);
   const isOwned = ownedPlayerIds.includes(sleeperPlayerId);
@@ -521,7 +526,7 @@ export async function rebuildTeamTradeValueForPlayer(
       throw new Error(deleteError.message);
     }
 
-    invalidateLeagueData();
+    invalidateLeagueData(leagueId);
     return { rebuilt: false, reason: "not_owned" as const };
   }
 
@@ -530,7 +535,7 @@ export async function rebuildTeamTradeValueForPlayer(
     wants_more: strategyProfile.wants_more,
   });
 
-  invalidateLeagueData();
+  invalidateLeagueData(leagueId);
   return { rebuilt: true };
 }
 

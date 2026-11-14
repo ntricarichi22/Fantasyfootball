@@ -1,5 +1,9 @@
 "use client";
 
+import { createDraftTickPoller, startDraftTickPolling } from "@/scouting/draft-room/draftTick";
+import { draftTickDeadline } from "@/shared/league-data/draftDeadline";
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { createContext, useContext, useEffect, useMemo, type ReactNode } from "react";
 
 import { useDraftStatus, type DraftStatus } from "@/scouting/draft-room/hooks/useDraftStatus";
@@ -32,6 +36,7 @@ export function DraftStatusProvider({
   pollMs,
   disabled,
 }: DraftStatusProviderProps) {
+  const fetch = useLeagueFetch();
   const status = useDraftStatus({ pollMs, disabled });
   // The hook returns a fresh object on every poll. Memoize on the meaningful
   // primitive fields so consumers don't re-render when nothing has actually
@@ -52,48 +57,18 @@ export function DraftStatusProvider({
     [clockStatus, isActive, secondsRemaining, isLoading, pickSubmitted, pickAnnouncedAt, currentPickIndex, startsAt, clockStartedAt, baseSeconds]
   );
 
-  // ----- /api/scouting/draft/tick safety net ---------------------------------------
-  // The ClockBar's zero-crossing useEffect is the primary trigger, but it
-  // can miss if the page is backgrounded, Realtime drops, or the timer
-  // never reaches zero in this client. Poll the (idempotent) tick endpoint
-  // every 3s while the draft is running so the maximum delay between a
-  // timer expiring and the announcement firing is ~3s, regardless of
-  // whether the primary trigger ran.
+  const deadline = draftTickDeadline(state);
+  // Presentation bars never write clock state. One poller owns the exact
+  // deadline wakeup, retries, and focus recovery for every screen layout.
   useEffect(() => {
-    if (clockStatus !== "running") return;
-    const id = window.setInterval(() => {
-      fetch("/api/scouting/draft/tick", { method: "POST" })
-        .then((r) => r.json())
-        .then((data) => {
-          if (data?.status === "advanced") {
-            console.log("[poll] tick advanced state");
-            // Fan out a refetch signal so the draft-log subscription owner
-            // re-pulls /api/scouting/draft/log immediately. This is the cross-client
-            // safety net: any client whose Realtime channel didn't fan out
-            // the draft_log UPDATE still discovers the freshly-announced
-            // pick within the next ≤3s poll, instead of waiting for the
-            // 30s polling fallback in useDraftRoomLog.
-            window.dispatchEvent(new Event("draft-log-refetch-requested"));
-          }
-        })
-        .catch(() => {
-          // ignore network errors — next interval will retry
-        });
-    }, 3000);
-    return () => window.clearInterval(id);
-  }, [clockStatus]);
-
-  // Fire one tick on window focus so a user returning from a backgrounded
-  // tab / sleeping phone catches up immediately instead of waiting up to
-  // 3s for the next poll.
-  useEffect(() => {
-    if (clockStatus !== "running") return;
-    const onFocus = () => {
-      fetch("/api/scouting/draft/tick", { method: "POST" }).catch(() => {});
-    };
-    window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
-  }, [clockStatus]);
+    if (disabled || deadline === null) return;
+    const poll = createDraftTickPoller(fetch,
+      () => window.dispatchEvent(new Event("draft-log-refetch-requested")),
+      () => Date.now() >= deadline);
+    const stop = startDraftTickPolling(poll, deadline, disabled);
+    window.addEventListener("focus", poll);
+    return () => { stop(); window.removeEventListener("focus", poll); };
+  }, [deadline, disabled, fetch]);
 
   return (
     <DraftStatusContext.Provider value={value}>

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 import { useDraftStatusContext } from "./DraftStatusProvider";
 
@@ -29,6 +31,7 @@ const POS_COLORS: Record<string, string> = {
 };
 
 export default function DraftCompleteModal() {
+  const fetch = useLeagueFetch();
   const { state } = useDraftStatusContext();
   const [picks, setPicks] = useState<DraftLogRow[]>([]);
   const [dismissed, setDismissed] = useState(false);
@@ -50,7 +53,7 @@ export default function DraftCompleteModal() {
         setLoaded(true);
       })
       .catch(() => setLoaded(true));
-  }, [isCompleted]);
+  }, [fetch, isCompleted]);
 
   if (!isCompleted || dismissed || !loaded) return null;
 

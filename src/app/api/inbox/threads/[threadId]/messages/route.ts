@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest, currentSessionCanAccessTeamPair } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
@@ -13,14 +12,13 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> },
 ) {
-  const { threadId } = await params;
-
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
+  const { threadId } = await params;
+
+  const league_id = session.leagueId;
+
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
@@ -54,6 +52,9 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> },
 ) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
   const { threadId } = await params;
 
   let body: Record<string, unknown>;
@@ -75,12 +76,8 @@ export async function POST(
     );
   }
 
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const league_id = session.leagueId;
+
   if (session.rosterId !== from_team_id)
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
 

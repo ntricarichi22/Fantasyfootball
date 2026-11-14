@@ -1,3 +1,5 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
+import { registeredMachineLeague } from "@/infrastructure/auth/admin";
 import "server-only";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
@@ -20,7 +22,11 @@ export async function authenticatedAiUser(request: Request): Promise<string> {
 }
 
 export async function reserveAi(request: Request, params: { feature: string; model: string; maxInputTokens: number; maxOutputTokens: number; maxCalls?: number; background?: boolean }) {
-  const authenticatedUserId = params.background ? "" : await authenticatedAiUser(request);
+  const active = params.background ? null : (await currentAppSessionFromRequest(request)).session;
+  if (!params.background && !active) throw new AiLimitError("Authentication required", 401);
+  const leagueId = params.background ? await registeredMachineLeague(request) : active?.leagueId;
+  if (!leagueId || !isCfcLeague(leagueId)) throw new AiLimitError("Paid AI is not configured for this league", 403);
+  const authenticatedUserId = active?.userId ?? "";
   const userId = resolveAiBillingUserId(authenticatedUserId, Boolean(params.background), process.env.AI_BACKGROUND_USER_ID);
   if (!userId) throw new AiLimitError("Background AI is disabled: AI_BACKGROUND_USER_ID is not configured");
   const cfg = aiConfig();

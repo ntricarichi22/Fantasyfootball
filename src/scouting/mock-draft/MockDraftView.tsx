@@ -1,8 +1,10 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamNickname, teamCrestSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 
@@ -124,9 +126,8 @@ const SPEEDS: { label: string; seconds: number }[] = [
 ];
 const LOBBY_ROUTE = "/scouting/draft-room";
 
-const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
-const logoFor = (teamName: string) =>
-  teamCrestSrc(teamName) ?? `/teams/${slugify(teamNickname(teamName))}.png`;
+const logoFor = (teamName: string, leagueId: string) =>
+  teamCrestSrc(teamName, leagueId) ?? "";
 const listPhrase = (a: string[]) => (a.length <= 1 ? a[0] ?? "" : a.length === 2 ? `${a[0]} and ${a[1]}` : `${a.slice(0, -1).join(", ")}, and ${a[a.length - 1]}`);
 const posTeam = (p: { pos: string | null; nflTeam: string | null }) => `${p.pos ?? ""}${p.nflTeam ? ` · ${p.nflTeam}` : ""}`;
 // Pretty lineup-slot labels for the roster tab.
@@ -146,8 +147,10 @@ type PickGrade = { pick: string; name: string; posTeam: string; grade: string; l
 type DraftGrades = { overall: string; overallLine: string; picks: PickGrade[] };
 
 export function MockDraftView() {
+  const fetch = useLeagueFetch();
+  const { leagueId = "", rosterId = "" } = useStoredTeam();
   const isMobile = useIsMobile() === true;
-  const teamId = useMemo(() => readStoredTeam().rosterId ?? "", []);
+  const teamId = rosterId;
   const [board, setBoard] = useState<BoardPick[]>([]);
   const [pool, setPool] = useState<PoolPlayer[]>([]);
   const [read, setRead] = useState<DirectorRead | null>(null);
@@ -236,7 +239,7 @@ export function MockDraftView() {
       .then((j: Payload) => { applyPayload(j); setViewRound(j.board?.[0]?.round ?? 2); setRevealed(0); setPhase("running"); })
       .catch(() => setError("Couldn't load the draft."))
       .finally(() => setLoading(false));
-  }, [teamId]);
+  }, [fetch, teamId]);
 
   function reproject(scn: Scenario) {
     const forcedPicks = board.slice(0, revealed).filter((b) => b.playerId).map((b) => ({ overall: b.overall, playerId: b.playerId as string }));
@@ -579,7 +582,7 @@ export function MockDraftView() {
         {filled && (
           <div style={{ position: "absolute", top: 2, left: 2, right: 2, bottom: 2, display: "flex", alignItems: "center", gap: 7, borderRadius: 2, border: `1.5px solid ${BINK}`, background: announcing ? GOLD : PLACARD, boxShadow: "0 1px 2px rgba(0,0,0,0.4)", animation: "cfcSlide 0.5s cubic-bezier(0.33,0.9,0.42,1) both", overflow: "hidden" }}>
             <div style={{ alignSelf: "stretch", display: "flex", alignItems: "center", justifyContent: "center", width: 34, background: BINK, color: PLACARD, fontFamily: ANTON, fontSize: 11, letterSpacing: 0.3, flexShrink: 0 }}>{b.pick}</div>
-            <div style={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%", border: `1.5px solid ${BINK}`, background: `#fff url('${logoFor(b.team)}') center / cover` }} />
+            <div style={{ flexShrink: 0, width: 20, height: 20, borderRadius: "50%", border: `1.5px solid ${BINK}`, background: `#fff url('${logoFor(b.team, leagueId)}') center / cover` }} />
             <span style={{ flex: 1, minWidth: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 12.5, letterSpacing: 0.2, color: BINK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.player ?? "—"}</span>
             {b.pos && <span style={{ flexShrink: 0, fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, color: PLACARD, background: BINK, padding: "2px 6px", borderRadius: 2, marginRight: 6 }}>{b.pos}</span>}
           </div>
@@ -911,7 +914,7 @@ export function MockDraftView() {
                     </span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-                    <span style={{ width: 40, height: 40, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(onClock.team)}') center / cover`, flexShrink: 0 }} />
+                    <span style={{ width: 40, height: 40, borderRadius: "50%", border: `2px solid ${BINK}`, background: `#fff url('${logoFor(onClock.team, leagueId)}') center / cover`, flexShrink: 0 }} />
                     <span style={{ minWidth: 0 }}>
                       <span style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
                         <span style={{ fontFamily: ANTON, fontSize: 20, letterSpacing: 0.5, color: SCREAM, flexShrink: 0 }}>{onClock.pick}</span>
@@ -965,7 +968,7 @@ export function MockDraftView() {
                           opacity: filled || current ? 1 : 0.85,
                         }}
                       >
-                        <span style={{ position: "absolute", top: 5, right: 5, width: 20, height: 20, borderRadius: "50%", border: `1.5px solid ${BINK}`, background: `#fff url('${logoFor(b.team)}') center / cover` }} />
+                        <span style={{ position: "absolute", top: 5, right: 5, width: 20, height: 20, borderRadius: "50%", border: `1.5px solid ${BINK}`, background: `#fff url('${logoFor(b.team, leagueId)}') center / cover` }} />
                         <div style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 9, letterSpacing: 0.5, color: mine && !filled ? ARED : current ? ARED : META, paddingRight: 24 }}>{b.pick}{mine && !filled ? " · YOURS" : ""}</div>
                         {filled ? (
                           <>
@@ -1414,7 +1417,7 @@ export function MockDraftView() {
                       )}
                     </span>
                     <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ width: tradeInbound ? 42 : 30, height: tradeInbound ? 42 : 30, borderRadius: "50%", border: `2.5px solid ${BINK}`, background: `#fff url('${logoFor(offer.partner)}') center / cover`, flexShrink: 0 }} />
+                      <span style={{ width: tradeInbound ? 42 : 30, height: tradeInbound ? 42 : 30, borderRadius: "50%", border: `2.5px solid ${BINK}`, background: `#fff url('${logoFor(offer.partner, leagueId)}') center / cover`, flexShrink: 0 }} />
                       <span onClick={closeTrade} style={{ cursor: "pointer", color: SCREAM, fontFamily: ANTON, fontSize: 18, lineHeight: 1 }}>×</span>
                     </span>
                   </div>

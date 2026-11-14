@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
@@ -163,6 +165,7 @@ function TargetCard({ target, isMobile }: { target: PlayTarget; isMobile: boolea
 }
 
 export default function MemoBody({ memoId }: { memoId: string }) {
+  const fetch = useLeagueFetch();
   const isMobile = !!useIsMobile();
   const [memo, setMemo] = useState<Memo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -200,7 +203,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [memoId]);
+  }, [fetch, memoId]);
 
   // Offer-card memos: check the offer is still pending before arming the
   // buttons — it may have been answered from the thread (or by the deadline).
@@ -223,7 +226,7 @@ export default function MemoBody({ memoId }: { memoId: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [memo]);
+  }, [fetch, memo]);
 
   const updateStatus = async (status: "unread" | "archived" | "trashed") => {
     if (!memo) return;

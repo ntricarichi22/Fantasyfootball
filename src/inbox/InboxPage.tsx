@@ -1,10 +1,12 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
-import { teamNickname, teamCrestSrc } from "@/shared/league-data/nicknames";
+import { teamCrestSrc } from "@/shared/league-data/nicknames";
 import { fetchRosterNameMap } from "@/shared/league-data/clientTeamIdentity";
 import { gradeForRatio, ratioOf, offerRead } from "@/inbox/thread/counterMath";
 import {
@@ -126,15 +128,14 @@ function assetSummary(assets: OfferAsset[]): string {
   return extra > 0 ? `${shown} +${extra}` : shown;
 }
 
-const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 
 // House logo art — the canonical crest resolver (custom logos + renames).
-const logoFor = (teamName: string) =>
-  teamCrestSrc(teamName) ?? `/teams/${slugify(teamNickname(teamName))}.png`;
+const logoFor = (teamName: string, leagueId: string) =>
+  teamCrestSrc(teamName, leagueId) ?? "";
 
 // Identity-aware names (in-app renames included), Sleeper as fallback.
-async function fetchRosterNames(): Promise<Record<string, string>> {
-  return fetchRosterNameMap();
+async function fetchRosterNames(leagueId: string): Promise<Record<string, string>> {
+  return fetchRosterNameMap(leagueId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -153,7 +154,9 @@ const matchesFilter = (t: NegotiationTileData, f: BoardFilter) => {
 };
 
 export default function InboxPage() {
-  const stored = readStoredTeam() as
+  const fetch = useLeagueFetch();
+  const leagueId = useStoredTeam().leagueId ?? "";
+  const stored = useStoredTeam() as
     | { rosterId?: string; teamName?: string; name?: string }
     | null;
   const rosterId = stored?.rosterId ?? "";
@@ -181,8 +184,8 @@ export default function InboxPage() {
   }, []);
 
   useEffect(() => {
-    fetchRosterNames().then(setRosterNames);
-  }, []);
+    fetchRosterNames(leagueId).then(setRosterNames);
+  }, [leagueId]);
 
   // Old mail-model deep links map onto the new sections: sent → active
   // negotiations, archive → closed deals, trash → staff trash.
@@ -220,7 +223,7 @@ export default function InboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   useEffect(() => {
     fetchAll();
@@ -315,7 +318,7 @@ export default function InboxPage() {
         const oIsReceiver = o.to_team_id === rosterId;
         const giveVal = oIsReceiver ? o.to_value : o.from_value;
         const getVal = oIsReceiver ? o.from_value : o.to_value;
-        let verdictLabel: string | undefined;
+        let verdictLabel: string | undefined = "Not rated";
         let verdictColor: string | undefined;
         let prose: string | undefined;
         if (typeof giveVal === "number" && typeof getVal === "number" && getVal > 0) {
@@ -353,9 +356,9 @@ export default function InboxPage() {
       out.push({
         threadId: t.id,
         counterpart,
-        logoUrl: logoFor(counterpart),
+        logoUrl: logoFor(counterpart, leagueId),
         myTeam,
-        myLogoUrl: logoFor(myTeam),
+        myLogoUrl: logoFor(myTeam, leagueId),
         versions,
         status,
         unseen,
@@ -368,7 +371,7 @@ export default function InboxPage() {
     }
     out.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     return out;
-  }, [threads, rosterNames, rosterId, now]);
+  }, [threads, rosterId, rosterNames, now, leagueId]);
 
   const boardCounts = useMemo<Record<BoardFilter, number>>(
     () => ({

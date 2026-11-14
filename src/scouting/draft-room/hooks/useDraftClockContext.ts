@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 
 export type DraftClockContext = {
@@ -31,6 +33,7 @@ type UseDraftClockContextOptions = {
 export function useDraftClockContext(
   options: UseDraftClockContextOptions = {}
 ): DraftClockContext | null {
+  const fetch = useLeagueFetch();
   const { disabled = false, pollMs = DEFAULT_POLL_MS } = options;
   const [context, setContext] = useState<DraftClockContext | null>(null);
   useEffect(() => {
@@ -65,7 +68,7 @@ export function useDraftClockContext(
       controller.abort();
       window.clearInterval(interval);
     };
-  }, [disabled, pollMs]);
+  }, [disabled, fetch, pollMs]);
 
   return context;
 }

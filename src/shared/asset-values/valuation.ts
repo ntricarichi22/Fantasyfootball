@@ -1,12 +1,14 @@
+import { leagueCacheKey } from "@/infrastructure/identity/leagueScope";
+import { requireCfcValuation } from "@/shared/league-data/capabilities";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import {
   getLeagueData,
   getPickValues,
   getValues,
-  getCFCYear,
   parsePickKey,
   type PickLadder,
+  type LeagueData,
 } from "@/shared/league-data";
 import { buildTeamProfiles, type Tier } from "@/shared/team-profiles";
 import { yearDiscount } from "./modifiers";
@@ -53,22 +55,21 @@ async function loadAdjusted(leagueId: string): Promise<Map<string, number>> {
 }
 
 // Cached briefly — the door/editor endpoints each rebuilt this per request.
-export function buildValuationContext(): Promise<ValuationContext> {
-  return ttlMemo("asset-values:context", 60_000, buildValuationContextUncached);
+export async function buildValuationContext(leagueId: string): Promise<ValuationContext> {
+  requireCfcValuation(leagueId);
+  const league = await getLeagueData(leagueId);
+  if ("error" in league) throw new Error(league.error);
+  return ttlMemo(leagueCacheKey("asset-values:context", leagueId) + ":" + league.runtimeRevision, 60_000, () => buildValuationContextUncached(leagueId, league));
 }
 
-async function buildValuationContextUncached(): Promise<ValuationContext> {
-  const league = await getLeagueData();
-  const [values, ladder] = await Promise.all([getValues(), getPickValues()]);
+async function buildValuationContextUncached(leagueId: string, league: LeagueData): Promise<ValuationContext> {
+  const [values, ladder] = await Promise.all([getValues(leagueId), getPickValues(leagueId)]);
 
   const tierByRoster = new Map<string, Tier>();
   const draftSlotByRoster = new Map<string, number>();
   const pickSlotByKey = new Map<string, number>();
-  let cfcYear = getCFCYear();
-  let leagueId = "";
-  if (!("error" in league)) {
-    cfcYear = league.cfcYear;
-    leagueId = league.leagueId;
+  const cfcYear = league.cfcYear;
+  {
     const profiles = buildTeamProfiles(league);
     for (const p of profiles) tierByRoster.set(p.rosterId, p.tier);
     for (const picks of league.pickOwnership.values()) {
@@ -126,9 +127,10 @@ export function valueAsset(
 
 // Single-shot convenience: builds a context, then values one asset.
 export async function getAssetValue(
+  leagueId: string,
   asset: AssetRef,
   opts?: { perspective?: string }
 ): Promise<number> {
-  const ctx = await buildValuationContext();
+  const ctx = await buildValuationContext(leagueId);
   return valueAsset(asset, ctx, opts);
 }

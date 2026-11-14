@@ -49,6 +49,20 @@ export type OwnedPick = {
   originalRosterId: string;
 };
 
+/** Neutral board metadata; consumed slots remain visible without selection identity. */
+export type LeagueDraftSlot = {
+  season: number;
+  pickIndex: number;
+  assetKey: string;
+  round: number;
+  slot: number;
+  originalRosterId: string;
+  rosterId: string | null;
+  consumed: boolean;
+};
+
+export type LeagueDraftClock = { status: string; currentPickIndex: number };
+
 export type DraftResultPick = {
   source: "app" | "sleeper";
   pickNumber: number;
@@ -161,6 +175,10 @@ export type ResultsSource = "current" | "previous" | "none";
 // The full assembled bundle. Pure facts — no scores, ranks, or classification.
 export type LeagueData = {
   leagueId: string;
+  runtimeRevision: number;
+  writesEnabled: boolean;
+  draftSlots: LeagueDraftSlot[];
+  draftClock: LeagueDraftClock | null;
   cfcYear: number;
   teamCount: number;
   settings: LeagueSettings;
@@ -190,6 +208,10 @@ export type LeagueData = {
 
 export type LeagueSnapshot = {
   leagueId: string;
+  runtimeRevision: number;
+  writesEnabled: boolean;
+  draftSlots: LeagueDraftSlot[];
+  draftClock: LeagueDraftClock | null;
   cfcYear: number;
   teamCount: number;
   settings: LeagueSettings;

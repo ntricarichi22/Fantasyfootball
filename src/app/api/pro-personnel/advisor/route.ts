@@ -1,8 +1,8 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import {
   personaAwareGrade,
   computePostTradeWarnings,
@@ -211,6 +211,10 @@ function buildBalancingSuggestions(p: BalanceParams): Suggestion[] {
 }
 
 export async function POST(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   let body: RequestBody;
   try {
     body = await request.json();
@@ -224,8 +228,8 @@ export async function POST(request: NextRequest) {
   if (!my_team_id || !other_team_ids?.length) {
     return NextResponse.json({ error: "team IDs required" }, { status: 400 });
   }
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session || !currentSessionCanActForRoster(session, LEAGUE_ID, my_team_id)) {
+
+  if (!currentSessionCanActForRoster(session, session.leagueId, my_team_id)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   if (!rawRosters) {
@@ -246,8 +250,7 @@ export async function POST(request: NextRequest) {
   }
   const dealAssets: DealAsset[] = (deal_assets ?? []).map(a => ({ ...a, key: ek(a.key) }));
 
-  const league_id = LEAGUE_ID;
-  if (!league_id) return NextResponse.json({ error: "League not configured" }, { status: 500 });
+  const league_id = session.leagueId;
 
   const { client, error: ce } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: ce }, { status: 500 });
@@ -261,7 +264,7 @@ export async function POST(request: NextRequest) {
     client.from("cfc_team_strategy_profiles")
       .select("team_id, wants_more, qb_market, rb_market, pc_market, picks_market, gm_persona")
       .eq("league_id", league_id).in("team_id", allTeamIds),
-    client.from("team_email_map").select("roster_id, team_name"),
+    client.from("team_email_map").select("roster_id, team_name").eq("league_id", league_id),
     client.from("trade_offers")
       .select("from_team_id, to_team_id, status")
       .eq("league_id", league_id),
@@ -321,7 +324,7 @@ export async function POST(request: NextRequest) {
   // at neutral base; mirrored for their seat) → personaAwareGrade on OUR
   // scoreboard with the engine-normalized persona. A deal seeded from the
   // cycler grades IDENTICALLY here.
-  const [ctx, leagueData] = await Promise.all([buildValuationContext(), getLeagueData()]);
+  const [ctx, leagueData] = await Promise.all([buildValuationContext(session.leagueId), getLeagueData(session.leagueId)]);
 
   // Canonical grounding (needs read + scrub/aging gates). All TTL-cached
   // upstream; if the league pipeline errored we degrade gracefully — the
@@ -397,7 +400,7 @@ export async function POST(request: NextRequest) {
   );
   const warnings = computePostTradeWarnings(dealAssets, rosters, my_team_id);
   const shapeMismatch = detectShapeMismatch(dealAssets, rosters, my_team_id, otherProfile);
-  const stableIdentity = (await getTeamIdentities()).find(team => team.rosterId === otherTeamId);
+  const stableIdentity = (await getTeamIdentities(session.leagueId)).find(team => team.rosterId === otherTeamId);
   const personality = getPersonality(stableIdentity?.baseSlug);
   const cfcYear = getCFCYear();
 

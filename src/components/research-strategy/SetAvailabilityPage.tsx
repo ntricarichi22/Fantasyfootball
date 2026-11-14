@@ -1,7 +1,9 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 
@@ -127,7 +129,8 @@ const emptySlotCount = (filled: number, perRow = 4, minRows = 2): number => {
 };
 
 export default function SetAvailabilityPage() {
-  const { rosterId = "" } = readStoredTeam();
+  const fetch = useLeagueFetch();
+  const { rosterId = "" } = useStoredTeam();
   const [rows, setRows] = useState<TradeRow[]>([]);
   const [picks, setPicks] = useState<PickAsset[]>([]);
   const [anchors, setAnchors] = useState<PickAnchors>(DEFAULT_PICK_ANCHORS);
@@ -154,7 +157,7 @@ export default function SetAvailabilityPage() {
       });
     }
     return map;
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   // The PICKS tab's single source: inventory + adjusted value + owner tag.
   const fetchPicks = useCallback(async (): Promise<PickAsset[]> => {
@@ -171,7 +174,7 @@ export default function SetAvailabilityPage() {
     }
     list.sort(sortPicks);
     return list;
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   // Stored draft-class-strength per pick (pick key -> strength).
   const fetchClassStrengths = useCallback(async (): Promise<Record<string, ClassStrength>> => {
@@ -186,7 +189,7 @@ export default function SetAvailabilityPage() {
       });
     }
     return map;
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   // Refresh picks after the server has rebuilt their values.
   const reloadPicks = useCallback(async () => {
@@ -206,7 +209,7 @@ export default function SetAvailabilityPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to refresh");
     }
-  }, [rosterId, fetchAttachments]);
+  }, [rosterId, fetch, fetchAttachments]);
 
   const load = useCallback(async () => {
     if (!rosterId) {
@@ -257,7 +260,7 @@ export default function SetAvailabilityPage() {
     } finally {
       setLoading(false);
     }
-  }, [rosterId, fetchAttachments, fetchClassStrengths, fetchPicks]);
+  }, [rosterId, fetch, fetchPicks, fetchAttachments, fetchClassStrengths]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Start the initial server load and synchronize its loading state.

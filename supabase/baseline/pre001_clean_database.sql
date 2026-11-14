@@ -212,3 +212,44 @@ CREATE TABLE public.cfc_team_strategy_profiles (
   gm_persona text NOT NULL DEFAULT 'straight_shooter',pc_market text NOT NULL DEFAULT 'hold',
   picks_sell_move text[] NOT NULL DEFAULT '{}', PRIMARY KEY(league_id,team_id)
 );
+
+-- Additional current catalog shapes verified 2026-11-14; CI-only fixtures.
+-- They already exist in production. New migrations only add tenant scope to them.
+CREATE TABLE public.cfc_big_board_tiers (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),roster_id text NOT NULL,tier_order integer NOT NULL,label text,
+ created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),UNIQUE(roster_id,tier_order)
+);
+CREATE TABLE public.cfc_big_board_rankings (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),roster_id text NOT NULL,player_id text NOT NULL,
+ tier_id uuid REFERENCES public.cfc_big_board_tiers(id) ON DELETE SET NULL,rank integer NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),UNIQUE(roster_id,player_id)
+);
+CREATE TABLE public.cfc_big_board_stars (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),roster_id text NOT NULL,player_id text NOT NULL,starred boolean NOT NULL DEFAULT true,
+ created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),UNIQUE(roster_id,player_id)
+);
+CREATE TABLE public.cfc_director_memos (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),director_role text NOT NULL CHECK(director_role IN ('scouting','personnel','strategy')),
+ team_id text NOT NULL,subject text NOT NULL,read_body text NOT NULL,play_intro text NOT NULL,
+ play_mode text NOT NULL CHECK(play_mode IN ('single_cta','ranked','offer_card')),play_payload jsonb NOT NULL DEFAULT '{}',
+ status text NOT NULL DEFAULT 'unread' CHECK(status IN ('unread','read','archived','trashed')),
+ created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now()
+);
+CREATE TABLE public.cfc_team_roster_players (
+ id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,team_id text NOT NULL,sleeper_player_id text NOT NULL,
+ player_name text,position text,created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now(),
+ UNIQUE(team_id,sleeper_player_id)
+);
+CREATE TABLE public.rookie_prospects (
+ player_id text PRIMARY KEY,player_name text NOT NULL,position text NOT NULL,college text,age integer,
+ height_inches integer,weight integer,nfl_team text,nfl_draft_round integer,nfl_draft_pick integer,avatar_url text,
+ created_at timestamptz DEFAULT now()
+);
+
+-- Existing production catalog confirmed through information_schema and pg_constraint
+-- on 2026-11-14. Strict function lint validates the runtime metadata lookup against it.
+CREATE TABLE public.slp_raw_players_catalog (
+ sleeper_player_id text PRIMARY KEY,payload_json jsonb NOT NULL,
+ full_name text,first_name text,last_name text,team text,position text,years_exp integer,active boolean,
+ sport text NOT NULL DEFAULT 'nfl',source_updated_at timestamptz,ingested_at timestamptz NOT NULL DEFAULT now()
+);

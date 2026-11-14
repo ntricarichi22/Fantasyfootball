@@ -6,14 +6,16 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-  const league = await getLeagueData();
+
+  const league = await getLeagueData(session.leagueId);
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
   if (session.leagueId !== league.leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const names = new Map(league.teams.map(team => [team.rosterId, team.teamName]));
-  const slots = [...league.pickOwnership.entries()].flatMap(([owner,picks]) => picks
-    .filter(pick => pick.season === league.draftStatus.season && pick.round === 1 && pick.slot != null)
-    .map(pick => ({ pickIndex: pick.slot!-1, pickNumber: `1.${String(pick.slot).padStart(2,"0")}`,
-      round: 1, slot: pick.slot!, rosterId: owner, teamName: names.get(owner) ?? `Team ${owner}` })))
-    .sort((a,b) => a.slot-b.slot);
-  return NextResponse.json({ data: slots });
+  const slots = league.draftSlots.map((slot) => ({
+    pickIndex: slot.pickIndex, pickNumber: `${slot.round}.${String(slot.slot).padStart(2, "0")}`,
+    round: slot.round, slot: slot.slot, rosterId: slot.rosterId ?? "",
+    teamName: slot.rosterId ? names.get(slot.rosterId) ?? `Team ${slot.rosterId}` : "Unknown team",
+  }));
+  return NextResponse.json({ data: slots, revision: league.runtimeRevision });
+
 }

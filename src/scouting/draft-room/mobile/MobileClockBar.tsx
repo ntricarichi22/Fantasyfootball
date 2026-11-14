@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { useDraftStatusContext } from "@/scouting/draft-room/chrome/DraftStatusProvider";
@@ -9,7 +11,7 @@ import { formatTimer, computeCountdownParts } from "@/scouting/draft-room/clockD
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { playChime } from "@/scouting/draft-room/chime";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 
 const BAR_BLUE = "#3366CC";
 const BAR_YELLOW = "#F5C230";
@@ -22,14 +24,6 @@ const DIVIDER_ON_YELLOW = "rgba(26,26,26,0.2)";
 const LABEL_ON_YELLOW = "rgba(26,26,26,0.55)";
 const PICK_CTX_ON_YELLOW = "rgba(26,26,26,0.65)";
 
-type StoredSelection = {
-  rosterId?: string;
-  teamName?: string;
-};
-
-const readStoredSelection = (): StoredSelection => {
-  return readStoredTeam();
-};
 
 
 // Reveal-line is name-only on mobile (no position / school / dots) — see
@@ -51,6 +45,7 @@ const revealNameFontSize = (name: string): number => {
  * animation) but laid out for a narrow viewport with smaller type.
  */
 export function MobileClockBar() {
+  const fetch = useLeagueFetch();
   const { isActive, secondsRemaining, state } = useDraftStatusContext();
 
   const { startsAtMs, countdownNow, hasFutureStart, tickedSeconds, announceSeconds, isPickIn } =
@@ -60,14 +55,8 @@ export function MobileClockBar() {
     disabled: !isActive && !hasFutureStart,
   });
 
-  const [selection, setSelection] = useState<StoredSelection>({});
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate and subscribe to the browser identity display value.
-    setSelection(readStoredSelection());
-    const handle = () => setSelection(readStoredSelection());
-    window.addEventListener("storage", handle);
-    return () => window.removeEventListener("storage", handle);
-  }, []);
+  const selection = useStoredTeam();
+  const leagueId = selection.leagueId ?? "";
 
   // ----- Reveal animation subscription -----------------------------------
   type RevealedPick = {
@@ -106,7 +95,7 @@ export function MobileClockBar() {
       collegeMapRef.current = {};
       return collegeMapRef.current;
     }
-  }, []);
+  }, [fetch]);
 
   useEffect(() => {
     return () => {
@@ -175,15 +164,15 @@ export function MobileClockBar() {
   useEffect(() => {
     const supabase = getSupabaseClient();
     if (!supabase) return;
-    const channel = supabase.channel("mobile-clock-bar-reveal").on(
+    const channel = supabase.channel(`mobile-clock-bar-reveal-${leagueId}`).on(
       "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "draft_log" },
+      { event: "UPDATE", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
       (payload) => {
         const newRow = (payload.new ?? null) as Record<string, unknown> | null;
         const oldRow = (payload.old ?? null) as Record<string, unknown> | null;
         if (!newRow) return;
         const wasAnnounced = oldRow?.is_announced === true;
-        const isAnnouncedNow = newRow.is_announced === true;
+        const isAnnouncedNow = newRow.league_id === leagueId && newRow.is_announced === true;
         if (!isAnnouncedNow || wasAnnounced) return;
         if (newRow.is_skip === true) return;
         void triggerReveal(newRow);
@@ -201,53 +190,7 @@ export function MobileClockBar() {
         // ignore teardown errors
       }
     };
-  }, [triggerReveal]);
-
-  // Auto-tick on zero (same logic as desktop).
-  const timeLeft = isPickIn ? announceSeconds : tickedSeconds;
-  const tickFiredRef = useRef(false);
-  useEffect(() => {
-    if (timeLeft > 0) {
-      tickFiredRef.current = false;
-      return;
-    }
-    if (state?.status !== "running") return;
-    if (tickFiredRef.current) return;
-    tickFiredRef.current = true;
-    fetch("/api/scouting/draft/tick", { method: "POST" })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data?.status !== "advanced") {
-          tickFiredRef.current = false;
-          return;
-        }
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("draft-log-refetch-requested"));
-        }
-      })
-      .catch(() => {
-        tickFiredRef.current = false;
-      });
-  }, [timeLeft, state?.status]);
-
-  const startFiredRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (state?.status !== "not_started" || !Number.isFinite(startsAtMs) || countdownNow <= 0) {
-      startFiredRef.current = null;
-      return;
-    }
-    if (startsAtMs > countdownNow) return;
-    const key = state?.starts_at ?? "";
-    if (startFiredRef.current === key) return;
-    startFiredRef.current = key;
-    fetch("/api/scouting/draft/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "start" }),
-    }).catch(() => {
-      startFiredRef.current = null;
-    });
-  }, [startsAtMs, countdownNow, state?.starts_at, state?.status]);
+  }, [leagueId, triggerReveal]);
 
   // ---------------- Render ----------------
   // Reveal animation takes over the whole bar for ~9.75s.

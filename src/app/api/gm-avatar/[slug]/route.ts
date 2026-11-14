@@ -1,3 +1,4 @@
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 // GET /api/gm-avatar/[slug] — GM headshot resolver (gmAvatarSrc builds these
 // URLs). Headshots aren't user-editable; this route exists so a renamed team
 // still resolves to its original art under /avatars/gm/, which is keyed by
@@ -12,12 +13,15 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
 ) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (request.nextUrl.searchParams.get("leagueId") !== session.leagueId) return NextResponse.json({ error: "league_context_changed" }, { status: 409 });
   const { slug: rawSlug } = await params;
   const slug = (rawSlug ?? "").toLowerCase().replace(/\.png$/, "");
 
   let target = `/avatars/gm/${slug}.png`;
   try {
-    const identities = await getTeamIdentities();
+    const identities = await getTeamIdentities(session.leagueId);
     const team =
       identities.find((t) => t.nameSlug === slug) ??
       identities.find((t) => t.baseSlug === slug);
@@ -27,6 +31,6 @@ export async function GET(
   }
 
   const response = NextResponse.redirect(new URL(target, request.url), 302);
-  response.headers.set("Cache-Control", "public, max-age=30");
+  response.headers.set("Cache-Control", "private, no-store");
   return response;
 }

@@ -1,6 +1,7 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { formatPickLabel, getLeagueData } from "@/shared/league-data";
 import { fetchPlayers } from "@/shared/league-data/sleeper";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
@@ -19,7 +20,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 30;
 
 // The counter drawer's data feed. EVERYTHING comes from the canonical league
-// pipeline — the same getLeagueData() the trade engine reads. We do NOT re-load
+// pipeline — the same getLeagueData(session.leagueId) the trade engine reads. We do NOT re-load
 // rosters, re-classify youth, re-derive scrub cutoffs, or hand-parse picks here;
 // those are the engine's single sources of truth (spent-aware pickOwnership,
 // buildScrubSets, isYoung, bandFor). The only thing unique to counter mode lives
@@ -42,6 +43,10 @@ function refFor(key: string): AssetRef {
 }
 
 export async function POST(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   let body: Record<string, unknown>;
   try {
     body = await request.json();
@@ -54,10 +59,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "thread_id and counter_team_id are required" }, { status: 400 });
   }
 
-  const league_id = LEAGUE_ID;
-  if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session || !currentSessionCanActForRoster(session, league_id, counter_team_id)) {
+  const league_id = session.leagueId;
+
+  if (!currentSessionCanActForRoster(session, league_id, counter_team_id)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
@@ -84,7 +88,7 @@ export async function POST(request: NextRequest) {
 
   if (offersError || !offers?.length) return denyThread();
 
-  const latestOffer = offers[0];
+  const latestOffer = normalizeTradeOffer(offers[0]);
   if (!offerBelongsToThreadParticipants(thread, latestOffer)) return denyThread();
   const us = String(counter_team_id);
   const them =
@@ -97,8 +101,8 @@ export async function POST(request: NextRequest) {
   // raw Sleeper dictionary — used ONLY for the NFL-team display string (the one
   // field the value pipeline doesn't carry); it's TTL-cached, so this is free.
   const [data, ctx, nflDict] = await Promise.all([
-    getLeagueData(),
-    buildValuationContext(),
+    getLeagueData(session.leagueId),
+    buildValuationContext(session.leagueId),
     fetchPlayers(),
   ]);
   if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });

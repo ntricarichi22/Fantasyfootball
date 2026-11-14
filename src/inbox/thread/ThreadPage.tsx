@@ -1,8 +1,10 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { fetchRosterNameMap } from "@/shared/league-data/clientTeamIdentity";
 import AcceptModal from "@/inbox/thread/AcceptModal";
 import RejectModal from "@/inbox/thread/RejectModal";
@@ -30,8 +32,8 @@ interface TradeOffer {
   to_team_id: string;
   assets_from: OfferAsset[];
   assets_to: OfferAsset[];
-  from_value: number;
-  to_value: number;
+  from_value: number | null;
+  to_value: number | null;
   grade_label: string;
   status: string;
   parent_offer_id: string | null;
@@ -103,8 +105,8 @@ function captionTs(dateStr: string): string {
 const ATTACH_WINDOW_MS = 2 * 60 * 1000;
 
 // Identity-aware names (in-app renames included), Sleeper as fallback.
-async function fetchRosterNames(): Promise<Record<string, string>> {
-  return fetchRosterNameMap();
+async function fetchRosterNames(leagueId: string): Promise<Record<string, string>> {
+  return fetchRosterNameMap(leagueId);
 }
 
 /* ------------------------------------------------------------------ */
@@ -133,9 +135,11 @@ function SendArrow() {
 /* ------------------------------------------------------------------ */
 
 export default function ThreadPage() {
+  const fetch = useLeagueFetch();
+  const leagueId = useStoredTeam().leagueId ?? "";
   const params = useParams();
   const threadId = typeof params.id === "string" ? params.id : "";
-  const { rosterId = "" } = readStoredTeam();
+  const { rosterId = "" } = useStoredTeam();
 
   const [thread, setThread] = useState<TradeThread | null>(null);
   const [offers, setOffers] = useState<TradeOffer[]>([]);
@@ -186,14 +190,14 @@ const scrollToBottom = useCallback(() => {
   }, []);
 
   useEffect(() => {
-    fetchRosterNames().then(setRosterNames);
+    fetchRosterNames(leagueId).then(setRosterNames);
     fetch("/api/league/snapshot")
       .then(response => response.ok ? response.json() : null)
       .then(snapshot => setPlayerNames(Object.fromEntries(
         (snapshot?.players ?? []).map((player: { id: string; name: string }) => [player.id, player.name]),
       )))
       .catch(() => {});
-  }, []);
+  }, [fetch, leagueId]);
 
   const currentLabels = useCallback((list: OfferAsset[]) => list.map(asset => {
     if (asset.type !== "player") return asset;
@@ -216,7 +220,7 @@ const scrollToBottom = useCallback(() => {
         })));
       }
     } catch { /* silent */ } finally { setLoading(false); }
-  }, [threadId, currentLabels]);
+  }, [threadId, fetch, currentLabels]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Start remote thread polling and its loading state on mount.
@@ -234,7 +238,7 @@ const scrollToBottom = useCallback(() => {
         setMessages(j.data ?? []);
       }
     } catch { /* silent */ }
-  }, [threadId, setMessages]);
+  }, [threadId, fetch]);
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- Start remote message polling on mount.
@@ -323,7 +327,7 @@ const scrollToBottom = useCallback(() => {
     }).catch(() => {
       /* silent */
     });
-  }, [latestPending, lastOffer, rosterId]);
+  }, [latestPending, lastOffer, rosterId, fetch]);
 
   const handleStatus = async (status: string) => {
     if (!rosterId || actionLoading || !latestPending) return;
@@ -734,6 +738,7 @@ const scrollToBottom = useCallback(() => {
     const recv = offer.to_team_id === rosterId;
     const youGet = recv ? offer.assets_from : offer.assets_to;
     const youGive = recv ? offer.assets_to : offer.assets_from;
+    if (offer.from_value == null || offer.to_value == null) return railRow(`read-${offer.id}`, circle(9, "#F5F0E6", "#8C7E6A"), <DirectorNote verdict="Not rated" verdictColor="#8C7E6A" prose="Valuation is not configured for this league." />);
     const ratio = ratioOf(sumVal(youGive), sumVal(youGet));
     const grade = gradeForRatio(ratio);
     return railRow(

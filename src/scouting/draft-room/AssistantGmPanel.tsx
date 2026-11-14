@@ -1,4 +1,4 @@
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
+import { useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
 import {
   useCallback,
   useEffect,
@@ -195,6 +195,7 @@ export function AssistantGmPanel({
   onDraftPlayer,
   leagueContext,
 }: Props) {
+  const authenticatedAiFetch = useLeagueAiFetch();
   // ----- briefing -----
   const [trendsText, setTrendsText] = useState("");
   const [trendsLoading, setTrendsLoading] = useState(false);
@@ -296,7 +297,7 @@ export function AssistantGmPanel({
       });
 
     return () => controller.abort();
-  }, [teamName, availablePlayers.length, recentPicks, draftLog, teamNeeds, topBoard]);
+  }, [authenticatedAiFetch, teamName, availablePlayers.length, recentPicks, draftLog, teamNeeds, topBoard]);
 
   // Refresh the recommendation whenever the relevant inputs change. The key
   // dedupes back-to-back fetches caused by unrelated re-renders.
@@ -405,6 +406,7 @@ export function AssistantGmPanel({
       controller.abort();
     };
   }, [
+    authenticatedAiFetch,
     teamName,
     teamNeeds,
     availablePlayers,
@@ -487,6 +489,7 @@ export function AssistantGmPanel({
         .finally(() => setChatPending(false));
     },
     [
+      authenticatedAiFetch,
       chatMessages,
       teamName,
       teamNeeds,

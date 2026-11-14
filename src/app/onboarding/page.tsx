@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useIdentity } from "@/infrastructure/identity/useIdentity";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import OnboardingWelcome from "@/onboarding/OnboardingWelcome";
 import OnboardingAttachment from "@/onboarding/OnboardingAttachment";
 import OnboardingWantsMore from "@/onboarding/OnboardingWantsMore";
@@ -55,7 +54,7 @@ export default function OnboardingPage() {
         onBack={() => setStep(0)}
         onComplete={() => setStep(2)}
         rosterId={identity.rosterId}
-        leagueId={LEAGUE_ID}
+        leagueId={identity.leagueId}
       />
     );
   }

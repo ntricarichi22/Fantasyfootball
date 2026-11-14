@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 // POST /api/pro-personnel/trade-studio/feedback
 //
 // Body:
@@ -17,11 +18,14 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { isValidPersona } from "@/pro-personnel/trade-engine/studio/persona";
-import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   try {
     const body = await req.json();
     const teamId = String(body.team_id ?? "").trim();
@@ -36,9 +40,8 @@ export async function POST(req: Request) {
     if (!partnerTeamId) return NextResponse.json({ error: "partner_team_id required" }, { status: 400 });
     if (!isValidPersona(persona)) return NextResponse.json({ error: "invalid persona" }, { status: 400 });
 
-    const leagueId = getLeagueId();
-    const { session } = await currentAppSessionFromRequest(req);
-    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    const leagueId = session.leagueId;
+
     if (!currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const { client: supabase, error: clientError } = getSupabaseAdminClient();

@@ -17,9 +17,14 @@ restore_pending() {
 cleanup() { restore_pending; rm -f "$generated" "$state"; rm -rf "$hold"; }
 trap cleanup EXIT
 
-mapfile -t pending < <(find "$root/supabase/migrations" -maxdepth 1 -type f \
-  \( -name '012_*.sql' -o -name '013_*.sql' -o -name '014_*.sql' -o -name '015_*.sql' -o -name '016_*.sql' -o -name '017_*.sql' -o -name '018_*.sql' -o -name '019_*.sql' -o -name '020_*.sql' -o -name '021_*.sql' \) -print | sort)
-[[ ${#pending[@]} == 10 ]] || { echo "Expected exactly migrations 012-021 for staged rollout; found ${#pending[@]}." >&2; exit 1; }
+"$root/scripts/validate-supabase-migrations.bash"
+pending=()
+for migration in "$root"/supabase/migrations/[0-9][0-9][0-9]_*.sql; do
+  name="${migration##*/}"
+  version="${name%%_*}"
+  if (( 10#$version > 11 )); then pending+=("$migration"); fi
+done
+[[ ${#pending[@]} -ge 10 ]] || { echo "Expected migrations 012-021 and every later migration for staged rollout." >&2; exit 1; }
 cp "$root/supabase/baseline/pre001_clean_database.sql" "$generated"
 mv "${pending[@]}" "$hold/"
 [[ ! -e "$root/supabase/migrations/012_security_multitenancy_foundation.sql" ]] || { echo "Pending migrations were not isolated." >&2; exit 1; }
@@ -31,16 +36,25 @@ node "$root/scripts/seed-018-fixtures.mjs"
 
 # Restore the reviewed files before reset; failure to restore is fatal.
 restore_pending
-for version in 012 013 014 015 016 017 018 019 020 021; do
-  compgen -G "$root/supabase/migrations/${version}_*.sql" >/dev/null || { echo "Migration $version was not restored." >&2; exit 1; }
+for migration in "${pending[@]}"; do
+  [[ -f "$migration" ]] || { echo "Migration ${migration##*/} was not restored." >&2; exit 1; }
 done
 # Apply the reviewed delta to the same database so the schema-011 Auth and
 # application fixtures prove the real migration/backfill transition.
 supabase migration up --local
 node "$root/scripts/test-018-fixtures.mjs"
 "$root/scripts/test-commissioner-assignment.bash"
-SMOKE_PHASE=upgrade "$root/scripts/test-auth-http-smoke.bash"
+# Keep an upgrade failure as a release blocker, but still execute the independent
+# reset/pgTAP/race proof so a browser failure cannot hide database regressions.
+upgrade_failed=false
+if ! SMOKE_PHASE=upgrade "$root/scripts/test-auth-http-smoke.bash"; then
+  upgrade_failed=true
+fi
 
 # Independently retain the clean-bootstrap reset/lint/pgTAP/concurrency proof.
 "$root/scripts/test-supabase-clean-db.bash"
 SMOKE_PHASE=current "$root/scripts/test-auth-http-smoke.bash"
+if [[ $upgrade_failed == true ]]; then
+  echo "The upgraded application smoke failed; release remains blocked." >&2
+  exit 1
+fi

@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { usePathname, useRouter } from "next/navigation";
 import { browserStorageKey, readBrowserJson, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
 import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
@@ -7,9 +9,8 @@ import DraftCountdownModal from "@/scouting/draft-room/DraftCountdownModal";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   formatPickKey,
-  PICK_SLOT_SEASON,
 } from "@/infrastructure/picks";
-import { getLeagueId } from "@/infrastructure/config";
+import { useAppIdentity } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { supabase } from "@/infrastructure/supabase/client";
 import {
   HEARTBEAT_INTERVAL_MS,
@@ -27,13 +28,11 @@ import { playChime } from "@/scouting/draft-room/chime";
 import {
   calculatePickNumber,
   generateSessionId,
-  getStoredSessionSelection,
   isBenchSlot,
   nextPickIndexFromLog,
   resolveDraftedPlayer,
   toId,
 } from "@/scouting/draft-room/helpers";
-import { clearStoredTeam, readStoredTeam, writeStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { DraftBoardTable } from "@/scouting/draft-room/DraftBoardTable";
 import { DraftControls } from "@/scouting/draft-room/DraftControls";
 import { AssistantGmPanel } from "@/scouting/draft-room/AssistantGmPanel";
@@ -53,6 +52,7 @@ import { buildScoutingGrades, type ScoutingGradeSet } from "@/scouting/draft-roo
 import { HomeScreen } from "@/components/HomeScreen";
 
 export default function DraftRoom() {
+  const fetch = useLeagueFetch();
   const storageScope = useBrowserStorageScope();
   const lineupStorageKey = browserStorageKey("lineup-overrides", storageScope);
   const [lineupHydrated, setLineupHydrated] = useState(false);
@@ -61,35 +61,13 @@ export default function DraftRoom() {
   const isDraftRoute = pathname?.startsWith("/scouting/draft-room");
   const draftRoute = "/scouting/draft-room";
   const isMobile = useIsMobile();
-  const [selectedTeam, setSelectedTeam] = useState(() => {
-    if (typeof window === "undefined") return "";
-    try {
-      const match = document.cookie
-        .split("; ")
-        .find((row) => row.startsWith("cfc_identity="));
-      if (!match) return "";
-      const raw = decodeURIComponent(match.split("=")[1]);
-      const identity = JSON.parse(raw);
-      return identity?.rosterId ?? "";
-    } catch {
-      return "";
-    }
-  });
-  const [sessionId, setSessionId] = useState(() => getStoredSessionSelection().sessionId);
-  const [teamSelectionInput, setTeamSelectionInput] = useState(
-    () => getStoredSessionSelection().rosterId
-  );
+  const identity = useAppIdentity();
+  const selectedTeam = identity?.rosterId ?? "";
+  const teamSelectionInput = selectedTeam;
+  const [sessionId, setSessionId] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
 
-  useEffect(() => {
-    const identity = readStoredTeam();
-    if (identity.rosterId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate roster display preferences from the browser identity cookie.
-      setSelectedTeam(identity.rosterId);
-      setTeamSelectionInput(identity.rosterId);
-    }
-  }, []);
   const {
     draftLog,
     setDraftLog,
@@ -113,21 +91,10 @@ useEffect(() => {
       if (typeof data.count === "number") setOpenTradeCount(data.count);
     })
     .catch(() => {});
-}, [selectedTeam]);
+}, [fetch, selectedTeam]);
   const nextPickIndex = useMemo(() => nextPickIndexFromLog(draftLog), [draftLog]);
-  const { leagueId, leagueIdError } = useMemo(() => {
-    try {
-      return { leagueId: getLeagueId(), leagueIdError: "" };
-    } catch (error) {
-      return {
-        leagueId: "",
-        leagueIdError:
-          error instanceof Error
-            ? error.message
-            : "Sleeper league ID is not configured. Set NEXT_PUBLIC_SLEEPER_LEAGUE_ID.",
-      };
-    }
-  }, []);
+  const leagueId = identity?.leagueId ?? "";
+  const leagueIdError = leagueId ? "" : "Sign in to select a league.";
 
   const {
     teams,
@@ -164,7 +131,7 @@ handleStartClockRequest,
     [draftState?.teamCount, teams.length]
   );
 
-  const activeDraftSeason = draftState?.season ?? PICK_SLOT_SEASON;
+  const activeDraftSeason = draftState?.season ?? leagueData?.season ?? "";
 
   const currentPickKey = useMemo(() => {
     if (!draftState) return "";
@@ -248,10 +215,7 @@ handleStartClockRequest,
   );
 
   const clearSessionSelection = useCallback(() => {
-    setSelectedTeam("");
-    setTeamSelectionInput("");
     setSessionId("");
-    clearStoredTeam();
   }, []);
 
   const releaseActiveTeam = useCallback(async () => {
@@ -266,7 +230,7 @@ handleStartClockRequest,
     } catch (error) {
       console.warn("Unable to release team", error);
     }
-  }, [leagueId, selectedTeam, sessionId]);
+  }, [fetch, leagueId, selectedTeam, sessionId]);
 
   const releaseAndClearSession = useCallback(async () => {
     await releaseActiveTeam();
@@ -317,7 +281,7 @@ handleStartClockRequest,
       cancelled = true;
       clearInterval(interval);
     };
-  }, [leagueId, releaseAndClearSession, selectedTeam, sessionId]);
+  }, [fetch, leagueId, releaseAndClearSession, selectedTeam, sessionId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -326,18 +290,9 @@ handleStartClockRequest,
     const handleUnload = () => {
       try {
         const payload = JSON.stringify({ leagueId, rosterId: selectedTeam, sessionId });
-        const blob = new Blob([payload], { type: "application/json" });
-        // Best-effort release; some browsers may ignore beacons during unload.
-        const queued = navigator.sendBeacon("/api/active-teams/release", blob);
-        if (!queued) {
-          console.warn("Release beacon was not queued before unload.");
-          fetch("/api/active-teams/release", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload,
-            keepalive: true,
-          }).catch(() => {});
-        }
+        fetch("/api/active-teams/release", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: payload, keepalive: true,
+        }).catch(() => {});
       } catch {
         // ignore
       }
@@ -345,7 +300,7 @@ handleStartClockRequest,
 
     window.addEventListener("unload", handleUnload);
     return () => window.removeEventListener("unload", handleUnload);
-  }, [leagueId, selectedTeam, sessionId]);
+  }, [fetch, leagueId, selectedTeam, sessionId]);
 
 
   const activeRoster = useMemo(
@@ -702,14 +657,8 @@ handleStartClockRequest,
         return;
       }
 
-      setSelectedTeam(teamSelectionInput);
       setErrorMessage("");
       setStatusMessage("");
-      writeStoredTeam({
-          rosterId: teamSelectionInput,
-          sessionId: activeSessionId,
-          teamName: teams.find((t) => toId(t.id) === teamSelectionInput)?.name || "",
-      });
       window.location.href = draftRoute;
     } catch (error) {
       console.warn("Unable to claim team", error);
@@ -717,27 +666,7 @@ handleStartClockRequest,
     } finally {
       setClaimingTeam(false);
     }
-  }, [draftRoute, ensureSession, leagueId, leagueIdError, teamSelectionInput, teams]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!selectedTeam || !sessionId) {
-      clearStoredTeam();
-      return;
-    }
-
-    const selectedTeamName = teams.find((t) => toId(t.id) === selectedTeam)?.name;
-
-    try {
-      writeStoredTeam({
-          rosterId: selectedTeam,
-          sessionId,
-          teamName: selectedTeamName || "",
-      });
-    } catch {
-      // ignore storage failures
-    }
-  }, [selectedTeam, sessionId, teams]);
+  }, [ensureSession, fetch, leagueId, leagueIdError, teamSelectionInput]);
 
   const handleAvailablePlayerSelect = async (player: AvailablePlayer) => {
     if (!onClockRosterId) {
@@ -790,7 +719,6 @@ handleStartClockRequest,
   draftPickSlots={myDraftPickSlots}
   openTradeCount={openTradeCount}
   onEnterDraftRoom={() => {
-    setTeamSelectionInput(selectedTeam);
     void handleEnterDraftRoom();
   }}
 />

@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { counterProse, type CounterPartner } from "@/inbox/thread/counterMath";
@@ -113,6 +114,7 @@ async function callAnthropic(request: Request, user: string, apiKey: string): Pr
 export async function POST(request: NextRequest) {
   const { session, error: sessionError } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: sessionError }, { status: sessionError === "not_authenticated" ? 401 : 503 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
   let body: Body;
   try {
     body = (await request.json()) as Body;

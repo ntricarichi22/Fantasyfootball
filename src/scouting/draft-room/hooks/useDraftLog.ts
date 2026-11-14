@@ -1,5 +1,8 @@
 "use client";
 
+import { useAppIdentity } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
@@ -148,6 +151,8 @@ export type UseDraftTickerResult = {
  * active, so there is no need to keep polling.
  */
 export function useDraftTicker({ disabled = false }: { disabled?: boolean } = {}): UseDraftTickerResult {
+  const fetch = useLeagueFetch();
+  const leagueId = useAppIdentity()?.leagueId ?? "";
   const [picks, setPicks] = useState<DraftLogPick[]>([]);
   const [order, setOrder] = useState<DraftOrderSlot[]>([]);
   const [loadingPicks, setLoadingPicks] = useState(true);
@@ -169,7 +174,7 @@ export function useDraftTicker({ disabled = false }: { disabled?: boolean } = {}
     } finally {
       setLoadingPicks(false);
     }
-  }, []);
+  }, [fetch]);
 
   const fetchOrder = useCallback(async () => {
     try {
@@ -187,7 +192,7 @@ export function useDraftTicker({ disabled = false }: { disabled?: boolean } = {}
     } finally {
       setLoadingOrder(false);
     }
-  }, []);
+  }, [fetch]);
 
   useEffect(() => {
     if (disabled) {
@@ -214,20 +219,20 @@ export function useDraftTicker({ disabled = false }: { disabled?: boolean } = {}
       fetchPicks();
     };
     const channel = client
-      .channel("draft-ticker-log-updates")
+      .channel(`draft-ticker-log-updates-${leagueId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "draft_log" },
+        { event: "INSERT", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
         onChange("INSERT")
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "draft_log" },
+        { event: "UPDATE", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
         onChange("UPDATE")
       )
       .on(
         "postgres_changes",
-        { event: "DELETE", schema: "public", table: "draft_log" },
+        { event: "DELETE", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
         onChange("DELETE")
       );
 
@@ -254,7 +259,7 @@ export function useDraftTicker({ disabled = false }: { disabled?: boolean } = {}
       window.clearInterval(pollInterval);
       client.removeChannel(channel);
     };
-  }, [disabled, fetchPicks]);
+  }, [disabled, fetchPicks, leagueId]);
 
   const rows = useMemo<DraftTickerRow[]>(() => {
     const picksByIndex = new Map<number, DraftLogPick>();

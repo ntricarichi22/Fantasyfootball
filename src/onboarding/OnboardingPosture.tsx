@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Identity } from "@/infrastructure/identity/useIdentity";
@@ -31,6 +33,7 @@ const ROWS: PosRow[] = [
 const NEEDS: Need[] = ["low", "med", "high"];
 
 export default function OnboardingPosture({ onBack, wantsMore, identity }: Props) {
+  const fetch = useLeagueFetch();
   const router = useRouter();
   const [posture, setPosture] = useState<Record<PosRow["key"], Need>>({
     QB: "med",

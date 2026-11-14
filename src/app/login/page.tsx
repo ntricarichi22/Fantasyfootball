@@ -1,7 +1,9 @@
 "use client";
 
-import { Suspense, useState, type FormEvent } from "react";
+import { Suspense, useEffect, useState, useSyncExternalStore, type FormEvent } from "react";
 import { useSearchParams } from "next/navigation";
+import { finalizeLeagueSession, listLeagueChoices, type LeagueChoice } from "@/infrastructure/identity/leagueSelection";
+import { LeagueChoiceList } from "@/shared/ui/LeagueSwitcher";
 import { supabase } from "@/infrastructure/supabase/client";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -33,7 +35,12 @@ function LoginErrorMessage() {
 
 type Step = "email" | "new-password" | "existing-password";
 
+const subscribeToHydration = () => () => {};
+
 function LoginForm() {
+  const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
+  const searchParams = useSearchParams();
+  const [leagues, setLeagues] = useState<LeagueChoice[] | null>(null);
   const [step, setStep] = useState<Step>("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -66,25 +73,18 @@ function LoginForm() {
     setStep("existing-password");
   };
 
-  const finalizeAndRedirect = async () => {
-    if (!supabase) throw new Error("client_unavailable");
-    const { data: sessionData } = await supabase.auth.getSession();
-    const token = sessionData?.session?.access_token;
-    if (!token) throw new Error("no_session");
-
-    const res = await fetch("/api/auth/finalize", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-    });
-    const json = await res.json();
-    if (!res.ok) {
-      throw new Error(json?.error ?? "finalize_failed");
-    }
-    window.location.href = json.redirect ?? "/";
+  const finalizeAndRedirect = async (leagueId?: string) => {
+    const result = await finalizeLeagueSession(leagueId);
+    if (result.leagues) { setLeagues(result.leagues); setSubmitting(false); return; }
+    window.location.href = result.redirect ?? "/";
   };
+
+  useEffect(() => {
+    if (searchParams.get("selectLeague") !== "1") return;
+    let cancelled = false;
+    listLeagueChoices().then(choices => { if (!cancelled) setLeagues(choices); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [searchParams]);
 
   const handleNewPasswordSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -307,7 +307,12 @@ function LoginForm() {
             </div>
           )}
 
-          {step === "email" && (
+          {leagues && <LeagueChoiceList leagues={leagues} busy={submitting} onChoose={async leagueId => {
+            setSubmitting(true); setFormError("");
+            try { await finalizeAndRedirect(leagueId); }
+            catch { setFormError("Unable to select this league. Please try again."); setSubmitting(false); }
+          }} />}
+          {!leagues && step === "email" && (
             <form onSubmit={handleEmailSubmit}>
               <div
                 style={{
@@ -323,6 +328,7 @@ function LoginForm() {
 
               <input
                 type="email"
+                disabled={!hydrated}
                 inputMode="email"
                 autoComplete="email"
                 placeholder="you@example.com"
@@ -344,7 +350,7 @@ function LoginForm() {
             </form>
           )}
 
-          {step === "new-password" && (
+          {!leagues && step === "new-password" && (
             <form onSubmit={handleNewPasswordSubmit}>
               <div
                 style={{
@@ -426,7 +432,7 @@ function LoginForm() {
             </form>
           )}
 
-          {step === "existing-password" && (
+          {!leagues && step === "existing-password" && (
             <form onSubmit={handleExistingPasswordSubmit}>
               <div
                 style={{

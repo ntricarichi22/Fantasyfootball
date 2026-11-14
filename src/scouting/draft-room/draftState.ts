@@ -18,11 +18,6 @@ export type DraftStateRow = {
 
 export const INITIAL_PICK_SECONDS = 1800;
 
-/** 1-round rookie draft, 12 teams */
-export const DRAFT_ROUNDS = 1;
-export const DRAFT_TEAM_COUNT = 12;
-export const TOTAL_DRAFT_PICKS = DRAFT_ROUNDS * DRAFT_TEAM_COUNT;
-
 const normalizeNumber = (value: unknown, fallback: number = INITIAL_PICK_SECONDS) => {
   if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.round(value));
   if (typeof value === "string") {

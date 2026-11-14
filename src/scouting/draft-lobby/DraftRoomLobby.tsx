@@ -1,8 +1,10 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamNickname, teamCrestSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { getCFCYear } from "@/shared/league-data/picks";
@@ -34,9 +36,8 @@ const SPEEDS: { label: string; seconds: number }[] = [
   { label: "Quick", seconds: 2 },
 ];
 
-const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
-const logoFor = (teamName: string) =>
-  teamCrestSrc(teamName) ?? `/teams/${slugify(teamNickname(teamName))}.png`;
+const logoFor = (teamName: string, leagueId: string) =>
+  teamCrestSrc(teamName, leagueId) ?? "";
 
 // Page shell.
 const CANVAS = "#F5F0E6";
@@ -69,6 +70,8 @@ function countdown(iso: string | null, now: number): string | null {
 }
 
 export function DraftRoomLobby() {
+  const fetch = useLeagueFetch();
+  const { leagueId = "", rosterId = "" } = useStoredTeam();
   const isMobile = useIsMobile() === true;
   const [cal, setCal] = useState<Calendar | null>(null);
   const [now, setNow] = useState(0);
@@ -85,7 +88,7 @@ export function DraftRoomLobby() {
   const [scn, setScn] = useState<Scenario>("standard");
   const [speed, setSpeed] = useState(10);
   const [seats, setSeats] = useState<Set<string>>(() => {
-    const id = readStoredTeam().rosterId;
+    const id = rosterId;
     return new Set(id ? [id] : []);
   });
 
@@ -96,15 +99,7 @@ export function DraftRoomLobby() {
       .catch(() =>
         setCal({ phase: "between", dayOneComplete: false, dayTwoComplete: false, season: getCFCYear(), teamCount: 0, upcomingDraftAt: null, teams: [] })
       );
-  }, []);
-
-  // The identity cookie is client-only — re-read after mount so your own seat
-  // starts selected even when the first render ran before hydration.
-  useEffect(() => {
-    const id = readStoredTeam().rosterId;
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate the selected seat from the browser identity cookie.
-    if (id) setSeats((prev) => (prev.size === 0 ? new Set([id]) : prev));
-  }, []);
+  }, [fetch]);
 
   function toggleSeat(id: string) {
     setSeats((prev) => {
@@ -389,7 +384,7 @@ export function DraftRoomLobby() {
                       onClick={() => toggleSeat(t.rosterId)}
                       style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 8px", background: on ? BINK : PLACARD, border: `2px solid ${BINK}`, borderRadius: 3, boxShadow: on ? `2px 2px 0 rgba(22,19,16,0.4)` : "0 1px 2px rgba(0,0,0,0.25)", cursor: "pointer", textAlign: "left", minWidth: 0 }}
                     >
-                      <div style={{ width: 24, height: 24, borderRadius: "50%", border: `2px solid ${on ? GOLD : BINK}`, background: `#fff url('${logoFor(t.name)}') center / cover`, flexShrink: 0 }} />
+                      <div style={{ width: 24, height: 24, borderRadius: "50%", border: `2px solid ${on ? GOLD : BINK}`, background: `#fff url('${logoFor(t.name, leagueId)}') center / cover`, flexShrink: 0 }} />
                       <span style={{ fontFamily: OSWALD, fontWeight: 700, fontSize: 12, color: on ? SCREAM : GREEN, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{teamNickname(t.name)}</span>
                     </button>
                   );

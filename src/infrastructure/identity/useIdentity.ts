@@ -1,30 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useAppIdentity, type AppIdentity } from "./BrowserStorageScopeProvider";
 
-export type Identity = {
-  rosterId: string;
-  teamName: string;
-};
-
-export const useIdentity = (): Identity | null => {
-  const [identity, setIdentity] = useState<Identity | null>(null);
-
-  useEffect(() => {
-    try {
-      const match = document.cookie
-        .split("; ")
-        .find((row) => row.startsWith("cfc_identity="));
-      if (!match) return;
-      const raw = decodeURIComponent(match.split("=")[1]);
-      const parsed = JSON.parse(raw);
-      if (parsed?.rosterId && parsed?.teamName) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect
-        setIdentity(parsed as Identity);
-      }
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  return identity;
-};
+export type Identity = AppIdentity;
+export const useIdentity = useAppIdentity;

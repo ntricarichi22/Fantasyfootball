@@ -1,8 +1,9 @@
 "use client";
 
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
+import { useLeagueFetch, useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import TradeBalanceChip from "@/shared/ui/TradeBalanceChip";
 import { teamNick } from "@/shared/util/teamNick";
@@ -45,7 +46,9 @@ const POS_SECTIONS = [
 ];
 
 export default function TradeBuilder({ initialTeams, initialDealAssets, initialAdvisor }: Props) {
-  const { rosterId = "", teamName: myTeamName = "" } = readStoredTeam();
+  const fetch = useLeagueFetch();
+  const authenticatedAiFetch = useLeagueAiFetch();
+  const { rosterId = "", teamName: myTeamName = "" } = useStoredTeam();
   const myTeamId = rosterId;
 
   const [teams, setTeams] = useState<Team[]>(() => {
@@ -142,7 +145,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [myTeamId]);
+  }, [fetch, myTeamId]);
 
   // EDITOR OPENING — the continuation beat. The card showed his take; the GM
   // tapped Edit. Once rosters land, ask the advisor to pick the conversation
@@ -179,7 +182,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       .catch(() => {})
       .finally(() => { if (!cancelled) setAdvisorLoading(false); });
     return () => { cancelled = true; };
-  }, [initialAdvisor, dealAssets, rosters, otherTeams, myTeamId]);
+  }, [initialAdvisor, dealAssets, rosters, otherTeams, myTeamId, authenticatedAiFetch]);
 
   // Background fetch of the engine's partner-fit ranking — non-blocking, the
   // picker works unranked until it lands.
@@ -189,7 +192,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       .then(r => r.json())
       .then(j => { if (Array.isArray(j.teams)) setFitRanking(j.teams); })
       .catch(() => {});
-  }, [myTeamId]);
+  }, [fetch, myTeamId]);
 
   // While the mobile roster sheet is open we only need the live chip — the
   // grade is deterministic math, so skip the LLM (fast + cheap) and use a
@@ -248,7 +251,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
       }
     }, gradeOnly ? 450 : 1500);
     return () => { if (advisorTimer.current) clearTimeout(advisorTimer.current); };
-  }, [dealAssets, myTeamId, otherTeams, rosters, gradeOnly]);
+  }, [dealAssets, myTeamId, otherTeams, rosters, gradeOnly, authenticatedAiFetch]);
 
   const removeDealAsset = useCallback((key: string) => {
     setDealAssets(prev => prev.filter(a => a.key !== key));
@@ -515,7 +518,7 @@ export default function TradeBuilder({ initialTeams, initialDealAssets, initialA
     } finally {
       setSending(false);
     }
-  }, [sending, dealAssets, myTeamId, otherTeams, flash]);
+  }, [sending, dealAssets, myTeamId, flash, otherTeams, fetch]);
 
   const activeRoster = useMemo(() => {
     const players = rosters[activeTab] ?? [];

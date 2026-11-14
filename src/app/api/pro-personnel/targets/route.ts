@@ -1,6 +1,7 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { getLeagueData, getSleeperLeagueId, formatPickLabel } from "@/shared/league-data";
+import { getLeagueData, formatPickLabel } from "@/shared/league-data";
 import { buildValuationContext, valueAsset, isYoung } from "@/shared/asset-values";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { targetResponse, visibleAttachment } from "./targetVisibility";
@@ -50,12 +51,14 @@ function teamNick(name: string): string { const p = name.split(" "); return p.le
 type Asset ={ key: string; name: string; meta: string; rosterMeta: string; position: string; posGroup: string; tier: string; tierLabel: string; teamId: string; teamName: string; value: number; fitScore: number; type: "player" | "pick"; isStud: boolean; isYouth: boolean };
 
 export async function GET(request: NextRequest) {
-  const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
-  if (!teamId) return NextResponse.json({ error: "teamId required" }, { status: 400 });
-  const league_id = getSleeperLeagueId();
-  if (!league_id) return NextResponse.json({ error: "League not configured" }, { status: 500 });
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
+  const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
+  if (!teamId) return NextResponse.json({ error: "teamId required" }, { status: 400 });
+  const league_id = session.leagueId;
+
   if (!currentSessionCanActForRoster(session, league_id, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const { client, error: ce } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: ce }, { status: 500 });
@@ -64,9 +67,9 @@ export async function GET(request: NextRequest) {
   // (projected-finish slot values) — the same source the trade engine reads, so
   // the roster panel and the engine never disagree on who owns what or what it's
   // worth. Players still load via the bespoke rows below for the panel's meta.
-  const league = await getLeagueData();
+  const league = await getLeagueData(session.leagueId);
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 500 });
-  const valCtx = await buildValuationContext();
+  const valCtx = await buildValuationContext(session.leagueId);
 
   const [attachRes, stratRes] = await Promise.all([
     client.from("cfc_team_player_attachment").select("team_id, sleeper_player_id, attachment")

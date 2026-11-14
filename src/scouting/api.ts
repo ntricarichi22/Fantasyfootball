@@ -1,3 +1,6 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { getLeagueData } from "@/shared/league-data";
@@ -22,12 +25,17 @@ type PoolPlayer = {
 };
 
 async function getRankings(req: NextRequest): Promise<NextResponse> {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const leagueId = session.leagueId;
+  if (!isCfcLeague(leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
   const url = new URL(req.url);
   const rosterId = url.searchParams.get("roster_id");
   if (!rosterId) {
     return NextResponse.json({ error: "missing roster_id" }, { status: 400 });
   }
 
+  if (rosterId !== session.rosterId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const result = getSupabaseAdminClient();
   if (!result.client) {
     return NextResponse.json({ error: "supabase unavailable", detail: result.error }, { status: 500 });
@@ -38,17 +46,17 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
     const [tiersRes, rankingsRes, starsRes, players] = await Promise.all([
       supabase.from("cfc_big_board_tiers")
         .select("id, tier_order, label")
-        .eq("roster_id", rosterId)
+        .eq("league_id", leagueId).eq("roster_id", rosterId)
         .order("tier_order", { ascending: true }),
       supabase.from("cfc_big_board_rankings")
         .select("player_id, tier_id, rank")
-        .eq("roster_id", rosterId)
+        .eq("league_id", leagueId).eq("roster_id", rosterId)
         .order("rank", { ascending: true }),
       supabase.from("cfc_big_board_stars")
         .select("player_id, starred")
-        .eq("roster_id", rosterId)
+        .eq("league_id", leagueId).eq("roster_id", rosterId)
         .eq("starred", true),
-      fetchPlayerPool(),
+      fetchPlayerPool(leagueId),
     ]);
 
     if (tiersRes.error || rankingsRes.error || starsRes.error) {
@@ -62,7 +70,7 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
     let rankings = (rankingsRes.data ?? []) as RankingRow[];
 
     if (tiers.length === 0 && rankings.length === 0 && players.length > 0) {
-      const seeded = await seedBoardWithTiers(supabase, rosterId, players);
+      const seeded = await seedBoardWithTiers(supabase, leagueId, rosterId, players);
       tiers = seeded.tiers;
       rankings = seeded.rankings;
     }
@@ -91,14 +99,20 @@ async function getRankings(req: NextRequest): Promise<NextResponse> {
 }
 
 async function putRankings(req: NextRequest): Promise<NextResponse> {
-  const body = await req.json();
-  const rosterId: string = body.roster_id;
-  const action: string = body.action;
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const leagueId = session.leagueId;
+  if (!isCfcLeague(leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+  const body = await boundedJson<Record<string, unknown>>(req, 64 * 1024);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  const rosterId = typeof body.roster_id === "string" ? body.roster_id : "";
+  const action = typeof body.action === "string" ? body.action : "";
 
   if (!rosterId || !action) {
     return NextResponse.json({ error: "missing roster_id or action" }, { status: 400 });
   }
 
+  if (rosterId !== session.rosterId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const result = getSupabaseAdminClient();
   if (!result.client) {
     return NextResponse.json({ error: "supabase unavailable", detail: result.error }, { status: 500 });
@@ -107,10 +121,11 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
 
   try {
     if (action === "add_tier") {
-      const order: number = body.tier_order;
+      const order = Number(body.tier_order);
+      if (!Number.isSafeInteger(order) || order < 1 || order > 50) return NextResponse.json({ error: "invalid_tier_order" }, { status: 400 });
       const { data, error } = await supabase
         .from("cfc_big_board_tiers")
-        .insert({ roster_id: rosterId, tier_order: order })
+        .insert({ league_id: leagueId, roster_id: rosterId, tier_order: order })
         .select("id")
         .single();
       if (error || !data) throw error ?? new Error("insert returned no data");
@@ -118,25 +133,25 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
     }
 
     if (action === "delete_tier") {
-      const tierId: string = body.tier_id;
+      const tierId = typeof body.tier_id === "string" ? body.tier_id : "";
       const { error } = await supabase
         .from("cfc_big_board_tiers")
         .delete()
         .eq("id", tierId)
-        .eq("roster_id", rosterId);
+        .eq("league_id", leagueId).eq("roster_id", rosterId);
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
 
     if (action === "shift_tier_boundary") {
-      const tierId: string = body.tier_id;
-      const direction: "up" | "down" = body.direction;
+      const tierId = typeof body.tier_id === "string" ? body.tier_id : "";
+      const direction = body.direction;
 
       // Load every tier so we can find the one immediately above this tier
       const { data: allTiersData, error: tiersErr } = await supabase
         .from("cfc_big_board_tiers")
         .select("id, tier_order")
-        .eq("roster_id", rosterId)
+        .eq("league_id", leagueId).eq("roster_id", rosterId)
         .order("tier_order", { ascending: true });
       if (tiersErr) throw tiersErr;
       const allTiers = (allTiersData ?? []) as Array<{ id: string; tier_order: number }>;
@@ -157,7 +172,7 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
         const { data: prevPlayersData, error: prevErr } = await supabase
           .from("cfc_big_board_rankings")
           .select("player_id, rank")
-          .eq("roster_id", rosterId)
+          .eq("league_id", leagueId).eq("roster_id", rosterId)
           .eq("tier_id", prevTier.id)
           .order("rank", { ascending: false })
           .limit(1);
@@ -169,7 +184,7 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
         const { error: updErr } = await supabase
           .from("cfc_big_board_rankings")
           .update({ tier_id: tierId })
-          .eq("roster_id", rosterId)
+          .eq("league_id", leagueId).eq("roster_id", rosterId)
           .eq("player_id", prevPlayers[0].player_id);
         if (updErr) throw updErr;
         return NextResponse.json({ ok: true });
@@ -181,7 +196,7 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
         const { data: thisPlayersData, error: thisErr } = await supabase
           .from("cfc_big_board_rankings")
           .select("player_id, rank")
-          .eq("roster_id", rosterId)
+          .eq("league_id", leagueId).eq("roster_id", rosterId)
           .eq("tier_id", tierId)
           .order("rank", { ascending: true })
           .limit(1);
@@ -193,7 +208,7 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
         const { error: updErr } = await supabase
           .from("cfc_big_board_rankings")
           .update({ tier_id: prevTier.id })
-          .eq("roster_id", rosterId)
+          .eq("league_id", leagueId).eq("roster_id", rosterId)
           .eq("player_id", thisPlayers[0].player_id);
         if (updErr) throw updErr;
         return NextResponse.json({ ok: true });
@@ -203,14 +218,14 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
     }
 
     if (action === "set_tier_label") {
-      const tierId: string = body.tier_id;
+      const tierId = typeof body.tier_id === "string" ? body.tier_id : "";
       const raw = typeof body.label === "string" ? body.label.trim() : "";
       const label = raw ? raw.slice(0, 28) : null;
       const { error } = await supabase
         .from("cfc_big_board_tiers")
         .update({ label })
         .eq("id", tierId)
-        .eq("roster_id", rosterId);
+        .eq("league_id", leagueId).eq("roster_id", rosterId);
       if (error) throw error;
       return NextResponse.json({ ok: true, label });
     }
@@ -220,14 +235,14 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
     // Labels carry over by position (old tier 2's label lands on new tier 2).
     if (action === "auto_tier") {
       const [pool, rankingsRes, tiersRes] = await Promise.all([
-        fetchPlayerPool(),
+        fetchPlayerPool(leagueId),
         supabase.from("cfc_big_board_rankings")
           .select("player_id, rank")
-          .eq("roster_id", rosterId)
+          .eq("league_id", leagueId).eq("roster_id", rosterId)
           .order("rank", { ascending: true }),
         supabase.from("cfc_big_board_tiers")
           .select("id, tier_order, label")
-          .eq("roster_id", rosterId)
+          .eq("league_id", leagueId).eq("roster_id", rosterId)
           .order("tier_order", { ascending: true }),
       ]);
       if (rankingsRes.error || tiersRes.error) throw rankingsRes.error ?? tiersRes.error;
@@ -255,27 +270,27 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
       const { error: delErr } = await supabase
         .from("cfc_big_board_tiers")
         .delete()
-        .eq("roster_id", rosterId);
+        .eq("league_id", leagueId).eq("roster_id", rosterId);
       if (delErr) throw delErr;
 
       const { data: newTiersData, error: insErr } = await supabase
         .from("cfc_big_board_tiers")
-        .insert(ranges.map((r, i) => ({ roster_id: rosterId, tier_order: r.order, label: oldTiers[i]?.label ?? null })))
+        .insert(ranges.map((r, i) => ({ league_id: leagueId, roster_id: rosterId, tier_order: r.order, label: oldTiers[i]?.label ?? null })))
         .select("id, tier_order, label");
       if (insErr || !newTiersData) throw insErr ?? new Error("tier insert returned no data");
       const newTiers = newTiersData as TierRow[];
       const tierIdByOrder = new Map(newTiers.map((t) => [t.tier_order, t.id]));
 
-      const rows: Array<{ roster_id: string; player_id: string; tier_id: string; rank: number }> = [];
+      const rows: Array<{ league_id: string; roster_id: string; player_id: string; tier_id: string; rank: number }> = [];
       for (const range of ranges) {
         const tierId = tierIdByOrder.get(range.order)!;
         for (let i = range.startIdx; i < range.endIdx; i++) {
-          rows.push({ roster_id: rosterId, player_id: order[i], tier_id: tierId, rank: i + 1 });
+          rows.push({ league_id: leagueId, roster_id: rosterId, player_id: order[i], tier_id: tierId, rank: i + 1 });
         }
       }
       const { error: upErr } = await supabase
         .from("cfc_big_board_rankings")
-        .upsert(rows, { onConflict: "roster_id,player_id" });
+        .upsert(rows, { onConflict: "league_id,roster_id,player_id" });
       if (upErr) throw upErr;
 
       return NextResponse.json({
@@ -287,16 +302,20 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
     }
 
     if (action === "reorder_players") {
-      const rankings: { playerId: string; tierId: string | null; rank: number }[] = body.rankings;
+      if (!Array.isArray(body.rankings) || body.rankings.length > BOARD_LIMIT || !body.rankings.every((r) =>
+        r && typeof r.playerId === "string" && (r.tierId === null || typeof r.tierId === "string") && Number.isSafeInteger(r.rank) && r.rank > 0)) {
+        return NextResponse.json({ error: "invalid_rankings" }, { status: 400 });
+      }
+      const rankings = body.rankings as { playerId: string; tierId: string | null; rank: number }[];
       const rows = rankings.map((r) => ({
-        roster_id: rosterId,
+        league_id: leagueId, roster_id: rosterId,
         player_id: r.playerId,
         tier_id: r.tierId,
         rank: r.rank,
       }));
       const { error } = await supabase
         .from("cfc_big_board_rankings")
-        .upsert(rows, { onConflict: "roster_id,player_id" });
+        .upsert(rows, { onConflict: "league_id,roster_id,player_id" });
       if (error) throw error;
       return NextResponse.json({ ok: true });
     }
@@ -309,15 +328,22 @@ async function putRankings(req: NextRequest): Promise<NextResponse> {
 }
 
 async function postStar(req: NextRequest): Promise<NextResponse> {
-  const body = await req.json();
-  const rosterId: string = body.roster_id;
-  const playerId: string = body.player_id;
-  const starred: boolean = !!body.starred;
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const leagueId = session.leagueId;
+  if (!isCfcLeague(leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+  const body = await boundedJson<Record<string, unknown>>(req, 64 * 1024);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  const rosterId = typeof body.roster_id === "string" ? body.roster_id : "";
+  const playerId = typeof body.player_id === "string" ? body.player_id : "";
+  if (typeof body.starred !== "boolean") return NextResponse.json({ error: "invalid_starred" }, { status: 400 });
+  const starred = body.starred;
 
   if (!rosterId || !playerId) {
     return NextResponse.json({ error: "missing roster_id or player_id" }, { status: 400 });
   }
 
+  if (rosterId !== session.rosterId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
   const result = getSupabaseAdminClient();
   if (!result.client) {
     return NextResponse.json({ error: "supabase unavailable", detail: result.error }, { status: 500 });
@@ -328,8 +354,8 @@ async function postStar(req: NextRequest): Promise<NextResponse> {
     const { error } = await supabase
       .from("cfc_big_board_stars")
       .upsert(
-        { roster_id: rosterId, player_id: playerId, starred },
-        { onConflict: "roster_id,player_id" }
+        { league_id: leagueId, roster_id: rosterId, player_id: playerId, starred },
+        { onConflict: "league_id,roster_id,player_id" }
       );
     if (error) throw error;
     return NextResponse.json({ ok: true, starred });
@@ -340,12 +366,12 @@ async function postStar(req: NextRequest): Promise<NextResponse> {
 }
 
 // The board's prospect pool, from the SAME feed the mock draft uses:
-// getLeagueData() grafts draft_log picks onto rosters, so players signed
+// getLeagueData(leagueId) grafts draft_log picks onto rosters, so players signed
 // in-app (not yet on Sleeper rosters) are correctly excluded. Mirrors
 // draft-fit's buildProspectPool — every unrostered, valued player.
-async function fetchPlayerPool(): Promise<PoolPlayer[]> {
+async function fetchPlayerPool(leagueId: string): Promise<PoolPlayer[]> {
   try {
-    const data = await getLeagueData();
+    const data = await getLeagueData(leagueId);
     if ("error" in data) {
       console.error("fetchPlayerPool: league data unavailable", data.error);
       return [];
@@ -411,6 +437,7 @@ function computeTierBoundaries(values: number[]): number[] {
 
 async function seedBoardWithTiers(
   supabase: SupabaseClient,
+  leagueId: string,
   rosterId: string,
   players: PoolPlayer[],
 ): Promise<{ tiers: TierRow[]; rankings: RankingRow[] }> {
@@ -431,7 +458,7 @@ async function seedBoardWithTiers(
   tierRanges.push({ order: boundaries.length + 1, startIdx: start, endIdx: playersWithValue.length });
 
   const tierInserts = tierRanges.map((r) => ({
-    roster_id: rosterId,
+    league_id: leagueId, roster_id: rosterId,
     tier_order: r.order,
   }));
 
@@ -452,6 +479,7 @@ async function seedBoardWithTiers(
   }
 
   const rankingInserts: Array<{
+    league_id: string;
     roster_id: string;
     player_id: string;
     tier_id: string;
@@ -465,7 +493,7 @@ async function seedBoardWithTiers(
     for (let i = range.startIdx; i < range.endIdx; i++) {
       const player = playersWithValue[i];
       rankingInserts.push({
-        roster_id: rosterId,
+        league_id: leagueId, roster_id: rosterId,
         player_id: player.id,
         tier_id: tierId,
         rank: rank++,

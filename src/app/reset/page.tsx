@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useState, type FormEvent } from "react";
+import { finalizeLeagueSession } from "@/infrastructure/identity/leagueSelection";
 import { supabase } from "@/infrastructure/supabase/client";
 
 function ResetForm() {
@@ -96,22 +97,8 @@ function ResetForm() {
         return;
       }
 
-      // Password is set and we now hold a real session — hand it to finalize so
-      // the app's cfc_* cookies get set, then land wherever finalize redirects.
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      if (!token) throw new Error("no_session");
-
-      const res = await fetch("/api/auth/finalize", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json?.error ?? "finalize_failed");
-      window.location.href = json.redirect ?? "/";
+      const result = await finalizeLeagueSession();
+      window.location.href = result.leagues ? "/login?selectLeague=1" : result.redirect ?? "/";
     } catch {
       setFormError("Something went wrong. Please try again.");
       setSubmitting(false);

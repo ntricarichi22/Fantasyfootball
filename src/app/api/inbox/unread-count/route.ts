@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
   try {
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
 
@@ -13,12 +15,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "teamId is required" }, { status: 400 });
   }
 
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const league_id = session.leagueId;
+
   if (session.leagueId !== league_id || session.rosterId !== teamId)
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
@@ -58,7 +56,7 @@ export async function GET(request: NextRequest) {
       .gte("updated_at", closureSince),
     client
       .from("cfc_director_memos")
-      .select("id", { count: "exact", head: true })
+      .select("id", { count: "exact", head: true }).eq("league_id", league_id)
       .eq("team_id", teamId)
       .eq("status", "unread")
       .neq("play_mode", "offer_card"),

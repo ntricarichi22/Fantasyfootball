@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 // POST /api/pro-personnel/office/respond
 //
 // Free-text lane of the Personnel director's chat. v1 understands ONE deal-
@@ -23,7 +24,6 @@
 import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextResponse } from "next/server";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { getLeagueId } from "@/infrastructure/config";
 import { getLeagueData, getPlayoffHistory } from "@/shared/league-data";
 import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
@@ -97,16 +97,16 @@ type TargetPayload = {
   partnerNeedsLine: string | null;
 };
 
-async function buildTargetPayload(teamId: string, target: RosteredName): Promise<TargetPayload | { error: string }> {
-  const data = await getLeagueData();
+async function buildTargetPayload(leagueId: string, teamId: string, target: RosteredName): Promise<TargetPayload | { error: string }> {
+  const data = await getLeagueData(leagueId);
   if ("error" in data) return { error: data.error };
 
   const profiles = buildTeamProfiles(data);
   const needs = computeNeeds(data);
   const dossiers = buildTeamDossiers(profiles, data);
-  const playoffHistory = await getPlayoffHistory();
+  const playoffHistory = await getPlayoffHistory(leagueId);
   const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
-  const ctx = await buildValuationContext();
+  const ctx = await buildValuationContext(leagueId);
   const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };
 
   // The constructor builds ONE best package per partner-target pair, but the
@@ -283,10 +283,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "roster_id and message required" }, { status: 400 });
   }
   const { session } = await currentAppSessionFromRequest(req);
-  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!session || !currentSessionCanActForRoster(session, session.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
 
   try {
-    const data = await getLeagueData();
+    const data = await getLeagueData(session.leagueId);
     if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
 
     const { match, ambiguous } = resolveTarget(message, rosteredPlayers(data));
@@ -320,8 +321,8 @@ export async function POST(req: Request) {
       });
     }
 
-    const payload = await ttlMemo(`office-target:v3:${teamId}:${match.playerId}`, 60_000, () =>
-      buildTargetPayload(teamId, match),
+    const payload = await ttlMemo(`office-target:v3:${session.leagueId}:${teamId}:${match.playerId}`, 60_000, () =>
+      buildTargetPayload(session.leagueId, teamId, match),
     );
     if ("error" in payload) return NextResponse.json({ error: payload.error }, { status: 500 });
 

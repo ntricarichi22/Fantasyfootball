@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       .from("team_email_map")
       .select("email")
       .eq("email", email)
-      .maybeSingle();
+      .limit(1).maybeSingle();
 
     if (teamError) return NextResponse.json({ error: "signup_unavailable" }, { status: 503 });
     if (!teamRow) {

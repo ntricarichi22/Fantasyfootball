@@ -18,12 +18,13 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { ttlInvalidate, ttlMemo } from "@/infrastructure/ttlCache";
 import { teamNickname, teamNameParts } from "./nicknames";
 import { TEAM_COLORS } from "./teamColors";
-import { fetchRosters, fetchUsers, getSleeperLeagueId } from "./sleeper";
+import { fetchRosters, fetchUsers } from "./sleeper";
+import { leagueCacheKey } from "@/infrastructure/identity/leagueScope";
+import { isCfcLeague } from "./capabilities";
 import { configuredBaseSlugs, resolveBaseSlug } from "./baseIdentity";
 
 export const TEAM_LOGO_BUCKET = "team-logos";
 
-const CACHE_KEY = "team-identity:all";
 const stableBaseSlugByRoster = new Map<string, string>();
 const configuredSlugs = configuredBaseSlugs(process.env.CFC_BASE_SLUGS_BY_ROSTER);
 
@@ -63,36 +64,42 @@ export function parseLogoObjectName(name: string): { rosterId: string; color: st
   return { rosterId: m[1], color: m[2] ? `#${m[2]}` : null };
 }
 
-async function listCustomLogos(): Promise<Map<string, LogoObject>> {
+async function listCustomLogos(leagueId: string): Promise<Map<string, LogoObject>> {
   const logos = new Map<string, LogoObject>();
   const { client } = getSupabaseAdminClient();
   if (!client) return logos;
   // A missing bucket lists as an error — treated as "no custom logos yet";
   // the bucket is created lazily by the first upload.
-  const { data, error } = await client.storage.from(TEAM_LOGO_BUCKET).list("", { limit: 100 });
+  const { data, error } = await client.storage.from(TEAM_LOGO_BUCKET).list(encodeURIComponent(leagueId), { limit: 1000 });
   if (error) return logos;
   for (const obj of data ?? []) {
     const parsed = obj.name ? parseLogoObjectName(obj.name) : null;
     if (!parsed) continue;
-    const entry: LogoObject = { name: obj.name, updatedAt: obj.updated_at ?? "", color: parsed.color };
+    const entry: LogoObject = { name: `${encodeURIComponent(leagueId)}/${obj.name}`, updatedAt: obj.updated_at ?? "", color: parsed.color };
     // A replaced logo can briefly leave two objects for one roster — latest wins.
     const existing = logos.get(parsed.rosterId);
     if (!existing || entry.updatedAt > existing.updatedAt) logos.set(parsed.rosterId, entry);
   }
+  if (isCfcLeague(leagueId)) {
+    const legacy = await client.storage.from(TEAM_LOGO_BUCKET).list("", { limit: 100 });
+    for (const obj of legacy.data ?? []) {
+      const parsed = parseLogoObjectName(obj.name);
+      if (parsed && !logos.has(parsed.rosterId)) logos.set(parsed.rosterId, { name: obj.name, updatedAt: obj.updated_at ?? "", color: parsed.color });
+    }
+  }
   return logos;
 }
 
-async function loadIdentities(): Promise<TeamIdentity[]> {
-  const leagueId = getSleeperLeagueId();
+async function loadIdentities(leagueId: string): Promise<TeamIdentity[]> {
   const { client } = getSupabaseAdminClient();
 
   const [rosters, users, mapRows, logos] = await Promise.all([
     leagueId ? fetchRosters(leagueId) : Promise.resolve([]),
     leagueId ? fetchUsers(leagueId) : Promise.resolve([]),
     client
-      ? client.from("team_email_map").select("roster_id, team_name")
+      ? client.from("team_email_map").select("roster_id, team_name").eq("league_id", leagueId)
       : Promise.resolve({ data: null }),
-    listCustomLogos(),
+    listCustomLogos(leagueId),
   ]);
 
   // team_email_map can hold multiple email rows per roster — first row wins.
@@ -113,9 +120,10 @@ async function loadIdentities(): Promise<TeamIdentity[]> {
   const build = (rid: string, sleeperName: string) => {
     const teamName = dbName.get(rid) || sleeperName;
     const sleeperAvailable = rosters.length > 0;
-    const baseSlug = resolveBaseSlug(rid, configuredSlugs, stableBaseSlugByRoster,
+    const memoryKey = leagueCacheKey("base-slug", leagueId) + ":" + rid;
+    const baseSlug = (isCfcLeague(leagueId) ? configuredSlugs.get(rid) : null) ?? resolveBaseSlug(memoryKey, new Map(), stableBaseSlugByRoster,
       sleeperAvailable ? nicknameSlug(sleeperName) : null, nicknameSlug(teamName));
-    stableBaseSlugByRoster.set(rid, baseSlug);
+    stableBaseSlugByRoster.set(memoryKey, baseSlug);
     const logo = logos.get(rid);
     const customLogoUrl = logo ? publicLogoUrl(logo) : null;
     identities.push({
@@ -125,9 +133,9 @@ async function loadIdentities(): Promise<TeamIdentity[]> {
       baseSlug,
       nameSlug: nicknameSlug(teamName),
       customLogoUrl,
-      crestUrl: customLogoUrl ?? `/teams/${baseSlug}.png`,
-      gmAvatarUrl: `/avatars/gm/${baseSlug}.png`,
-      color: (customLogoUrl ? logo?.color : null) ?? TEAM_COLORS[baseSlug] ?? null,
+      crestUrl: customLogoUrl ?? (isCfcLeague(leagueId) ? `/teams/${baseSlug}.png` : ""),
+      gmAvatarUrl: isCfcLeague(leagueId) ? `/avatars/gm/${baseSlug}.png` : "",
+      color: (customLogoUrl ? logo?.color : null) ?? (isCfcLeague(leagueId) ? TEAM_COLORS[baseSlug] : null) ?? null,
     });
   };
 
@@ -145,19 +153,19 @@ async function loadIdentities(): Promise<TeamIdentity[]> {
   return identities;
 }
 
-export function getTeamIdentities(): Promise<TeamIdentity[]> {
-  return ttlMemo(CACHE_KEY, 30_000, loadIdentities);
+export function getTeamIdentities(leagueId: string): Promise<TeamIdentity[]> {
+  return ttlMemo(leagueCacheKey("team-identity:all", leagueId), 30_000, () => loadIdentities(leagueId));
 }
 
 /** Bust the cache after a rename or logo change so the next read is fresh. */
-export function invalidateTeamIdentities(): void {
-  ttlInvalidate(CACHE_KEY);
+export function invalidateTeamIdentities(leagueId: string): void {
+  ttlInvalidate(leagueCacheKey("team-identity:all", leagueId));
 }
 
 /** rosterId → display name, for overlaying onto Sleeper-derived name maps. */
-export async function getTeamNameOverrides(): Promise<Map<string, string>> {
+export async function getTeamNameOverrides(leagueId: string): Promise<Map<string, string>> {
   try {
-    const identities = await getTeamIdentities();
+    const identities = await getTeamIdentities(leagueId);
     return new Map(identities.map((t) => [t.rosterId, t.teamName]));
   } catch {
     return new Map();

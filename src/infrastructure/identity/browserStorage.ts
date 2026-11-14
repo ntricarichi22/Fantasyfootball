@@ -1,7 +1,7 @@
 /** Cache identity only. Authorization must still be checked by the server. */
-export function browserStorageScope(identity: { userId: string; leagueId: string } | null): string | null {
+export function browserStorageScope(identity: { userId: string; leagueId: string; rosterId?: string; role?: string } | null): string | null {
   if (!identity?.userId || !identity.leagueId) return null;
-  return `${encodeURIComponent(identity.leagueId)}:${encodeURIComponent(identity.userId)}`;
+  return [identity.leagueId, identity.userId, identity.rosterId ?? "", identity.role ?? ""].map(encodeURIComponent).join(":");
 }
 
 export function browserStorageKey(feature: string, scope: string | null): string | null {

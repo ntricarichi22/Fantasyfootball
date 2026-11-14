@@ -1,6 +1,6 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest, currentSessionCanAccessTeamPair } from "@/infrastructure/auth/currentSession";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +14,9 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ threadId: string }> },
 ) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
   try {
   const { threadId } = await params;
 
@@ -21,12 +24,8 @@ export async function GET(
     return NextResponse.json({ error: "Thread ID is required" }, { status: 400 });
   }
 
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const league_id = session.leagueId;
+
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
@@ -61,7 +60,7 @@ export async function GET(
 
   return NextResponse.json({
     thread: threadRes.data,
-    offers: offersRes.data ?? [],
+    offers: (offersRes.data ?? []).map(normalizeTradeOffer),
   });
   } catch (err) {
     console.error('[API GET /api/inbox/threads/:threadId]', err);

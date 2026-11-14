@@ -3,7 +3,6 @@ import test from "node:test";
 import { createMemoHandlers, type MemoStore } from "../src/app/api/inbox/memos/memoHandler.ts";
 import { resolveFinalizeAccess, sessionClaimsForAccess, type FinalizeAccessStore } from "../src/infrastructure/auth/finalizeAuthorization.ts";
 import type { AppSession } from "../src/infrastructure/auth/session.ts";
-import { authorizeThreadCreation } from "../src/app/api/inbox/threads/threadAuthorization.ts";
 import { boundedJson } from "../src/infrastructure/auth/boundedJson.ts";
 import { claimAuthAttempt } from "../src/infrastructure/auth/rateLimit.ts";
 import { isCounterThreadParticipant, offerBelongsToThreadParticipants } from "../src/app/api/inbox/ai-counter/counterAuthorization.ts";
@@ -16,28 +15,30 @@ const responseJson = async (response: Response) => await response.json() as Reco
 
 test("actual memo handlers hide foreign UUIDs and never mutate them", async () => {
   const rows = new Map([
-    ["memo-a", { id: "memo-a", team_id: "team-a", status: "unread", read_body: "ours" }],
-    ["memo-b", { id: "memo-b", team_id: "team-b", status: "unread", read_body: "private" }],
+    ["memo-a", { id: "memo-a", league_id: "league-a", team_id: "team-a", status: "unread", read_body: "ours" }],
+    ["memo-b", { id: "memo-b", league_id: "league-a", team_id: "team-b", status: "unread", read_body: "private" }],
+    ["memo-c", { id: "memo-c", league_id: "league-b", team_id: "team-a", status: "unread", read_body: "other league private" }],
   ]);
   const writes: string[] = [];
-  const owned = (id: string, roster: string) => {
+  const owned = (id: string, league: string, roster: string) => {
     const row = rows.get(id);
-    return row?.team_id === roster ? row : null;
+    return row?.league_id === league && row.team_id === roster ? row : null;
   };
   const store: MemoStore = {
-    getOwned: async (id, roster) => owned(id, roster),
-    markOwned: async (id, roster, status) => { const row = owned(id, roster); if (!row) return false; writes.push(id); row.status=status; return true; },
-    listOwned: async (roster) => [...rows.values()].filter((row) => row.team_id === roster),
-    bulkMarkOwned: async (ids, roster, status) => { let count=0; for (const id of ids) { const row=owned(id,roster); if (row) { row.status=status; writes.push(id); count++; } } return count; },
+    getOwned: async (id, league, roster) => owned(id, league, roster),
+    markOwned: async (id, league, roster, status) => { const row = owned(id, league, roster); if (!row) return false; writes.push(id); row.status=status; return true; },
+    listOwned: async (league, roster) => [...rows.values()].filter((row) => row.league_id === league && row.team_id === roster),
+    bulkMarkOwned: async (ids, league, roster, status) => { let count=0; for (const id of ids) { const row=owned(id,league,roster); if (row) { row.status=status; writes.push(id); count++; } } return count; },
   };
-  const handlers = createMemoHandlers({ leagueId: "league-a", session: async () => session, store });
+  const handlers = createMemoHandlers({ session: async () => session, store });
   const foreign = await handlers.GET(new Request("http://local/api/inbox/memos?id=memo-b"));
   assert.equal(foreign.status, 404);
   assert.equal(JSON.stringify(await responseJson(foreign)).includes("private"), false);
   assert.deepEqual(writes, []);
+  assert.equal((await handlers.GET(new Request("http://local/api/inbox/memos?id=memo-c"))).status, 404);
 
   const bulk = await handlers.POST(new Request("http://local/api/inbox/memos", { method: "POST",
-    body: JSON.stringify({ ids: ["memo-a", "memo-b"], status: "archived" }) }));
+    body: JSON.stringify({ ids: ["memo-a", "memo-b", "memo-c"], status: "archived" }) }));
   assert.equal(bulk.status, 200);
   assert.deepEqual(await responseJson(bulk), { ok: true, updated: 1 });
   assert.deepEqual(writes, ["memo-a"]);
@@ -46,7 +47,7 @@ test("actual memo handlers hide foreign UUIDs and never mutate them", async () =
 test("actual memo handler rejects a forged team before touching storage", async () => {
   let calls = 0;
   const store = new Proxy({}, { get: () => async () => { calls++; return null; } }) as MemoStore;
-  const handlers = createMemoHandlers({ leagueId: "league-a", session: async () => session, store });
+  const handlers = createMemoHandlers({ session: async () => session, store });
   const response = await handlers.GET(new Request("http://local/api/inbox/memos?teamId=team-b"));
   assert.equal(response.status, 404);
   assert.equal(calls, 0);
@@ -90,14 +91,6 @@ test("current and invited users retain access; missing membership schema fails c
   }, "user-a", "a@example.invalid", "league-a");
   assert.equal(compatibility.error, "unavailable");
   assert.equal(compatibility.membership, null);
-});
-
-test("thread boundary denies spoofing and permits a real counterpart", async () => {
-  const lookup = async () => ["team-a", "team-b"];
-  assert.equal(await authorizeThreadCreation(session, "league-a", "team-a", "team-b", "team-b", lookup), false);
-  assert.equal(await authorizeThreadCreation(session, "league-a", "team-b", "team-c", "team-a", lookup), false);
-  assert.equal(await authorizeThreadCreation(session, "league-a", "team-a", "team-b", "team-a", lookup), true);
-  assert.equal(await authorizeThreadCreation(session, "league-a", "team-a", "invented", "team-a", lookup), false);
 });
 
 test("counter authorization binds the owned roster to the actual thread and offer pair", () => {

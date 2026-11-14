@@ -2,5 +2,13 @@
   "021": {
     "version": "20261114181422",
     "name": "audit_session_revocation_and_draft_visibility"
+  },
+  "022": {
+    "version": "20261114205045",
+    "name": "league_runtime_expansion"
+  },
+  "023": {
+    "version": "20261114233534",
+    "name": "league_atomic_commands"
   }
 }

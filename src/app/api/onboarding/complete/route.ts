@@ -5,7 +5,8 @@ import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSessi
 export async function POST(request: NextRequest) {
   try {
     const { session } = await currentAppSessionFromRequest(request);
-    const rosterId = session?.rosterId;
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    const rosterId = session.rosterId;
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const { client, error: clientError } = getSupabaseAdminClient();
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
     const { error } = await client
       .from("team_email_map")
       .update({ profile_complete: true, updated_at: new Date().toISOString() })
-      .eq("roster_id", rosterId);
+      .eq("league_id", session.leagueId).eq("roster_id", rosterId);
 
     if (error) throw new Error(error.message);
 

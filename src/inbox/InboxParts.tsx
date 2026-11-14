@@ -2,6 +2,7 @@
 
 import { Fragment, useRef, useState } from "react";
 import { Icon } from "@/shared/ui/Icon";
+import { useAppIdentity } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamColorForName } from "@/shared/league-data/clientTeamIdentity";
 import { gmNameFor } from "@/home/gmNames";
 import DirectorNote from "@/inbox/thread/DirectorNote";
@@ -156,6 +157,8 @@ export function NegotiationTile({
   tile: NegotiationTileData;
   onOpen: () => void;
 }) {
+  const identity = useAppIdentity();
+  const leagueId = identity?.leagueId ?? "";
   const currentIdx = tile.versions.length - 1;
   const [selectedIdx, setSelectedIdx] = useState(currentIdx);
   const [logoFailed, setLogoFailed] = useState(false);
@@ -172,9 +175,9 @@ export function NegotiationTile({
 
   if (!version) return null;
 
-  const frameColor = teamColorForName(tile.counterpart);
-  const myColor = teamColorForName(tile.myTeam);
-  const gmName = gmNameFor(tile.counterpart);
+  const frameColor = teamColorForName(tile.counterpart, leagueId);
+  const myColor = teamColorForName(tile.myTeam, leagueId);
+  const gmName = identity?.cfcFeatures ? gmNameFor(tile.counterpart) : null;
 
   const ledgerLabel: React.CSSProperties = {
     width: 42,

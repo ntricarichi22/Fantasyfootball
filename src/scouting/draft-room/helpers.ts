@@ -1,6 +1,5 @@
 import { CACHE_TTL_MS, MIN_TEAM_COUNT } from "./constants";
 import type { DraftLogEntry, DraftedPlayer, SleeperPlayer } from "./types";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 
 export const isCacheTimestampFresh = (timestamp: number | null | undefined) =>
   typeof timestamp === "number" && timestamp > 0 && Date.now() - timestamp < CACHE_TTL_MS;
@@ -27,15 +26,6 @@ export const generateSessionId = () => {
   }
 
   throw new Error("Secure random generation unavailable");
-};
-
-export const getStoredSessionSelection = () => {
-  // NOTE: backed by sessionStorage so two tabs in the same browser can
-  // sign in as different teams (the documented multi-tab workflow). This
-  // means a hard refresh in some browsers / private windows can lose the
-  // selection and bounce the user back to the team picker.
-  const parsed = readStoredTeam();
-  return { rosterId: toId(parsed.rosterId), sessionId: parsed.sessionId ?? "", teamName: parsed.teamName ?? "" };
 };
 
 export const normalizePositions = (positions?: string[] | null, fallback?: string) => {

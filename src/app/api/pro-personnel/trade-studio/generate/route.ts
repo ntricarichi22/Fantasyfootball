@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 // POST /api/pro-personnel/trade-studio/generate
 //
 // Thin door over the Studio offer engine. The Studio shows what OTHER teams
@@ -33,29 +34,32 @@ function valueAssetFor(key: string, type: "player" | "pick", ctx: ValuationConte
 }
 
 export async function POST(req: Request) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   try {
     const body = await req.json();
     const teamId = String(body.team_id ?? "").trim();
     const shopKeys: string[] = (Array.isArray(body.shop_list_keys) ? body.shop_list_keys : []).map(toEngineKey);
 
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
-    const { session } = await currentAppSessionFromRequest(req);
-    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
     if (shopKeys.length === 0) {
       return NextResponse.json({ offers: [], totalCandidatesEvaluated: 0, isFallback: false });
     }
 
-    const data = await getLeagueData();
+    const data = await getLeagueData(session.leagueId);
     if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
     if (!currentSessionCanActForRoster(session, data.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
-    const playoffHistory = await getPlayoffHistory();
+    const playoffHistory = await getPlayoffHistory(session.leagueId);
     const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
 
-    const ctx = await buildValuationContext();
+    const ctx = await buildValuationContext(session.leagueId);
     const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles };
     const slate = runStudio(ec, teamId, shopKeys, {
       counterpartyTeamIds: body.anchor_partner_id ? [String(body.anchor_partner_id)] : undefined,

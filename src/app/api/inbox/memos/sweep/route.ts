@@ -1,3 +1,6 @@
+import { normalizeTradeOffer } from "@/shared/trade-offers/normalize";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 // POST /api/inbox/memos/sweep  { team_id }
 //
 // Idempotent composer for the Personnel director's inbound-offer emails
@@ -24,7 +27,6 @@
 import { createHash } from "crypto";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { getLeagueData } from "@/shared/league-data";
 import { buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
 import { computeNeeds, buildTeamProfiles } from "@/shared/team-profiles";
@@ -37,7 +39,7 @@ import type { Gap } from "@/pro-personnel/engine/core/types";
 import type { EngineOfferAsset } from "@/pro-personnel/engine/types";
 import { generateOfferProse } from "./offerProse";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
-import { isAdminRequest } from "@/infrastructure/auth/admin";
+import { registeredMachineLeague } from "@/infrastructure/auth/admin";
 
 export const dynamic = "force-dynamic";
 // The director's read is now LLM-written at mint time (one call per new email).
@@ -49,8 +51,8 @@ const REMINDER_AFTER_MS = 36 * 60 * 60 * 1000;
 // auto-refresh racing a fresh page load) both compute the same id, and the
 // primary key + ignoreDuplicates turns the race into a no-op. No extra
 // dedupe column needed.
-function memoIdFor(kind: string, offerId: string, teamId: string): string {
-  const h = createHash("sha1").update(`cfc-memo:${kind}:${offerId}:${teamId}`).digest("hex");
+function memoIdFor(leagueId: string, kind: string, offerId: string, teamId: string): string {
+  const h = createHash("sha1").update(`cfc-memo:${leagueId}:${kind}:${offerId}:${teamId}`).digest("hex");
   // Format as a v5-style UUID (version + variant bits set) so the uuid column accepts it.
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${((parseInt(h[16], 16) & 0x3) | 0x8).toString(16)}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
@@ -95,23 +97,23 @@ function daysAgoLabel(iso: string): string {
 }
 
 export async function POST(req: Request) {
-  let body: { team_id?: string; background?: boolean };
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
+  const body = await boundedJson<{ team_id?: unknown; background?: unknown }>(req, 8192);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   const teamId = String(body.team_id ?? "").trim();
   if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
   const background = body.background === true;
+  let leagueId: string;
   if (background) {
-    if (!(await isAdminRequest(req))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    const registered = await registeredMachineLeague(req);
+    if (!registered) return NextResponse.json({ error: "registered_league_required" }, { status: 403 });
+    leagueId = registered;
   } else {
     const { session } = await currentAppSessionFromRequest(req);
     if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-    if (session.leagueId !== LEAGUE_ID || session.rosterId !== teamId)
-      return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (session.rosterId !== teamId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    leagueId = session.leagueId;
   }
+  if (!isCfcLeague(leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
@@ -123,25 +125,25 @@ export async function POST(req: Request) {
       client
         .from("trade_offers")
         .select("id, thread_id, from_team_id, to_team_id, assets_from, assets_to, created_at")
-        .eq("league_id", LEAGUE_ID)
+        .eq("league_id", leagueId)
         .eq("to_team_id", teamId)
         .eq("status", "pending"),
       client
         .from("cfc_director_memos")
         .select("status, created_at, play_payload")
-        .eq("team_id", teamId)
+        .eq("league_id", leagueId).eq("team_id", teamId)
         .eq("play_mode", "offer_card"),
       client
         .from("cfc_team_strategy_profiles")
         .select("gm_persona")
-        .eq("league_id", LEAGUE_ID)
-        .eq("team_id", teamId)
+        .eq("league_id", leagueId)
+        .eq("league_id", leagueId).eq("team_id", teamId)
         .maybeSingle(),
     ]);
     if (offersRes.error) return NextResponse.json({ error: offersRes.error.message }, { status: 500 });
     if (memosRes.error) return NextResponse.json({ error: memosRes.error.message }, { status: 500 });
 
-    const offers = (offersRes.data ?? []) as PendingOffer[];
+    const offers = (offersRes.data ?? []).map(normalizeTradeOffer) as PendingOffer[];
     if (offers.length === 0) return NextResponse.json({ created: 0 });
 
     // Dedupe index: kind:offer_id → memo status + sent time (status modulates
@@ -157,11 +159,11 @@ export async function POST(req: Request) {
       }
     }
 
-    const data = await getLeagueData();
+    const data = await getLeagueData(leagueId);
     if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
     const teamName = (id: string) =>
       data.teams.find((t) => t.rosterId === id)?.teamName ?? `Team ${id}`;
-    const ctx = await buildValuationContext();
+    const ctx = await buildValuationContext(leagueId);
     const ourPersona = normalizePersona(personaRes.data?.gm_persona);
 
     // Canonical grounding for the LLM prose — needs read + dossier direction
@@ -258,7 +260,7 @@ export async function POST(req: Request) {
         generateOfferProse({
           request: req,
           client,
-          leagueId: LEAGUE_ID,
+          leagueId: leagueId,
           teamId,
           ourName: teamName(teamId),
           partnerName: partner,
@@ -279,9 +281,9 @@ export async function POST(req: Request) {
       if (!sent.has(`offer_received:${offer.id}`)) {
         const prose = await makeProse();
         rows.push({
-          id: memoIdFor("offer_received", offer.id, teamId),
+          id: memoIdFor(leagueId, "offer_received", offer.id, teamId),
           director_role: "personnel",
-          team_id: teamId,
+          league_id: leagueId, team_id: teamId,
           subject: `Offer on the table from ${partner}`,
           read_body:
             `${partner} just sent us something, boss: ${names(receiveAssets)} for ${names(sendAssets)}. ` +
@@ -308,9 +310,9 @@ export async function POST(req: Request) {
       const firstUnread = first.status === "unread";
       const reminderProse = await makeProse();
       rows.push({
-        id: memoIdFor("offer_reminder", offer.id, teamId),
+        id: memoIdFor(leagueId, "offer_reminder", offer.id, teamId),
         director_role: "personnel",
-        team_id: teamId,
+        league_id: leagueId, team_id: teamId,
         subject: `No rush — ${possessive(partner)} offer is still open`,
         read_body: firstUnread
           ? `Don't want this one getting buried, boss — ${possessive(partner)} offer has been sitting with us since ${daysAgoLabel(offer.created_at)}. ` +
@@ -343,8 +345,9 @@ export async function POST(req: Request) {
 /** Scheduled sweep for all league seats. Provider calls are explicitly billed
  * to AI_BACKGROUND_USER_ID and still count against the fixed pilot ceiling. */
 export async function GET(req: Request) {
-  if (!(await isAdminRequest(req))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const league = await getLeagueData();
+  const leagueId = await registeredMachineLeague(req);
+  if (!leagueId) return NextResponse.json({ error: "registered_league_required" }, { status: 403 });
+  const league = await getLeagueData(leagueId);
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
   let created = 0;
   for (const team of league.teams) {

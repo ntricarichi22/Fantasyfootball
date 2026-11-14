@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 import type { LeagueSnapshot } from "@/shared/league-data";
 
@@ -55,6 +57,7 @@ export default function OnboardingAttachment({
   rosterId,
   leagueId,
 }: Props) {
+  const fetch = useLeagueFetch();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -105,7 +108,7 @@ export default function OnboardingAttachment({
     return () => {
       cancelled = true;
     };
-  }, [leagueId, rosterId]);
+  }, [fetch, leagueId, rosterId]);
 
   const setPlayerAttachment = (playerId: string, value: Attachment) => {
     setAttachments((prev) => ({ ...prev, [playerId]: value }));
