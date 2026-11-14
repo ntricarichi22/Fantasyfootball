@@ -1,5 +1,7 @@
+import { leagueCacheKey } from "@/infrastructure/identity/leagueScope";
+import { isCfcLeague } from "./capabilities";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { ttlInvalidate, ttlMemo } from "@/infrastructure/ttlCache";
+import { ttlInvalidate, ttlInvalidatePrefix, ttlMemo } from "@/infrastructure/ttlCache";
 import {
   withComputedDraftPicks,
   deriveDraftOrderForSeason,
@@ -12,20 +14,19 @@ import {
   fetchPlayers,
   fetchRosters,
   fetchUsers,
-  fetchTradedPicks,
-  fetchDrafts,
   fetchLeague,
-  fetchDraftPicks,
-  getSleeperLeagueId,
   playerName,
   playerAge,
   type SleeperPlayer,
   type SleeperRoster,
   type SleeperUser,
+  type SleeperLeague,
+  type SleeperDraftPick,
 } from "./sleeper";
 import { getTeamNameOverrides } from "./teamIdentity";
 import { FIXED_PICK_LADDER } from "@/shared/asset-values/fixedPickLadder";
-import { deriveOwnablePickShape, deriveSpentPickNumbers, isPickSpentInSeason } from "./picks";
+import { isPickSpentInSeason } from "./picks";
+import { runtimeSourceConfig } from "./runtimeSourceConfig";
 import {
   POSITIONS,
   type Position,
@@ -45,12 +46,11 @@ import {
   type ResultsSource,
   type LeagueData,
 type DraftStatus,
-  type DraftResultPick,
   type LeagueSnapshot,
 } from "./types";
 import { formatPickKey, getCFCYear } from "./picks";
 
-import { applyPendingTradeOverlays, type PendingTradeOverlay } from "./overlays";
+import { getLeagueRuntime, runtimeDraftStatus, runtimePickOwnership, runtimeDraftSlots, runtimeDraftClock, type LeagueRuntime } from "./runtime";
 import { buildTeamProfiles } from "@/shared/team-profiles";
 
 const FANTASY = new Set<Position>(POSITIONS);
@@ -123,30 +123,11 @@ function buildTeams(
   names: Map<string, string>,
   baseNames: Map<string, string>,
   dict: Map<string, PlayerInfo>,
-  drafted: Array<{ rosterId: string; playerId: string }> = []
-): RosteredTeam[] {
-  // Drafted-but-not-yet-in-Sleeper players, grouped by roster for the graft.
-  const draftedByRoster = new Map<string, string[]>();
-  for (const d of drafted) {
-    const list = draftedByRoster.get(d.rosterId) ?? [];
-    list.push(d.playerId);
-    draftedByRoster.set(d.rosterId, list);
-  }
 
+): RosteredTeam[] {
   return rosters.map((r) => {
     const rid = toStr(r.roster_id);
     const playerIds = (r.players ?? []).map(toStr);
-
-    // Graft drafted players Sleeper hasn't processed yet: add only if NOT
-    // already on the Sleeper roster (dedupe) and the player resolves in the
-    // dictionary. Once Sleeper catches up, the dedupe stops re-adding them.
-    const sleeperSet = new Set(playerIds);
-    for (const pid of draftedByRoster.get(rid) ?? []) {
-      if (!sleeperSet.has(pid) && dict.has(pid)) {
-        playerIds.push(pid);
-        sleeperSet.add(pid);
-      }
-    }
 
     const players: PlayerInfo[] = [];
     for (const pid of playerIds) {
@@ -163,60 +144,6 @@ function buildTeams(
       players,
     };
   });
-}
-
-async function getPendingTradeOverlays(leagueId: string): Promise<PendingTradeOverlay[]> {
-  const { client } = getSupabaseAdminClient();
-  if (!client) return [];
-  const { data, error } = await client.from("cfc_pending_trade_overlays")
-    .select("offer_id,from_team_id,to_team_id,assets_from,assets_to")
-    .eq("league_id", leagueId).not("accepted_at", "is", null).is("reconciled_at", null)
-    .order("accepted_at", { ascending: true });
-  if (error) {
-    // Compatibility window while migration 018 rolls out: no overlays rather
-    // than taking ordinary league reads down.
-    if (error.code === "42P01" || error.code === "PGRST205") return [];
-    throw new Error(error.message);
-  }
-  return (data ?? []).map(row => ({
-    offerId: String(row.offer_id), fromTeamId: String(row.from_team_id), toTeamId: String(row.to_team_id),
-    assetsFrom: Array.isArray(row.assets_from) ? row.assets_from : [],
-    assetsTo: Array.isArray(row.assets_to) ? row.assets_to : [],
-  }));
-}
-
-/** Apply accepted deals in acceptance order. Sleeper remains authoritative:
- * an asset already at the destination is a no-op. */
-export async function reconcilePendingTradeOverlays(): Promise<number> {
-  const leagueId = getSleeperLeagueId();
-  const [players, rosters, users, traded, drafts, status, names, overlays] = await Promise.all([
-    fetchPlayers(), fetchRosters(leagueId), fetchUsers(leagueId), fetchTradedPicks(leagueId),
-    fetchDrafts(leagueId), getDraftStatus(), getTeamNameOverrides(), getPendingTradeOverlays(leagueId),
-  ]);
-  const teams = buildTeams(rosters, buildTeamNames(rosters, users, names),
-    buildSleeperTeamNames(rosters, users), buildPlayerDict(players));
-  const ownership = buildPickOwnership(rosters, traded, status, drafts).map;
-  const located = (asset: { key?: string; type?: string }, rosterId: string) => {
-    const key = String(asset.key ?? "");
-    if (asset.type === "pick" || key.startsWith("pick:")) {
-      return (ownership.get(rosterId) ?? []).some(pick => pick.key === key)
-        || (status.complete && key.startsWith(`pick:${status.season}-`));
-    }
-    const id = key.replace(/^player:/, "");
-    return teams.find(team => team.rosterId === rosterId)?.playerIds.includes(id) ?? false;
-  };
-  const reconciled = overlays.filter(overlay =>
-    overlay.assetsFrom.every(asset => located(asset, overlay.toTeamId))
-    && overlay.assetsTo.every(asset => located(asset, overlay.fromTeamId)));
-  if (!reconciled.length) return 0;
-  const { client } = getSupabaseAdminClient();
-  if (!client) return 0;
-  const { error } = await client.from("cfc_pending_trade_overlays")
-    .update({ reconciled_at: new Date().toISOString() })
-    .in("offer_id", reconciled.map(item => item.offerId));
-  if (error) throw new Error(error.message);
-  invalidateLeagueData();
-  return reconciled.length;
 }
 
 function buildResults(rosters: SleeperRoster[]): Map<string, SeasonResult> {
@@ -242,101 +169,10 @@ function resultsAreEmpty(results: Map<string, SeasonResult>): boolean {
   return true;
 }
 
-// Picks already used in the draft are no longer ownable assets (they became
-// players). Reading the draft log lets ownership return only live picks.
-async function fetchAppDraftPicks(leagueId: string, season: number, teamCount: number): Promise<DraftResultPick[]> {
-  const picks: DraftResultPick[] = [];
-  const admin = getSupabaseAdminClient();
-  if (!admin.client) return picks;
-  const { data } = await admin.client
-    .from("draft_log")
-    .select("pick_number, roster_id, player_id, submitted_at, cfc_year")
-    .eq("league_id", leagueId)
-    .eq("cfc_year", season)
-    .eq("is_announced", true)
-    .not("submitted_at", "is", null);
-  for (const row of (data ?? []) as Array<{ pick_number: string | null; roster_id: string | null; player_id: string | null }>) {
-    const match = String(row.pick_number ?? "").match(/^(\d+)\.(\d+)$/);
-    if (!match || !row.roster_id || !row.player_id) continue;
-    const round = Number(match[1]);
-    const slot = Number(match[2]);
-    picks.push({ source: "app", pickNumber: (round - 1) * teamCount + slot, round, slot, rosterId: String(row.roster_id), playerId: String(row.player_id) });
-  }
-  return picks;
-}
-
-export async function getDraftStatus(): Promise<DraftStatus> {
-  return ttlMemo("league-data:draft-status", 300_000, async () => {
-    const leagueId = getSleeperLeagueId();
-    const season = getCFCYear();
-    const [drafts, sleeperLeague, rosters] = await Promise.all([
-      fetchDrafts(leagueId) as Promise<SleeperDraft[]>, fetchLeague(leagueId), fetchRosters(leagueId),
-    ]);
-    const draft = drafts.find(d => String(d.season) === String(season) && d.type === "rookie")
-      ?? drafts.find(d => String(d.season) === String(season));
-    // One is a no-data arithmetic guard for build-time/offline rendering, not
-    // a league-size assumption; real data comes from rosters or league metadata.
-    const teamCount = Math.max(rosters.length, Number(sleeperLeague?.total_rosters) || 0, 1);
-    const [appPicks, sleeperRows] = await Promise.all([
-      fetchAppDraftPicks(leagueId, season, teamCount),
-      draft?.draft_id ? fetchDraftPicks(String(draft.draft_id)) : Promise.resolve([]),
-    ]);
-    const sleeperPicks: DraftResultPick[] = sleeperRows.flatMap(row => {
-      const pickNumber = Number(row.pick_no);
-      const round = Number(row.round);
-      const rosterId = String(row.roster_id ?? "");
-      const playerId = String(row.player_id ?? "");
-      if (!pickNumber || !round || !rosterId || !playerId) return [];
-      return [{ source: "sleeper" as const, pickNumber, round, slot: ((pickNumber - 1) % teamCount) + 1, rosterId, playerId }];
-    });
-    const merged = new Map<number, DraftResultPick>();
-    for (const pick of sleeperPicks) merged.set(pick.pickNumber, pick);
-    for (const pick of appPicks) merged.set(pick.pickNumber, pick);
-    const picks = [...merged.values()].sort((a, b) => a.pickNumber - b.pickNumber);
-    const sleeperStatus = draft?.status ? String(draft.status) : null;
-    const complete = sleeperStatus === "complete";
-    const configuredRounds = Math.max(1, Number(draft?.settings?.rounds) || 3);
-    const dayOneComplete = picks.filter(p => p.round === 1).length >= teamCount;
-    const dayTwoComplete = complete || (picks.filter(p => p.round === 2).length >= teamCount && picks.filter(p => p.round === 3).length >= teamCount);
-    return {
-      season,
-      draftId: draft?.draft_id ? String(draft.draft_id) : null,
-      sleeperStatus,
-      dayOneComplete,
-      dayTwoComplete,
-      complete: complete || (dayOneComplete && dayTwoComplete),
-      picks,
-      spentPickNumbers: deriveSpentPickNumbers(picks.map(pick => pick.pickNumber), complete, teamCount, configuredRounds),
-      firstUndraftedSeason: complete || (dayOneComplete && dayTwoComplete) ? season + 1 : season,
-    };
-  });
-}
-
-
-// Players already drafted in the current-year rookie draft but not yet
-// processed into Sleeper rosters. The draft log is the source of truth: each
-// made pick (submitted_at set) records which roster took which player. We read
-// only the current cfc_year (the generated column on draft_log) so prior
-// drafts never leak in, and getLeagueData grafts these onto rosters — skipping
-// anyone Sleeper already shows, so the graft silently stops once Sleeper
-// catches up.
-async function fetchDraftedPlayers(cfcYear: number, leagueId: string): Promise<Array<{ rosterId: string; playerId: string }>> {
-  const out: Array<{ rosterId: string; playerId: string }> = [];
-  const admin = getSupabaseAdminClient();
-  if (!admin.client) return out;
-  const { data } = await admin.client
-    .from("draft_log")
-    .select("roster_id, player_id, submitted_at, cfc_year")
-    .eq("league_id", leagueId)
-    .eq("cfc_year", cfcYear)
-    .eq("is_announced", true)
-    .not("submitted_at", "is", null);
-  for (const row of (data ?? []) as Array<{ roster_id: string | null; player_id: string | null }>) {
-    if (row.roster_id && row.player_id) {
-      out.push({ rosterId: String(row.roster_id), playerId: String(row.player_id) });
-    }
-  }
-  return out;
+export async function getDraftStatus(leagueId: string): Promise<DraftStatus> {
+  const runtime = await getLeagueRuntime(leagueId);
+  if (!runtime.initialized) throw new Error("League ownership requires initialization");
+  return runtimeDraftStatus(runtime);
 }
 
 // Complete pick ownership: current AND future picks, each with its canonical
@@ -347,9 +183,10 @@ function buildPickOwnership(
   rosters: SleeperRoster[],
   traded: unknown[],
   draftStatus: DraftStatus,
-  drafts: unknown[] = []
+  drafts: unknown[],
+  shape: { seasons: number[]; rounds: number },
 ): { map: Map<string, OwnedPick[]>; teamCount: number; tradedPickCount: number; currentYearPickCount: number } {
-  const cfcYear = getCFCYear();
+  const cfcYear = draftStatus.season;
   const rawRosters = rosters.map((r) => ({
     roster_id: r.roster_id,
     owner_id: r.owner_id,
@@ -357,7 +194,8 @@ function buildPickOwnership(
     players: r.players,
     draft_picks: undefined as DraftPick[] | undefined,
   }));
-  const teamCount = rawRosters.length || 12;
+  const teamCount = rawRosters.length;
+  if (!teamCount) throw new Error("A complete roster snapshot is required");
   const rosterOwnerMap: Record<number, string | null> = {};
   for (const r of rawRosters) rosterOwnerMap[r.roster_id] = r.owner_id;
 
@@ -367,7 +205,6 @@ function buildPickOwnership(
   const derived = deriveDraftOrderForSeason(drafts as SleeperDraft[], String(cfcYear));
   const draftOrder = mapDraftOrderToRosters(derived.draftOrder, rawRosters);
 
-  const shape = deriveOwnablePickShape(cfcYear, draftStatus.firstUndraftedSeason, drafts as SleeperDraft[], traded as TradedPick[]);
   const withPicks = withComputedDraftPicks(rawRosters, traded as TradedPick[], {
     teamCountOverride: teamCount,
     rosterOwnerMap,
@@ -431,51 +268,41 @@ export async function getPlayerDictionary(): Promise<Map<string, PlayerInfo>> {
   return buildPlayerDict(await fetchPlayers());
 }
 
-export async function getRosters(): Promise<RosteredTeam[]> {
-  const leagueId = getSleeperLeagueId();
-  const [rosters, users, dict, nameOverrides] = await Promise.all([
-    fetchRosters(leagueId),
-    fetchUsers(leagueId),
-    getPlayerDictionary(),
-    getTeamNameOverrides(),
-  ]);
-  return buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides),
-    buildSleeperTeamNames(rosters, users), dict);
+export async function getRosters(leagueId: string): Promise<RosteredTeam[]> {
+  const data = await getLeagueData(leagueId);
+  if ("error" in data) throw new Error(data.error);
+  return data.teams;
 }
 
-export async function getPickOwnership(): Promise<Map<string, OwnedPick[]>> {
-  const leagueId = getSleeperLeagueId();
-  const [rosters, traded, draftStatus, drafts] = await Promise.all([
-    fetchRosters(leagueId),
-    fetchTradedPicks(leagueId),
-    getDraftStatus(),
-    fetchDrafts(leagueId),
-  ]);
-  return buildPickOwnership(rosters, traded, draftStatus, drafts).map;
+export async function getPickOwnership(leagueId: string): Promise<Map<string, OwnedPick[]>> {
+  const data = await getLeagueData(leagueId);
+  if ("error" in data) throw new Error(data.error);
+  return data.pickOwnership;
 }
 
 // Canonical slot ladder from the pick_template rows (display_name -> cfc_value).
-export async function getPickValues(): Promise<PickLadder> {
+export async function getPickValues(leagueId: string): Promise<PickLadder> {
   // D-16 is deliberately code/version pinned. Database rows are seeded by 019
   // for auditability, but runtime pricing cannot drift when a row is missing or
   // edited. Rounds without an approved anchor remain explicitly unpriced (0 at
   // the valuation boundary), while seasons remain dynamically unbounded.
-  return new Map(FIXED_PICK_LADDER);
+  return isCfcLeague(leagueId) ? new Map(FIXED_PICK_LADDER) : new Map();
 }
 
-export async function getLeagueSettings(): Promise<LeagueSettings> {
-  const league = await fetchLeague(getSleeperLeagueId());
+export async function getLeagueSettings(leagueId: string): Promise<LeagueSettings> {
+  const league = await fetchLeague(leagueId);
   const rp = league?.roster_positions;
   return {
-    rosterPositions: Array.isArray(rp) && rp.length ? rp : DEFAULT_ROSTER_POSITIONS,
+    rosterPositions: Array.isArray(rp) && rp.length ? rp : isCfcLeague(leagueId) ? DEFAULT_ROSTER_POSITIONS : [],
     previousLeagueId: league?.previous_league_id ?? null,
   };
 }
 
-export async function getValues(): Promise<ValueMaps> {
+export async function getValues(leagueId: string): Promise<ValueMaps> {
   const value = new Map<string, number>();
   const isStud = new Map<string, boolean>();
   const rookieQbBoost = new Map<string, number>();
+  if (!isCfcLeague(leagueId)) return { value, isStud, rookieQbBoost };
   const admin = getSupabaseAdminClient();
   if (!admin.client) return { value, isStud, rookieQbBoost };
   const { data } = await admin.client
@@ -518,7 +345,7 @@ export async function getValues(): Promise<ValueMaps> {
   return { value, isStud, rookieQbBoost };
 }
 
-export async function getStrategyProfiles(): Promise<{
+export async function getStrategyProfiles(leagueId: string): Promise<{
   strategy: Map<string, StrategyProfile>;
   attachments: Map<string, Map<string, AttachmentLevel>>;
 }> {
@@ -526,7 +353,6 @@ export async function getStrategyProfiles(): Promise<{
   const attachments = new Map<string, Map<string, AttachmentLevel>>();
   const admin = getSupabaseAdminClient();
   if (!admin.client) return { strategy, attachments };
-  const leagueId = getSleeperLeagueId();
   const [stratRes, attachRes] = await Promise.all([
     admin.client
       .from("cfc_team_strategy_profiles")
@@ -575,12 +401,11 @@ export async function getStrategyProfiles(): Promise<{
 
 // Last completed-season results. Reads the current league first; if those are
 // zeroed (a fresh season rolled over), follows previous_league_id.
-export async function getLastSeasonResults(): Promise<{
+export async function getLastSeasonResults(leagueId: string): Promise<{
   results: Map<string, SeasonResult>;
   source: ResultsSource;
   previousLeagueId: string | null;
 }> {
-  const leagueId = getSleeperLeagueId();
   const [rosters, league] = await Promise.all([fetchRosters(leagueId), fetchLeague(leagueId)]);
   const prev = league?.previous_league_id ?? null;
   const current = buildResults(rosters);
@@ -603,43 +428,33 @@ export async function getLastSeasonResults(): Promise<{
 // parallel and each was rebuilding this bundle (including the ~5MB Sleeper
 // players download) from scratch. Errors are never cached.
 
-export async function getLeagueData(): Promise<LeagueData | { error: string }> {
-  const result = await ttlMemo("league-data:bundle", 60_000, loadLeagueData);
-  if ("error" in result) {
-    // Don't let a transient failure stick for the TTL — retry next call.
-    return loadLeagueData();
-  }
-  return result;
+export async function getLeagueData(leagueId: string): Promise<LeagueData | { error: string }> {
+  // Read revision and public ownership together on every request. A mutation
+  // creates a different cache key even on another server instance.
+  const runtime = await getLeagueRuntime(leagueId);
+  if (!runtime.initialized) return { error: "League ownership requires initialization" };
+  return ttlMemo(leagueCacheKey("league-data:bundle", leagueId) + ":" + runtime.revision, 60_000, () => loadLeagueData(leagueId, runtime));
 }
 
-async function loadLeagueData(): Promise<LeagueData | { error: string }> {
-  const leagueId = getSleeperLeagueId();
-  if (!leagueId) return { error: "NEXT_PUBLIC_SLEEPER_LEAGUE_ID not set" };
-
-  const [players, rosters, users, traded, league, values, strat, draftStatus, drafted, drafts, nameOverrides, overlays] = await Promise.all([
-    fetchPlayers(),
-    fetchRosters(leagueId),
-    fetchUsers(leagueId),
-    fetchTradedPicks(leagueId),
-    fetchLeague(leagueId),
-    getValues(),
-    getStrategyProfiles(),
-    getDraftStatus(),
-    fetchDraftedPlayers(getCFCYear(), leagueId),
-    fetchDrafts(leagueId),
-    getTeamNameOverrides(),
-    getPendingTradeOverlays(leagueId),
+async function loadLeagueData(leagueId: string, runtime: LeagueRuntime): Promise<LeagueData> {
+  const [players, sourceRosters, users, league, values, strat, nameOverrides] = await Promise.all([
+    fetchPlayers(), fetchRosters(leagueId), fetchUsers(leagueId), fetchLeague(leagueId),
+    getValues(leagueId), getStrategyProfiles(leagueId), getTeamNameOverrides(leagueId),
   ]);
-
-  if (!rosters.length) return { error: "Sleeper rosters unavailable" };
-
+  const draftStatus = runtimeDraftStatus(runtime);
+  const sourceById = new Map(sourceRosters.map(roster => [String(roster.roster_id), roster]));
+  const rosters: SleeperRoster[] = runtime.roster_ids.map(id => {
+    const source = sourceById.get(String(id));
+    const playerIds = runtime.assets.filter(asset => asset.asset_kind === "player" && !asset.consumed && String(asset.owner_roster_id) === String(id)).map(asset => asset.asset_key.slice("player:".length));
+    const owned = new Set(playerIds);
+    return { ...source, roster_id: Number(id), owner_id: source?.owner_id ?? null, players: playerIds,
+      starters: (source?.starters ?? []).filter(playerId => owned.has(playerId)) };
+  });
   const dict = buildPlayerDict(players);
-  const sleeperTeams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides),
-    buildSleeperTeamNames(rosters, users), dict, drafted);
-  const ownership = buildPickOwnership(rosters, traded, draftStatus, drafts);
-  const overlaid = applyPendingTradeOverlays(sleeperTeams, ownership.map, overlays);
+  const teams = buildTeams(rosters, buildTeamNames(rosters, users, nameOverrides), buildSleeperTeamNames(rosters, users), dict);
+  const pickOwnership = runtimePickOwnership(runtime, draftStatus.season);
   const unpriced = new Set<string>();
-  for (const team of overlaid.teams) for (const playerId of team.playerIds) {
+  for (const team of teams) for (const playerId of team.playerIds) {
     if (!values.value.has(playerId)) {
       values.value.set(playerId, 0);
       unpriced.add(playerId);
@@ -651,7 +466,7 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
     rosterPositions:
       Array.isArray(league?.roster_positions) && league!.roster_positions!.length
         ? league!.roster_positions!
-        : DEFAULT_ROSTER_POSITIONS,
+        : isCfcLeague(leagueId) ? DEFAULT_ROSTER_POSITIONS : [],
     previousLeagueId: league?.previous_league_id ?? null,
   };
 
@@ -676,13 +491,17 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
 
   return {
     leagueId,
-    cfcYear: getCFCYear(),
-    teamCount: ownership.teamCount,
+    cfcYear: draftStatus.season,
+    runtimeRevision: runtime.revision,
+    writesEnabled: runtime.writes_enabled,
+    draftSlots: runtimeDraftSlots(runtime, draftStatus.season),
+    draftClock: runtimeDraftClock(runtime),
+    teamCount: runtime.roster_ids.length,
     settings,
     players: dict,
-    teams: overlaid.teams,
+    teams: teams,
     values,
-    pickOwnership: overlaid.ownership,
+    pickOwnership: pickOwnership,
     draftStatus,
     strategy: strat.strategy,
     attachments: strat.attachments,
@@ -695,8 +514,8 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
       studCount,
       strategyRowCount: strat.strategy.size,
       attachmentRowCount: strat.attachments.size,
-      tradedPickCount: ownership.tradedPickCount,
-      currentYearPickCount: ownership.currentYearPickCount,
+      tradedPickCount: runtime.assets.filter(asset => asset.asset_kind === "pick" && asset.pending_local).length,
+      currentYearPickCount: [...pickOwnership.values()].flat().filter(pick => pick.season === draftStatus.season).length,
       rosterPositions: settings.rosterPositions,
       resultsSource,
       previousLeagueId: settings.previousLeagueId,
@@ -704,22 +523,91 @@ async function loadLeagueData(): Promise<LeagueData | { error: string }> {
   };
 }
 
-export function invalidateLeagueData(): void {
-  ttlInvalidate("league-data:bundle");
-  ttlInvalidate("league-data:draft-status");
-  ttlInvalidate("asset-values:context");
+export function invalidateLeagueData(leagueId: string): void {
+  ttlInvalidatePrefix(leagueCacheKey("league-data:bundle", leagueId) + ":");
+  ttlInvalidate(leagueCacheKey("league-data:draft-status", leagueId));
+  ttlInvalidatePrefix(leagueCacheKey("asset-values:context", leagueId) + ":");
 }
 
 export function toLeagueSnapshot(data: LeagueData): LeagueSnapshot {
   return {
     leagueId: data.leagueId,
+    runtimeRevision: data.runtimeRevision,
+    writesEnabled: data.writesEnabled,
+    draftSlots: data.draftSlots,
+    draftClock: data.draftClock,
     cfcYear: data.cfcYear,
     teamCount: data.teamCount,
     settings: data.settings,
     teams: data.teams,
     players: [...data.players.values()],
-    profiles: buildTeamProfiles(data),
+    profiles: isCfcLeague(data.leagueId) ? buildTeamProfiles(data) : [],
     pickOwnership: Object.fromEntries(data.pickOwnership),
     draftStatus: { ...data.draftStatus, spentPickNumbers: [...data.draftStatus.spentPickNumbers] },
   };
+}
+
+export type RuntimeSourceSnapshot = {
+  observed_at: string;
+  roster_ids: string[];
+  draft_season: number;
+  team_count: number;
+  round_count: number;
+  pick_seconds: number;
+  assets: Array<{ asset_key: string; asset_kind: "player" | "pick"; owner_roster_id: string | null; consumed: boolean }>;
+  slots: Array<{ pick_index: number; asset_key: string; round: number; slot: number }>;
+  actual_picks: Array<{ pick_index: number; player_id: string; roster_id: string }>;
+};
+
+/** Caller must read runtime.revision BEFORE this uncached provider read and
+ * pass that revision to the refresh RPC. Failed/incomplete reads never erase owners. */
+export async function buildRuntimeSourceSnapshot(leagueId: string): Promise<RuntimeSourceSnapshot> {
+  leagueCacheKey("runtime-source", leagueId);
+  const fresh = async <T>(path: string): Promise<T> => {
+    const response = await fetch(`https://api.sleeper.app/v1/${path}`, { cache: "no-store", signal: AbortSignal.timeout(20_000) });
+    if (!response.ok) throw new Error("Sleeper ownership snapshot is unavailable");
+    return response.json() as Promise<T>;
+  };
+  const escaped = encodeURIComponent(leagueId);
+  const [league, rosters, traded, drafts] = await Promise.all([
+    fresh<SleeperLeague>(`league/${escaped}`), fresh<SleeperRoster[]>(`league/${escaped}/rosters`),
+    fresh<TradedPick[]>(`league/${escaped}/traded_picks`), fresh<SleeperDraft[]>(`league/${escaped}/drafts`),
+  ]);
+  if (String(league.league_id) !== leagueId || !Array.isArray(rosters) || !rosters.length || rosters.length !== Number(league.total_rosters)
+    || !Array.isArray(traded) || !Array.isArray(drafts)) throw new Error("Incomplete Sleeper ownership snapshot");
+  const rosterIds = rosters.map(roster => String(roster.roster_id));
+  if (new Set(rosterIds).size !== rosters.length || rosterIds.some(id => !/^\d+$/.test(id))) throw new Error("Invalid Sleeper rosters");
+  const season = isCfcLeague(leagueId) ? getCFCYear() : Number(league.season);
+  if (!Number.isInteger(season) || season < 2000) throw new Error("League draft season is unavailable");
+  const config = runtimeSourceConfig(drafts, traded, season, isCfcLeague(leagueId));
+  const draft = config.draft;
+  if (!draft.draft_id || !deriveDraftOrderForSeason([draft], String(season)).available) throw new Error("An authoritative draft order is required before initialization");
+  const draftRows = await fresh<SleeperDraftPick[]>(`draft/${encodeURIComponent(draft.draft_id)}/picks`);
+  if (!Array.isArray(draftRows)) throw new Error("Invalid Sleeper draft results");
+  const roundCount = config.managedRounds;
+  if (isCfcLeague(leagueId) && rosterIds.length !== 12) throw new Error("CFC draft configuration requires twelve teams");
+  const status: DraftStatus = { season, draftId: draft.draft_id, sleeperStatus: draft.status ?? null, dayOneComplete: false, dayTwoComplete: false,
+    complete: false, picks: [], spentPickNumbers: new Set(), firstUndraftedSeason: season };
+  const ownership = buildPickOwnership(rosters, traded, status, [draft], config.shape);
+  const spent = new Set(draftRows.map(row => Number(row.pick_no)).filter(Number.isInteger));
+  const assets: RuntimeSourceSnapshot["assets"] = [];
+  const players = new Set<string>();
+  for (const roster of rosters) for (const playerId of roster.players ?? []) {
+    if (players.has(String(playerId))) throw new Error("Provider snapshot contains a player on multiple rosters");
+    players.add(String(playerId));
+    assets.push({ asset_key: `player:${playerId}`, asset_kind: "player", owner_roster_id: String(roster.roster_id), consumed: false });
+  }
+  const slots: RuntimeSourceSnapshot["slots"] = [];
+  for (const picks of ownership.map.values()) for (const pick of picks) {
+    assets.push({ asset_key: pick.key, asset_kind: "pick", owner_roster_id: pick.currentRosterId,
+      consumed: pick.season === season && pick.overall != null && spent.has(pick.overall) });
+    if (pick.season === season && pick.round <= roundCount && pick.overall != null && pick.slot != null) {
+      slots.push({ pick_index: pick.overall - 1, asset_key: pick.key, round: pick.round, slot: pick.slot });
+    }
+  }
+  if (slots.length !== rosterIds.length * roundCount || new Set(slots.map(slot => slot.pick_index)).size !== slots.length) throw new Error("Complete authoritative draft slots are required");
+  return { observed_at: new Date().toISOString(), roster_ids: rosterIds, draft_season: season,
+    team_count: rosterIds.length, round_count: roundCount, pick_seconds: isCfcLeague(leagueId) ? 1800 : 120, assets, slots,
+    actual_picks: draftRows.filter(row => Number.isInteger(row.pick_no) && Number(row.pick_no) > 0 && Number(row.pick_no) <= rosterIds.length * roundCount && row.player_id && rosterIds.includes(String(row.roster_id)))
+      .map(row => ({ pick_index: Number(row.pick_no) - 1, player_id: String(row.player_id), roster_id: String(row.roster_id) })) };
 }

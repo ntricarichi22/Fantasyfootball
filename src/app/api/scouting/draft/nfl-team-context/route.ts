@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { buildValuationContext, valueAsset } from "@/shared/asset-values";
@@ -8,10 +9,12 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest) {
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-  const league = await getLeagueData();
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
+  const league = await getLeagueData(session.leagueId);
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
   if (session.leagueId !== league.leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const ctx = await buildValuationContext();
+  const ctx = await buildValuationContext(session.leagueId);
   const rows = league.teams.flatMap(team => team.players.map(player => ({
     player,
     value: valueAsset({ type: "player", sleeperPlayerId: player.id }, ctx, { perspective: session.rosterId }),

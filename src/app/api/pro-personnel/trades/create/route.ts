@@ -1,10 +1,10 @@
 import { boundedJson } from "@/infrastructure/auth/boundedJson";
-import { canonicalTradeAssets } from "@/shared/league-data/tradeAssets";
+import { commandEnvelope, executeLeagueCommand } from "@/infrastructure/auth/leagueCommand";
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { isYoung, buildValuationContext, valueAsset, type AssetRef } from "@/shared/asset-values";
-import { getPlayerDictionary, getValues, parsePickKey, getLeagueData, invalidateLeagueData } from "@/shared/league-data";
+import { getPlayerDictionary, getValues, parsePickKey } from "@/shared/league-data";
 import { priceDeal } from "@/pro-personnel/engine/pricing";
 import { personaAwareGrade } from "@/pro-personnel/engine/core/gap";
 import { normalizePersona } from "@/pro-personnel/engine/core/personas";
@@ -39,13 +39,13 @@ type AssetSummary = { studs: number; youth: number; picks_1st: number; picks_2nd
 
 type PlayerInfo = { value: number; isStud: boolean; isYouth: boolean };
 
-async function lookupBaseValues(assets: IncomingAsset[]): Promise<{
+async function lookupBaseValues(leagueId: string, assets: IncomingAsset[]): Promise<{
   playerMap: Record<string, PlayerInfo>;
   pickValueMap: Record<string, number>;
 }> {
   const playerMap: Record<string, PlayerInfo> = {};
   const pickValueMap: Record<string, number> = {};
-  const [ctx, dict, values] = await Promise.all([buildValuationContext(), getPlayerDictionary(), getValues()]);
+  const [ctx, dict, values] = await Promise.all([buildValuationContext(leagueId), getPlayerDictionary(), getValues(leagueId)]);
   for (const asset of assets) {
     if (asset.key.startsWith("player:")) {
       const id = asset.key.slice(7); const info = dict.get(id);
@@ -86,191 +86,74 @@ function summarizeAssets(assets: IncomingAsset[], playerMap: Record<string, Play
   return { totalValue, summary };
 }
 
+function assetKeys(input: unknown): string[] | null {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 100) return null;
+  const keys: string[] = [];
+  for (const asset of input) {
+    if (!asset || typeof asset !== "object" || typeof asset.key !== "string") return null;
+    const key = asset.key.startsWith("pick:") || asset.key.startsWith("player:") ? asset.key : `player:${asset.key}`;
+    if (!/^player:[A-Za-z0-9_-]{1,64}$/.test(key) && !/^pick:[0-9]{4}-[1-9][0-9]?-[A-Za-z0-9_]{1,64}$/.test(key)) return null;
+    if (keys.includes(key)) return null;
+    keys.push(key);
+  }
+  return keys;
+}
+
 export async function POST(request: NextRequest) {
-  const body = await boundedJson<Record<string, unknown>>(request, 64 * 1024);
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  // from_value / to_value / grade_label are NO LONGER read from the body —
-  // every surface used to compute (or skip) them differently, so the same
-  // columns held three different meanings. They're computed server-side below,
-  // from the canonical engine, for every offer regardless of which door sent it.
-  const {
-    from_team_id, to_team_id, assets_from: rawAssetsFrom, assets_to: rawAssetsTo, parent_offer_id,
-  } = body as {
-    from_team_id?: string; to_team_id?: string;
-    assets_from?: IncomingAsset[]; assets_to?: IncomingAsset[];
-    parent_offer_id?: string;
-  };
-
-  if (typeof from_team_id !== "string" || typeof to_team_id !== "string" || !from_team_id || !to_team_id) {
-    return NextResponse.json({ error: "from_team_id and to_team_id are required" }, { status: 400 });
-  }
-  const league_id = LEAGUE_ID;
-  if (!league_id) return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
-  if (!currentSessionCanActForRoster(session, league_id, from_team_id) || from_team_id === to_team_id)
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
-
-  const { client, error: clientError } = getSupabaseAdminClient();
-  if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
-
-  invalidateLeagueData();
-  const league = await getLeagueData();
-  if ("error" in league) return NextResponse.json({ error: "League data unavailable" }, { status: 503 });
-  const assets_from = canonicalTradeAssets(rawAssetsFrom, from_team_id, league);
-  const assets_to = canonicalTradeAssets(rawAssetsTo, to_team_id, league);
-  if (!assets_from || !assets_to) return NextResponse.json({ error: "Invalid assets or ownership changed" }, { status: 400 });
-
-  const now = new Date().toISOString();
-
-  // Compute base values + asset summary for both sides
-  const allAssets = [...assets_from, ...assets_to];
-  const { playerMap, pickValueMap } = await lookupBaseValues(allAssets);
-  const fromBreakdown = summarizeAssets(assets_from, playerMap, pickValueMap);
-  const toBreakdown = summarizeAssets(assets_to, playerMap, pickValueMap);
-
-  const asset_summary = { from: fromBreakdown.summary, to: toBreakdown.summary };
-  const from_base_value = Math.round(fromBreakdown.totalValue);
-  const to_base_value = Math.round(toBreakdown.totalValue);
-
-  // ── Canonical pricing (server-side, single source of truth) ───────────
-  // Sender's scoreboard from the SAME engine as every chip: the sender's own
-  // assets at their team-perspective value, incoming assets at neutral base.
-  // grade_label is the sender's persona-aware grade of their own offer.
-  // Per-asset values are stamped at neutral base so thread/inbox ratio math
-  // never sees the zeros the manual builder used to send.
-  const ekey = (k: string) => (k.startsWith("player:") ? k.slice(7) : k);
-  const refOf = (a: IncomingAsset): AssetRef =>
-    a.key.startsWith("pick:")
-      ? { type: "pick", key: a.key }
-      : { type: "player", sleeperPlayerId: ekey(a.key) };
-  const toEngineAsset = (a: IncomingAsset, side: "send" | "receive"): EngineOfferAsset => ({
-    key: ekey(a.key),
-    name: a.label ?? a.key,
-    type: a.key.startsWith("pick:") ? "pick" : "player",
-    side,
+  const body = await boundedJson<Record<string, unknown>>(request, 64 * 1024);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  const envelope = commandEnvelope(body);
+  const from = typeof body.from_team_id === "string" ? body.from_team_id : "";
+  const to = typeof body.to_team_id === "string" ? body.to_team_id : "";
+  if (!envelope || !from || !to || from === to || (body.parent_offer_id !== undefined && body.parent_offer_id !== null && typeof body.parent_offer_id !== "string")) {
+    return NextResponse.json({ error: "invalid_trade_command" }, { status: 400 });
+  }
+  if (!currentSessionCanActForRoster(session, session.leagueId, from)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const fromKeys = assetKeys(body.assets_from);
+  const toKeys = assetKeys(body.assets_to);
+  if (!fromKeys || !toKeys || fromKeys.some((key) => toKeys.includes(key))) return NextResponse.json({ error: "invalid_trade_assets" }, { status: 400 });
+  const dictionary = [...fromKeys, ...toKeys].some((key) => key.startsWith("player:")) ? await getPlayerDictionary() : new Map();
+  const canonical = (keys: string[]): IncomingAsset[] => keys.map((key) => {
+    const pick = key.startsWith("pick:") ? parsePickKey(key) : null;
+    return { key, type: pick ? "pick" : "player", label: pick ? `${pick.season} Rd ${pick.round}` : dictionary.get(key.slice(7))?.name ?? key.slice(7) };
   });
-  const [ctx, senderStratRes] = await Promise.all([
-    buildValuationContext(),
-    client
-      .from("cfc_team_strategy_profiles")
-      .select("gm_persona")
-      .eq("league_id", league_id)
-      .eq("team_id", from_team_id)
-      .maybeSingle(),
-  ]);
-  const { ours } = priceDeal({
-    ourTeamId: from_team_id,
-    partnerTeamId: to_team_id,
-    assets: [
-      ...assets_from.map((a) => toEngineAsset(a, "send")),
-      ...assets_to.map((a) => toEngineAsset(a, "receive")),
-    ],
-    ctx,
-  });
-  const gap: Gap = {
-    sendValue: ours.sendValue,
-    receiveValue: ours.receiveValue,
-    ratio: ours.ratio,
-    delta: ours.receiveValue - ours.sendValue,
-    verdict: ours.verdict,
-    hasSend: assets_from.length > 0,
-    hasReceive: assets_to.length > 0,
+  const assetsFrom = canonical(fromKeys);
+  const assetsTo = canonical(toKeys);
+  const payload: Record<string, unknown> = {
+    from_team_id: from, to_team_id: to, assets_from: assetsFrom, assets_to: assetsTo,
+    parent_offer_id: body.parent_offer_id ?? null, from_value: null, to_value: null,
+    from_base_value: null, to_base_value: null, grade_label: "Not rated", asset_summary: null,
   };
-  const gradeLabel = personaAwareGrade(gap, normalizePersona(senderStratRes.data?.gm_persona)).label;
-  const stampValues = (list: IncomingAsset[]): IncomingAsset[] =>
-    list.map((a) => ({ ...a, value: Math.round(valueAsset(refOf(a), ctx)) }));
-  const assetsFromStamped = stampValues(assets_from);
-  const assetsToStamped = stampValues(assets_to);
-
-  // ── Thread resolution ─────────────────────────────────────────────────
-  // Counter (parent_offer_id set) → reuse parent's thread.
-  // New deal (no parent_offer_id)  → always create a new thread.
-  let threadId: string | null = null;
-
-  if (parent_offer_id) {
-    const { data: parent, error: parentError } = await client
-      .from("trade_offers")
-      .select("thread_id, from_team_id, to_team_id, status")
-      .eq("id", parent_offer_id)
-      .eq("league_id", league_id)
-      .single();
-    if (parentError || !parent) {
-      return NextResponse.json({ error: "Parent offer not found" }, { status: 404 });
-    }
-    if (parent.status !== "pending" || parent.to_team_id !== from_team_id)
-      return NextResponse.json({ error: "Pending received offer required" }, { status: 409 });
-    const parentTeams = [String(parent.from_team_id), String(parent.to_team_id)].sort();
-    const requestTeams = [from_team_id, to_team_id].sort();
-    if (parentTeams[0] !== requestTeams[0] || parentTeams[1] !== requestTeams[1])
-      return NextResponse.json({ error: "Parent offer participants do not match" }, { status: 403 });
-    threadId = parent.thread_id ?? null;
-
-    // Mark the parent as countered. Only changes status if it's still pending —
-    // accepting/declining a parent that was already terminal stays terminal.
-    const { data: countered, error: counterError } = await client
-      .from("trade_offers")
-      .update({ status: "countered", updated_at: now })
-      .eq("id", parent_offer_id)
-      .eq("league_id", league_id)
-      .eq("status", "pending").select("id").maybeSingle();
-    if (counterError) {
-      return NextResponse.json({ error: "Failed to update parent offer" }, { status: 500 });
-    }
-    if (!countered) return NextResponse.json({ error: "Parent offer changed; reload and retry" }, { status: 409 });
+  if (isCfcLeague(session.leagueId)) {
+    const { client } = getSupabaseAdminClient();
+    if (!client) return NextResponse.json({ error: "valuation_unavailable" }, { status: 503 });
+    const [ctx, base, strategy] = await Promise.all([
+      buildValuationContext(session.leagueId), lookupBaseValues(session.leagueId, [...assetsFrom, ...assetsTo]),
+      client.from("cfc_team_strategy_profiles").select("gm_persona").eq("league_id", session.leagueId).eq("team_id", from).maybeSingle(),
+    ]);
+    if (strategy.error) return NextResponse.json({ error: "valuation_unavailable" }, { status: 503 });
+    const fromSummary = summarizeAssets(assetsFrom, base.playerMap, base.pickValueMap);
+    const toSummary = summarizeAssets(assetsTo, base.playerMap, base.pickValueMap);
+    const engineAsset = (asset: IncomingAsset, side: "send" | "receive"): EngineOfferAsset => ({
+      key: asset.key.startsWith("player:") ? asset.key.slice(7) : asset.key,
+      name: asset.label ?? asset.key, type: asset.key.startsWith("pick:") ? "pick" : "player", side,
+    });
+    const { ours } = priceDeal({ ourTeamId: from, partnerTeamId: to,
+      assets: [...assetsFrom.map((asset) => engineAsset(asset, "send")), ...assetsTo.map((asset) => engineAsset(asset, "receive"))], ctx });
+    const gap: Gap = { sendValue: ours.sendValue, receiveValue: ours.receiveValue, ratio: ours.ratio,
+      delta: ours.receiveValue - ours.sendValue, verdict: ours.verdict, hasSend: true, hasReceive: true };
+    const stamp = (assets: IncomingAsset[]) => assets.map((asset) => {
+      const ref: AssetRef = asset.key.startsWith("pick:") ? { type: "pick", key: asset.key } : { type: "player", sleeperPlayerId: asset.key.slice(7) };
+      return { ...asset, value: Math.round(valueAsset(ref, ctx)) };
+    });
+    Object.assign(payload, { from_value: Math.round(ours.sendValue), to_value: Math.round(ours.receiveValue),
+      from_base_value: Math.round(fromSummary.totalValue), to_base_value: Math.round(toSummary.totalValue),
+      asset_summary: { from: fromSummary.summary, to: toSummary.summary },
+      grade_label: personaAwareGrade(gap, normalizePersona(strategy.data?.gm_persona)).label,
+      assets_from: stamp(assetsFrom), assets_to: stamp(assetsTo) });
   }
-
-  // Either no parent (new deal) or parent had no thread (legacy data) → new thread
-  if (!threadId) {
-    const { data: newThread, error: threadError } = await client
-      .from("trade_threads")
-      .insert({
-        league_id,
-        team_a_id: from_team_id,
-        team_b_id: to_team_id,
-        created_by_team_id: from_team_id,
-        status: "open",
-        last_activity_at: now,
-        last_offer_at: now,
-        created_at: now,
-        updated_at: now,
-      })
-      .select("id")
-      .single();
-    if (threadError || !newThread?.id) {
-      return NextResponse.json({ error: "Failed to create thread" }, { status: 500 });
-    }
-    threadId = newThread.id;
-  }
-
-  const { data, error } = await client
-    .from("trade_offers")
-    .insert({
-      league_id, from_team_id, to_team_id,
-      assets_from: assetsFromStamped,
-      assets_to: assetsToStamped,
-      from_value: Math.round(ours.sendValue),
-      to_value: Math.round(ours.receiveValue),
-      from_base_value,
-      to_base_value,
-      asset_summary,
-      grade_label: gradeLabel,
-      status: "pending",
-      parent_offer_id: parent_offer_id || null,
-      thread_id: threadId,
-      created_at: now, updated_at: now,
-    })
-    .select("id").single();
-
-  if (error) return NextResponse.json({ error: "Failed to create offer" }, { status: 500 });
-
-  await client
-    .from("trade_threads")
-    .update({ last_offer_at: now, last_activity_at: now, updated_at: now })
-    .eq("id", threadId).eq("league_id", league_id);
-
-  return NextResponse.json({ ok: true, id: data?.id, thread_id: threadId });
+  // The RPC replays before checking mutable ownership and commits the entire offer/thread transition.
+  return executeLeagueCommand(session, "cfc_create_trade_offer", envelope, { p_payload: payload });
 }

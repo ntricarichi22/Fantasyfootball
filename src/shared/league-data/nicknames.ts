@@ -28,19 +28,19 @@ export function teamInitials(fullName: string): string {
  * unknown/placeholder so callers can fall back to initials. Served through
  * /api/team-crest so custom uploaded logos and in-app renames resolve; the
  * route redirects to the original /teams/ art when no custom logo is set. */
-export function teamCrestSrc(fullName: string): string | null {
+export function teamCrestSrc(fullName: string, leagueId: string): string | null {
   const name = (fullName ?? "").trim();
   if (!name || name === "—") return null;
-  return `/api/team-crest/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
+  return `/api/team-crest/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png?leagueId=${encodeURIComponent(leagueId)}`;
 }
 
 /** Team-specific GM headshot, keyed by nickname slug — or null when the team
  * name is unknown/placeholder. Served through /api/gm-avatar so a renamed
  * team still resolves to its original art under public/avatars/gm/. */
-export function gmAvatarSrc(fullName: string): string | null {
+export function gmAvatarSrc(fullName: string, leagueId: string): string | null {
   const name = (fullName ?? "").trim();
   if (!name || name === "—") return null;
-  return `/api/gm-avatar/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png`;
+  return `/api/gm-avatar/${teamNickname(name).toLowerCase().replace(/\s+/g, "-")}.png?leagueId=${encodeURIComponent(leagueId)}`;
 }
 
 export function teamNickname(fullName: string): string {

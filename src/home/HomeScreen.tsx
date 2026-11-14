@@ -1,5 +1,7 @@
 "use client"
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react"
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar"
 import { GMPersonCard } from "./GMPersonCard"
@@ -8,7 +10,7 @@ import { TeamMasthead } from "./TeamMasthead"
 import { teamTheme, themeFromColor } from "./teamTheme"
 import { DIRECTORS } from "./directors"
 import { gmNameFor, gmNameForSlug } from "./gmNames"
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam"
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider"
 import { teamNickname, gmAvatarSrc, teamCrestSrc } from "@/shared/league-data/nicknames"
 import { Icon } from "@/shared/ui/Icon"
 import PersonaPicker from "@/inbox/persona/PersonaPicker"
@@ -32,8 +34,8 @@ const TAN = "#C7BA9B"
 const slugify = (s: string) => s.toLowerCase().replace(/\s+/g, "-")
 
 export function HomeScreen() {
-  const [teamName, setTeamName] = useState<string>("Your Franchise")
-  const [rosterId, setRosterId] = useState<string>("")
+  const fetch = useLeagueFetch();
+  const { teamName = "Your Franchise", rosterId = "", leagueId = "", cfcFeatures } = useStoredTeam();
   const [unreadCount, setUnreadCount] = useState(0)
   const [isMobile, setIsMobile] = useState(false)
   // Mobile shows one ID badge at a time; the bottom tab bar picks which.
@@ -45,28 +47,6 @@ export function HomeScreen() {
   // must POST the complete profile with only gm_persona changed.
   const [strategyProfile, setStrategyProfile] = useState<Record<string, unknown> | null>(null)
 
-  // Pull team identity from stored auth
-  useEffect(() => {
-    try {
-      const team = readStoredTeam()
-      const stored = team as
-        | { teamName?: string; name?: string; rosterId?: string }
-        | null
-      const name = stored?.teamName ?? stored?.name
-      // Defer off the synchronous effect path (avoids cascading-render lint).
-      queueMicrotask(() => {
-        if (name && typeof name === "string" && name.trim().length > 0) {
-          setTeamName(name)
-        }
-        if (stored?.rosterId) {
-          setRosterId(stored.rosterId)
-        }
-      })
-    } catch {
-      /* keep the neutral placeholder */
-    }
-  }, [])
-
   // Fetch inbox unread count for the GM badge status
   useEffect(() => {
     if (!rosterId) return
@@ -76,7 +56,7 @@ export function HomeScreen() {
       .catch(() => {
         // silent - the badge just stays at "all clear"
       })
-  }, [rosterId])
+  }, [fetch, rosterId])
 
   // Fetch the GM's all-time record (championships, tenure, title years)
   useEffect(() => {
@@ -91,7 +71,7 @@ export function HomeScreen() {
       .catch(() => {
         // silent - badge falls back to zeros until data loads
       })
-  }, [rosterId])
+  }, [fetch, rosterId])
 
   // Load the saved persona from the team strategy profile
   useEffect(() => {
@@ -105,7 +85,7 @@ export function HomeScreen() {
         }
       })
       .catch(() => {})
-  }, [rosterId])
+  }, [fetch, rosterId])
 
   const savePersona = async (next: GmPersona) => {
     setPersona(next)
@@ -151,12 +131,12 @@ export function HomeScreen() {
         if (mine?.color) setTeamColor(mine.color)
       })
       .catch(() => {})
-  }, [rosterId])
+  }, [fetch, rosterId])
 
   const nicknameSlug = baseSlug || slugify(teamNickname(teamName))
-  const theme = teamColor ? themeFromColor(teamColor) : teamTheme(nicknameSlug)
-  const crestSrc = teamCrestSrc(teamName) ?? `/teams/${nicknameSlug}.png`
-  const gmName = gmNameFor(teamName) ?? gmNameForSlug(nicknameSlug) ?? "General Manager"
+  const theme = teamColor ? themeFromColor(teamColor) : cfcFeatures ? teamTheme(nicknameSlug) : themeFromColor("#4b5563")
+  const crestSrc = teamCrestSrc(teamName, leagueId) ?? ""
+  const gmName = (cfcFeatures ? gmNameFor(teamName) ?? gmNameForSlug(nicknameSlug) : null) ?? "General Manager"
 
   const gmCard = (
     <GMPersonCard
@@ -168,7 +148,7 @@ export function HomeScreen() {
       championships={gmStats.championships}
       years={gmStats.tenure}
       unreadCount={unreadCount}
-      avatarSrc={gmAvatarSrc(teamName) ?? ""}
+      avatarSrc={gmAvatarSrc(teamName, leagueId) ?? ""}
       onPersonaClick={() => setPersonaModalOpen(true)}
     />
   )

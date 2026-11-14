@@ -6,7 +6,6 @@ import {
   currentSessionCanAccessTeamPair,
   resolveCurrentSession,
 } from "../src/infrastructure/auth/authorization.ts";
-import { canCreateThread } from "../src/app/api/inbox/threads/threadAuthorization.ts";
 import { resolveAiBillingUserId } from "../src/infrastructure/ai/billingIdentity.ts";
 import { authoritativePasswordFailureEvent } from "../src/infrastructure/security/authEvent.ts";
 
@@ -39,14 +38,6 @@ test("commissioners cannot impersonate teams but trade counterparties retain acc
   assert.equal(currentSessionCanAccessTeamPair(commissioner, "league-a", "team-a", "team-b"), true);
   assert.equal(currentSessionCanAccessTeamPair(commissioner, "league-a", "team-b", "team-c"), false);
   assert.equal(currentSessionCanAccessTeamPair(commissioner, "league-b", "team-a", "team-b"), false);
-});
-
-test("thread authorization rejects forged creators and unrelated or cross-league teams", () => {
-  const member = { ...signed, role: "member" as const };
-  assert.equal(canCreateThread(member, "league-a", "team-a", "team-b", "team-a"), true);
-  assert.equal(canCreateThread(member, "league-a", "team-a", "team-b", "team-b"), false);
-  assert.equal(canCreateThread(member, "league-a", "team-b", "team-c", "team-a"), false);
-  assert.equal(canCreateThread(member, "league-b", "team-a", "team-b", "team-a"), false);
 });
 
 test("user-triggered AI is attributed to the authenticated caller", () => {

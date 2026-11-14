@@ -1,6 +1,6 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { getLeagueData } from "@/shared/league-data";
 import { buildValuationContext, valueAsset } from "@/shared/asset-values";
@@ -59,12 +59,12 @@ function findRootId(
 }
 
 export async function GET(request: Request) {
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
   const { session } = await currentAppSessionFromRequest(request);
   if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
+  const league_id = session.leagueId;
+
   if (session.leagueId !== league_id) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
   const { client, error: clientError } = getSupabaseAdminClient();
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: clientError }, { status: 500 });
   }
 
-  const [league, valuation] = await Promise.all([getLeagueData(), buildValuationContext()]);
+  const [league, valuation] = await Promise.all([getLeagueData(session.leagueId), buildValuationContext(session.leagueId)]);
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
   const teamNames: Record<string, string> = Object.fromEntries(league.teams.map(team => [team.rosterId, team.teamName]));
   const getTeamName = (id: string) => teamNames[id] || `Team ${id}`;

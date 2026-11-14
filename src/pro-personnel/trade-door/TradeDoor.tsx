@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch, useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 // The "Build a Trade" DOOR (director_office.md): same room, same UI chassis as
 // the Scouting Director's office (shared/director-chat) — the ONLY difference
 // from walking in the office door is the opening message: here the director
@@ -16,11 +18,10 @@
 // Latency: the room opens on the fast storylines endpoint while the slate
 // generates in the background; goal labels carry live counts when it lands.
 
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { browserStorageKey } from "@/infrastructure/identity/browserStorage";
 import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
@@ -67,9 +68,12 @@ type Response = Extract<Message, { kind: "director_response" }>;
 const headlineShort = (h: string) => h.replace(/\s+—.*$/, "");
 
 export default function TradeDoor() {
+  const fetch = useLeagueFetch();
+  const leagueId = useStoredTeam().leagueId ?? "";
+  const authenticatedAiFetch = useLeagueAiFetch();
   const storageScope = useBrowserStorageScope();
   const threadStorageKey = browserStorageKey("trade-door-thread", storageScope);
-  const { rosterId = "", teamName = "" } = readStoredTeam();
+  const { rosterId = "", teamName = "" } = useStoredTeam();
   const isMobile = useIsMobile();
 
   const [story, setStory] = useState<Storylines | null>(null);
@@ -108,7 +112,7 @@ export default function TradeDoor() {
       .then(j => { if (!cancelled && Array.isArray(j.offer_ids)) setPassedIds(new Set(j.offer_ids)); })
       .catch(() => {});
     return () => { cancelled = true; };
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   // Fast half: the room opens on the narrative bundle.
   useEffect(() => {
@@ -123,7 +127,7 @@ export default function TradeDoor() {
       })
       .catch(() => { if (!cancelled) setStoryError(true); });
     return () => { cancelled = true; };
-  }, [rosterId]);
+  }, [authenticatedAiFetch, rosterId]);
 
   // Slow half: the slate generates while he talks.
   useEffect(() => {
@@ -164,7 +168,7 @@ export default function TradeDoor() {
       }
     })();
     return () => { cancelled = true; };
-  }, [rosterId, teamName]);
+  }, [fetch, rosterId, teamName]);
 
   const rosterPayload = useMemo<AdvisorRosterPayload>(() => {
     const payload: AdvisorRosterPayload = {};
@@ -206,7 +210,7 @@ export default function TradeDoor() {
         receive_keys: offer?.receiveAssets.map(a => a.key) ?? [],
       }),
     }).catch(() => {});
-  }, [rosterId, offersByGoal, adHocSlate]);
+  }, [adHocSlate?.offers, fetch, rosterId, offersByGoal]);
 
   // Drawer offers recompute from state (not refs) so a PASS re-renders.
   const drawerOffers = drawerGoal
@@ -425,7 +429,7 @@ export default function TradeDoor() {
     return respond([
       "I hear you. Full conversations come online soon — for now, tap one of the plays above and I'll walk you through the deals behind it.",
     ]);
-  }, [story, respond, goalItems, liveOffersFor, isMobile, rosterId]);
+  }, [story, respond, goalItems, authenticatedAiFetch, rosterId, liveOffersFor, isMobile]);
 
   const handleCommit = useCallback(async (item: ActionItem): Promise<boolean> => {
     if (!item.commit) return false;
@@ -439,7 +443,7 @@ export default function TradeDoor() {
     } catch {
       return false;
     }
-  }, []);
+  }, [fetch]);
 
   // ── Gates ───────────────────────────────────────────────────────────────
 
@@ -492,7 +496,7 @@ export default function TradeDoor() {
               directorLabel={DIRECTOR_LABEL}
               directorRole="personnel"
               userAvatarInitials={teamInitials(teamName)}
-              userAvatarSrc={teamCrestSrc(teamName)}
+              userAvatarSrc={teamCrestSrc(teamName, leagueId)}
               onUserMessage={handleUserMessage}
               onCommit={handleCommit}
               placeholder="Ask the Personnel Director…"

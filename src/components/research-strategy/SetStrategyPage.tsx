@@ -1,7 +1,9 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useState } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import DirectorTwoBox from "@/shared/components/DirectorTwoBox";
 import StrategyEditorOverlay from "./StrategyEditorOverlay";
@@ -207,7 +209,8 @@ function PMCard({
 }
 
 export default function SetStrategyPage() {
-  const { rosterId = "" } = readStoredTeam();
+  const fetch = useLeagueFetch();
+  const { rosterId = "" } = useStoredTeam();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("QB");
   const [openTab, setOpenTab] = useState<TabKey | null>(null);
@@ -220,7 +223,7 @@ export default function SetStrategyPage() {
         if (j?.data) setProfile(j.data as Profile);
       })
       .catch(() => {});
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   const save = useCallback(
     (next: Profile) => {
@@ -231,7 +234,7 @@ export default function SetStrategyPage() {
         body: JSON.stringify({ teamId: rosterId, profile: next }),
       }).catch(() => {});
     },
-    [rosterId],
+    [fetch, rosterId],
   );
 
   const setStance = (cfg: CardCfg, value: Market) => {

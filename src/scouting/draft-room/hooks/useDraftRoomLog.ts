@@ -1,9 +1,13 @@
 "use client";
 
+import { useAppIdentity } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useState } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
+import { draftSubmissionIsAnnounced } from "@/shared/league-data/runtimeProjection";
 import { normalizeDraftLogPayload } from "@/scouting/draft-room/helpers";
 import type { DraftLogEntry } from "@/scouting/draft-room/types";
 
@@ -27,6 +31,8 @@ export function useDraftRoomLog({
   setStatusMessage,
   setErrorMessage,
 }: Params) {
+  const fetch = useLeagueFetch();
+  const leagueId = useAppIdentity()?.leagueId ?? "";
   const [draftLog, setDraftLog] = useState<DraftLogEntry[]>([]);
 
   const fetchDraftLogFromApi = useCallback(async () => {
@@ -43,7 +49,7 @@ export function useDraftRoomLog({
     } catch (error) {
       console.warn("Unable to fetch draft log", error);
     }
-  }, []);
+  }, [fetch]);
 
   useEffect(() => {
     // Initial fetch: matches the previous inline page.tsx behavior. setState
@@ -54,14 +60,14 @@ export function useDraftRoomLog({
 
   useEffect(() => {
     const supabaseClient = supabase ?? getSupabaseClient();
-    if (!supabaseClient) return undefined;
+    if (!supabaseClient || !leagueId) return undefined;
 
     // Explicit per-event listeners (rather than a single `event: "*"`) so
     // that any one of INSERT / UPDATE / DELETE failing to fan out — observed
     // on draft_log when the auto-tick endpoint flips is_announced from false
     // to true — is independent of the others. All three converge on the same
     // refetch since the API is the source of truth.
-    let channel = supabaseClient.channel("draft-log-updates");
+    let channel = supabaseClient.channel(`draft-log-updates-${leagueId}`);
     const onChange = (label: string) => () => {
       console.log(`[draft-log] realtime ${label} -> refetching draft log`);
       fetchDraftLogFromApi();
@@ -69,17 +75,17 @@ export function useDraftRoomLog({
     channel = channel
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "draft_log" },
+        { event: "INSERT", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
         onChange("INSERT")
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "draft_log" },
+        { event: "UPDATE", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
         onChange("UPDATE")
       )
       .on(
         "postgres_changes",
-        { event: "DELETE", schema: "public", table: "draft_log" },
+        { event: "DELETE", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
         onChange("DELETE")
       );
 
@@ -111,7 +117,7 @@ export function useDraftRoomLog({
       window.clearInterval(pollInterval);
       supabaseClient.removeChannel(channel);
     };
-  }, [fetchDraftLogFromApi, supabase]);
+  }, [fetchDraftLogFromApi, leagueId, supabase]);
 
   // Cross-client refetch trigger: DraftStatusProvider's 3s poll dispatches
   // this event whenever /api/scouting/draft/tick reports status="advanced", which is
@@ -159,16 +165,17 @@ export function useDraftRoomLog({
                   "This player was just drafted by another team."
               );
             } else {
-              setStatusMessage("Draft is paused. No picks recorded.");
+              setStatusMessage("The draft changed. Refresh the board and try again.");
             }
+          } else {
+            setErrorMessage(res.status === 503 ? "League actions are paused. Your pick was not recorded." : res.status === 403 ? "You are not authorized to make this pick." : "Unable to record pick. Refresh and try again.");
           }
           fetchDraftLogFromApi();
           return { ok: false, isAnnounced: false };
         }
-        const json = (await res.json().catch(() => ({}))) as { isAnnounced?: boolean };
-        // Default to "announced" so legacy / pre-migration deployments behave
-        // exactly as they did before the cadence rollout.
-        const isAnnounced = json.isAnnounced !== false;
+        const json: unknown = await res.json().catch(() => null);
+        // A submission stays private unless the server explicitly confirms announcement.
+        const isAnnounced = draftSubmissionIsAnnounced(json);
         return { ok: true, isAnnounced };
       } catch (error) {
         console.warn("Unable to persist draft log entry", error);
@@ -177,7 +184,7 @@ export function useDraftRoomLog({
         return { ok: false, isAnnounced: false };
       }
     },
-    [fetchDraftLogFromApi, setErrorMessage, setStatusMessage]
+    [fetch, fetchDraftLogFromApi, setErrorMessage, setStatusMessage]
   );
 
   const deleteDraftLogEntry = useCallback(
@@ -202,7 +209,7 @@ export function useDraftRoomLog({
         fetchDraftLogFromApi();
       }
     },
-    [fetchDraftLogFromApi, selectedTeam, setErrorMessage]
+    [fetch, fetchDraftLogFromApi, selectedTeam, setErrorMessage]
   );
 
   return {

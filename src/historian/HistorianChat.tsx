@@ -1,6 +1,7 @@
 "use client";
 
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
+import { useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { Menu, PanelLeftClose, PanelLeftOpen, ScrollText } from "lucide-react";
 
@@ -27,8 +28,8 @@ function dollars(micros: number) {
   return `$${(micros / 1_000_000).toFixed(2)}`;
 }
 
-async function askHistorian(question: string, signal?: AbortSignal): Promise<string> {
-  const res = await authenticatedAiFetch("/api/llm/ask", {
+async function askHistorian(send: (input: string, init?: RequestInit) => Promise<Response>, question: string, signal?: AbortSignal): Promise<string> {
+  const res = await send("/api/llm/ask", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question }),
@@ -54,6 +55,7 @@ async function askHistorian(question: string, signal?: AbortSignal): Promise<str
 }
 
 export default function HistorianChat() {
+  const authenticatedAiFetch = useLeagueAiFetch();
   const storageScope = useBrowserStorageScope();
   const [state, dispatch] = useReducer(historianReducer, {
     conversations: [],
@@ -84,7 +86,7 @@ export default function HistorianChat() {
       const payload = await response.json() as { quota?: Quota };
       if (response.ok && payload.quota) setQuota(payload.quota);
     } catch { /* The chat error remains the actionable failure surface. */ }
-  }, []);
+  }, [authenticatedAiFetch]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- Load the authenticated remote quota after mount.
   useEffect(() => { void refreshQuota(); }, [refreshQuota]);
@@ -116,7 +118,7 @@ export default function HistorianChat() {
     let cancelled = false;
     const controller = new AbortController();
     setFunFactLoading(true);
-    askHistorian(FUN_FACT_QUESTION, controller.signal)
+    askHistorian(authenticatedAiFetch, FUN_FACT_QUESTION, controller.signal)
       .then((answer) => {
         if (cancelled) return;
         setFunFact(answer);
@@ -141,7 +143,7 @@ export default function HistorianChat() {
       cancelled = true;
       controller.abort();
     };
-  }, [storageScope]);
+  }, [authenticatedAiFetch, storageScope]);
 
   const activeConversation = useMemo(
     () => state.conversations.find((c) => c.id === state.activeId) ?? null,
@@ -188,7 +190,7 @@ export default function HistorianChat() {
       abortRef.current = controller;
 
       try {
-        const answer = await askHistorian(trimmed, controller.signal);
+        const answer = await askHistorian(authenticatedAiFetch, trimmed, controller.signal);
         if (controller.signal.aborted) return;
         dispatch({
           type: "appendMessage",
@@ -225,7 +227,7 @@ export default function HistorianChat() {
         }
       }
     },
-    [isLoading, refreshQuota, state.activeId, state.hydrated],
+    [authenticatedAiFetch, isLoading, refreshQuota, state.activeId, state.hydrated],
   );
 
   const handleSend = useCallback(() => {

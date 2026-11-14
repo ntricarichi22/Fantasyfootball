@@ -1,5 +1,6 @@
 import { asRecord, isRecord } from "@/infrastructure/json";
-import { isAdminRequest } from "@/infrastructure/auth/admin";
+import { isCfcLeague } from "@/shared/league-data/capabilities";
+import { isAdminRequest, registeredMachineLeague } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 
@@ -48,6 +49,8 @@ async function fetchJsonWithRetry(url: string, timeoutMs = 20_000, retries = 2) 
 
 export async function GET(req: Request) {
   if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  const registeredLeagueId = await registeredMachineLeague(req);
+  if (!registeredLeagueId || !isCfcLeague(registeredLeagueId)) return jsonError("registered_cfc_league_required", 403);
   const startedAt = Date.now();
   const url = new URL(req.url);
 
@@ -58,8 +61,7 @@ export async function GET(req: Request) {
   if (!supabaseResult.client) return jsonError("Supabase admin client is null", 500);
   const supabaseAdmin = supabaseResult.client;
 
-  const baseLeagueId = process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID;
-  if (!baseLeagueId) return jsonError("Missing NEXT_PUBLIC_SLEEPER_LEAGUE_ID env var", 500);
+  const baseLeagueId = registeredLeagueId;
 
   // Params
   const startLeagueId = url.searchParams.get("league_id") ?? baseLeagueId;

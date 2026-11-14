@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch, useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { browserStorageKey, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
 import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 
@@ -12,7 +14,6 @@ import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorage
 // advisor (engine partner angle + accept read), PASS / EDIT / MAKE THIS OFFER,
 // and the Edit handoff that carries the director's take into the editor.
 
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
@@ -89,6 +90,8 @@ export default function OfferDrawer({
   advisorByOffer, setAdvisorByOffer, inFlightRef,
   onPass, onClose, flash, isMobile,
 }: Props) {
+  const fetch = useLeagueFetch();
+  const authenticatedAiFetch = useLeagueAiFetch();
   const storageScope = useBrowserStorageScope();
   const [activeIndex, setActiveIndex] = useState(0);
   const [sendingOffer, setSendingOffer] = useState(false);
@@ -145,7 +148,7 @@ export default function OfferDrawer({
         }));
       })
       .finally(() => { inFlightRef.current.delete(offer.id); });
-  }, [offers, activeIndex, advisorByOffer, myTeamId, rosterPayload, setAdvisorByOffer, inFlightRef]);
+  }, [offers, activeIndex, advisorByOffer, myTeamId, rosterPayload, setAdvisorByOffer, inFlightRef, authenticatedAiFetch]);
 
   const handlePass = useCallback(() => {
     const offer = offers[activeIndex];
@@ -218,7 +221,7 @@ export default function OfferDrawer({
     } finally {
       setSendingOffer(false);
     }
-  }, [offers, activeIndex, myTeamId, sendingOffer, flash]);
+  }, [offers, activeIndex, sendingOffer, fetch, myTeamId, flash]);
 
   const goPrev = useCallback(() => {
     if (offers.length <= 1) return;

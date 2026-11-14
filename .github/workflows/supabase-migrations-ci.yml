@@ -7,6 +7,8 @@ on:
       - "scripts/validate-supabase-migrations.bash"
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
+      - "scripts/test-league-runtime-concurrency.mjs"
+      - "scripts/verify-supabase-production.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-next-auth-boundaries.mjs"
       - "scripts/test-staged-security-rollout.bash"
@@ -16,12 +18,17 @@ on:
       - "scripts/*018-fixtures.mjs"
       - "scripts/*020-fixtures.mjs"
       - "scripts/lib/mailpit.mjs"
+      - "scripts/lib/auth-browser-smoke.mjs"
       - "package.json"
       - "package-lock.json"
       - "middleware.ts"
       - "instrumentation.ts"
       - "src/app/api/**"
       - "src/infrastructure/auth/**"
+      - "src/infrastructure/identity/**"
+      - "src/app/login/**"
+      - "src/shared/ui/UnifiedTopbar.tsx"
+      - "src/shared/ui/LeagueSwitcher.tsx"
       - "src/infrastructure/ai/**"
       - "src/infrastructure/security/**"
       - "src/shared/director-prose/**"
@@ -45,6 +52,8 @@ on:
       - "scripts/validate-supabase-migrations.bash"
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
+      - "scripts/test-league-runtime-concurrency.mjs"
+      - "scripts/verify-supabase-production.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-next-auth-boundaries.mjs"
       - "scripts/test-staged-security-rollout.bash"
@@ -54,12 +63,17 @@ on:
       - "scripts/*018-fixtures.mjs"
       - "scripts/*020-fixtures.mjs"
       - "scripts/lib/mailpit.mjs"
+      - "scripts/lib/auth-browser-smoke.mjs"
       - "package.json"
       - "package-lock.json"
       - "middleware.ts"
       - "instrumentation.ts"
       - "src/app/api/**"
       - "src/infrastructure/auth/**"
+      - "src/infrastructure/identity/**"
+      - "src/app/login/**"
+      - "src/shared/ui/UnifiedTopbar.tsx"
+      - "src/shared/ui/LeagueSwitcher.tsx"
       - "src/infrastructure/ai/**"
       - "src/infrastructure/security/**"
       - "src/shared/director-prose/**"
@@ -84,12 +98,21 @@ concurrency:
 
 jobs:
   migrations:
-    name: Validate migrations in disposable database
+    name: Validate migrations on PostgreSQL ${{ matrix.postgres }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres: [15, 17]
     steps:
       - name: Check out the reviewed revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Select disposable PostgreSQL major version
+        env:
+          POSTGRES_MAJOR: ${{ matrix.postgres }}
+        run: sed -i "s/^major_version = .*/major_version = $POSTGRES_MAJOR/" supabase/config.toml
 
       - name: Validate migration filenames and ordering
         run: ./scripts/validate-supabase-migrations.bash

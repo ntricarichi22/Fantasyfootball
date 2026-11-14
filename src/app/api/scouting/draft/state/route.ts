@@ -1,233 +1,38 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/app/api/active-teams/shared";
-import { getLeagueId } from "@/infrastructure/config";
-import {
-  computeRemainingSeconds,
-  INITIAL_PICK_SECONDS,
-  type DraftClockStatus,
-  type DraftStateRow,
-} from "@/scouting/draft-room/draftState";
-import { processAutoAdvance } from "@/scouting/draft-room/draftAutoAdvance";
-import { fetchDraftState, upsertDraftState } from "./shared";
+import { dueDraftDeadline } from "@/infrastructure/auth/draftDeadline";
+import { NextResponse } from "next/server";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { commandEnvelope, commandError, executeLeagueCommand, readLeagueRuntime } from "@/infrastructure/auth/leagueCommand";
 
 export const dynamic = "force-dynamic";
 
-const safeLeagueId = () => {
-  try {
-    return getLeagueId();
-  } catch {
-    return "";
-  }
-};
-
-const normalizeStatus = (value: unknown): DraftClockStatus => {
-  if (value === "running" || value === "paused" || value === "not_started") return value;
-  return "not_started";
-};
-
-const normalizeSeconds = (value: unknown, fallback: number = INITIAL_PICK_SECONDS) => {
-  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.round(value));
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return Math.max(0, Math.round(parsed));
-  }
-  return fallback;
-};
-
-/** GET is intentionally pure: it reads and returns the current draft state
- *  without ever mutating it. Auto-announce / auto-skip logic now lives
- *  exclusively in `POST /api/scouting/draft/tick` (and `POST /api/scouting/draft/state` with
- *  action: "announce" for legacy callers). This eliminates the race window
- *  where multiple simultaneous polls would each try to advance the draft. */
-export async function GET(request: NextRequest) {
-  const leagueId = safeLeagueId();
-  if (!leagueId) {
-    return NextResponse.json({ error: "Sleeper league ID is not configured." }, { status: 500 });
-  }
+export async function GET(request: Request) {
   const { session } = await currentAppSessionFromRequest(request);
-  if (!session || session.leagueId !== leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-
-  const { client, error } = getSupabaseAdminClient();
-  if (!client || error) {
-    return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
-  }
-
-  const state = await fetchDraftState(client, leagueId);
-  return NextResponse.json({ data: state });
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const result = await readLeagueRuntime(session);
+  if (result.error) return commandError(result.error);
+  return NextResponse.json({ data: result.data?.draft_state ?? null, revision: result.data?.revision ?? 0, writesEnabled: result.data?.writes_enabled === true });
 }
 
-export async function POST(request: NextRequest) {
-  const leagueId = safeLeagueId();
-  if (!leagueId) {
-    return NextResponse.json({ error: "Sleeper league ID is not configured." }, { status: 500 });
-  }
+export async function POST(request: Request) {
   const { session } = await currentAppSessionFromRequest(request);
-  if (!session || session.leagueId !== leagueId || (session.role !== "commissioner" && session.role !== "admin")) {
-    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const body = await boundedJson<Record<string, unknown>>(request, 8192);
+  if (!body || typeof body !== "object" || Array.isArray(body)) return NextResponse.json({ error: "invalid_json" }, { status: 400 });
+  const envelope = commandEnvelope(body);
+  if (!envelope) return NextResponse.json({ error: "command_identity_required" }, { status: 400 });
+  const action = body.action;
+  if (typeof action !== "string" || !["start", "pause", "resume", "advance", "tick", "undo", "schedule"].includes(action)) {
+    return NextResponse.json({ error: "invalid_draft_action" }, { status: 400 });
   }
-
-  const { client, error } = getSupabaseAdminClient();
-  if (!client || error) {
-    return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
-  }
-
-  const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const action = typeof body.action === "string" ? body.action.toLowerCase() : "";
-
-  if (!action) {
-    return NextResponse.json({ error: "action is required" }, { status: 400 });
-  }
-
-  const existing = await fetchDraftState(client, leagueId);
-  const nowIso = new Date().toISOString();
-
-  if (action === "start") {
-    if (existing && normalizeStatus(existing.status) !== "not_started") {
-      return NextResponse.json({ data: existing, status: "already_started" });
+  if (action === "tick" && body.force !== true) {
+    const snapshot = await readLeagueRuntime(session);
+    if (snapshot.error) return commandError(snapshot.error);
+    if (dueDraftDeadline(snapshot.data?.draft_state) === null) {
+      return NextResponse.json({ ok: true, data: snapshot.data?.draft_state ?? null, revision: snapshot.data?.revision ?? 0, status: "not_ready", steps: 0 });
     }
-    const seconds = normalizeSeconds(
-      body.secondsRemaining ?? body.seconds_remaining ?? body.initialSeconds ?? body.initial_seconds,
-      INITIAL_PICK_SECONDS
-    );
-    const nextState: Partial<DraftStateRow> & { league_id: string } = {
-      league_id: leagueId,
-      status: "running",
-      seconds_remaining: seconds,
-      clock_started_at: nowIso,
-      pick_submitted: false,
-      pick_announced_at: null,
-      current_pick_index: existing?.current_pick_index ?? 0,
-    };
-    const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
-    if (updateError) {
-      return NextResponse.json({ error: updateError }, { status: 500 });
-    }
-    return NextResponse.json({ data: updated });
   }
-
-  if (!existing) {
-    return NextResponse.json({ error: "Draft has not been started." }, { status: 400 });
-  }
-
-  if (existing.status === "completed") {
-    return NextResponse.json({ data: existing, status: "completed" });
-  }
-
-  const baseSeconds =
-    body.secondsRemaining ??
-    body.seconds_remaining ??
-    computeRemainingSeconds(existing) ??
-    INITIAL_PICK_SECONDS;
-  const normalizedSeconds = normalizeSeconds(baseSeconds, computeRemainingSeconds(existing));
-
-  if (action === "pause") {
-    const nextState: Partial<DraftStateRow> & { league_id: string } = {
-      league_id: leagueId,
-      status: "paused",
-      seconds_remaining: normalizedSeconds,
-      clock_started_at: existing?.clock_started_at ?? nowIso,
-      pick_submitted: existing?.pick_submitted ?? false,
-      pick_announced_at: existing?.pick_announced_at ?? null,
-      current_pick_index: existing?.current_pick_index ?? null,
-    };
-    const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
-    if (updateError) {
-      return NextResponse.json({ error: updateError }, { status: 500 });
-    }
-    return NextResponse.json({ data: updated });
-  }
-
-  if (action === "resume") {
-    const nextState: Partial<DraftStateRow> & { league_id: string } = {
-      league_id: leagueId,
-      status: "running",
-      seconds_remaining: normalizedSeconds,
-      clock_started_at: nowIso,
-      pick_submitted: existing?.pick_submitted ?? false,
-      pick_announced_at: existing?.pick_announced_at ?? null,
-      current_pick_index: existing?.current_pick_index ?? null,
-    };
-    const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
-    if (updateError) {
-      return NextResponse.json({ error: updateError }, { status: 500 });
-    }
-    return NextResponse.json({ data: updated });
-  }
-
-  if (action === "advance") {
-    const nextIndex =
-      typeof existing?.current_pick_index === "number" ? existing.current_pick_index + 1 : null;
-    const nextState: Partial<DraftStateRow> & { league_id: string } = {
-      league_id: leagueId,
-      status: "running",
-      seconds_remaining: normalizeSeconds(baseSeconds, INITIAL_PICK_SECONDS),
-      clock_started_at: nowIso,
-      pick_submitted: false,
-      pick_announced_at: null,
-      current_pick_index: nextIndex,
-    };
-    const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
-    if (updateError) {
-      return NextResponse.json({ error: updateError }, { status: 500 });
-    }
-    return NextResponse.json({ data: updated });
-  }
-
-  if (action === "submit_pick") {
-    // Mark the current pick as submitted-but-not-yet-announced. The
-    // announcement time is fixed: clock_started_at + 30 minutes (the full
-    // pick window). Do NOT advance current_pick_index here.
-    if (!existing.clock_started_at) {
-      return NextResponse.json({ error: "Draft clock has not been started." }, { status: 400 });
-    }
-    // Snap announcement to the next :00 or :30 wall-clock boundary (ET).
-    // e.g. submit at 12:22 → announce at 12:30. Submit at 12:31 → announce at 1:00.
-    const nowMs = Date.now();
-    const THIRTY_MIN_MS = 30 * 60 * 1000;
-    const nextBoundaryMs = Math.ceil(nowMs / THIRTY_MIN_MS) * THIRTY_MIN_MS;
-    // Guard: if we're exactly on a boundary, push to the next one
-    const announcedAtIso = new Date(
-      nextBoundaryMs === nowMs ? nextBoundaryMs + THIRTY_MIN_MS : nextBoundaryMs
-    ).toISOString();
-    const nextState: Partial<DraftStateRow> & { league_id: string } = {
-      league_id: leagueId,
-      status: existing.status === "paused" ? "paused" : "running",
-      // Keep seconds_remaining as the live value so the timer continues to
-      // tick down toward the announcement.
-      seconds_remaining: existing.seconds_remaining ?? INITIAL_PICK_SECONDS,
-      clock_started_at: existing.clock_started_at,
-      pick_submitted: true,
-      pick_announced_at: announcedAtIso,
-      current_pick_index: existing.current_pick_index ?? null,
-    };
-    const { data: updated, error: updateError } = await upsertDraftState(client, nextState);
-    if (updateError) {
-      return NextResponse.json({ error: updateError }, { status: 500 });
-    }
-    return NextResponse.json({ data: updated });
-  }
-
-  if (action === "announce") {
-    // Idempotent: if there is nothing to announce or the announcement time
-    // has not yet been reached, just return the current state unchanged so
-    // multiple clients calling this in parallel is harmless.
-    const force = body.force === true;
-    const result = await processAutoAdvance(
-      client,
-      leagueId,
-      existing,
-      (payload) => upsertDraftState(client, payload),
-      { force }
-    );
-    if (result.error) {
-      return NextResponse.json({ error: result.error }, { status: 500 });
-    }
-    if (result.status === "not_ready") {
-      return NextResponse.json({ data: result.data, status: "not_ready" });
-    }
-    return NextResponse.json({ data: result.data, status: result.status });
-  }
-
-  return NextResponse.json({ error: "Unsupported action" }, { status: 400 });
+  return executeLeagueCommand(session, "cfc_draft_command", envelope, {
+    p_action: action, p_options: { force: body.force === true, ...(body.pick_index !== undefined ? { pick_index: body.pick_index } : {}), ...(body.starts_at !== undefined ? { starts_at: body.starts_at } : {}) },
+  });
 }

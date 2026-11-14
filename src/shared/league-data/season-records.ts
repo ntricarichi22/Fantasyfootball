@@ -8,7 +8,8 @@
 
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { ttlMemo } from "@/infrastructure/ttlCache";
-import { getSleeperLeagueId } from "./sleeper";
+import { leagueCacheKey } from "@/infrastructure/identity/leagueScope";
+import { isCfcLeague } from "./capabilities";
 
 // How many recent seasons we surface as the signal. Two, per the design.
 const HISTORY_WINDOW = 2;
@@ -79,16 +80,16 @@ function summarize(seasons: SeasonRecord[]): string {
 // Public accessor: rosterId -> PlayoffHistory for the last HISTORY_WINDOW seasons.
 // Cached for an hour — season records change once a year; this was re-queried
 // on every pipeline pass.
-export function getPlayoffHistory(): Promise<Map<string, PlayoffHistory>> {
-  return ttlMemo("league-data:playoff-history", 3_600_000, loadPlayoffHistory);
+export function getPlayoffHistory(leagueId: string): Promise<Map<string, PlayoffHistory>> {
+  if (!isCfcLeague(leagueId)) return Promise.resolve(new Map());
+  return ttlMemo(leagueCacheKey("league-data:playoff-history", leagueId), 3_600_000, () => loadPlayoffHistory(leagueId));
 }
 
-async function loadPlayoffHistory(): Promise<Map<string, PlayoffHistory>> {
+async function loadPlayoffHistory(leagueId: string): Promise<Map<string, PlayoffHistory>> {
   const out = new Map<string, PlayoffHistory>();
   const admin = getSupabaseAdminClient();
   if (!admin.client) return out;
 
-  const leagueId = getSleeperLeagueId();
   if (!leagueId) return out;
 
   const franchiseToRoster = await fetchFranchiseToRoster(leagueId);
@@ -152,16 +153,16 @@ export type GmTotals = {
 };
 
 // Cached for an hour, same as playoff history — season records change yearly.
-export function getGmTotals(): Promise<Map<string, GmTotals>> {
-  return ttlMemo("league-data:gm-totals", 3_600_000, loadGmTotals);
+export function getGmTotals(leagueId: string): Promise<Map<string, GmTotals>> {
+  if (!isCfcLeague(leagueId)) return Promise.resolve(new Map());
+  return ttlMemo(leagueCacheKey("league-data:gm-totals", leagueId), 3_600_000, () => loadGmTotals(leagueId));
 }
 
-async function loadGmTotals(): Promise<Map<string, GmTotals>> {
+async function loadGmTotals(leagueId: string): Promise<Map<string, GmTotals>> {
   const out = new Map<string, GmTotals>();
   const admin = getSupabaseAdminClient();
   if (!admin.client) return out;
 
-  const leagueId = getSleeperLeagueId();
   if (!leagueId) return out;
 
   const franchiseToRoster = await fetchFranchiseToRoster(leagueId);

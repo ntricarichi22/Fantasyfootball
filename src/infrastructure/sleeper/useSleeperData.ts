@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 import { formatPickKey, type DraftState } from "@/infrastructure/picks";
 import type { LeagueSnapshot } from "@/shared/league-data";
@@ -11,6 +13,7 @@ type Params = { leagueId: string; leagueIdError: string; setErrorMessage: (msg: 
 /** Draft-room adapter over the authenticated canonical snapshot. No browser
  * request reaches Sleeper and live failures never fall back to demo rosters. */
 export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Params) {
+  const fetch = useLeagueFetch();
   const [teams, setTeams] = useState<Team[]>([]);
   const [commissionerRosterId, setCommissionerRosterId] = useState("");
   const [leagueData, setLeagueData] = useState<League | null>(null);
@@ -24,18 +27,20 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
 
   useEffect(() => {
     let cancelled = false;
+    let generation = 0;
     async function load() {
+      const requestGeneration = ++generation;
       if (!leagueId) { setErrorMessage(leagueIdError || "League is not configured."); return; }
       try {
         const [snapshotResponse, valuesResponse] = await Promise.all([
           fetch("/api/league/snapshot"),
           fetch("/api/player-values"),
         ]);
-        if (!snapshotResponse.ok || !valuesResponse.ok) throw new Error("Sleeper unavailable");
+        if (!snapshotResponse.ok) throw new Error("League snapshot is unavailable");
         const snapshot = await snapshotResponse.json() as LeagueSnapshot;
-        const values = await valuesResponse.json() as { data?: Record<string, number> };
+        const values = valuesResponse.ok ? await valuesResponse.json() as { data?: Record<string, number> } : { data: {} };
         if (snapshot.leagueId !== leagueId) throw new Error("League configuration changed");
-        if (cancelled) return;
+        if (cancelled || generation !== requestGeneration) return;
 
         const mappedTeams = snapshot.teams.map(team => ({ id: Number(team.rosterId), ownerId: team.ownerId, name: team.teamName }));
         const names = Object.fromEntries(mappedTeams.map(team => [team.id, team.name]));
@@ -49,10 +54,9 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
         }));
         const pickOwnerByPickKey: Record<string, number> = {};
         const pickMetadataByPickKey: DraftState["pickMetadataByPickKey"] = {};
-        for (const [owner, picks] of Object.entries(snapshot.pickOwnership)) for (const pick of picks) {
-          if (pick.slot == null) continue;
+        for (const pick of snapshot.draftSlots) {
           const key = formatPickKey(String(pick.season), pick.round, pick.slot);
-          pickOwnerByPickKey[key] = Number(owner);
+          if (pick.rosterId !== null) pickOwnerByPickKey[key] = Number(pick.rosterId);
           pickMetadataByPickKey[key] = { season: String(pick.season), round: pick.round, slot: pick.slot, originalRosterId: Number(pick.originalRosterId) };
         }
         const state: DraftState = {
@@ -86,15 +90,26 @@ export function useSleeperData({ leagueId, leagueIdError, setErrorMessage }: Par
             totalValue: profile.strength.starterValue + profile.strength.benchValue, averageAge: profile.strength.avgStarterAge }];
         })));
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled && generation === requestGeneration) {
           setTeams([]); setRosters([]); setDraftState(null); setDraftOrderAvailable(false);
           setErrorMessage(error instanceof Error ? error.message : "Sleeper unavailable");
         }
       }
     }
     void load();
-    return () => { cancelled = true; };
-  }, [leagueId, leagueIdError, setErrorMessage]);
+    const refresh = () => { void load(); };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("draft-log-refetch-requested", refresh);
+    window.addEventListener("league-ownership-changed", refresh);
+    const timer = window.setInterval(refresh, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("draft-log-refetch-requested", refresh);
+      window.removeEventListener("league-ownership-changed", refresh);
+    };
+  }, [fetch, leagueId, leagueIdError, setErrorMessage]);
 
   return { teams, commissionerRosterId, leagueData, draftState, draftOrderAvailable, rosters, rosterNames, playerDictionary, playerValues, teamProfiles };
 }

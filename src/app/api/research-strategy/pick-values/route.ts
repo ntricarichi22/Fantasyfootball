@@ -1,5 +1,5 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
 import { buildValuationContext, valueAsset } from "@/shared/asset-values";
 import { getLeagueData, invalidateLeagueData } from "@/shared/league-data";
@@ -9,14 +9,16 @@ export const dynamic = "force-dynamic";
 
 async function authorize(request: NextRequest, teamId: string) {
   const { session } = await currentAppSessionFromRequest(request);
-  return session && currentSessionCanActForRoster(session, LEAGUE_ID, teamId) ? session : null;
+  return session && currentSessionCanActForRoster(session, session.leagueId, teamId) ? session : null;
 }
 
 export async function GET(request: NextRequest) {
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim() ?? "";
   if (!teamId) return NextResponse.json({ error: "teamId is required" }, { status: 400 });
-  if (!(await authorize(request, teamId))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const [league, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
+  const session = await authorize(request, teamId);
+  if (!session) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+  const [league, ctx] = await Promise.all([getLeagueData(session.leagueId), buildValuationContext(session.leagueId)]);
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
   return NextResponse.json({ data: (league.pickOwnership.get(teamId) ?? []).map(pick => ({
     pick_key: pick.key,
@@ -29,8 +31,10 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({})) as { teamId?: string };
   const teamId = body.teamId?.trim() ?? "";
   if (!teamId) return NextResponse.json({ error: "teamId is required" }, { status: 400 });
-  if (!(await authorize(request, teamId))) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  await rebuildPickValuesForTeam(LEAGUE_ID, teamId);
-  invalidateLeagueData();
+  const session = await authorize(request, teamId);
+  if (!session) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+  await rebuildPickValuesForTeam(session.leagueId, teamId);
+  invalidateLeagueData(session.leagueId);
   return NextResponse.json({ ok: true });
 }

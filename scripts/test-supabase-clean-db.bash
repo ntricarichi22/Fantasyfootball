@@ -17,5 +17,6 @@ fi
 supabase db reset --local
 supabase db lint --local --level error --fail-on error
 supabase test db
-LOCAL_DATABASE_URL="${LOCAL_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}" \
-  node "$root/scripts/test-ai-db-concurrency.mjs"
+export LOCAL_DATABASE_URL="${LOCAL_DATABASE_URL:-postgresql://postgres:postgres@127.0.0.1:54322/postgres}"
+node "$root/scripts/test-ai-db-concurrency.mjs"
+node "$root/scripts/test-league-runtime-concurrency.mjs"

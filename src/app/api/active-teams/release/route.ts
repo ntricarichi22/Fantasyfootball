@@ -1,32 +1,12 @@
 import { NextResponse } from "next/server";
-import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { getSupabaseAdminClient, normalizeRosterId } from "../shared";
+import { getSupabaseAdminClient, presenceIdentity } from "../shared";
 
 export const dynamic = "force-dynamic";
 
-type ReleasePayload = {
-  leagueId?: string;
-  rosterId?: string | number;
-  sessionId?: string;
-};
-
 export async function POST(request: Request) {
-  let payload: ReleasePayload;
-  try {
-    payload = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
-  }
-
-  const leagueId = payload.leagueId?.trim() ?? "";
-  const rosterId = normalizeRosterId(payload.rosterId);
-  const sessionId = payload.sessionId?.trim() ?? "";
-
-  if (!leagueId || !rosterId || !sessionId) {
-    return NextResponse.json({ error: "leagueId, rosterId, and sessionId are required" }, { status: 400 });
-  }
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session || !currentSessionCanActForRoster(session, leagueId, rosterId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const identity = await presenceIdentity(request);
+  if (!identity) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const { leagueId, rosterId, sessionId } = identity;
 
   const { client, error: clientError } = getSupabaseAdminClient();
 

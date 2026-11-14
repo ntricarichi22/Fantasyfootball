@@ -1,12 +1,12 @@
 import "server-only";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { appSessionFromRequest, type AppSession } from "./session";
-import { resolveCurrentSession } from "./authorization";
+import { resolveCurrentSession, requestMatchesActiveLeague, requestMatchesActiveIdentity } from "./authorization";
 export { currentSessionCanActForRoster, currentSessionCanAccessTeamPair } from "./authorization";
 
 export type CurrentSessionResult =
   | { session: AppSession; error: null }
-  | { session: null; error: "not_authenticated" | "auth_state_unavailable" };
+  | { session: null; error: "not_authenticated" | "auth_state_unavailable" | "league_context_changed" | "identity_context_changed" };
 
 export type CurrentSessionDependencies = {
   readSignedSession: typeof appSessionFromRequest;
@@ -29,11 +29,14 @@ export async function currentAppSessionFromRequest(
 ): Promise<CurrentSessionResult> {
   const signed = await dependencies.readSignedSession(request);
   if (!signed) return { session: null, error: "not_authenticated" };
+  if (!requestMatchesActiveLeague(request, signed)) return { session: null, error: "league_context_changed" };
 
   // Local-only impersonation identities deliberately have no auth/membership
   // rows. Never honor this escape hatch in production.
   if (process.env.NODE_ENV !== "production" && signed.userId.startsWith("dev:")) {
-    return { session: { ...signed, role: "member" }, error: null };
+    return requestMatchesActiveIdentity(request, signed)
+      ? { session: { ...signed, role: "member" }, error: null }
+      : { session: null, error: "identity_context_changed" };
   }
 
   const { client } = dependencies.getAdminClient();
@@ -48,5 +51,5 @@ export async function currentAppSessionFromRequest(
       .maybeSingle(),
     client.rpc("is_auth_session_active", { p_session_id: signed.sessionId, p_user_id: signed.userId }),
   ]);
-  return resolveCurrentSession(signed, Boolean(userData.user), data, !(userError || error || providerSession.error), providerSession.data === true);
+  return resolveCurrentSession(signed, Boolean(userData.user), data, !(userError || error || providerSession.error), providerSession.data === true, request);
 }

@@ -1,3 +1,4 @@
+import { requireCfcValuation } from "@/shared/league-data/capabilities";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { formatPickLabel, getLeagueData, invalidateLeagueData, teamNickname, type AttachmentLevel } from "@/shared/league-data";
 import {
@@ -40,11 +41,12 @@ export async function rebuildPickValuesForTeam(
   leagueId: string,
   teamId: string,
 ): Promise<void> {
+  requireCfcValuation(leagueId);
   const { client } = getSupabaseAdminClient();
   if (!client) return;
 
   // 1. My picks — the canonical ownership fact (current + future, spent dropped).
-  const league = await getLeagueData();
+  const league = await getLeagueData(leagueId);
   if ("error" in league) return;
   const myPicks = league.pickOwnership.get(teamId) ?? [];
   if (myPicks.length === 0) return;
@@ -54,7 +56,7 @@ export async function rebuildPickValuesForTeam(
   for (const t of league.teams) teamNameByRoster.set(t.rosterId, t.teamName);
 
   // 2. Base prices + team tiers + ladder, built once for the whole set.
-  const ctx = await buildValuationContext();
+  const ctx = await buildValuationContext(leagueId);
 
   // 3. This team's availability tiers + class strengths, keyed by pick key.
   const [availRes, classRes] = await Promise.all([
@@ -144,5 +146,5 @@ export async function rebuildPickValuesForTeam(
       .eq("position", "PICK")
       .in("sleeper_player_id", stale);
   }
-  invalidateLeagueData();
+  invalidateLeagueData(leagueId);
 }

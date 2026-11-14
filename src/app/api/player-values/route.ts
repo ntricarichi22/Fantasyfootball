@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextResponse } from "next/server";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { getLeagueData } from "@/shared/league-data";
@@ -8,8 +9,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const { session, error } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   if (!session) return NextResponse.json({ error }, { status: error === "not_authenticated" ? 401 : 503 });
-  const [league, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
+  const [league, ctx] = await Promise.all([getLeagueData(session.leagueId), buildValuationContext(session.leagueId)]);
   if ("error" in league) return NextResponse.json(league, { status: 503 });
   const rosteredIds = new Set(league.teams.flatMap(team => team.playerIds));
   const data: Record<string, number> = {};

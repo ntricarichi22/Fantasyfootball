@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch, useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 // The Pro Personnel OFFICE door (org-chart "ENTER →") — the EXACT same chat
 // chassis as the Scouting office and the Build-a-Trade door. The only thing a
 // door changes is the opening message: walking in cold gets the welcome (or
@@ -9,9 +11,8 @@
 // POVs here are hand-set placeholders until the personnel intel composer ships
 // (the office/opening endpoint), mirroring how the Scouting office launched.
 
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useState } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import {
@@ -131,11 +132,14 @@ function buildReturningOpening(povs: POV[]): Opening {
 }
 
 export function PersonnelOffice() {
-  const stored = readStoredTeam();
+  const fetch = useLeagueFetch();
+  const leagueId = useStoredTeam().leagueId ?? "";
+  const authenticatedAiFetch = useLeagueAiFetch();
+  const stored = useStoredTeam();
   const rosterId = stored.rosterId ?? "";
   const teamName = stored.teamName ?? "";
   const avatarInitials = teamInitials(teamName);
-  const avatarSrc = teamCrestSrc(teamName);
+  const avatarSrc = teamCrestSrc(teamName, leagueId);
 
   const [opening, setOpening] = useState<Opening | null>(null);
 
@@ -189,7 +193,7 @@ export function PersonnelOffice() {
         ],
       },
     };
-  }, [rosterId]);
+  }, [authenticatedAiFetch, rosterId]);
 
   const handleCommit = useCallback(async (item: ActionItem): Promise<boolean> => {
     if (!item.commit) return false;
@@ -203,7 +207,7 @@ export function PersonnelOffice() {
     } catch {
       return false;
     }
-  }, []);
+  }, [fetch]);
 
   return (
     <div style={{ height: "100vh", display: "flex", flexDirection: "column", background: "#F5F0E6" }}>

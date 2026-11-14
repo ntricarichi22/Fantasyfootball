@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 
 import type { RookieProspect, RookieProspectMap } from "@/scouting/draft-room/types";
@@ -10,6 +12,7 @@ import type { RookieProspect, RookieProspectMap } from "@/scouting/draft-room/ty
  * and the scouting card (age, height, weight, NFL draft slot fallback).
  */
 export function useRookieProspects(): RookieProspectMap {
+  const fetch = useLeagueFetch();
   const [map, setMap] = useState<RookieProspectMap>({});
 
   useEffect(() => {
@@ -43,7 +46,7 @@ export function useRookieProspects(): RookieProspectMap {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [fetch]);
 
   return map;
 }

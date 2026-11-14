@@ -54,7 +54,7 @@ export async function GET() {
 
   const { data, error: qErr } = await client
     .from("team_email_map")
-    .select("roster_id, team_name, email, profile_complete");
+    .select("roster_id, team_name, email, profile_complete").eq("league_id", LEAGUE_ID);
   if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
 
   // team_email_map can have multiple email rows per team — dedupe to one entry
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
   const { data, error: qErr } = await client
     .from("team_email_map")
     .select("roster_id, team_name, email, profile_complete")
-    .eq("roster_id", rosterId)
+    .eq("league_id", LEAGUE_ID).eq("roster_id", rosterId)
     .limit(1);
   if (qErr) return NextResponse.json({ error: qErr.message }, { status: 500 });
 
@@ -127,7 +127,7 @@ export async function POST(request: NextRequest) {
   res.cookies.set("cfc_profile_complete", String(profileComplete), { ...COOKIE_BASE, httpOnly: false });
   res.cookies.set(
     "cfc_identity",
-    JSON.stringify({ rosterId: rid, teamName: teamRow.team_name }),
+    JSON.stringify({ leagueId: LEAGUE_ID, rosterId: rid, teamName: teamRow.team_name }),
     { ...COOKIE_BASE, httpOnly: false },
   );
 

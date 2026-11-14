@@ -5,7 +5,7 @@ import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorage
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import TradeBuilder from "@/pro-personnel/trade-builder/TradeBuilder";
 import TradeDoor from "@/pro-personnel/trade-door/TradeDoor";
 import type { DealAsset } from "@/pro-personnel/trade-builder/DealCard";
@@ -68,6 +68,7 @@ function LoadingScreen() {
 }
 
 function TradeBuilderPageInner() {
+  const { rosterId: myTeamId = "", teamName: myTeamName = "" } = useStoredTeam();
   const storageScope = useBrowserStorageScope();
   const searchParams = useSearchParams();
   const seed = searchParams?.get("seed") ?? null;
@@ -96,9 +97,6 @@ function TradeBuilderPageInner() {
         return;
       }
       const data = saved as SeedDeal;
-      const stored = readStoredTeam();
-      const myTeamId = stored.rosterId ?? "";
-      const myTeamName = stored.teamName ?? "";
 
       const dealAssets: DealAsset[] = [
         ...(data.send ?? []).map(a => ({
@@ -131,7 +129,7 @@ function TradeBuilderPageInner() {
     } catch {
       setMode({ kind: "cycler" });
     }
-  }, [seed, storageScope]);
+  }, [myTeamId, myTeamName, seed, storageScope]);
 
   const handleBack = () => {
     // Manual editor's back button returns to the cycler (clean URL)

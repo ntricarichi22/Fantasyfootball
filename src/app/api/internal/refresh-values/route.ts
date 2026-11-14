@@ -18,7 +18,9 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
+import { registeredMachineLeague } from "@/infrastructure/auth/admin";
+import { isCfcLeague } from "@/shared/league-data/capabilities";
+import { getRosters } from "@/shared/league-data";
 import { fetchFantasyCalc } from "@/infrastructure/values/sources/fantasycalc";
 import { fetchKeepTradeCut } from "@/infrastructure/values/sources/keeptradecut";
 import { fetchDynastyProcess } from "@/infrastructure/values/sources/dynastyprocess";
@@ -61,19 +63,7 @@ const SLEEPER_STATS_URL = (season: number) =>
 // Auth check
 // ──────────────────────────────────────────────────────────────────────
 
-function isAuthorized(request: NextRequest): boolean {
-  const auth = request.headers.get("authorization") ?? "";
-  // Vercel cron sends Bearer ${CRON_SECRET} automatically
-  if (process.env.CRON_SECRET && auth === `Bearer ${process.env.CRON_SECRET}`) {
-    return true;
-  }
-  // Manual runs use ADMIN_SECRET in an Authorization header. Secrets in URLs
-  // leak into browser history, proxy logs, and monitoring traces.
-  if (process.env.ADMIN_SECRET) {
-    if (auth === `Bearer ${process.env.ADMIN_SECRET}`) return true;
-  }
-  return false;
-}
+
 
 // ──────────────────────────────────────────────────────────────────────
 // Source fetching with skip+log+continue resilience
@@ -217,9 +207,8 @@ async function computeAndStoreScoringFactors(
 // ──────────────────────────────────────────────────────────────────────
 
 export async function GET(request: NextRequest) {
-  if (!isAuthorized(request)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
+  const leagueId = await registeredMachineLeague(request);
+  if (!leagueId || !isCfcLeague(leagueId)) return NextResponse.json({ error: "registered_valuation_league_required" }, { status: 403 });
 
   const { client, error: clientErr } = getSupabaseAdminClient();
   if (!client) return NextResponse.json({ error: clientErr }, { status: 500 });
@@ -464,12 +453,12 @@ export async function GET(request: NextRequest) {
     // Don't abort — values fall back to the DB ladder until the next run.
   }
 
-  // 10. Rebuild team-adjusted values for all 12 teams
+  // 10. Rebuild team-adjusted values for the registered league roster snapshot
   const teamRebuildResults: { team_id: string; ok: boolean; error?: string }[] = [];
-  for (let i = 1; i <= 12; i++) {
-    const teamId = String(i);
+  for (const roster of await getRosters(leagueId)) {
+    const teamId = String(roster.rosterId);
     try {
-      await rebuildTeamTradeValuesForTeam(LEAGUE_ID, teamId);
+      await rebuildTeamTradeValuesForTeam(leagueId, teamId);
       teamRebuildResults.push({ team_id: teamId, ok: true });
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);

@@ -18,7 +18,11 @@ test("admin handlers enforce route-level authorization and do not accept URL sec
 
 test("migration versions are unique and production follows live 011 in safe order", async () => {
   const files = (await readdir("supabase/migrations")).filter((name) => name.endsWith(".sql")).sort();
-  assert.deepEqual(files.slice(-10), [
+  const securityFoundation = files.filter((name) => {
+    const version = Number(name.split("_")[0]);
+    return version >= 12 && version <= 21;
+  });
+  assert.deepEqual(securityFoundation, [
     "012_security_multitenancy_foundation.sql",
     "013_ai_usage_limits.sql",
     "014_security_monitoring_audit.sql",

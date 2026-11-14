@@ -1,6 +1,6 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 
-import { LEAGUE_ID } from "@/infrastructure/config";
 import {
   getTeamStrategyProfile,
   rebuildTeamTradeValuesForTeam,
@@ -11,23 +11,20 @@ import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/i
 
 export const dynamic = "force-dynamic";
 
-const requireLeagueId = () => {
-  if (!LEAGUE_ID) throw new Error("League ID not configured");
-  return LEAGUE_ID;
-};
 
 const normalizeTeamId = (value: string | null | undefined) => value?.trim() ?? "";
 
 export async function GET(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
   try {
-    const leagueId = requireLeagueId();
+    const leagueId = session.leagueId;
     const teamId = normalizeTeamId(request.nextUrl.searchParams.get("teamId"));
 
     if (!teamId) {
       return NextResponse.json({ error: "teamId is required" }, { status: 400 });
     }
-    const { session } = await currentAppSessionFromRequest(request);
-    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
     if (!currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const data = await getTeamStrategyProfile(leagueId, teamId);
@@ -41,8 +38,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
   try {
-    const leagueId = requireLeagueId();
+    const leagueId = session.leagueId;
 
     const body = (await request.json()) as {
       teamId?: string;
@@ -53,8 +53,6 @@ export async function POST(request: NextRequest) {
     if (!teamId) {
       return NextResponse.json({ error: "teamId is required" }, { status: 400 });
     }
-    const { session } = await currentAppSessionFromRequest(request);
-    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
     if (!currentSessionCanActForRoster(session, leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     const saved = await saveTeamStrategyProfile(leagueId, teamId, body.profile ?? {});

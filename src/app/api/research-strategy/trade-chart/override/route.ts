@@ -1,6 +1,7 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { NextRequest, NextResponse } from "next/server";
 
-import { LEAGUE_ID } from "@/infrastructure/config";
 import {
   readTeamTradeChart,
   saveManualPlayerOverride,
@@ -15,20 +16,20 @@ type OverrideBody = {
   overrideNote?: string;
 };
 
-const requireLeagueId = () => {
-  if (!LEAGUE_ID) throw new Error("League ID not configured");
-  return LEAGUE_ID;
-};
 
 const normalize = (value: string | null | undefined) => value?.trim() ?? "";
 
 export async function POST(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
   try {
-    const leagueId = requireLeagueId();
+    const leagueId = session.leagueId;
     const body = (await request.json()) as OverrideBody;
 
     const teamId = normalize(body.teamId);
     const sleeperPlayerId = normalize(body.sleeperPlayerId);
+    if (teamId !== session.rosterId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
     if (!teamId || !sleeperPlayerId) {
       return NextResponse.json(

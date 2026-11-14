@@ -1,6 +1,8 @@
 "use client";
 
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
+import { useAppIdentity } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+import { useLeagueFetch, useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import RosterPanel, { type AddSide } from "@/inbox/thread/RosterPanel";
@@ -37,8 +39,8 @@ type Offer = {
   to_team_id: string;
   assets_from: OfferAsset[];
   assets_to: OfferAsset[];
-  from_value: number;
-  to_value: number;
+  from_value: number | null;
+  to_value: number | null;
 };
 
 type Band = { min: number; max: number };
@@ -126,6 +128,9 @@ export default function CounterDrawer({
   onClose,
   onCounterSent,
 }: Props) {
+  const fetch = useLeagueFetch();
+  const cfcFeatures = useAppIdentity()?.cfcFeatures === true;
+  const authenticatedAiFetch = useLeagueAiFetch();
   const [feed, setFeed] = useState<CounterFeed | null>(null);
   const [position, setPosition] = useState(0); // 0 = their offer, 1 = hardball cap
   const [addMode, setAddMode] = useState<AddSide | null>(null);
@@ -169,8 +174,9 @@ export default function CounterDrawer({
     return () => mq.removeEventListener("change", update);
   }, []);
 
-  // Load the demand pool + partner band.
+  // Load the demand pool + partner band only for the configured valuation model.
   useEffect(() => {
+    if (!cfcFeatures) return;
     let live = true;
     fetch("/api/inbox/ai-counter", {
       method: "POST",
@@ -195,7 +201,7 @@ export default function CounterDrawer({
     return () => {
       live = false;
     };
-  }, [threadId, myRosterId]);
+  }, [threadId, myRosterId, fetch, cfcFeatures]);
 
   // Opponent saved settings are private; use the neutral public baseline.
   const theirPersona: PersonaKey = "straight_shooter";
@@ -250,7 +256,7 @@ export default function CounterDrawer({
   }, [feed, offer.id, axis, ourSend, ourReceive, trimFromSend, demandFromThem]);
 
   const ratio = ratioOf(sumValue(deal.send), sumValue(deal.receive));
-  const grade = gradeForRatio(ratio, feed?.our_persona ?? "straight_shooter");
+  const grade = cfcFeatures ? gradeForRatio(ratio, feed?.our_persona ?? "straight_shooter") : { label: "Not rated", color: "#8C7E6A" };
   const pc = feed?.partner_context ?? EMPTY_PARTNER_CONTEXT;
 
   // The director's read is written by the LLM (counter-read endpoint), grounded in
@@ -495,7 +501,7 @@ export default function CounterDrawer({
     <DirectorNote
       verdict={grade.label}
       verdictColor={grade.color}
-      prose={llmRead ?? "Reading the matchup…"}
+      prose={cfcFeatures ? llmRead ?? "Reading the matchup…" : "Valuation is not configured for this league."}
       proseLoading={readLoading}
     />
   );
@@ -548,7 +554,7 @@ export default function CounterDrawer({
         Counter · {theirTeamName}
       </div>
       {directorNote}
-      {slider}
+      {cfcFeatures && slider}
       {card}
       {sendButton}
     </div>

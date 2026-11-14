@@ -1,10 +1,10 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextResponse } from "next/server";
 import { getLeagueData, type LeagueData, type OwnedPick, type Position, type RosteredTeam } from "@/shared/league-data";
 import { buildTeamProfiles, candidatesFor, fillLineup, startingSlots, type TeamProfile } from "@/shared/team-profiles";
 import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -212,19 +212,27 @@ function buildPayload(data: LeagueData, scenario: DraftScenario, teamId: string,
 }
 
 export async function GET(req: Request) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   const { searchParams } = new URL(req.url);
   const seedParam = Number(searchParams.get("seed"));
   const seed = Number.isFinite(seedParam) && seedParam > 0 ? seedParam : 1;
   const teamId = searchParams.get("teamId") ?? "";
-  const { session } = await currentAppSessionFromRequest(req);
-  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const data = await getLeagueData();
+
+  if (!currentSessionCanActForRoster(session, session.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const data = await getLeagueData(session.leagueId);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const payload = await buildPayload(data, asScenario(searchParams.get("scenario")), teamId, undefined, undefined, seed);
   return NextResponse.json(payload);
 }
 
 export async function POST(req: Request) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   const body = (await req.json().catch(() => ({}))) as {
     teamId?: string;
     scenario?: string;
@@ -233,9 +241,9 @@ export async function POST(req: Request) {
     tradeOverrides?: Array<{ overall: number; rosterId: string }>;
     tradedAway?: string[];
   };
-  const { session } = await currentAppSessionFromRequest(req);
-  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), body.teamId ?? "")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const data = await getLeagueData();
+
+  if (!currentSessionCanActForRoster(session, session.leagueId, body.teamId ?? "")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const data = await getLeagueData(session.leagueId);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
   const forced = new Map<number, string>();
   for (const f of body.forcedPicks ?? []) {

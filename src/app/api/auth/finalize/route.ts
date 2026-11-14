@@ -1,41 +1,30 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { appSessionCookie, createAppSession, providerSessionIdFromVerifiedToken } from "@/infrastructure/auth/session";
-import { LEAGUE_ID } from "@/infrastructure/config";
+import { availableLeagueChoices, verifiedProviderSession } from "@/infrastructure/auth/providerSession";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { appSessionCookie, createAppSession } from "@/infrastructure/auth/session";
 import { recordAuditChange } from "@/infrastructure/security/audit";
 import { resolveFinalizeAccess, sessionClaimsForAccess } from "@/infrastructure/auth/finalizeAuthorization";
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("Authorization") ?? "";
-    const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-
-    if (!token) {
-      return NextResponse.json({ error: "missing_token" }, { status: 401 });
+    const provider = await verifiedProviderSession(request);
+    if (provider.error) return NextResponse.json({ error: provider.error }, { status: provider.status });
+    const { client: adminClient, user, sessionId } = provider;
+    const email = user.email?.trim().toLowerCase();
+    if (!email) return NextResponse.json({ error: "invalid_session" }, { status: 401 });
+    const body = request.body ? await boundedJson<{ leagueId?: unknown }>(request, 8192) : {};
+    if (!body || typeof body !== "object" || Array.isArray(body) || (body.leagueId !== undefined && typeof body.leagueId !== "string")) {
+      return NextResponse.json({ error: "invalid_league_selection" }, { status: 400 });
     }
-
-    const { client: adminClient, error: clientError } = getSupabaseAdminClient();
-    if (!adminClient) {
-      return NextResponse.json({ error: clientError }, { status: 500 });
+    const choices = await availableLeagueChoices(provider);
+    if (!choices) return NextResponse.json({ error: "auth_state_unavailable" }, { status: 503 });
+    const requested = typeof body.leagueId === "string" ? body.leagueId : null;
+    const selected = requested ? choices.find((choice) => choice.leagueId === requested) : choices.length === 1 ? choices[0] : null;
+    if (!selected) {
+      if (!requested && choices.length > 1) return NextResponse.json({ error: "league_selection_required", leagues: choices }, { status: 409 });
+      return NextResponse.json({ error: "not_a_member" }, { status: 403 });
     }
-
-    // Verify the session token server-side — this confirms the user actually
-    // authenticated with Supabase, so we can trust the email claim.
-    const { data: userData, error: userError } = await adminClient.auth.getUser(token);
-    const email = userData?.user?.email?.toLowerCase().trim();
-
-    if (userError || !email) {
-      return NextResponse.json({ error: "invalid_session" }, { status: 401 });
-    }
-
-    if (!LEAGUE_ID) return NextResponse.json({ error: "league_not_configured" }, { status: 500 });
-
-    const userId = userData.user.id;
-    const sessionId = providerSessionIdFromVerifiedToken(token, userId);
-    if (!sessionId) return NextResponse.json({ error: "invalid_session" }, { status: 401 });
-    const providerSession = await adminClient.rpc("is_auth_session_active", { p_session_id: sessionId, p_user_id: userId });
-    if (providerSession.error) return NextResponse.json({ error: "auth_state_unavailable" }, { status: 503 });
-    if (providerSession.data !== true) return NextResponse.json({ error: "invalid_session" }, { status: 401 });
+    const userId = user.id;
     const access = await resolveFinalizeAccess({
       membership: async (id, league) => await adminClient.from("league_memberships")
         .select("league_id, roster_id, role").eq("user_id", id).eq("league_id", league).maybeSingle(),
@@ -45,14 +34,14 @@ export async function POST(request: NextRequest) {
         });
         return { data: (Array.isArray(data) ? data[0] : data) ?? null, error };
       },
-    }, userId, email, LEAGUE_ID);
+    }, userId, email, selected.leagueId);
     if (access.error) return NextResponse.json({ error: access.error === "forbidden" ? "not_a_member" : "membership_lookup_failed" },
       { status: access.error === "forbidden" ? 403 : 503 });
     const membership = access.membership;
 
     const { data: teamRow, error: teamError } = await adminClient.from("team_email_map")
       .select("roster_id, team_name, profile_complete")
-      .eq("roster_id", membership.roster_id).limit(1).maybeSingle();
+      .eq("league_id", membership.league_id).eq("roster_id", membership.roster_id).limit(1).maybeSingle();
     if (teamError) return NextResponse.json({ error: "team_lookup_failed" }, { status: 503 });
     if (!teamRow) return NextResponse.json({ error: "not_a_member" }, { status: 403 });
 
@@ -77,7 +66,7 @@ export async function POST(request: NextRequest) {
       secure: process.env.NODE_ENV === "production",
     };
 
-    const response = NextResponse.json({ ok: true, redirect });
+    const response = NextResponse.json({ ok: true, redirect, leagueId: membership.league_id });
     const claims = sessionClaimsForAccess(access, userId, sessionId);
     if (!claims) return NextResponse.json({ error: "not_a_member" }, { status: 403 });
     response.cookies.set(appSessionCookie.name, await createAppSession(claims), appSessionCookie.options);
@@ -97,6 +86,7 @@ export async function POST(request: NextRequest) {
     response.cookies.set(
       "cfc_identity",
       JSON.stringify({
+        leagueId: membership.league_id,
         rosterId: teamRow.roster_id,
         teamName: teamRow.team_name,
       }),

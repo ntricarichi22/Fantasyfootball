@@ -1,6 +1,6 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { buildValuationContext } from "@/shared/asset-values";
 import { priceDeal } from "@/pro-personnel/engine/pricing";
@@ -10,6 +10,9 @@ import { normalizePersona } from "@/pro-personnel/engine/core/personas";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+
   try {
   const teamId = request.nextUrl.searchParams.get("teamId")?.trim();
   const rawTab = request.nextUrl.searchParams.get("tab");
@@ -19,12 +22,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "invalid_tab" }, { status: 400 });
   }
 
-  const league_id = LEAGUE_ID;
-  if (!league_id) {
-    return NextResponse.json({ error: "League ID not configured" }, { status: 500 });
-  }
-  const { session } = await currentAppSessionFromRequest(request);
-  if (!session || session.leagueId !== league_id) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const league_id = session.leagueId;
+
 
   const { client, error: clientError } = getSupabaseAdminClient();
   if (!client) {
@@ -42,7 +41,8 @@ export async function GET(request: NextRequest) {
       .maybeSingle();
 
     if (error || !data) return NextResponse.json({ error: "offer_unavailable" }, { status: 404 });
-    const ctx = await buildValuationContext();
+    if (!isCfcLeague(session.leagueId)) return NextResponse.json({ data, live_grade: null });
+    const ctx = await buildValuationContext(session.leagueId);
     const fromViewer = session.rosterId === data.from_team_id;
     const send = (fromViewer ? data.assets_from : data.assets_to) ?? [];
     const receive = (fromViewer ? data.assets_to : data.assets_from) ?? [];

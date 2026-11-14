@@ -6,13 +6,11 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
   try {
-  const leagueId = request.nextUrl.searchParams.get("leagueId")?.trim();
-
-  if (!leagueId) {
-    return NextResponse.json({ error: "leagueId is required" }, { status: 400 });
-  }
   const { session } = await currentAppSessionFromRequest(request);
-  if (!session || session.leagueId !== leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  const requested = request.nextUrl.searchParams.get("leagueId");
+  if (requested && requested !== session.leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const leagueId = session.leagueId;
 
   const { client, error: clientError } = getSupabaseAdminClient();
 

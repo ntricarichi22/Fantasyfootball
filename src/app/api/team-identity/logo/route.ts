@@ -1,5 +1,5 @@
 // POST   /api/team-identity/logo — upload a custom team logo (multipart
-//        "file"). Stored in the public "team-logos" bucket keyed by roster id;
+//        "file"). Stored in the public "team-logos" bucket keyed by league and roster;
 //        object presence is what marks a team as having a custom logo.
 // DELETE /api/team-identity/logo — remove it, restoring the original crest.
 
@@ -21,18 +21,22 @@ const ALLOWED_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
 // paths from earlier uploads, since the color suffix changes the name).
 async function logoObjectsFor(
   client: NonNullable<ReturnType<typeof getSupabaseAdminClient>["client"]>,
+  leagueId: string,
   rosterId: string
 ): Promise<string[]> {
-  const { data } = await client.storage.from(TEAM_LOGO_BUCKET).list("", { limit: 100 });
+  const prefix = encodeURIComponent(leagueId);
+  const { data } = await client.storage.from(TEAM_LOGO_BUCKET).list(prefix, { limit: 100 });
   return (data ?? [])
     .map((o) => o.name)
-    .filter((name) => name && parseLogoObjectName(name)?.rosterId === rosterId) as string[];
+    .filter((name) => name && parseLogoObjectName(name)?.rosterId === rosterId)
+    .map((name) => `${prefix}/${name}`);
 }
 
 export async function POST(request: NextRequest) {
   try {
     const { session } = await currentAppSessionFromRequest(request);
-    const rosterId = session?.rosterId;
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    const rosterId = session.rosterId;
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const form = await request.formData().catch(() => null);
@@ -63,7 +67,7 @@ export async function POST(request: NextRequest) {
     // object name so identity resolution gets it from the bucket listing.
     const rawColor = String(form?.get("color") ?? "").toLowerCase();
     const colorHex = /^#[0-9a-f]{6}$/.test(rawColor) ? rawColor.slice(1) : null;
-    const objectName = colorHex ? `${rosterId}.${colorHex}` : rosterId;
+    const objectName = `${encodeURIComponent(session.leagueId)}/${encodeURIComponent(rosterId)}${colorHex ? `.${colorHex}` : ""}`;
 
     const bytes = Buffer.from(await file.arrayBuffer());
     const { error } = await client.storage
@@ -72,10 +76,10 @@ export async function POST(request: NextRequest) {
     if (error) throw new Error(error.message);
 
     // Remove earlier uploads under other names (different color suffix).
-    const stale = (await logoObjectsFor(client, rosterId)).filter((n) => n !== objectName);
+    const stale = (await logoObjectsFor(client, session.leagueId, rosterId)).filter((n) => n !== objectName);
     if (stale.length) await client.storage.from(TEAM_LOGO_BUCKET).remove(stale);
 
-    invalidateTeamIdentities();
+    invalidateTeamIdentities(session.leagueId);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(
@@ -88,19 +92,20 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   try {
     const { session } = await currentAppSessionFromRequest(request);
-    const rosterId = session?.rosterId;
+    if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+    const rosterId = session.rosterId;
     if (!rosterId) return NextResponse.json({ error: "not_signed_in" }, { status: 401 });
 
     const { client, error: clientError } = getSupabaseAdminClient();
     if (!client) return NextResponse.json({ error: clientError }, { status: 500 });
 
-    const names = await logoObjectsFor(client, rosterId);
+    const names = await logoObjectsFor(client, session.leagueId, rosterId);
     if (names.length) {
       const { error } = await client.storage.from(TEAM_LOGO_BUCKET).remove(names);
       if (error && !/not found/i.test(error.message)) throw new Error(error.message);
     }
 
-    invalidateTeamIdentities();
+    invalidateTeamIdentities(session.leagueId);
     return NextResponse.json({ ok: true });
   } catch (error) {
     return NextResponse.json(

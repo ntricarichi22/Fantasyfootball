@@ -1,126 +1,35 @@
-import { NextRequest, NextResponse } from "next/server";
-
-import { getLeagueId } from "@/infrastructure/config";
-import { INITIAL_PICK_SECONDS } from "@/scouting/draft-room/draftState";
-import { processAutoAdvance } from "@/scouting/draft-room/draftAutoAdvance";
-import { getSupabaseAdminClient } from "@/app/api/active-teams/shared";
-import { fetchDraftState, upsertDraftState } from "@/app/api/scouting/draft/state/shared";
+import { dueDraftDeadline } from "@/infrastructure/auth/draftDeadline";
+import { createHash } from "node:crypto";
+import { NextResponse } from "next/server";
+import { registeredMachineLeague } from "@/infrastructure/auth/admin";
+import { commandError } from "@/infrastructure/auth/leagueCommand";
+import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { invalidateLeagueData } from "@/shared/league-data";
 
 export const dynamic = "force-dynamic";
 
-const safeLeagueId = () => {
-  try {
-    return getLeagueId();
-  } catch {
-    return "";
+async function tick(request: Request) {
+  const leagueId = await registeredMachineLeague(request);
+  if (!leagueId) return NextResponse.json({ error: "registered_league_required" }, { status: 403 });
+  const { client } = getSupabaseAdminClient();
+  if (!client) return NextResponse.json({ error: "runtime_unavailable" }, { status: 503 });
+  const snapshot = await client.rpc("cfc_get_league_runtime_public", { p_league_id: leagueId });
+  if (snapshot.error) return commandError(snapshot.error);
+  const state = snapshot.data?.draft_state;
+  const deadline = dueDraftDeadline(state);
+  if (deadline === null) {
+    return NextResponse.json({ ok: true, data: state ?? null, revision: snapshot.data?.revision ?? 0, status: "not_ready", steps: 0 });
   }
-};
-
-const requireSecret = (request: NextRequest): { ok: boolean; status?: number } => {
-  const expected = process.env.CRON_SECRET;
-  if (!expected) return { ok: false, status: 503 };
-  const auth = request.headers.get("authorization") || "";
-  const fromBearer = auth.toLowerCase().startsWith("bearer ")
-    ? auth.slice(7).trim()
-    : "";
-  const fromHeader = request.headers.get("x-cron-secret") || "";
-  if (fromBearer === expected || fromHeader === expected) return { ok: true };
-  return { ok: false, status: 401 };
-};
-
-const handle = async (request: NextRequest) => {
-  const auth = requireSecret(request);
-  if (!auth.ok) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: auth.status ?? 401 });
-  }
-
-  const leagueId = safeLeagueId();
-  if (!leagueId) {
-    return NextResponse.json({ error: "Sleeper league ID is not configured." }, { status: 500 });
-  }
-
-  const { client, error } = getSupabaseAdminClient();
-  if (!client || error) {
-    return NextResponse.json({ error: error ?? "Missing Supabase configuration" }, { status: 500 });
-  }
-
-  const state = await fetchDraftState(client, leagueId);
-  if (!state) {
-    return NextResponse.json({ data: null, status: "no_state" });
-  }
-
-  // Auto-start: if draft hasn't started but starts_at has passed, kick it off
-  if (state.status === "not_started" && state.starts_at) {
-    const startsMs = new Date(state.starts_at).getTime();
-    if (Number.isFinite(startsMs) && Date.now() >= startsMs) {
-      console.log(
-        `[draft-tick] auto-start triggered — starts_at=${state.starts_at} has passed (league=${leagueId})`
-      );
-      const nowIso = new Date().toISOString();
-      const { data: started, error: startError } = await upsertDraftState(client, {
-        league_id: leagueId,
-        status: "running",
-        seconds_remaining: INITIAL_PICK_SECONDS,
-        clock_started_at: nowIso,
-        pick_submitted: false,
-        pick_announced_at: null,
-        current_pick_index: 0,
-      });
-      if (startError) {
-        return NextResponse.json({ error: startError }, { status: 500 });
-      }
-      return NextResponse.json({
-        data: started,
-        status: "auto_started",
-        steps: 0,
-      });
-    }
-  }
-
-  // If draft is completed, nothing to do
-  if (state.status === "completed") {
-    return NextResponse.json({ data: state, status: "completed", steps: 0 });
-  }
-
-  try {
-    const announceMs = state.pick_announced_at
-      ? new Date(state.pick_announced_at).getTime()
-      : NaN;
-    const announcementDue =
-      state.pick_submitted === true && Number.isFinite(announceMs) && Date.now() >= announceMs;
-    console.log(
-      `[draft-tick] now=${new Date().toISOString()} league=${leagueId} ` +
-        `pick_index=${state.current_pick_index} submitted=${state.pick_submitted} ` +
-        `announced_at=${state.pick_announced_at} announcement_due=${announcementDue} ` +
-        `status=${state.status} seconds_remaining=${state.seconds_remaining} ` +
-        `clock_started_at=${state.clock_started_at}`
-    );
-  } catch (logError) {
-    console.warn("[draft-tick] diagnostic log failed", logError);
-  }
-
-  const result = await processAutoAdvance(
-    client,
-    leagueId,
-    state,
-    (payload) => upsertDraftState(client, payload)
-  );
-
-  if (result.error) {
-    return NextResponse.json({ error: result.error }, { status: 500 });
-  }
-
-  return NextResponse.json({
-    data: result.data,
-    status: result.status,
-    steps: result.steps,
+  // Retries of the same observed due revision use the same command identity.
+  const hash = createHash("sha256").update(JSON.stringify([leagueId, snapshot.data.revision, deadline])).digest("hex");
+  const requestId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+  const result = await client.rpc("cfc_tick_due_draft", {
+    p_league_id: leagueId, p_request_id: requestId, p_expected_revision: snapshot.data.revision,
   });
-};
-
-export async function POST(request: NextRequest) {
-  return handle(request);
+  if (result.error) return commandError(result.error);
+  invalidateLeagueData(leagueId);
+  return NextResponse.json(result.data);
 }
 
-export async function GET(request: NextRequest) {
-  return handle(request);
-}
+export const GET = tick;
+export const POST = tick;

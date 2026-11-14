@@ -1,10 +1,13 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 import { UnifiedTopbar } from "@/shared/ui/UnifiedTopbar";
 import type { LeagueSnapshot } from "@/shared/league-data";
 
 export default function DraftResultsPage() {
+  const fetch = useLeagueFetch();
   const [snapshot, setSnapshot] = useState<LeagueSnapshot | null>(null);
   const [error, setError] = useState("");
   useEffect(() => {
@@ -15,7 +18,7 @@ export default function DraftResultsPage() {
       })
       .then(setSnapshot)
       .catch(reason => setError(reason instanceof Error ? reason.message : "Draft results are unavailable."));
-  }, []);
+  }, [fetch]);
   const names = new Map(snapshot?.teams.map(team => [team.rosterId, team.teamName]) ?? []);
   const players = new Map(snapshot?.players.map(player => [player.id, player.name] as const) ?? []);
   return <main style={{ minHeight: "100vh", background: "#F5F0E6", color: "#0b1f3a" }}>

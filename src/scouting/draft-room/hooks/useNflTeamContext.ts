@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 
 import type { NflTeamContextMap } from "@/scouting/draft-room/grades";
@@ -11,6 +13,7 @@ import type { NflTeamContextMap } from "@/scouting/draft-room/grades";
  * Situation + Opportunity grades with no per-card API calls.
  */
 export function useNflTeamContext(leagueId: string): NflTeamContextMap {
+  const fetch = useLeagueFetch();
   const [context, setContext] = useState<NflTeamContextMap>({});
 
   useEffect(() => {
@@ -32,7 +35,7 @@ export function useNflTeamContext(leagueId: string): NflTeamContextMap {
     return () => {
       cancelled = true;
     };
-  }, [leagueId]);
+  }, [fetch, leagueId]);
 
   return context;
 }

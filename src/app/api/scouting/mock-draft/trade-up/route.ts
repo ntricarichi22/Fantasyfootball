@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { NextResponse } from "next/server";
 import { getLeagueData, type OwnedPick } from "@/shared/league-data";
 import { teamNickname } from "@/shared/league-data/nicknames";
@@ -9,7 +10,6 @@ import { computeDraftFit } from "@/scouting/draft-fit";
 import { getAllBoards, runDraftEngine, type DraftScenario } from "@/scouting/draft-sim";
 import { runScouting, type EngineContext } from "@/pro-personnel/engine";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -40,6 +40,10 @@ const asScenario = (v: unknown): DraftScenario =>
 const pickKey = (round: number, slot: number | null) => `${round}.${String(slot ?? 0).padStart(2, "0")}`;
 
 export async function POST(req: Request) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   const body = (await req.json().catch(() => ({}))) as {
     teamId?: string;
     scenario?: string;
@@ -57,9 +61,9 @@ export async function POST(req: Request) {
   const seed = typeof body.seed === "number" && body.seed > 0 ? body.seed : 1;
   const scenario = asScenario(body.scenario);
   const teamId = body.teamId ?? "";
-  const { session } = await currentAppSessionFromRequest(req);
-  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
-  const [data, ctx] = await Promise.all([getLeagueData(), buildValuationContext()]);
+
+  if (!currentSessionCanActForRoster(session, session.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  const [data, ctx] = await Promise.all([getLeagueData(session.leagueId), buildValuationContext(session.leagueId)]);
   if ("error" in data) return NextResponse.json(data, { status: 500 });
 
   const you =

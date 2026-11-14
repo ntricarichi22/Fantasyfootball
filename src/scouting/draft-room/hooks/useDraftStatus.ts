@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react";
 
 import {
@@ -9,7 +11,7 @@ import {
   type DraftStateRow,
 } from "../draftState";
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
-import { getLeagueId } from "@/infrastructure/config";
+import { useAppIdentity } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 
 export type DraftStatus = {
   status: DraftClockStatus;
@@ -44,14 +46,6 @@ type UseDraftStatusOptions = {
   disabled?: boolean;
 };
 
-const safeLeagueId = (): string => {
-  try {
-    return getLeagueId();
-  } catch {
-    return "";
-  }
-};
-
 /**
  * Subscribes to `public.draft_state` via Supabase Realtime so the clock bar
  * reflects start / pause / resume / pick advancement instantly across the app.
@@ -70,6 +64,8 @@ const safeLeagueId = (): string => {
  * without giving any consumer of `DraftStatus` new information.
  */
 export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus {
+  const fetch = useLeagueFetch();
+  const leagueId = useAppIdentity()?.leagueId ?? "";
   const { pollMs = DEFAULT_POLL_MS, disabled = false } = options;
   const [snapshot, setSnapshot] = useState<DraftStatus>(DEFAULT_STATUS);
   useEffect(() => {
@@ -118,7 +114,6 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
 
     // Primary update mechanism: Supabase Realtime on draft_state.
     const supabase = getSupabaseClient();
-    const leagueId = safeLeagueId();
     const channel =
       supabase && leagueId
         ? supabase
@@ -137,7 +132,7 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
                     (payload.old as Partial<DraftStateRow>) ??
                     null
                 );
-                if (next) {
+                if (next?.league_id === leagueId) {
                   realtimeRevision += 1;
                   apply(next);
                 } else {
@@ -170,7 +165,7 @@ export function useDraftStatus(options: UseDraftStatusOptions = {}): DraftStatus
         }
       }
     };
-  }, [disabled, pollMs]);
+  }, [disabled, pollMs, fetch, leagueId]);
 
   return snapshot;
 }

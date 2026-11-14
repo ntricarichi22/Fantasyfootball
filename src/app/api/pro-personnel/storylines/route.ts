@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 // GET /api/pro-personnel/storylines?team_id=X
 //
 // The FAST half of the Build-a-Trade door (see director_office.md). Returns the
@@ -24,7 +25,6 @@ import { buildTeamProfiles, computeNeeds } from "@/shared/team-profiles";
 import { buildTeamDossiers } from "@/shared/team-dossier";
 import { buildTeamNarratives, ACQUIRE_GOAL_KINDS, type Thesis, type Goal } from "@/shared/team-narratives";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -188,18 +188,22 @@ async function llmProse(
 }
 
 export async function GET(req: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   const teamId = req.nextUrl.searchParams.get("team_id")?.trim();
   if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
-  const { session } = await currentAppSessionFromRequest(req);
-  if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 
-  const data = await getLeagueData();
+  if (!currentSessionCanActForRoster(session, session.leagueId, teamId)) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+
+  const data = await getLeagueData(session.leagueId);
   if ("error" in data) return NextResponse.json({ error: data.error }, { status: 500 });
 
   const profiles = buildTeamProfiles(data);
   const needs = computeNeeds(data);
   const dossiers = buildTeamDossiers(profiles, data);
-  const playoffHistory = await getPlayoffHistory();
+  const playoffHistory = await getPlayoffHistory(session.leagueId);
   const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
 
   const bundle = bundles.get(teamId);

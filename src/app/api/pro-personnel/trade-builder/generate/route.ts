@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 // POST /api/pro-personnel/trade-builder/generate
 //
 // Builder ("Build a Trade") generation — runs the full storyline pipeline: the
@@ -39,17 +40,20 @@ import { buildNflTeams } from "@/shared/nfl-teams";
 import { ttlMemo } from "@/infrastructure/ttlCache";
 import { type EngineContext } from "@/pro-personnel/engine";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   try {
     const body = await req.json();
     const teamId = String(body.team_id ?? "").trim();
     if (!teamId) return NextResponse.json({ error: "team_id required" }, { status: 400 });
-    const { session } = await currentAppSessionFromRequest(req);
-    if (!session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) {
+
+    if (!currentSessionCanActForRoster(session, session.leagueId, teamId)) {
       return NextResponse.json({ error: "forbidden" }, { status: 403 });
     }
 
@@ -57,7 +61,7 @@ export async function POST(req: Request) {
     // state, and the door re-requests it on every visit (including browser
     // back from the editor). Inputs all come from the same cached league
     // snapshot, so 60s of staleness is invisible.
-    const payload = await ttlMemo(`builder-slate:${teamId}`, 60_000, () => buildSlatePayload(teamId));
+    const payload = await ttlMemo(`builder-slate:${session.leagueId}:${teamId}`, 60_000, () => buildSlatePayload(session.leagueId, teamId));
     if ("error" in payload) return NextResponse.json(payload, { status: 500 });
     return NextResponse.json(payload);
   } catch (err) {
@@ -70,18 +74,18 @@ type SlatePayload =
   | { error: string }
   | { theses: unknown[]; generatedAt: string; reason: "ok" | "no_strategy" | "no_clean_offers" };
 
-async function buildSlatePayload(teamId: string): Promise<SlatePayload> {
+async function buildSlatePayload(leagueId: string, teamId: string): Promise<SlatePayload> {
   {
-    const data = await getLeagueData();
+    const data = await getLeagueData(leagueId);
     if ("error" in data) return { error: data.error };
 
     const profiles = buildTeamProfiles(data);
     const needs = computeNeeds(data);
     const dossiers = buildTeamDossiers(profiles, data);
-    const playoffHistory = await getPlayoffHistory();
+    const playoffHistory = await getPlayoffHistory(leagueId);
     const bundles = buildTeamNarratives(data, profiles, dossiers, needs, playoffHistory);
     const slates = buildMatchSlates({ data, profiles, needs, dossiers, bundles });
-    const ctx = await buildValuationContext();
+    const ctx = await buildValuationContext(leagueId);
     const nflTeamById = await buildNflTeams();
 
     const ec: EngineContext = { data, profiles, dossiers, needs, ctx, bundles, nflTeamById };

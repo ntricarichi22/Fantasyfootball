@@ -1,11 +1,12 @@
 "use client";
 
+import { useLeagueFetch, useLeagueAiFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { browserStorageKey, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
 import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 
-import { authenticatedAiFetch } from "@/infrastructure/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import RosterPanel, { type RosterAssetItem } from "./RosterPanel";
 import OfferCard, { type CardAsset } from "@/pro-personnel/components/OfferCard";
 import SendNoteModal from "@/pro-personnel/components/SendNoteModal";
@@ -65,8 +66,10 @@ function toCardAssets(items: StudioOffer["send"]): CardAsset[] {
 }
 
 export default function TradeStudioView() {
+  const fetch = useLeagueFetch();
+  const authenticatedAiFetch = useLeagueAiFetch();
   const storageScope = useBrowserStorageScope();
-  const { rosterId = "", teamName = "" } = readStoredTeam();
+  const { rosterId = "", teamName = "" } = useStoredTeam();
   const isMobile = useIsMobile() === true;
   // Mobile shows one pane at a time once offers exist: the block (roster
   // list) or the offers drawer, switched by a bottom tab bar.
@@ -114,7 +117,7 @@ export default function TradeStudioView() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [rosterId, teamName]);
+  }, [fetch, rosterId, teamName]);
 
   const myAssets = useMemo<RosterAssetItem[]>(() => {
     const raw = allRosters[rosterId] ?? [];
@@ -161,7 +164,7 @@ export default function TradeStudioView() {
     }
     const j = await res.json();
     return Array.isArray(j.offers) ? j.offers : [];
-  }, [shopKeys, rosterId, allRosters, teamNames]);
+  }, [shopKeys, rosterId, fetch, allRosters, teamNames]);
 
   const handleGenerate = useCallback(async () => {
     if (shopKeys.size === 0) return;
@@ -255,7 +258,7 @@ export default function TradeStudioView() {
       .finally(() => {
         inFlightRefs.current.delete(offer.id);
       });
-  }, [drawerOpen, offers, activeIndex, advisorByOffer, rosterId, advisorRosterPayload]);
+  }, [drawerOpen, offers, activeIndex, advisorByOffer, rosterId, advisorRosterPayload, authenticatedAiFetch]);
 
   // Pass: log feedback, remove the offer, advance index. No modal — pass
   // is a single click per locked v3.12 design.
@@ -277,7 +280,7 @@ export default function TradeStudioView() {
     }).catch(() => {});
     setOffers(prev => prev.filter((_, i) => i !== activeIndex));
     setActiveIndex(prev => Math.max(0, prev - (prev === offers.length - 1 ? 1 : 0)));
-  }, [offers, activeIndex, rosterId, shopKeys]);
+  }, [offers, activeIndex, fetch, rosterId, shopKeys]);
 
   const handleEdit = useCallback(() => {
     const offer = offers[activeIndex];
@@ -331,7 +334,7 @@ export default function TradeStudioView() {
     } finally {
       setSendingOffer(false);
     }
-  }, [offers, activeIndex, rosterId, sendingOffer, flash]);
+  }, [offers, activeIndex, sendingOffer, fetch, rosterId, flash]);
 
   const goPrev = useCallback(() => {
     if (offers.length <= 1) return;

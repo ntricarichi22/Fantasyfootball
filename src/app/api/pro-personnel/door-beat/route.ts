@@ -1,3 +1,4 @@
+import { isCfcLeague } from "@/shared/league-data/capabilities";
 // POST /api/pro-personnel/door-beat
 //
 // The click-time CONTINUATION beat for the Build-a-Trade door: the GM just
@@ -15,7 +16,6 @@ import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
 import { DIRECTOR_PROSE_MODEL, VOICE_RULES } from "@/shared/director-prose";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { getLeagueId } from "@/infrastructure/config";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
@@ -60,6 +60,10 @@ function fallback(goals: BeatGoal[], source?: string): string {
 }
 
 export async function POST(req: NextRequest) {
+  const { session } = await currentAppSessionFromRequest(req);
+  if (!session) return NextResponse.json({ error: "not_authenticated" }, { status: 401 });
+  if (!isCfcLeague(session.leagueId)) return NextResponse.json({ error: "intelligence_not_configured_for_league" }, { status: 403 });
+
   let body: Body;
   try {
     body = await req.json();
@@ -67,8 +71,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   const teamId = String(body.team_id ?? "").trim();
-  const { session } = await currentAppSessionFromRequest(req);
-  if (!teamId || !session || !currentSessionCanActForRoster(session, getLeagueId(), teamId)) {
+
+  if (!teamId || !session || !currentSessionCanActForRoster(session, session.leagueId, teamId)) {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
   const goals = (body.goals ?? []).slice(0, 8);

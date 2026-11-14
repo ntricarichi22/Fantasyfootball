@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const auth = await currentAppSessionFromRequest(request);
   if (!auth.session) return NextResponse.json({ error: auth.error }, { status: 401 });
-  const league = await getLeagueData();
+  const league = await getLeagueData(auth.session.leagueId);
   if ("error" in league) return NextResponse.json({ error: league.error }, { status: 503 });
   if (auth.session.leagueId !== league.leagueId) return NextResponse.json({ error: "forbidden" }, { status: 403 });
 

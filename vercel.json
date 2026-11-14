@@ -1,19 +1,19 @@
 {
   "crons": [
     {
-      "path": "/api/internal/refresh-values",
+      "path": "/api/internal/refresh-values?leagueId=1328902558617473024",
       "schedule": "0 8 * * *"
     },
     {
-      "path": "/api/admin/ingest/sleeper-draft-results",
+      "path": "/api/admin/ingest/sleeper-draft-results?leagueId=1328902558617473024",
       "schedule": "30 8 * * *"
     },
     {
-      "path": "/api/internal/reconcile-trades",
+      "path": "/api/internal/reconcile-trades?leagueId=1328902558617473024",
       "schedule": "45 8 * * *"
     },
     {
-      "path": "/api/inbox/memos/sweep",
+      "path": "/api/inbox/memos/sweep?leagueId=1328902558617473024",
       "schedule": "0 14 * * *"
     }
   ]

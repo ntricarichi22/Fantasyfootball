@@ -38,6 +38,7 @@ export type SleeperUser = {
 
 export type SleeperLeague = {
   league_id: string;
+  season?: string;
   previous_league_id?: string | null;
   roster_positions?: string[] | null;
   total_rosters?: number;
@@ -54,10 +55,6 @@ export type SleeperDraftPick = {
 
 const PLAYER_TTL = 86400; // player dictionary barely changes day to day
 const LEAGUE_TTL = 300; // rosters / picks / users — fresh within a few minutes
-
-export function getSleeperLeagueId(): string {
-  return process.env.NEXT_PUBLIC_SLEEPER_LEAGUE_ID?.trim() || "";
-}
 
 async function getJson<T>(url: string, revalidate: number, fallback: T): Promise<T> {
   try {

@@ -3,6 +3,8 @@ import { headers } from "next/headers";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
 import { browserStorageScope } from "@/infrastructure/identity/browserStorage";
 import { BrowserStorageScopeProvider } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+import { isCfcLeague } from "@/shared/league-data/capabilities";
+import { getTeamIdentities } from "@/shared/league-data/teamIdentity";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,6 +28,12 @@ export default async function RootLayout({
   // A live session scopes browser caches; revoked sessions cannot reopen private history.
   const { session } = await currentAppSessionFromRequest(new Request("https://app.local", { headers: await headers() }));
   const storageScope = browserStorageScope(session);
+  const teams = session ? await getTeamIdentities(session.leagueId) : [];
+  const identity = session ? {
+    cfcFeatures: isCfcLeague(session.leagueId),
+    userId: session.userId, leagueId: session.leagueId, rosterId: session.rosterId, role: session.role,
+    teamName: teams.find(team => team.rosterId === session.rosterId)?.teamName ?? `Team ${session.rosterId}`,
+  } : null;
   return (
     <html lang="en">
       <head>
@@ -48,7 +56,7 @@ export default async function RootLayout({
         />
       </head>
       <body className="antialiased bg-[var(--cfc-canvas)] text-[var(--cfc-ink)]">
-        <BrowserStorageScopeProvider key={storageScope ?? "signed-out"} scope={storageScope}>
+        <BrowserStorageScopeProvider key={`${storageScope ?? "signed-out"}:${session?.rosterId ?? ""}:${session?.role ?? ""}`} identity={identity}>
           {children}
         </BrowserStorageScopeProvider>
       </body>

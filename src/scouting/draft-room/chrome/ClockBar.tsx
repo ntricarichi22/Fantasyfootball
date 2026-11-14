@@ -1,5 +1,7 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { browserStorageKey, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
 import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 
@@ -13,7 +15,7 @@ import { formatTimer, computeCountdownParts } from "@/scouting/draft-room/clockD
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { playChime, toggleChimeMuted, useChimeMuted } from "@/scouting/draft-room/chime";
-import { readStoredTeam, type StoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 
 // The live war room moved under the Draft Room lobby; /scouting/draft-room is
 // now the lobby. The clock bar navigates straight to the live room.
@@ -32,11 +34,11 @@ const LABEL_ON_BAR = "rgba(255,255,255,0.5)";
 const INK_LABEL = "rgba(26,26,26,0.5)";
 const INK_COLON = "rgba(26,26,26,0.35)";
 
-type StoredSelection = StoredTeam;
 
 
 
 export default function ClockBar() {
+  const fetch = useLeagueFetch();
   const storageScope = useBrowserStorageScope();
   const router = useRouter();
   const pathname = usePathname();
@@ -55,14 +57,8 @@ export default function ClockBar() {
 
   // Re-read selection on mount + when storage changes so the bar knows which
   // roster the user is currently piloting.
-  const [selection, setSelection] = useState<StoredSelection>({});
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate and subscribe to the browser identity display value.
-    setSelection(readStoredTeam());
-    const handle = () => setSelection(readStoredTeam());
-    window.addEventListener("storage", handle);
-    return () => window.removeEventListener("storage", handle);
-  }, []);
+  const selection = useStoredTeam();
+  const leagueId = selection.leagueId ?? "";
 
   // The countdown value currently displayed on screen: when a pick is "in"
   // (submitted, awaiting announcement) we show the announcement countdown;
@@ -84,10 +80,10 @@ export default function ClockBar() {
     if (state?.status !== "running") return;
     if (tickFiredRef.current) return;
     tickFiredRef.current = true;
-    fetch("/api/scouting/draft/tick", { method: "POST" })
+    fetch("/api/scouting/draft/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "tick" }) })
       .then((r) => r.json())
       .then((data) => {
-        if (data?.status !== "advanced") {
+        if (!(Number(data?.steps) > 0)) {
           tickFiredRef.current = false;
           return;
         }
@@ -103,7 +99,7 @@ export default function ClockBar() {
       .catch(() => {
         tickFiredRef.current = false;
       });
-  }, [timeLeft, state?.status]);
+  }, [timeLeft, state?.status, fetch]);
 
   // ----- Reveal animation + chime + mute ----------------------------------
   // When the server flips a draft_log row from is_announced=false → true
@@ -157,7 +153,7 @@ export default function ClockBar() {
       collegeMapRef.current = {};
       return collegeMapRef.current;
     }
-  }, []);
+  }, [fetch]);
 
   // Cleanup any scheduled reveal timeouts on unmount so phase-advances don't
   // fire after the bar has been torn down.
@@ -240,15 +236,15 @@ export default function ClockBar() {
   useEffect(() => {
     const supabase = getSupabaseClient();
     if (!supabase) return;
-    const channel = supabase.channel("clock-bar-draft-log-reveal").on(
+    const channel = supabase.channel(`clock-bar-draft-log-reveal-${leagueId}`).on(
       "postgres_changes",
-      { event: "UPDATE", schema: "public", table: "draft_log" },
+      { event: "UPDATE", schema: "public", table: "draft_log", filter: `league_id=eq.${leagueId}` },
       (payload) => {
         const newRow = (payload.new ?? null) as Record<string, unknown> | null;
         const oldRow = (payload.old ?? null) as Record<string, unknown> | null;
         if (!newRow) return;
         const wasAnnounced = oldRow?.is_announced === true;
-        const isAnnouncedNow = newRow.is_announced === true;
+        const isAnnouncedNow = newRow.league_id === leagueId && newRow.is_announced === true;
         if (!isAnnouncedNow || wasAnnounced) return;
         if (newRow.is_skip === true) return;
         void triggerReveal(newRow);
@@ -266,29 +262,9 @@ export default function ClockBar() {
         // ignore teardown errors
       }
     };
-  }, [triggerReveal]);
+  }, [leagueId, triggerReveal]);
 
-  // When the pre-draft countdown reaches 0, fire `action: "start"` exactly
-  // once. Server-side guard returns `already_started` if another client beat
-  // us to it, so concurrent clients are safe.
-  const startFiredRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (state?.status !== "not_started" || !Number.isFinite(startsAtMs) || countdownNow <= 0) {
-      startFiredRef.current = null;
-      return;
-    }
-    if (startsAtMs > countdownNow) return;
-    const key = state?.starts_at ?? "";
-    if (startFiredRef.current === key) return;
-    startFiredRef.current = key;
-    fetch("/api/scouting/draft/state", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "start" }),
-    }).catch(() => {
-      startFiredRef.current = null;
-    });
-  }, [startsAtMs, countdownNow, state?.starts_at, state?.status]);
+  // Scheduled starts are retried centrally by DraftStatusProvider.
 
   // Visibility: render the bar when the draft is active OR we're on the draft
   // route OR a pre-draft countdown is scheduled (so the countdown shows

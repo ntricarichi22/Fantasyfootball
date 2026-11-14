@@ -1,11 +1,14 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Icon } from "@/shared/ui/Icon";
+import { LeagueSwitcher } from "@/shared/ui/LeagueSwitcher";
 import { SignOutButton } from "@/shared/ui/SignOutButton";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamCrestSrc, gmAvatarSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
 import { DIRECTORS } from "@/home/directors";
@@ -84,14 +87,14 @@ function getInitials(teamName: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-function buildDoors(teamName: string): Door[] {
+function buildDoors(teamName: string, leagueId: string): Door[] {
   // Inbox isn't a director — it's the GM's own door — so it's modelled here.
   const inboxDoor: Door = {
     key: "inbox",
     word: "INBOX",
     match: ["/inbox"],
     tabs: [],
-    badgeSrc: gmAvatarSrc(teamName),
+    badgeSrc: gmAvatarSrc(teamName, leagueId),
     badgeField: AMBER,
   };
   const directorDoors: Door[] = DIRECTORS.map((d) => {
@@ -192,19 +195,21 @@ function DoorBadge({ src, field }: { src: string | null; field: string }) {
 }
 
 export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMenuClick }: UnifiedTopbarProps) {
+  const fetch = useLeagueFetch();
+  const leagueId = useStoredTeam().leagueId ?? "";
   const path = usePathname() || "/";
   const isMobile = useIsMobile();
 
-  const stored = readStoredTeam() as
+  const stored = useStoredTeam() as
     | { teamName?: string; name?: string; rosterId?: string }
     | null;
   const teamName = stored?.teamName ?? stored?.name ?? "—";
   const rosterId = stored?.rosterId ?? "";
   const initials = getInitials(teamName);
-  const crestSrc = teamCrestSrc(teamName);
+  const crestSrc = teamCrestSrc(teamName, leagueId);
   const [crestFailed, setCrestFailed] = useState(false);
 
-  const doors = useMemo(() => buildDoors(teamName), [teamName]);
+  const doors = useMemo(() => buildDoors(teamName, leagueId), [teamName, leagueId]);
   const door = activeDoor(doors, path);
   const tabIdx = door ? activeTabIndex(door, path) : 0;
 
@@ -230,7 +235,7 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
         }
       })
       .catch(() => {});
-  }, [personaOpen, rosterId]);
+  }, [fetch, personaOpen, rosterId]);
 
   // ── Team name modal state ──
   const [nameInput, setNameInput] = useState("");
@@ -282,7 +287,7 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
         setHasCustomLogo(!!mine?.hasCustomLogo);
       })
       .catch(() => {});
-  }, [logoOpen, rosterId]);
+  }, [fetch, logoOpen, rosterId]);
 
   // Object URLs leak unless revoked when replaced or when the modal closes.
   useEffect(() => {
@@ -531,6 +536,7 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
                 {item.label}
               </button>
             ))}
+            <LeagueSwitcher />
             <SignOutButton />
           </div>
         </>

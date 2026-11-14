@@ -1,5 +1,7 @@
 "use client"
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState } from "react"
 import { BadgeShell, Portrait, SectionTab, buttonReset, NAVY, RED, PANEL, PHOTO_H, INFO_SLOT1_H, INFO_SLOT_GAP, TILE_H, TILE_GAP } from "./BadgeShell"
 import type { DirectorConfig } from "./directors"
@@ -40,6 +42,7 @@ const LABEL = {
  * every row link straight to their old destinations — behavior is unchanged.
  */
 export function DirectorPersonCard({ director, teamName, crestSrc }: DirectorPersonCardProps) {
+  const fetch = useLeagueFetch();
   const dept = departmentLabel(director.title)
 
   // While the draft is live, the Draft Lobby row reads "Enter Live Draft"
@@ -54,7 +57,7 @@ export function DirectorPersonCard({ director, teamName, crestSrc }: DirectorPer
         if (j?.upcomingDraftAt && new Date(j.upcomingDraftAt).getTime() <= Date.now() && j.phase !== "complete") setDraftLive(true)
       })
       .catch(() => {})
-  }, [hasDraftLobby])
+  }, [fetch, hasDraftLobby])
 
   const status = (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>

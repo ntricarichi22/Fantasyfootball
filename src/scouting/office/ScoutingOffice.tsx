@@ -1,7 +1,9 @@
 "use client";
 
+import { useLeagueFetch } from "@/infrastructure/identity/useLeagueFetch";
+
 import { useEffect, useState, useCallback } from "react";
-import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
+import { useStoredTeam } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { browserStorageKey, readBrowserJson, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
 import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
 import { teamCrestSrc, teamInitials } from "@/shared/league-data/nicknames";
@@ -99,13 +101,15 @@ function buildReturningOpening(povs: POV[]): Extract<Message, { kind: "director_
 }
 
 export function ScoutingOffice() {
+  const fetch = useLeagueFetch();
+  const leagueId = useStoredTeam().leagueId ?? "";
   const storageScope = useBrowserStorageScope();
   const visitedKey = browserStorageKey("scouting-office-visited", storageScope);
-  const stored = readStoredTeam();
+  const stored = useStoredTeam();
   const rosterId = stored.rosterId ?? "";
   const teamName = stored.teamName ?? "";
   const avatarInitials = teamInitials(teamName);
-  const avatarSrc = teamCrestSrc(teamName);
+  const avatarSrc = teamCrestSrc(teamName, leagueId);
 
   const [opening, setOpening] = useState<Extract<Message, { kind: "director_opening" }> | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -147,7 +151,7 @@ export function ScoutingOffice() {
     })();
 
     return () => { cancelled = true; };
-  }, [rosterId, visitedKey]);
+  }, [fetch, rosterId, visitedKey]);
 
   const handleUserMessage = useCallback(async (text: string): Promise<Extract<Message, { kind: "director_response" }> | null> => {
     try {
@@ -185,7 +189,7 @@ export function ScoutingOffice() {
       directorLabel: DIRECTOR_LABEL,
       prose: ["Something went wrong. Try again in a sec."],
     };
-  }, [rosterId]);
+  }, [fetch, rosterId]);
 
   const handleCommit = useCallback(async (item: ActionItem): Promise<boolean> => {
     if (!item.commit) return false;
@@ -200,7 +204,7 @@ export function ScoutingOffice() {
       console.error("Commit failed", err);
       return false;
     }
-  }, []);
+  }, [fetch]);
 
   return (
     <div style={{
