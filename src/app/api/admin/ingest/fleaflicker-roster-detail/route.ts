@@ -1,67 +1,16 @@
+import { fetchFleaflicker } from "@/infrastructure/ingest/source-http";
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { requireSupabaseAdminClient as getSupabaseAdmin } from "@/infrastructure/supabase/admin";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FLEA_BASE_URL = "https://www.fleaflicker.com/api";
-const FLEA_SPORT = process.env.FLEAFLICKER_SPORT ?? "NFL";
 
-const getSupabaseAdmin = requireSupabaseAdminClient;
 
 function sha256(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
-}
-
-function safeJsonParse(text: string) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function buildUrl(path: string, params: Record<string, string | number | boolean | undefined>) {
-  const url = new URL(`${FLEA_BASE_URL}${path}`);
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue;
-    url.searchParams.append(key, String(value));
-  }
-  return url.toString();
-}
-
-async function fetchFleaflicker(
-  path: string,
-  params: Record<string, string | number | boolean | undefined>
-) {
-  const merged = {
-    sport: FLEA_SPORT,
-    ...params,
-  };
-
-  const requestUrl = buildUrl(path, merged);
-
-  const res = await fetch(requestUrl, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    cache: "no-store",
-  });
-
-  const bodyText = await res.text();
-  const bodyJson = safeJsonParse(bodyText);
-
-  return {
-    ok: res.ok,
-    status: res.status,
-    requestUrl,
-    requestParams: Object.fromEntries(
-      Object.entries(merged).filter(([, v]) => v !== undefined && v !== null)
-    ) as Record<string, string | number | boolean>,
-    bodyText,
-    bodyJson,
-  };
 }
 
 async function upsertRawGlobalRow(
@@ -74,11 +23,11 @@ async function upsertRawGlobalRow(
     endpoint_group: string;
     endpoint_name: string;
     request_url: string;
-    request_params: Record<string, any>;
+    request_params: Record<string, unknown>;
     source_key: string;
     entity_id?: string | null;
     week?: number | null;
-    payload_json?: any | null;
+    payload_json?: unknown;
     payload_text?: string | null;
     http_status: number;
     notes?: string | null;
@@ -129,7 +78,7 @@ async function getSeasonTeamIds(
     throw new Error(`Failed to load Flea team ids from flea_mirror_teams: ${error.message}`);
   }
 
-  const ids = [...new Set((data ?? []).map((x: any) => Number(x.source_team_id)).filter(Boolean))];
+  const ids = [...new Set((data ?? []).map((x) => Number(x.source_team_id)).filter(Boolean))];
 
   if (ids.length === 0) {
     throw new Error(
@@ -237,13 +186,13 @@ async function runRosterDetailJob(
     }
 
     return summary;
-  } catch (error: any) {
+  } catch (error: unknown) {
     await supabase
       .from("flea_raw_smoke")
       .update({
         status: "error",
         completed_at: new Date().toISOString(),
-        error_text: error?.message ?? "Unknown Flea FetchRoster ingest error",
+        error_text: error instanceof Error ? error.message : "Unknown Flea FetchRoster ingest error",
         summary_json: {
           ingest_run_id: ingestRunId,
           season_year: seasonYear,
@@ -270,11 +219,11 @@ export async function GET(req: NextRequest) {
     const sourceLeagueId = url.searchParams.get("sourceLeagueId");
     const maxScoringPeriod = Number(url.searchParams.get("maxScoringPeriod"));
 
-    if (!seasonYear || !sourceLeagueId || !maxScoringPeriod) {
+    if (!Number.isInteger(seasonYear) || seasonYear < 1900 || seasonYear > 2100 || !sourceLeagueId || !/^\d{1,24}$/.test(sourceLeagueId) || !Number.isInteger(maxScoringPeriod) || maxScoringPeriod < 1 || maxScoringPeriod > 30) {
       return NextResponse.json(
         {
           ok: false,
-          error: "Missing required query params: seasonYear, sourceLeagueId, maxScoringPeriod",
+          error: "Invalid or missing query params: seasonYear, sourceLeagueId, maxScoringPeriod",
         },
         { status: 400 }
       );
@@ -289,9 +238,9 @@ export async function GET(req: NextRequest) {
     );
 
     return NextResponse.json({ ok: true, summary });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
-      { ok: false, error: error?.message ?? "Unknown Flea FetchRoster ingest error" },
+      { ok: false, error: error instanceof Error ? error.message : "Unknown Flea FetchRoster ingest error" },
       { status: 500 }
     );
   }

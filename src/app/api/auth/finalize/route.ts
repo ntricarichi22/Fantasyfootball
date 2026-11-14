@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { appSessionCookie, createAppSession } from "@/infrastructure/auth/session";
+import { appSessionCookie, createAppSession, providerSessionIdFromVerifiedToken } from "@/infrastructure/auth/session";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { recordAuditChange } from "@/infrastructure/security/audit";
 import { resolveFinalizeAccess, sessionClaimsForAccess } from "@/infrastructure/auth/finalizeAuthorization";
@@ -31,11 +31,14 @@ export async function POST(request: NextRequest) {
     if (!LEAGUE_ID) return NextResponse.json({ error: "league_not_configured" }, { status: 500 });
 
     const userId = userData.user.id;
+    const sessionId = providerSessionIdFromVerifiedToken(token, userId);
+    if (!sessionId) return NextResponse.json({ error: "invalid_session" }, { status: 401 });
+    const providerSession = await adminClient.rpc("is_auth_session_active", { p_session_id: sessionId, p_user_id: userId });
+    if (providerSession.error) return NextResponse.json({ error: "auth_state_unavailable" }, { status: 503 });
+    if (providerSession.data !== true) return NextResponse.json({ error: "invalid_session" }, { status: 401 });
     const access = await resolveFinalizeAccess({
       membership: async (id, league) => await adminClient.from("league_memberships")
         .select("league_id, roster_id, role").eq("user_id", id).eq("league_id", league).maybeSingle(),
-      legacyInvitation: async (legacyEmail) => await adminClient.from("team_email_map")
-        .select("roster_id").eq("email", legacyEmail).maybeSingle(),
       acceptInvitation: async (id, acceptedEmail, league) => {
         const { data, error } = await adminClient.rpc("accept_league_invitation", {
           p_user_id: id, p_email: acceptedEmail, p_league_id: league,
@@ -75,7 +78,7 @@ export async function POST(request: NextRequest) {
     };
 
     const response = NextResponse.json({ ok: true, redirect });
-    const claims = sessionClaimsForAccess(access, userId);
+    const claims = sessionClaimsForAccess(access, userId, sessionId);
     if (!claims) return NextResponse.json({ error: "not_a_member" }, { status: 403 });
     response.cookies.set(appSessionCookie.name, await createAppSession(claims), appSessionCookie.options);
 
@@ -101,9 +104,9 @@ export async function POST(request: NextRequest) {
     );
 
     return response;
-  } catch (error) {
+  } catch {
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "finalize_failed" },
+      { error: "finalize_failed" },
       { status: 500 }
     );
   }

@@ -3,6 +3,7 @@ const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
 export type AppSession = {
   userId: string;
+  sessionId: string;
   leagueId: string;
   rosterId: string;
   role: "member" | "commissioner" | "admin";
@@ -24,13 +25,9 @@ const base64UrlDecode = (value: string) => {
 };
 
 const signingSecret = () => {
-  if (process.env.AUTH_SESSION_SECRET) return process.env.AUTH_SESSION_SECRET;
-  // Deployment compatibility: the service key is already server-only and high
-  // entropy, so it can sign sessions during the migration-first rollout window.
-  // AUTH_SESSION_SECRET remains required before final security activation so
-  // session signing can be rotated independently from database credentials.
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) return process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (process.env.NODE_ENV === "production") throw new Error("Missing AUTH_SESSION_SECRET");
+  const configured = process.env.AUTH_SESSION_SECRET;
+  if (configured && (process.env.NODE_ENV !== "production" || configured.length >= 32)) return configured;
+  if (process.env.NODE_ENV === "production") throw new Error("AUTH_SESSION_SECRET must contain at least 32 characters");
   return "cfc-development-session-secret-not-for-production";
 };
 
@@ -66,7 +63,9 @@ export const verifyAppSession = async (
     if (!valid) return null;
     const parsed = JSON.parse(new TextDecoder().decode(base64UrlDecode(payload))) as Partial<AppSession>;
     if (
-      typeof parsed.userId !== "string" || typeof parsed.leagueId !== "string" ||
+      typeof parsed.userId !== "string" || typeof parsed.sessionId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(parsed.sessionId) ||
+      typeof parsed.leagueId !== "string" ||
       typeof parsed.rosterId !== "string" ||
       !["member", "commissioner", "admin"].includes(parsed.role ?? "") ||
       typeof parsed.expiresAt !== "number" || parsed.expiresAt <= nowSeconds
@@ -112,27 +111,14 @@ const cookieValue = (request: Request, name: string) => {
 export const appSessionFromRequest = (request: Request) =>
   verifyAppSession(cookieValue(request, SESSION_COOKIE));
 
-export const sessionCanActForRoster = (session: AppSession, leagueId: string, rosterId: string) =>
-  session.leagueId === leagueId && session.rosterId === rosterId;
-
-export const sessionCanAccessTeamPair = (
-  session: AppSession,
-  leagueId: string,
-  teamA: string,
-  teamB: string,
-) => session.leagueId === leagueId &&
-  (session.rosterId === teamA || session.rosterId === teamB);
-
-export const isMissingDatabaseRelation = (
-  error: { code?: string; message?: string } | null | undefined,
-  relation: string,
-) => Boolean(error && (error.code === "42P01" ||
-  new RegExp(`${relation.replace(/[^a-zA-Z0-9_]/g, "")}.*(?:does not exist|schema cache)`, "i")
-    .test(error.message ?? "")));
-
-export const isMissingDatabaseFunction = (
-  error: { code?: string; message?: string } | null | undefined,
-  functionName: string,
-) => Boolean(error && (["42883", "PGRST202"].includes(error.code ?? "") ||
-  new RegExp(`${functionName.replace(/[^a-zA-Z0-9_]/g, "")}.*(?:does not exist|schema cache)`, "i")
-    .test(error.message ?? "")));
+/** Call only after Supabase auth.getUser(token) verifies this provider JWT. */
+export function providerSessionIdFromVerifiedToken(token: string, verifiedUserId: string): string | null {
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return null;
+    const claims = JSON.parse(new TextDecoder().decode(base64UrlDecode(payload))) as { sub?: unknown; session_id?: unknown };
+    return claims.sub === verifiedUserId && typeof claims.session_id === "string" &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(claims.session_id)
+      ? claims.session_id : null;
+  } catch { return null; }
+}

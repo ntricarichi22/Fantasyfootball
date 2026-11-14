@@ -1,98 +1,14 @@
-import { meteredAnthropicFetch } from "@/infrastructure/ai/server";
+import { aiError, meteredAnthropicFetch } from "@/infrastructure/ai/server";
 import { NextRequest, NextResponse } from "next/server";
-import { Pool } from "pg";
+import { runHistoryQuery } from "@/infrastructure/llm/database";
+import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { SCHEMA_CONTEXT } from "@/infrastructure/llm/schema-context";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// ============================================================
-// Postgres connection pool (reused across invocations)
-// ============================================================
-declare global {
-  var llmAskPool: Pool | undefined;
-}
-
-function getPool(connectionString: string): Pool {
-  if (!globalThis.llmAskPool) {
-    globalThis.llmAskPool = new Pool({
-      connectionString,
-      max: 2,
-      idleTimeoutMillis: 30000,
-    });
-    globalThis.llmAskPool.on("connect", (client) => {
-      client.query("SET search_path TO public;");
-    });
-  }
-  return globalThis.llmAskPool;
-}
-
-// ============================================================
-// SQL safety guardrails
-// ============================================================
-function isSafeSelectQuery(sql: string): { ok: boolean; reason?: string } {
-  const trimmed = sql.trim().replace(/;+\s*$/, "");
-  const upper = trimmed.toUpperCase();
-
-  if (!upper.startsWith("SELECT") && !upper.startsWith("WITH")) {
-    return { ok: false, reason: "Only SELECT/WITH queries are allowed." };
-  }
-
-  const forbidden = [
-    /\bINSERT\b/i,
-    /\bUPDATE\b/i,
-    /\bDELETE\b/i,
-    /\bDROP\b/i,
-    /\bALTER\b/i,
-    /\bCREATE\b/i,
-    /\bTRUNCATE\b/i,
-    /\bGRANT\b/i,
-    /\bREVOKE\b/i,
-    /\bCOPY\b/i,
-    /\bCALL\b/i,
-    /\bEXECUTE\b/i,
-  ];
-  for (const pattern of forbidden) {
-    if (pattern.test(trimmed)) {
-      return { ok: false, reason: `Query contains forbidden keyword: ${pattern.source}` };
-    }
-  }
-
-  if (trimmed.includes(";")) {
-    return { ok: false, reason: "Multiple statements are not allowed." };
-  }
-
-  return { ok: true };
-}
-
-// ============================================================
-// Tool executor: run a SQL query and return results
-// ============================================================
-async function runSqlTool(
-  pool: Pool,
-  sql: string
-): Promise<{ ok: boolean; rows?: unknown[]; error?: string; rowCount?: number }> {
-  const safety = isSafeSelectQuery(sql);
-  if (!safety.ok) {
-    return { ok: false, error: safety.reason };
-  }
-
-  try {
-    const result = await pool.query(sql);
-    const rows = result.rows.slice(0, 200);
-    return { ok: true, rows, rowCount: result.rows.length };
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Query failed",
-    };
-  }
-}
-
-// ============================================================
-// Anthropic API types and caller
-// ============================================================
 type AnthropicContentBlock =
   | { type: "text"; text: string }
   | { type: "tool_use"; id: string; name: string; input: Record<string, unknown> }
@@ -113,10 +29,12 @@ type AnthropicResponse = {
 async function callClaude(
   request: Request,
   apiKey: string,
-  messages: AnthropicMessage[]
+  messages: AnthropicMessage[],
+  signal: AbortSignal,
 ): Promise<AnthropicResponse> {
-  const response = await meteredAnthropicFetch(request, { feature: "historian", model: "claude-sonnet-5", maxInputTokens: 12000, maxOutputTokens: 2048 }, {
+  const response = await meteredAnthropicFetch(request, { feature: "historian", model: "claude-sonnet-5", maxInputTokens: 48_000, maxOutputTokens: 2048 }, {
     method: "POST",
+    signal,
     headers: {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
@@ -149,8 +67,7 @@ async function callClaude(
   });
 
   if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Anthropic API error ${response.status}: ${errText}`);
+    throw new Error("AI provider unavailable");
   }
 
   return (await response.json()) as AnthropicResponse;
@@ -162,7 +79,6 @@ async function callClaude(
 async function runAgent(
   request: Request,
   apiKey: string,
-  pool: Pool,
   question: string
 ): Promise<{
   answer: string;
@@ -177,10 +93,13 @@ async function runAgent(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
 
-  const MAX_TURNS = 12;
+  const MAX_TURNS = 6;
+  const deadline = Date.now() + 45_000;
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(45_000)]);
 
   for (let turn = 0; turn < MAX_TURNS; turn++) {
-    const response = await callClaude(request, apiKey, messages);
+    if (request.signal.aborted || Date.now() > deadline) break;
+    const response = await callClaude(request, apiKey, messages, signal);
     totalInputTokens += response.usage?.input_tokens ?? 0;
     totalOutputTokens += response.usage?.output_tokens ?? 0;
 
@@ -206,7 +125,9 @@ async function runAgent(
 
       const toolResults: AnthropicContentBlock[] = [];
 
+      if (toolUseBlocks.length > 4) throw new Error("Too many requested queries");
       for (const toolUse of toolUseBlocks) {
+        if (request.signal.aborted || Date.now() > deadline) throw new Error("Request timed out");
         if (toolUse.name !== "run_sql") {
           toolResults.push({
             type: "tool_result",
@@ -217,7 +138,7 @@ async function runAgent(
         }
 
         const sql = String(toolUse.input.sql ?? "");
-        const result = await runSqlTool(pool, sql);
+        const result = await runHistoryQuery(sql);
 
         queries.push({
           sql,
@@ -251,7 +172,7 @@ async function runAgent(
 }
 
 // ============================================================
-// Route handlers (GET for browser testing, POST for app)
+// Bounded, authenticated request handler
 // ============================================================
 async function handleAsk(request: Request, question: string) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -259,21 +180,19 @@ async function handleAsk(request: Request, question: string) {
 
   if (!apiKey) {
     return NextResponse.json(
-      { ok: false, error: "Missing ANTHROPIC_API_KEY" },
-      { status: 500 }
+      { ok: false, error: "Historian is unavailable" },
+      { status: 503 }
     );
   }
   if (!dbUrl) {
     return NextResponse.json(
-      { ok: false, error: "Missing LLM_DATABASE_URL" },
-      { status: 500 }
+      { ok: false, error: "Historian is unavailable" },
+      { status: 503 }
     );
   }
 
-  const pool = getPool(dbUrl);
-
   try {
-    const result = await runAgent(request, apiKey, pool, question);
+    const result = await runAgent(request, apiKey, question);
     return NextResponse.json({
       ok: true,
       question,
@@ -282,44 +201,22 @@ async function handleAsk(request: Request, question: string) {
       usage: result.usage,
     });
   } catch (error) {
-    return NextResponse.json(
-      {
-        ok: false,
-        error: error instanceof Error ? error.message : "Unknown error",
-      },
-      { status: 500 }
-    );
+    return aiError(error);
   }
 }
 
-export async function GET(request: NextRequest) {
-  const question = request.nextUrl.searchParams.get("question")?.trim();
-  if (!question) {
-    return NextResponse.json(
-      { ok: false, error: "Missing question" },
-      { status: 400 }
-    );
-  }
-  return handleAsk(request, question);
-}
-
+// A link, crawler, or prefetch must never dispatch a paid AI request.
 export async function POST(request: NextRequest) {
-  let body: { question?: string };
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Invalid JSON body" },
-      { status: 400 }
-    );
+  const { session, error } = await currentAppSessionFromRequest(request);
+  if (!session) return NextResponse.json({ error }, { status: error === "auth_state_unavailable" ? 503 : 401 });
+  // Until historical data is tenant-partitioned, this warehouse is CFC-only.
+  const historyLeague = process.env.HISTORIAN_LEAGUE_ID;
+  if (!historyLeague || session.leagueId !== historyLeague) {
+    return NextResponse.json({ error: "Historian is not configured for this league" }, { status: 403 });
   }
-
-  const question = body.question?.trim();
-  if (!question) {
-    return NextResponse.json(
-      { ok: false, error: "Missing question" },
-      { status: 400 }
-    );
+  const body = await boundedJson<{ question?: unknown }>(request, 12_000);
+  if (typeof body?.question !== "string" || !body.question.trim() || body.question.length > 4_000) {
+    return NextResponse.json({ error: "Question must contain 1–4000 characters" }, { status: 400 });
   }
-  return handleAsk(request, question);
+  return handleAsk(request, body.question.trim());
 }

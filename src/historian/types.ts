@@ -1,3 +1,5 @@
+import { browserStorageKey } from "../infrastructure/identity/browserStorage.ts";
+
 export type ChatRole = "user" | "assistant" | "system";
 
 export type ChatMessage = {
@@ -18,8 +20,8 @@ export type Conversation = {
   messages: ChatMessage[];
 };
 
-export const CONVERSATIONS_STORAGE_KEY = "cfc_historian_conversations_v1";
-export const FUN_FACT_SESSION_KEY = "cfc_historian_fun_fact_v1";
+export const conversationStorageKey = (scope: string | null) => browserStorageKey("historian-conversations", scope);
+export const funFactStorageKey = (scope: string | null) => browserStorageKey("historian-fun-fact", scope);
 
 export function uid(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -63,10 +65,20 @@ export function formatTimestamp(iso: string): string {
   }
 }
 
-export function loadConversations(): Conversation[] {
-  if (typeof window === "undefined") return [];
+function isMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") return false;
+  const message = value as Partial<ChatMessage>;
+  return typeof message.id === "string"
+    && (message.role === "user" || message.role === "assistant" || message.role === "system")
+    && typeof message.content === "string"
+    && typeof message.timestamp === "string";
+}
+
+export function loadConversations(scope: string | null): Conversation[] {
+  if (typeof window === "undefined" || !scope) return [];
   try {
-    const raw = window.localStorage.getItem(CONVERSATIONS_STORAGE_KEY);
+    // Legacy v1 data is retained but has no owner and must not be shown to an arbitrary account.
+    const raw = window.localStorage.getItem(conversationStorageKey(scope)!);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -77,7 +89,7 @@ export function loadConversations(): Conversation[] {
           typeof c.id === "string" &&
           typeof c.title === "string" &&
           typeof c.updatedAt === "string" &&
-          Array.isArray(c.messages),
+          Array.isArray(c.messages) && c.messages.every(isMessage),
       )
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   } catch {
@@ -85,10 +97,10 @@ export function loadConversations(): Conversation[] {
   }
 }
 
-export function saveConversations(list: Conversation[]) {
-  if (typeof window === "undefined") return;
+export function saveConversations(scope: string | null, list: Conversation[]) {
+  if (typeof window === "undefined" || !scope) return;
   try {
-    window.localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(list));
+    window.localStorage.setItem(conversationStorageKey(scope)!, JSON.stringify(list));
   } catch {
     // ignore quota errors
   }

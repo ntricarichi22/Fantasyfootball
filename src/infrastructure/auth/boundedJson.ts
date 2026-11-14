@@ -10,7 +10,7 @@ export async function boundedJson<T>(request: Request, maxBytes: number): Promis
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > maxBytes) { await reader.cancel(); return null; }
+      if (size > maxBytes) { void reader.cancel().catch(() => undefined); return null; }
       chunks.push(value);
     }
     const bytes = new Uint8Array(size);
@@ -19,5 +19,7 @@ export async function boundedJson<T>(request: Request, maxBytes: number): Promis
     return JSON.parse(new TextDecoder().decode(bytes)) as T;
   } catch {
     return null;
+  } finally {
+    reader.releaseLock();
   }
 }

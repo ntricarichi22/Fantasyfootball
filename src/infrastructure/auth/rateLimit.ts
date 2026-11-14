@@ -1,6 +1,5 @@
 import { pseudonymousFingerprint } from "../security/audit.ts";
 import { getSupabaseAdminClient } from "../supabase/admin.ts";
-import { isMissingDatabaseFunction } from "./session.ts";
 
 type RateClient = { rpc(name: string, args: Record<string, unknown>): PromiseLike<{
   data: boolean | null; error: { code?: string; message?: string } | null;
@@ -26,6 +25,6 @@ export async function claimAuthAttempt(identifier: string, deps: AuthRateDepende
   const { data, error } = await client.rpc("claim_auth_attempt", {
     p_fingerprint: fingerprint, p_window_minutes: windowMinutes, p_max_attempts: maxAttempts,
   });
-  if (error) return isMissingDatabaseFunction(error, "claim_auth_attempt") ? "allowed" : "unavailable";
+  if (error) return "unavailable";
   return data === true ? "allowed" : "limited";
 }

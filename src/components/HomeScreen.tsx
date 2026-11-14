@@ -190,7 +190,6 @@ function getDraftSubtext(): string {
 
 export function HomeScreen({
   teamName,
-  rosterId: _rosterId,
   onEnterDraftRoom,
   claimingTeam,
   draftPickSlots,

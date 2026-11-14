@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { Icon } from "@/shared/ui/Icon";
+import { SignOutButton } from "@/shared/ui/SignOutButton";
 import { readStoredTeam } from "@/infrastructure/identity/storedTeam";
 import { teamCrestSrc, gmAvatarSrc } from "@/shared/league-data/nicknames";
 import { useIsMobile } from "@/infrastructure/hooks/useIsMobile";
@@ -286,6 +288,7 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
   useEffect(() => {
     if (!logoOpen && logoPreview) {
       URL.revokeObjectURL(logoPreview);
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Release the browser object URL and clear the closed upload form.
       setLogoPreview("");
       setLogoFile(null);
       setLogoError("");
@@ -409,9 +412,9 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
       <Caret up={navOpen} />
     </button>
   ) : (
-    <a href="/" aria-label="Home" style={brandStyle}>
+    <Link href="/" aria-label="Home" style={brandStyle}>
       {brandMark}
-    </a>
+    </Link>
   );
 
   const showCrest = !!crestSrc && !crestFailed;
@@ -528,6 +531,7 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
                 {item.label}
               </button>
             ))}
+            <SignOutButton />
           </div>
         </>
       )}

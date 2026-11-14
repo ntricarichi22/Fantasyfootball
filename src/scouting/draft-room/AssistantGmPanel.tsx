@@ -355,7 +355,6 @@ export function AssistantGmPanel({
       },
     };
 
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setRecommendationLoading(true);
     setRecommendationError("");
 

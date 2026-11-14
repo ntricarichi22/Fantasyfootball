@@ -647,7 +647,6 @@ function readPersistedThread(key: string): Message[] | null {
 export function DirectorChat({
   opening,
   directorLabel,
-  directorRole,
   userAvatarInitials,
   userAvatarSrc,
   onUserMessage,
@@ -696,7 +695,7 @@ export function DirectorChat({
     } finally {
       setSending(false);
     }
-  }, [onUserMessage, userAvatarInitials]);
+  }, [onUserMessage, userAvatarInitials, userAvatarSrc]);
 
   const handleActionTap = useCallback(async (item: ActionItem) => {
     if (item.kind === "navigate" && item.href) {
@@ -734,7 +733,7 @@ export function DirectorChat({
         });
       }
     }
-  }, [onCommit, onUserMessage, userAvatarInitials]);
+  }, [onCommit, onUserMessage, userAvatarInitials, userAvatarSrc]);
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
@@ -749,7 +748,7 @@ export function DirectorChat({
     } finally {
       setSending(false);
     }
-  }, [input, onUserMessage, sending, userAvatarInitials]);
+  }, [input, onUserMessage, sending, userAvatarInitials, userAvatarSrc]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>

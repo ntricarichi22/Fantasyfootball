@@ -22,7 +22,6 @@ type PlayersMap = Record<
 export async function GET(req: Request) {
   if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   try {
-  const url = new URL(req.url);
 
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) {

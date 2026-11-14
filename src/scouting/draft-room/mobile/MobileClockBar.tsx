@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from "re
 
 import { useDraftStatusContext } from "@/scouting/draft-room/chrome/DraftStatusProvider";
 import { useDraftClockContext } from "@/scouting/draft-room/hooks/useDraftClockContext";
-import { computeSecondsUntilAnnouncement } from "@/scouting/draft-room/draftState";
+import { useDraftClockDisplay } from "@/scouting/draft-room/hooks/useDraftClockDisplay";
+import { formatTimer, computeCountdownParts } from "@/scouting/draft-room/clockDisplay";
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { playChime } from "@/scouting/draft-room/chime";
@@ -30,12 +31,6 @@ const readStoredSelection = (): StoredSelection => {
   return readStoredTeam();
 };
 
-const formatTimer = (totalSeconds: number) => {
-  const safe = Math.max(0, Math.floor(totalSeconds));
-  const minutes = Math.floor(safe / 60);
-  const seconds = safe % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-};
 
 // Reveal-line is name-only on mobile (no position / school / dots) — see
 // MobileClockBar reveal branch. Scale font size with name length so the
@@ -48,14 +43,6 @@ const revealNameFontSize = (name: string): number => {
   return 10;
 };
 
-const computeCountdownParts = (startsAtMs: number, nowMs: number) => {
-  const total = Math.max(0, Math.floor((startsAtMs - nowMs) / 1000));
-  const days = Math.floor(total / 86400);
-  const hours = Math.floor((total % 86400) / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  return { total, days, hours, minutes, seconds };
-};
 
 /**
  * Mobile clock bar — 50px tall, fixed in the vertical stack just below the
@@ -66,22 +53,8 @@ const computeCountdownParts = (startsAtMs: number, nowMs: number) => {
 export function MobileClockBar() {
   const { isActive, secondsRemaining, state } = useDraftStatusContext();
 
-  const startsAtMs =
-    state?.starts_at && typeof state.starts_at === "string"
-      ? new Date(state.starts_at).getTime()
-      : NaN;
-
-  // Hydration-safe `Date.now()` — start at 0 server-side, set on mount.
-  const [countdownNow, setCountdownNow] = useState(0);
-  useEffect(() => {
-    setCountdownNow(Date.now());
-  }, []);
-
-  const hasFutureStart =
-    Number.isFinite(startsAtMs) &&
-    state?.status === "not_started" &&
-    countdownNow > 0 &&
-    startsAtMs > countdownNow;
+  const { startsAtMs, countdownNow, hasFutureStart, tickedSeconds, announceSeconds, isPickIn } =
+    useDraftClockDisplay(state, secondsRemaining);
 
   const context = useDraftClockContext({
     disabled: !isActive && !hasFutureStart,
@@ -89,47 +62,12 @@ export function MobileClockBar() {
 
   const [selection, setSelection] = useState<StoredSelection>({});
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate and subscribe to the browser identity display value.
     setSelection(readStoredSelection());
     const handle = () => setSelection(readStoredSelection());
     window.addEventListener("storage", handle);
     return () => window.removeEventListener("storage", handle);
   }, []);
-
-  // Local 1s tick.
-  const [tickedSeconds, setTickedSeconds] = useState(secondsRemaining);
-  useEffect(() => {
-    setTickedSeconds(secondsRemaining);
-  }, [secondsRemaining]);
-  useEffect(() => {
-    if (!isActive || state?.status !== "running") return;
-    const id = window.setInterval(() => {
-      setTickedSeconds((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [isActive, state?.status]);
-
-  // Pick-is-in countdown.
-  const [announceSeconds, setAnnounceSeconds] = useState(() =>
-    computeSecondsUntilAnnouncement(state)
-  );
-  useEffect(() => {
-    setAnnounceSeconds(computeSecondsUntilAnnouncement(state));
-  }, [state?.pick_submitted, state?.pick_announced_at, state]);
-  const isPickIn = !!state?.pick_submitted && !!state?.pick_announced_at;
-  useEffect(() => {
-    if (!isPickIn) return;
-    const id = window.setInterval(() => {
-      setAnnounceSeconds(computeSecondsUntilAnnouncement(state));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [isPickIn, state]);
-
-  // Pre-draft countdown re-tick.
-  useEffect(() => {
-    if (!hasFutureStart) return;
-    const id = window.setInterval(() => setCountdownNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [hasFutureStart]);
 
   // ----- Reveal animation subscription -----------------------------------
   type RevealedPick = {
@@ -294,7 +232,7 @@ export function MobileClockBar() {
 
   const startFiredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!hasFutureStart) {
+    if (state?.status !== "not_started" || !Number.isFinite(startsAtMs) || countdownNow <= 0) {
       startFiredRef.current = null;
       return;
     }
@@ -309,7 +247,7 @@ export function MobileClockBar() {
     }).catch(() => {
       startFiredRef.current = null;
     });
-  }, [hasFutureStart, startsAtMs, countdownNow, state?.starts_at]);
+  }, [startsAtMs, countdownNow, state?.starts_at, state?.status]);
 
   // ---------------- Render ----------------
   // Reveal animation takes over the whole bar for ~9.75s.

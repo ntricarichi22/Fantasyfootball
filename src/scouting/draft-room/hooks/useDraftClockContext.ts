@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 export type DraftClockContext = {
   season: string;
@@ -33,26 +33,25 @@ export function useDraftClockContext(
 ): DraftClockContext | null {
   const { disabled = false, pollMs = DEFAULT_POLL_MS } = options;
   const [context, setContext] = useState<DraftClockContext | null>(null);
-  const cancelledRef = useRef(false);
-
   useEffect(() => {
-    cancelledRef.current = false;
-
-    if (disabled) {
-      return () => {
-        cancelledRef.current = true;
-      };
-    }
+    if (disabled) return;
+    let cancelled = false;
+    let inFlight = false;
+    const controller = new AbortController();
 
     const fetchOnce = async () => {
+      if (inFlight || cancelled) return;
+      inFlight = true;
       try {
-        const res = await fetch("/api/scouting/draft/clock-context", { cache: "no-store" });
+        const res = await fetch("/api/scouting/draft/clock-context", { cache: "no-store", signal: controller.signal });
         if (!res.ok) return;
         const json = (await res.json()) as { data?: DraftClockContext | null };
-        if (cancelledRef.current) return;
+        if (cancelled) return;
         setContext(json?.data ?? null);
       } catch {
         // ignore network errors; keep last snapshot
+      } finally {
+        inFlight = false;
       }
     };
 
@@ -62,7 +61,8 @@ export function useDraftClockContext(
       Math.max(MIN_POLL_MS, pollMs)
     );
     return () => {
-      cancelledRef.current = true;
+      cancelled = true;
+      controller.abort();
       window.clearInterval(interval);
     };
   }, [disabled, pollMs]);

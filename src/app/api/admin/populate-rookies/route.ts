@@ -259,7 +259,6 @@ async function fetchEspnHeadshotUrl(displayName: string): Promise<string | null>
 
 export async function POST(req: Request) {
   if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-  const url = new URL(req.url);
 
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error)

@@ -55,8 +55,8 @@ function appCookie(response) {
   assert.ok(value, "finalize must issue signed HttpOnly application session");
   return `cfc_session=${value}`;
 }
-function signSession(userId, leagueId, rosterId, role = "member") {
-  const payload = Buffer.from(JSON.stringify({ userId, leagueId, rosterId, role,
+function signSession(userId, leagueId, rosterId, role = "member", sessionId = "11111111-1111-4111-8111-111111111111") {
+  const payload = Buffer.from(JSON.stringify({ userId, sessionId, leagueId, rosterId, role,
     expiresAt: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url");
   const signature = createHmac("sha256", process.env.AUTH_SESSION_SECRET).update(payload).digest("base64url");
   return `cfc_session=${payload}.${signature}`;
@@ -99,22 +99,17 @@ try {
     assert.equal((await app("/api/inbox/threads?teamId=1", { headers: { cookie: "cfc_session=forged.payload" } })).response.status,
       401, "schema-011 protected read rejects a forged cookie");
     const legacyLogin = await login(emails.member);
-    assert.equal(legacyLogin.response.status, 200, "mapped confirmed schema-011 user can log in");
-    const legacyFinalize = await finalize(legacyLogin.body.accessToken);
-    assert.equal(legacyFinalize.response.status, 200, "schema-011 exact missing-membership compatibility finalizes");
-    const legacyCookie = appCookie(legacyFinalize.response);
+    assert.equal(legacyLogin.response.status, 503, "login fails closed without durable rate-limit infrastructure");
+    const providerLogin = await auth.auth.signInWithPassword({ email: emails.member, password });
+    assert.ifError(providerLogin.error);
+    const legacyFinalize = await finalize(providerLogin.data.session.access_token);
+    assert.equal(legacyFinalize.response.status, 503, "missing membership schema cannot mint an application session");
+    const legacyCookie = signSession(legacyUser.id, league, "1");
     assert.ok(stateFile, "staged rollout state file is required");
-    await writeFile(stateFile, JSON.stringify({ cookie: legacyCookie, userId: legacyUser.id }), { mode: 0o600 });
-    assert.equal((await app("/api/inbox/threads?teamId=1", { headers: { cookie: legacyCookie } })).response.status,
-      200, "schema-011 compatibility session can read its own resource");
-    assert.equal((await app("/api/inbox/threads?teamId=2", { headers: { cookie: legacyCookie } })).response.status,
-      403, "schema-011 compatibility session cannot read another roster");
-    assert.equal((await app("/api/ai/quota", { headers: { cookie: legacyCookie } })).response.status,
-      503, "AI fails closed before accounting migration 013 exists");
-    assert.equal((await app("/api/inbox/threads?teamId=1", { headers: { cookie: `${legacyCookie}x` } })).response.status,
-      401, "schema-011 protected read rejects a tampered signed cookie");
-    assert.ok(legacyUser.id);
-    console.log("Disposable schema-011 compatibility smoke checks passed.");
+    await writeFile(stateFile, JSON.stringify({ userId: legacyUser.id }), { mode: 0o600 });
+    const protectedRead = await app("/api/inbox/threads?teamId=1", { headers: { cookie: legacyCookie } });
+    assert.ok([401, 503].includes(protectedRead.response.status), "signed cookie cannot bypass missing authorization state");
+    console.log("Disposable schema-011 fail-closed smoke checks passed.");
     return;
   }
 
@@ -134,8 +129,6 @@ try {
     assert.ok(stateFile, "staged rollout state file is required");
     const legacyState = JSON.parse(await readFile(stateFile, "utf8"));
     assert.equal(legacyState.userId, member.id);
-    assert.equal((await app("/api/inbox/threads?teamId=1", { headers: { cookie: legacyState.cookie } })).response.status,
-      200, "schema-011 compatibility cookie remains valid after membership backfill");
     const upgradedLogin = await login(emails.member);
     assert.equal(upgradedLogin.response.status, 200);
     const upgradedFinal = await finalize(upgradedLogin.body.accessToken);
@@ -150,13 +143,15 @@ try {
   }
 
   const outsiderSignup = await post("/api/auth/signup", { email: emails.outsider, password });
-  assert.equal(outsiderSignup.response.status, 403, "non-invited signup must fail at the application boundary");
+  assert.equal(outsiderSignup.response.status, 200, "signup must not reveal whether an address is invited");
 
   const memberSignup = await post("/api/auth/signup", { email: emails.member, password });
   assert.equal(memberSignup.response.status, 200);
   assert.equal(memberSignup.body.confirmationRequired, true, "signup must require mailbox confirmation");
+  assert.deepEqual(outsiderSignup.body, memberSignup.body, "signup responses cannot enumerate invited addresses");
   const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 100 });
   assert.ifError(listed.error);
+  assert.equal(listed.data.users.some((user) => user.email === emails.outsider), false, "non-invited signup must not create an account");
   const member = listed.data.users.find((user) => user.email === emails.member);
   assert.ok(member && !member.email_confirmed_at, "new account starts unconfirmed");
   assert.equal((await login(emails.member)).response.status, 401, "unconfirmed account cannot log in");
@@ -186,7 +181,10 @@ try {
     401, "protected route rejects a forged cookie");
   assert.equal((await app("/api/ai/quota", { headers: { cookie: `${memberCookie}x` } })).response.status,
     401, "protected route rejects a tampered signed cookie");
-  const wrongLeagueCookie = signSession(member.id, "ci-other-league", "1");
+  // Decode only the freshly issued disposable fixture token; application auth verifies tokens server-side.
+  const { session_id: memberSessionId } = JSON.parse(Buffer.from(memberLogin.body.accessToken.split(".")[1], "base64url").toString("utf8"));
+  assert.match(memberSessionId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  const wrongLeagueCookie = signSession(member.id, "ci-other-league", "1", "member", memberSessionId);
   assert.equal((await app("/api/ai/quota", { headers: { cookie: wrongLeagueCookie } })).response.status,
     401, "current membership lookup rejects a validly signed cross-league claim");
 
@@ -204,8 +202,11 @@ try {
     403, "builder rejects a foreign roster before constructing a slate");
   assert.equal((await app("/api/research-strategy/class-strength?teamId=2", { headers: { cookie: memberCookie } })).response.status,
     403, "strategy reads reject a foreign roster");
-  assert.equal((await app("/api/scouting/draft/state")).response.status, 403,
-    "draft state rejects an unauthenticated private read");
+  const unauthenticatedDraft = await app("/api/scouting/draft/state");
+  assert.ok([401, 403].includes(unauthenticatedDraft.response.status),
+    "middleware or route authorization rejects an unauthenticated draft-state read");
+  assert.equal(Object.hasOwn(unauthenticatedDraft.body, "data"), false,
+    "unauthenticated draft-state response must not expose private data");
   const spoofedThread = await post("/api/inbox/threads", { team_a_id: "1", team_b_id: "2", created_by_team_id: "2" }, { cookie: memberCookie });
   assert.equal(spoofedThread.response.status, 403, "member cannot spoof the thread creator");
   const legitimateThread = await post("/api/inbox/threads", { team_a_id: "1", team_b_id: "2", created_by_team_id: "1" }, { cookie: memberCookie });
@@ -252,19 +253,31 @@ try {
   const recovery = await auth.auth.verifyOtp({ type: "recovery", token_hash: tokenHash });
   assert.ifError(recovery.error);
   assert.ifError((await auth.auth.updateUser({ password: newPassword })).error);
+  assert.ifError((await auth.auth.signOut({ scope: "others" })).error);
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: memberCookie } })).response.status, 401,
+    "password recovery revokes prior provider sessions and their copied application cookies");
   assert.equal((await login(emails.member, password)).response.status, 401, "old password stops working after recovery");
   const recoveredLogin = await login(emails.member, newPassword);
   assert.equal(recoveredLogin.response.status, 200, "recovered password works through the actual login route");
+  const recoveredFinal = await finalize(recoveredLogin.body.accessToken);
+  assert.equal(recoveredFinal.response.status, 200, "recovered provider session can establish application access");
+  const recoveredCookie = appCookie(recoveredFinal.response);
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: recoveredCookie } })).response.status, 200,
+    "fresh recovered session remains authorized before membership revocation");
 
   assert.ifError((await admin.rpc("revoke_league_access", { p_user_id: member.id, p_league_id: league })).error);
-  assert.equal((await app("/api/ai/quota", { headers: { cookie: memberCookie } })).response.status, 401,
-    "revocation invalidates an already signed application cookie");
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: recoveredCookie } })).response.status, 401,
+    "membership revocation invalidates an otherwise active provider session application cookie");
   assert.equal((await finalize(recoveredLogin.body.accessToken)).response.status, 403,
     "consumed invitation cannot recreate revoked membership");
 
-  const logout = await post("/api/auth/logout", {});
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: commissionerCookie } })).response.status, 200,
+    "commissioner session remains active before explicit logout");
+  const logout = await post("/api/auth/logout", {}, { cookie: commissionerCookie, authorization: `Bearer ${commissionerLogin.body.accessToken}` });
   assert.equal(logout.response.status, 200);
   assert.match(logout.response.headers.get("set-cookie") ?? "", /cfc_session=;/, "logout clears the application session");
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: commissionerCookie } })).response.status, 401,
+    "a copied application cookie cannot be replayed after provider logout");
   console.log("Disposable HTTP/Auth smoke checks passed.");
 } finally {
   await pool.end();

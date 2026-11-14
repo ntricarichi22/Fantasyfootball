@@ -1,0 +1,7 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public browser storage key from historical historian implementation"
+regexTarget = "secret"
+regexes = ['''^cfc_historian_(conversations|fun_fact)_v1$''']

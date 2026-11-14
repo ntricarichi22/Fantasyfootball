@@ -62,7 +62,8 @@ export async function aiQuota(request: Request) {
   const userId = await authenticatedAiUser(request);
   const cfg = aiConfig();
   const { client } = getSupabaseAdminClient();
-  const { data, error } = await client!.rpc("ai_get_quota", { p_user_id: userId, p_user_limit_micros: cfg.userBudgetMicros, p_pilot_limit_micros: cfg.pilotBudgetMicros });
+  if (!client) throw new AiLimitError("AI accounting unavailable");
+  const { data, error } = await client.rpc("ai_get_quota", { p_user_id: userId, p_user_limit_micros: cfg.userBudgetMicros, p_pilot_limit_micros: cfg.pilotBudgetMicros });
   if (error) throw new AiLimitError("AI accounting unavailable");
   return { ...(Array.isArray(data) ? data[0] : data), month: monthStart(), reset_at: resetAt() };
 }
@@ -72,17 +73,19 @@ export function aiError(error: unknown) {
   return NextResponse.json({ ok: false, error: "AI request failed" }, { status: 500 });
 }
 
-export async function meteredAnthropic(request: Request, params: { feature: string; model: string; maxInputTokens: number; maxOutputTokens: number; maxCalls?: number; body: Record<string, unknown>; background?: boolean }) {
+export async function meteredAnthropic(request: Request, params: { feature: string; model: string; maxInputTokens: number; maxOutputTokens: number; maxCalls?: number; body: Record<string, unknown>; background?: boolean; signal?: AbortSignal }) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new AiLimitError("AI provider unavailable");
   const envelopeError = validateAnthropicEnvelope(params.body, params.model, params.maxInputTokens, params.maxOutputTokens);
   if (envelopeError) throw new AiLimitError(envelopeError, envelopeError === "AI input is too large" ? 413 : 503);
   const reservation = await reserveAi(request, params);
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(params.body), signal: AbortSignal.timeout(30_000) });
+    const response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(params.body), signal: AbortSignal.any([request.signal, ...(params.signal ? [params.signal] : []), AbortSignal.timeout(30_000)]) });
     if (!response.ok) { await reconcileAi(reservation, undefined, "provider_error"); throw new AiLimitError("AI provider request failed", 502); }
     const data = await response.json() as { usage?: AiUsage; [key: string]: unknown };
-    await reconcileAi(reservation, data.usage);
+    const usage = data.usage;
+    const completeUsage = usage && Number.isSafeInteger(usage.input_tokens) && Number.isSafeInteger(usage.output_tokens) ? usage : undefined;
+    await reconcileAi(reservation, completeUsage);
     return { data, quota: { used_micros: reservation.usedMicros, remaining_micros: reservation.remainingMicros, reset_at: resetAt() } };
   } catch (error) {
     if (!(error instanceof AiLimitError)) await reconcileAi(reservation, undefined, "failed");
@@ -93,6 +96,6 @@ export async function meteredAnthropic(request: Request, params: { feature: stri
 /** Drop-in fetch-shaped adapter used to make provider dispatch impossible before reservation. */
 export async function meteredAnthropicFetch(request: Request, limits: { feature: string; model: string; maxInputTokens: number; maxOutputTokens: number; background?: boolean }, init: RequestInit) {
   const body = JSON.parse(String(init.body ?? "{}")) as Record<string, unknown>;
-  const result = await meteredAnthropic(request, { ...limits, body });
+  const result = await meteredAnthropic(request, { ...limits, body, signal: init.signal ?? undefined });
   return new Response(JSON.stringify(result.data), { status: 200, headers: { "content-type": "application/json", "x-ai-quota": JSON.stringify(result.quota) } });
 }

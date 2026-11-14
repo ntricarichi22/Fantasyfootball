@@ -91,18 +91,6 @@ export interface DraftLogEntry {
   nflTeam?: string;
 }
 
-export type ActiveTeamRecord = {
-  rosterId: string;
-  sessionId: string;
-};
-
-export type ActiveTeamApiRow = {
-  rosterId?: string;
-  roster_id?: string;
-  sessionId?: string;
-  session_id?: string;
-};
-
 /**
  * Curated rookie-prospect bio loaded from Supabase `rookie_prospects`. Used
  * as a per-field fallback when the live Sleeper player dictionary is missing

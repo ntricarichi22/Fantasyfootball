@@ -1,29 +1,16 @@
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { canonicalTradeAssets, offerTransition } from "@/shared/league-data/tradeAssets";
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { LEAGUE_ID } from "@/infrastructure/config";
 import { currentAppSessionFromRequest, currentSessionCanActForRoster } from "@/infrastructure/auth/currentSession";
-import { invalidateLeagueData } from "@/shared/league-data";
+import { invalidateLeagueData, getLeagueData } from "@/shared/league-data";
 
 export const dynamic = "force-dynamic";
 
-const ALLOWED_TRANSITIONS: Record<string, { allowed: string[]; role: "sender" | "receiver" }> = {
-  accepted: { allowed: ["pending"], role: "receiver" },
-  declined: { allowed: ["pending"], role: "receiver" },
-  withdrawn: { allowed: ["pending"], role: "sender" },
-};
-
-// Offer status → thread status
-const THREAD_STATUS_MAP: Record<string, string> = {
-  accepted: "accepted",
-  declined: "declined",
-  withdrawn: "withdrawn",
-};
-
 export async function POST(request: NextRequest) {
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
+  const body = await boundedJson<Record<string, unknown>>(request, 16 * 1024);
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
@@ -33,14 +20,14 @@ export async function POST(request: NextRequest) {
     status?: string;
   };
 
-  if (!offer_id || !team_id || !status) {
+  if (typeof offer_id !== "string" || typeof team_id !== "string" || typeof status !== "string" || !offer_id || !team_id) {
     return NextResponse.json(
       { error: "offer_id, team_id, and status are required" },
       { status: 400 },
     );
   }
 
-  const transition = ALLOWED_TRANSITIONS[status];
+  const transition = offerTransition(status);
   if (!transition) {
     return NextResponse.json(
       { error: `Invalid status transition: ${status}` },
@@ -92,11 +79,18 @@ export async function POST(request: NextRequest) {
   // Stage the overlay before changing the offer. Readers require accepted_at,
   // so a failed status update cannot expose an unaccepted trade.
   if (status === "accepted") {
+    invalidateLeagueData();
+    const league = await getLeagueData();
+    if ("error" in league) return NextResponse.json({ error: "League data unavailable" }, { status: 503 });
+    if (!canonicalTradeAssets(offer.assets_from, offer.from_team_id, league) ||
+        !canonicalTradeAssets(offer.assets_to, offer.to_team_id, league)) {
+      return NextResponse.json({ error: "Asset ownership changed; rebuild the offer" }, { status: 409 });
+    }
     const { error: overlayError } = await client.from("cfc_pending_trade_overlays").upsert({
       offer_id, league_id, from_team_id: offer.from_team_id, to_team_id: offer.to_team_id,
       assets_from: offer.assets_from, assets_to: offer.assets_to, accepted_at: null, reconciled_at: null,
-    }, { onConflict: "offer_id" });
-    if (overlayError) return NextResponse.json({ error: overlayError.message }, { status: 500 });
+    }, { onConflict: "offer_id", ignoreDuplicates: true });
+    if (overlayError) return NextResponse.json({ error: "Failed to stage trade" }, { status: 500 });
   }
 
   // All resolutions are SOFT — the thread survives so the negotiation board
@@ -106,28 +100,29 @@ export async function POST(request: NextRequest) {
   // pending that's the recipient; once resolved it flips to the NON-ACTOR
   // (accept/decline → the sender; withdraw → the recipient), whose card
   // pulses until they open the thread — so clear it here.
-  const { error: updateError } = await client
+  const { data: updated, error: updateError } = await client
     .from("trade_offers")
     .update({ status, updated_at: now, read_at: null })
     .eq("id", offer_id)
-    .eq("league_id", league_id);
+    .eq("league_id", league_id)
+    .eq("status", "pending").select("id").maybeSingle();
 
   if (updateError) {
-    return NextResponse.json({ error: updateError.message }, { status: 500 });
+    return NextResponse.json({ error: "Failed to update offer" }, { status: 500 });
   }
+  if (!updated) return NextResponse.json({ error: "Offer changed; reload and retry" }, { status: 409 });
   if (status === "accepted") {
     const { error: activateError } = await client.from("cfc_pending_trade_overlays")
       .update({ accepted_at: now }).eq("offer_id", offer_id).eq("league_id", league_id);
-    if (activateError) return NextResponse.json({ error: activateError.message }, { status: 500 });
+    if (activateError) return NextResponse.json({ error: "Failed to activate trade" }, { status: 500 });
     invalidateLeagueData();
   }
 
   // Propagate terminal statuses to the thread
-  const threadStatus = THREAD_STATUS_MAP[status];
-  if (threadStatus && offer.thread_id) {
+  if (offer.thread_id) {
     await client
       .from("trade_threads")
-      .update({ status: threadStatus, last_activity_at: now, updated_at: now })
+      .update({ status, last_activity_at: now, updated_at: now })
       .eq("id", offer.thread_id)
       .eq("league_id", league_id);
   }

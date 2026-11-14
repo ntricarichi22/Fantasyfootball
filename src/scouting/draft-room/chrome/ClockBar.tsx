@@ -1,11 +1,15 @@
 "use client";
 
+import { browserStorageKey, writeBrowserJson } from "@/infrastructure/identity/browserStorage";
+import { useBrowserStorageScope } from "@/infrastructure/identity/BrowserStorageScopeProvider";
+
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useDraftStatusContext } from "./DraftStatusProvider";
 import { useDraftClockContext } from "@/scouting/draft-room/hooks/useDraftClockContext";
-import { computeSecondsUntilAnnouncement } from "@/scouting/draft-room/draftState";
+import { useDraftClockDisplay } from "@/scouting/draft-room/hooks/useDraftClockDisplay";
+import { formatTimer, computeCountdownParts } from "@/scouting/draft-room/clockDisplay";
 import { getSupabaseClient } from "@/infrastructure/supabase/client";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { playChime, toggleChimeMuted, useChimeMuted } from "@/scouting/draft-room/chime";
@@ -30,55 +34,17 @@ const INK_COLON = "rgba(26,26,26,0.35)";
 
 type StoredSelection = StoredTeam;
 
-const formatTimer = (totalSeconds: number) => {
-  const safe = Math.max(0, Math.floor(totalSeconds));
-  const minutes = Math.floor(safe / 60);
-  const seconds = safe % 60;
-  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-};
 
-const computeCountdownParts = (startsAtMs: number, nowMs: number) => {
-  const total = Math.max(0, Math.floor((startsAtMs - nowMs) / 1000));
-  const days = Math.floor(total / 86400);
-  const hours = Math.floor((total % 86400) / 3600);
-  const minutes = Math.floor((total % 3600) / 60);
-  const seconds = total % 60;
-  return { total, days, hours, minutes, seconds };
-};
 
 export default function ClockBar() {
+  const storageScope = useBrowserStorageScope();
   const router = useRouter();
   const pathname = usePathname();
   const { isActive, secondsRemaining, state } = useDraftStatusContext();
   const isDraftRoute = pathname?.startsWith(DRAFT_ROUTE) ?? false;
 
-  // Determine pre-draft countdown vs active states. Date.now() is used via
-  // a state-backed `countdownNow` so render stays pure (per react-hooks/purity).
-  const startsAtMs =
-    state?.starts_at && typeof state.starts_at === "string"
-      ? new Date(state.starts_at).getTime()
-      : NaN;
-
-  // Pre-draft countdown ticking (per-second local). MUST be initialized to a
-  // stable value on first render so the SSR snapshot and the client hydration
-  // pass produce identical HTML — `useState(() => Date.now())` was causing
-  // React error #418 (hydration mismatch) because the server captured one
-  // wall-clock and the client captured another. The mismatch was throwing
-  // before useEffects had a chance to register, which silently disabled the
-  // /api/scouting/draft/tick auto-fire effects below. Initialize to 0 (which makes
-  // `hasFutureStart` false during SSR) and set the real `Date.now()` in the
-  // mount effect, then keep ticking it every second while a future start is
-  // scheduled (handled by the existing effect further down).
-  const [countdownNow, setCountdownNow] = useState(0);
-  useEffect(() => {
-    setCountdownNow(Date.now());
-  }, []);
-
-  const hasFutureStart =
-    Number.isFinite(startsAtMs) &&
-    state?.status === "not_started" &&
-    countdownNow > 0 &&
-    startsAtMs > countdownNow;
+  const { startsAtMs, countdownNow, hasFutureStart, tickedSeconds, announceSeconds, isPickIn } =
+    useDraftClockDisplay(state, secondsRemaining);
 
   // Poll clock context whenever the bar is rendered (active draft anywhere,
   // any visit to /draft, or a scheduled pre-draft countdown so we can show
@@ -91,40 +57,12 @@ export default function ClockBar() {
   // roster the user is currently piloting.
   const [selection, setSelection] = useState<StoredSelection>({});
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrate and subscribe to the browser identity display value.
     setSelection(readStoredTeam());
     const handle = () => setSelection(readStoredTeam());
     window.addEventListener("storage", handle);
     return () => window.removeEventListener("storage", handle);
   }, []);
-
-  // Local 1s tick so the displayed timer counts down between polls.
-  const [tickedSeconds, setTickedSeconds] = useState(secondsRemaining);
-  useEffect(() => {
-    setTickedSeconds(secondsRemaining);
-  }, [secondsRemaining]);
-  useEffect(() => {
-    if (!isActive || state?.status !== "running") return;
-    const id = window.setInterval(() => {
-      setTickedSeconds((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [isActive, state?.status]);
-
-  // "Pick is in" countdown — seconds until the submitted pick is announced.
-  const [announceSeconds, setAnnounceSeconds] = useState(() =>
-    computeSecondsUntilAnnouncement(state)
-  );
-  useEffect(() => {
-    setAnnounceSeconds(computeSecondsUntilAnnouncement(state));
-  }, [state?.pick_submitted, state?.pick_announced_at, state]);
-  const isPickIn = !!state?.pick_submitted && !!state?.pick_announced_at;
-  useEffect(() => {
-    if (!isPickIn) return;
-    const id = window.setInterval(() => {
-      setAnnounceSeconds(computeSecondsUntilAnnouncement(state));
-    }, 1000);
-    return () => window.clearInterval(id);
-  }, [isPickIn, state]);
 
   // The countdown value currently displayed on screen: when a pick is "in"
   // (submitted, awaiting announcement) we show the announcement countdown;
@@ -330,20 +268,12 @@ export default function ClockBar() {
     };
   }, [triggerReveal]);
 
-  // Pre-draft countdown re-tick: when there is a future start, advance
-  // `countdownNow` every second so the displayed values update.
-  useEffect(() => {
-    if (!hasFutureStart) return;
-    const id = window.setInterval(() => setCountdownNow(Date.now()), 1000);
-    return () => window.clearInterval(id);
-  }, [hasFutureStart]);
-
   // When the pre-draft countdown reaches 0, fire `action: "start"` exactly
   // once. Server-side guard returns `already_started` if another client beat
   // us to it, so concurrent clients are safe.
   const startFiredRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!hasFutureStart) {
+    if (state?.status !== "not_started" || !Number.isFinite(startsAtMs) || countdownNow <= 0) {
       startFiredRef.current = null;
       return;
     }
@@ -358,7 +288,7 @@ export default function ClockBar() {
     }).catch(() => {
       startFiredRef.current = null;
     });
-  }, [hasFutureStart, startsAtMs, countdownNow, state?.starts_at]);
+  }, [startsAtMs, countdownNow, state?.starts_at, state?.status]);
 
   // Visibility: render the bar when the draft is active OR we're on the draft
   // route OR a pre-draft countdown is scheduled (so the countdown shows
@@ -914,12 +844,12 @@ export default function ClockBar() {
     const season = context?.season || "";
     const round = context?.round || 1;
     if (!partnerId || !season) return;
-    sessionStorage.setItem("cfc_builder_seed_deal", JSON.stringify({
+    writeBrowserJson("sessionStorage", browserStorageKey("builder-seed-deal", storageScope), {
       partner_team_id: partnerId,
       partner_team_name: context?.onClockTeamName || `Team ${partnerId}`,
       send: [],
       receive: [{ key: `pick:${season}-${round}-${partnerId}`, name: `${season} Rd ${round}`, type: "pick" }],
-    }));
+    });
     router.push("/pro-personnel/trade-builder?seed=cycler");
   };
 

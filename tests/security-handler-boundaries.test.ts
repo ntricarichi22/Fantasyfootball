@@ -11,7 +11,7 @@ import { publicPartnerContext } from "../src/app/api/inbox/ai-counter/publicPart
 import { targetResponse, visibleAttachment } from "../src/app/api/pro-personnel/targets/targetVisibility.ts";
 import { isVisibleNegotiationThread } from "../src/app/api/inbox/insider/visibility.ts";
 
-const session: AppSession = { userId: "user-a", leagueId: "league-a", rosterId: "team-a", role: "member", expiresAt: 9999999999 };
+const session: AppSession = { userId: "user-a", sessionId: "11111111-1111-4111-8111-111111111111", leagueId: "league-a", rosterId: "team-a", role: "member", expiresAt: 9999999999 };
 const responseJson = async (response: Response) => await response.json() as Record<string, unknown>;
 
 test("actual memo handlers hide foreign UUIDs and never mutate them", async () => {
@@ -55,44 +55,41 @@ test("actual memo handler rejects a forged team before touching storage", async 
 const result = <T>(data: T | null, error: { code?: string; message?: string } | null = null) => ({ data, error });
 
 test("revoked membership cannot self-rejoin through a stale legacy map", async () => {
-  let legacyReads = 0;
   let accepts = 0;
   const store: FinalizeAccessStore = {
     membership: async () => result(null),
-    legacyInvitation: async () => { legacyReads++; return result({ roster_id: "old-team" }); },
     acceptInvitation: async () => { accepts++; return result(null); },
   };
   const access = await resolveFinalizeAccess(store, "user-a", "old@example.invalid", "league-a");
   assert.equal(access.error, "forbidden");
   assert.equal(access.membership, null);
-  assert.equal(sessionClaimsForAccess(access, "user-a"), null, "revoked access cannot mint session claims");
-  assert.equal(legacyReads, 0, "legacy rows are ignored after migration 012 exists");
+  assert.equal(sessionClaimsForAccess(access, "user-a", session.sessionId), null, "revoked access cannot mint session claims");
   assert.equal(accepts, 1, "only the one-time invitation boundary is consulted");
 });
 
-test("current, transferred/demoted, invited, and pre-012 users follow explicit paths", async () => {
+test("current and invited users retain access; missing membership schema fails closed", async () => {
   const current = await resolveFinalizeAccess({
     membership: async () => result({ league_id: "league-a", roster_id: "team-new", role: "member" }),
-    legacyInvitation: async () => result(null), acceptInvitation: async () => result(null),
+    acceptInvitation: async () => result(null),
   }, "user-a", "a@example.invalid", "league-a");
   assert.deepEqual(current.membership, { league_id: "league-a", roster_id: "team-new", role: "member" });
   assert.equal(current.accepted, false);
-  assert.deepEqual(sessionClaimsForAccess(current, "user-a"), {
-    userId: "user-a", leagueId: "league-a", rosterId: "team-new", role: "member",
+  assert.deepEqual(sessionClaimsForAccess(current, "user-a", session.sessionId), {
+    userId: "user-a", sessionId: session.sessionId, leagueId: "league-a", rosterId: "team-new", role: "member",
   });
 
   const invited = await resolveFinalizeAccess({
-    membership: async () => result(null), legacyInvitation: async () => result(null),
+    membership: async () => result(null),
     acceptInvitation: async () => result({ league_id: "league-a", roster_id: "team-a", role: "member" }),
   }, "user-a", "a@example.invalid", "league-a");
   assert.equal(invited.accepted, true);
 
   const compatibility = await resolveFinalizeAccess({
     membership: async () => result(null, { code: "42P01" }),
-    legacyInvitation: async () => result({ roster_id: "team-a" }), acceptInvitation: async () => result(null),
+    acceptInvitation: async () => result(null),
   }, "user-a", "a@example.invalid", "league-a");
-  assert.equal(compatibility.compatibility, true);
-  assert.equal(compatibility.membership?.role, "member");
+  assert.equal(compatibility.error, "unavailable");
+  assert.equal(compatibility.membership, null);
 });
 
 test("thread boundary denies spoofing and permits a real counterpart", async () => {
@@ -160,6 +157,6 @@ test("shared auth accounting limits and fails safely on outages", async () => {
   assert.equal(await claimAuthAttempt("login:a", deps(true)), "allowed");
   assert.equal(await claimAuthAttempt("login:a", deps(false)), "limited");
   assert.equal(await claimAuthAttempt("login:a", deps(null, { code: "08006" })), "unavailable");
-  assert.equal(await claimAuthAttempt("login:a", deps(null, { code: "PGRST202" })), "allowed",
-    "only the pre-016 missing-function rollout window falls back to provider limits");
+  assert.equal(await claimAuthAttempt("login:a", deps(null, { code: "PGRST202" })), "unavailable",
+    "missing durable rate-limit infrastructure must fail closed");
 });

@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   const rows = (data ?? [])
     .map((row) => ({
       rosterId: row.roster_id != null ? String(row.roster_id) : "",
-      sessionId: row.session_id ?? "",
+      sessionId: String(row.roster_id) === session.rosterId ? row.session_id ?? "" : "",
       lastSeen: row.last_seen ?? null,
     }))
     .filter((row) => row.rosterId);

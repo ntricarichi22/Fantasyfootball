@@ -1,75 +1,28 @@
+import { asRecord } from "@/infrastructure/json";
+import { fetchFleaflicker, type SourceFetchResult } from "@/infrastructure/ingest/source-http";
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextRequest, NextResponse } from "next/server";
-import { requireSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { requireSupabaseAdminClient as getSupabaseAdmin } from "@/infrastructure/supabase/admin";
 import crypto from "node:crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const FLEA_BASE_URL = "https://www.fleaflicker.com/api";
-const FLEA_SPORT = process.env.FLEAFLICKER_SPORT ?? "NFL";
-const PLAYER_LISTING_PAGE_LIMIT = 250;
 
-const getSupabaseAdmin = requireSupabaseAdminClient;
 
 function sha256(input: string) {
   return crypto.createHash("sha256").update(input).digest("hex");
 }
 
-function safeJsonParse(text: string) {
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
-}
-
-function buildUrl(path: string, params: Record<string, string | number | boolean | undefined>) {
-  const url = new URL(`${FLEA_BASE_URL}${path}`);
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) continue;
-    url.searchParams.append(key, String(value));
-  }
-  return url.toString();
-}
-
-async function fetchFleaflicker(
-  path: string,
-  params: Record<string, string | number | boolean | undefined>
-) {
-  const merged = {
-    sport: FLEA_SPORT,
-    ...params,
-  };
-
-  const requestUrl = buildUrl(path, merged);
-
-  const res = await fetch(requestUrl, {
-    method: "GET",
-    headers: { accept: "application/json" },
-    cache: "no-store",
-  });
-
-  const bodyText = await res.text();
-  const bodyJson = safeJsonParse(bodyText);
-
-  return {
-    ok: res.ok,
-    status: res.status,
-    requestUrl,
-    requestParams: Object.fromEntries(
-      Object.entries(merged).filter(([, v]) => v !== undefined && v !== null)
-    ) as Record<string, string | number | boolean>,
-    bodyText,
-    bodyJson,
-  };
-}
-
-function extractTeamIds(payload: any): number[] {
+function extractTeamIds(payload: unknown): number[] {
   const ids = new Set<number>();
 
-  const walk = (node: any) => {
-    if (!node || typeof node !== "object") return;
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    const node = asRecord(value);
 
     if (
       typeof node.id === "number" &&
@@ -79,11 +32,6 @@ function extractTeamIds(payload: any): number[] {
       ids.add(node.id);
     }
 
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
-    }
-
     for (const value of Object.values(node)) walk(value);
   };
 
@@ -91,19 +39,18 @@ function extractTeamIds(payload: any): number[] {
   return [...ids];
 }
 
-function extractGameIdsFromScoreboard(payload: any): string[] {
+function extractGameIdsFromScoreboard(payload: unknown): string[] {
   const ids = new Set<string>();
 
-  const walk = (node: any) => {
-    if (!node || typeof node !== "object") return;
+  const walk = (value: unknown) => {
+    if (Array.isArray(value)) {
+      value.forEach(walk);
+      return;
+    }
+    const node = asRecord(value);
 
     if (typeof node.id !== "undefined" && (node.home || node.away)) {
       ids.add(String(node.id));
-    }
-
-    if (Array.isArray(node)) {
-      for (const item of node) walk(item);
-      return;
     }
 
     for (const value of Object.values(node)) walk(value);
@@ -123,11 +70,11 @@ async function upsertRawGlobalRow(
     endpoint_group: string;
     endpoint_name: string;
     request_url: string;
-    request_params: Record<string, any>;
+    request_params: Record<string, unknown>;
     source_key: string;
     entity_id?: string | null;
     week?: number | null;
-    payload_json?: any | null;
+    payload_json?: unknown;
     payload_text?: string | null;
     http_status: number;
     notes?: string | null;
@@ -171,7 +118,7 @@ async function recordFetch(
     sourceLeagueId: string;
     counters: Record<string, number>;
   },
-  fetchResult: any,
+  fetchResult: SourceFetchResult,
   meta: {
     endpointGroup: string;
     endpointName: string;
@@ -275,7 +222,7 @@ async function ingestPlayerListingPages(
       throw new Error(`FetchPlayerListing failed (${result.status}) at week ${week}, offset ${offset}`);
     }
 
-    const body = result.bodyJson ?? {};
+    const body = asRecord(result.bodyJson);
     const players = Array.isArray(body.players) ? body.players : [];
     const nextOffset =
       typeof body.resultOffsetNext === "number"
@@ -285,7 +232,7 @@ async function ingestPlayerListingPages(
         : null;
 
     if (players.length === 0) break;
-    if (nextOffset === null || nextOffset === offset) break;
+    if (nextOffset === null || nextOffset <= offset) break;
 
     offset = nextOffset;
 
@@ -428,7 +375,8 @@ async function runFleaJob(
         throw new Error(`FetchLeagueTransactions failed (${result.status}) at offset ${offset}`);
       }
 
-      const items = Array.isArray(result.bodyJson?.items) ? result.bodyJson.items : [];
+      const body = asRecord(result.bodyJson);
+      const items = Array.isArray(body.items) ? body.items : [];
       if (items.length === 0) break;
 
       offset += items.length;
@@ -460,13 +408,13 @@ async function runFleaJob(
     }
 
     return summary;
-  } catch (error: any) {
+  } catch (error: unknown) {
     await supabase
       .from("flea_raw_smoke")
       .update({
         status: "error",
         completed_at: new Date().toISOString(),
-        error_text: error?.message ?? "Unknown FleaFlicker raw ingest error",
+        error_text: error instanceof Error ? error.message : "Unknown FleaFlicker raw ingest error",
         summary_json: {
           ingest_run_id: ingestRunId,
           season_year: seasonYear,
@@ -493,9 +441,9 @@ export async function GET(req: NextRequest) {
     const draftNumberRaw = url.searchParams.get("draftNumber");
     const draftNumber = draftNumberRaw ? Number(draftNumberRaw) : undefined;
 
-    if (!seasonYear || !sourceLeagueId || !maxScoringPeriod) {
+    if (!Number.isInteger(seasonYear) || seasonYear < 1900 || seasonYear > 2100 || !sourceLeagueId || !/^\d{1,24}$/.test(sourceLeagueId) || !Number.isInteger(maxScoringPeriod) || maxScoringPeriod < 1 || maxScoringPeriod > 30) {
       return NextResponse.json(
-        { ok: false, error: "Missing required query params: seasonYear, sourceLeagueId, maxScoringPeriod" },
+        { ok: false, error: "Invalid or missing query params: seasonYear, sourceLeagueId, maxScoringPeriod" },
         { status: 400 }
       );
     }
@@ -504,9 +452,9 @@ export async function GET(req: NextRequest) {
     const summary = await runFleaJob(supabase, seasonYear, sourceLeagueId, maxScoringPeriod, draftNumber);
 
     return NextResponse.json({ ok: true, summary });
-  } catch (error: any) {
+  } catch (error: unknown) {
     return NextResponse.json(
-      { ok: false, error: error?.message ?? "Unknown FleaFlicker ingest error" },
+      { ok: false, error: error instanceof Error ? error.message : "Unknown FleaFlicker ingest error" },
       { status: 500 }
     );
   }

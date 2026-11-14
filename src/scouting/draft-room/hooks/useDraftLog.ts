@@ -191,6 +191,7 @@ export function useDraftTicker({ disabled = false }: { disabled?: boolean } = {}
 
   useEffect(() => {
     if (disabled) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Clear request loading state when polling is disabled.
       setLoadingPicks(false);
       setLoadingOrder(false);
       return;

@@ -1,3 +1,4 @@
+import { isRecord } from "@/infrastructure/json";
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
@@ -22,7 +23,6 @@ type PlayersMap = Record<
 export async function GET(req: Request) {
   if (!(await isAdminRequest(req))) return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   try {
-  const url = new URL(req.url);
 
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) {
@@ -100,9 +100,9 @@ export async function GET(req: Request) {
 
     if (!Array.isArray(row.payload)) continue;
 
-    const matchupGroups = new Map<number, Array<any>>();
+    const matchupGroups = new Map<number, Array<Record<string, unknown>>>();
 
-    for (const match of row.payload) {
+    for (const match of row.payload.filter(isRecord)) {
       const matchupId = typeof match?.matchup_id === "number" ? match.matchup_id : null;
       if (matchupId === null) continue;
 
@@ -110,7 +110,7 @@ export async function GET(req: Request) {
       matchupGroups.get(matchupId)!.push(match);
     }
 
-    for (const match of row.payload) {
+    for (const match of row.payload.filter(isRecord)) {
       const rosterId =
         match?.roster_id != null && !Number.isNaN(Number(match.roster_id))
           ? Number(match.roster_id)
@@ -248,11 +248,7 @@ export async function GET(req: Request) {
     mode: "build_player_weekly_game_log",
     upserted,
   });
-  } catch (err) {
-    console.error('[API GET /api/admin/build-player-weekly-game-log]', err);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+  } catch {
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

@@ -12,6 +12,7 @@ import { authoritativePasswordFailureEvent } from "../src/infrastructure/securit
 
 const signed: AppSession = {
   userId: "00000000-0000-0000-0000-000000000001",
+  sessionId: "11111111-1111-4111-8111-111111111111",
   leagueId: "league-a",
   rosterId: "team-a",
   role: "admin",
@@ -27,7 +28,7 @@ test("current authorization rejects revoked memberships and unavailable auth sta
 test("current membership replaces stale team and role claims", () => {
   const result = resolveCurrentSession(signed, true, {
     league_id: "league-a", roster_id: "team-b", role: "member",
-  });
+  }, true, true);
   assert.equal(result.session?.rosterId, "team-b");
   assert.equal(result.session?.role, "member");
 });
@@ -62,4 +63,11 @@ test("authoritative auth events expose only a fixed failure classification", () 
     fingerprint: "digest",
     summary: { reason: "credentials_rejected" },
   });
+});
+
+test("a copied app cookie fails when its provider session is revoked", () => {
+  const member = { league_id: "league-a", roster_id: "team-a", role: "member" };
+  assert.equal(resolveCurrentSession(signed, true, member, true, false).error, "not_authenticated");
+  assert.equal(resolveCurrentSession(signed, true, member, true, true).session?.sessionId, signed.sessionId);
+  assert.equal(resolveCurrentSession(signed, true, member, false, true).error, "auth_state_unavailable");
 });

@@ -1,3 +1,5 @@
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { authorizedDraftSlot, canViewUnannouncedPicks, recordDraftSelection } from "./draftAuthorization";
 import { NextRequest, NextResponse } from "next/server";
 import { getLeagueId } from "@/infrastructure/config";
 import { INITIAL_PICK_SECONDS, normalizeDraftStateRow } from "@/scouting/draft-room/draftState";
@@ -31,10 +33,10 @@ const LEAGUE_ID = safeLeagueId();
 export const dynamic = "force-dynamic";
 
 const normalizeNumber = (value: number | string | null | undefined) => {
-  if (typeof value === "number") return value;
+  if (typeof value === "number") return Number.isSafeInteger(value) && value >= 0 ? value : null;
   if (typeof value === "string") {
     const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
   }
   return null;
 };
@@ -45,16 +47,15 @@ const normalizeDraftLogPayload = (payload: DraftLogPayload) => {
 
   if (
     pickIndex === null ||
-    !payload.pickNumber ||
-    !payload.rosterId ||
-    !payload.playerId
+    typeof payload.rosterId !== "string" || !payload.rosterId ||
+    typeof payload.playerId !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(payload.playerId)
   ) {
     return null;
   }
 
   return {
     pick_index: pickIndex,
-    pick_number: payload.pickNumber,
+    pick_number: "",
     team_count: teamCount ?? 0,
     team_name: payload.teamName,
     roster_id: payload.rosterId ?? null,
@@ -98,6 +99,10 @@ export async function GET(request: NextRequest) {
   const includeUnannounced =
     request.nextUrl.searchParams.get("includeUnannounced") === "1";
 
+  if (includeUnannounced && !canViewUnannouncedPicks(session, LEAGUE_ID)) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   let query = client
     .from("draft_log")
     .select(
@@ -123,7 +128,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const payload = (await request.json().catch(() => null)) as DraftLogPayload | null;
+  const payload = await boundedJson<DraftLogPayload>(request, 16 * 1024);
   const normalized = normalizeDraftLogPayload(payload || {});
 
   if (!normalized) {
@@ -147,7 +152,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unknown roster or player" }, { status: 400 });
   }
 
+  if (league.teams.some((team) => team.playerIds.includes(normalized.player_id))) {
+    return NextResponse.json({ error: "player_already_rostered" }, { status: 409 });
+  }
+  const player = league.players.get(normalized.player_id)!;
+  normalized.positions = [player.position];
+  normalized.nfl_team = player.team;
+
   const draftState = await fetchDraftState(client);
+  const slot = authorizedDraftSlot(session, LEAGUE_ID, normalized.roster_id, normalized.pick_index,
+    league.teamCount, league.draftStatus.season, league.pickOwnership, draftState);
+  if (!slot) return NextResponse.json({ error: "Pick is unavailable or does not belong to this roster" }, { status: 403 });
+  normalized.pick_number = slot.pickNumber;
+  normalized.team_count = league.teamCount;
+
   if (draftState?.status === "paused") {
     return NextResponse.json({ error: "Draft is paused" }, { status: 409 });
   }
@@ -169,6 +187,7 @@ export async function POST(request: NextRequest) {
     .maybeSingle();
   if (existingPlayerError) {
     console.warn("Unable to check draft_log for duplicate player", existingPlayerError);
+    return NextResponse.json({ error: "Unable to verify player availability" }, { status: 503 });
   } else if (existingPlayerRow) {
     return NextResponse.json(
       {
@@ -183,10 +202,7 @@ export async function POST(request: NextRequest) {
   // expires. The clock is NOT reset here — the team's window keeps ticking
   // toward the announcement time.
   //
-  // Two exceptional paths short-circuit straight to "announced":
-  //   (a) The submitted pick belongs to a slot whose window has already
-  //       expired (skipped team coming back to make their pick).
-  //   (b) The draft has not yet been started (legacy / dev fallback).
+  // Previously skipped slots are announced immediately once submitted.
   const nowIso = new Date().toISOString();
   const isCurrentSlot =
     typeof draftState?.current_pick_index === "number" &&
@@ -203,17 +219,20 @@ export async function POST(request: NextRequest) {
   const isAnnounced = !windowOpen;
   const announcedAt = isAnnounced ? nowIso : null;
 
-  const { error: insertError } = await client.from("draft_log").upsert([
-    {
-      league_id: LEAGUE_ID,
-      ...normalized,
-      team_name: authoritativeNames.team_name,
-      player_name: authoritativeNames.player_name,
-      submitted_at: submittedAt,
-      is_announced: isAnnounced,
-      announced_at: announcedAt,
+  const row = {
+    league_id: LEAGUE_ID, ...normalized,
+    team_name: authoritativeNames.team_name, player_name: authoritativeNames.player_name,
+    submitted_at: submittedAt, is_announced: isAnnounced, announced_at: announcedAt, is_skip: false,
+  };
+  const insertError = await recordDraftSelection({
+    replaceSkipped: async () => {
+      const { data, error } = await client.from("draft_log").update(row)
+        .eq("league_id", LEAGUE_ID).eq("pick_index", normalized.pick_index)
+        .eq("is_skip", true).is("player_id", null).select("pick_index").maybeSingle();
+      return { replaced: Boolean(data), error };
     },
-  ]);
+    insert: async () => { const { error } = await client.from("draft_log").insert(row); return { error }; },
+  });
 
   if (insertError) {
     // Race-safe duplicate detection: a concurrent insert from another client
@@ -227,8 +246,8 @@ export async function POST(request: NextRequest) {
     ) {
       return NextResponse.json(
         {
-          error: "player_already_drafted",
-          message: "This player has already been selected",
+          error: "pick_already_recorded",
+          message: "This pick or player has already been selected",
         },
         { status: 409 }
       );
@@ -240,7 +259,7 @@ export async function POST(request: NextRequest) {
     if (windowOpen && draftState) {
       // "Pick is in" — flip cadence flags on draft_state, do NOT advance.
       const announceMs = startedAtMs + INITIAL_PICK_SECONDS * 1000;
-      const { error: clockError } = await client.from("draft_state").upsert(
+      const { error: clockError } = await client.from("draft_state").update(
         {
           league_id: LEAGUE_ID,
           status: "running",
@@ -249,21 +268,21 @@ export async function POST(request: NextRequest) {
           pick_submitted: true,
           pick_announced_at: new Date(announceMs).toISOString(),
           current_pick_index: draftState.current_pick_index,
-        },
-        { onConflict: "league_id" }
-      );
+        }
+      ).eq("league_id", LEAGUE_ID).eq("current_pick_index", draftState.current_pick_index)
+        .eq("status", "running").eq("clock_started_at", draftState.clock_started_at);
       if (clockError) {
         console.warn("Unable to flag draft_state pick_submitted", clockError);
       }
-    } else {
-      // Legacy / skipped-team path: announce immediately and advance.
+    } else if (isCurrentSlot && draftState) {
+      // A late skipped pick must not reset another team's running clock.
       const nextIndex =
         typeof draftState?.current_pick_index === "number"
           ? draftState.current_pick_index === normalized.pick_index
             ? draftState.current_pick_index + 1
             : draftState.current_pick_index
           : null;
-      const { error: clockError } = await client.from("draft_state").upsert(
+      const { error: clockError } = await client.from("draft_state").update(
         {
           league_id: LEAGUE_ID,
           status: "running",
@@ -272,9 +291,9 @@ export async function POST(request: NextRequest) {
           pick_submitted: false,
           pick_announced_at: null,
           current_pick_index: nextIndex,
-        },
-        { onConflict: "league_id" }
-      );
+        }
+      ).eq("league_id", LEAGUE_ID).eq("current_pick_index", draftState.current_pick_index)
+        .eq("status", "running").eq("clock_started_at", draftState.clock_started_at);
       if (clockError) {
         console.warn("Unable to update draft_state after pick", clockError);
       }
@@ -286,7 +305,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const payload = (await request.json().catch(() => null)) as DraftLogPayload | null;
+  const payload = await boundedJson<DraftLogPayload>(request, 16 * 1024);
   const pickIndex = normalizeNumber(payload?.pickIndex);
   const rosterId = payload?.rosterId ? String(payload.rosterId) : "";
 

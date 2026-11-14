@@ -1,3 +1,4 @@
+import { asRecord, isRecord } from "@/infrastructure/json";
 import { isAdminRequest } from "@/infrastructure/auth/admin";
 import { NextResponse } from "next/server";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
@@ -50,6 +51,8 @@ export async function GET(req: Request) {
   const startedAt = Date.now();
   const url = new URL(req.url);
 
+  // Admin guard
+
   const supabaseResult = getSupabaseAdminClient();
   if (supabaseResult.error) return jsonError(`Supabase admin client error: ${supabaseResult.error}`, 500);
   if (!supabaseResult.client) return jsonError("Supabase admin client is null", 500);
@@ -65,25 +68,27 @@ export async function GET(req: Request) {
   const budgetMs = Number(url.searchParams.get("budget_ms") ?? "25000");
   const force = url.searchParams.get("force") === "1";
 
-  if (!Number.isFinite(maxWeeks) || maxWeeks < 1 || maxWeeks > 25) return jsonError("Invalid max_weeks", 400);
+  if (!Number.isInteger(maxWeeks) || maxWeeks < 1 || maxWeeks > 25) return jsonError("Invalid max_weeks", 400);
   if (!Number.isFinite(budgetMs) || budgetMs < 5_000 || budgetMs > 55_000) return jsonError("Invalid budget_ms", 400);
   if (mode !== "core" && mode !== "full") return jsonError('Invalid mode (use "core" or "full")', 400);
+
+  if (!/^\d{1,24}$/.test(startLeagueId)) return jsonError("Invalid league_id", 400);
 
   let leaguesProcessed = 0;
   let requestsOk = 0;
   let requestsFailed = 0;
   let requestsSkipped = 0;
 
-  async function alreadyHave(urlToCheck: string) {
-    if (force) return false;
+  async function cachedResponse(urlToCheck: string): Promise<{ payload: unknown } | null> {
+    if (force) return null;
     const { data, error } = await supabaseAdmin
       .from("slp_raw_smoke")
-      .select("id")
+      .select("payload")
       .eq("request_url", urlToCheck)
       .eq("status_code", 200)
       .limit(1);
-    if (error) return false; // don't block on this
-    return (data?.length ?? 0) > 0;
+    if (error) return null;
+    return data?.[0] ? { payload: data[0].payload } : null;
   }
 
 async function storeRaw(params: {
@@ -103,7 +108,7 @@ async function storeRaw(params: {
         endpoint: params.endpoint,
         request_url: params.requestUrl,
         status_code: params.statusCode,
-        payload: params.payload as any,
+        payload: params.payload,
         error: params.error,
       },
       { onConflict: "request_url" }
@@ -118,9 +123,10 @@ async function storeRaw(params: {
   async function callAndStore(leagueId: string, endpoint: string, requestUrl: string) {
     if (Date.now() - startedAt > budgetMs) return { timedOut: true as const };
 
-    if (await alreadyHave(requestUrl)) {
+    const cached = await cachedResponse(requestUrl);
+    if (cached) {
       requestsSkipped += 1;
-      return { timedOut: false as const, ok: true as const, status: 200, json: null as unknown, error: null };
+      return { timedOut: false as const, ok: true as const, status: 200, json: cached.payload, error: null };
     }
 
     const res = await fetchJsonWithRetry(requestUrl);
@@ -143,7 +149,10 @@ async function storeRaw(params: {
   let currentLeagueId: string | null = startLeagueId;
   let nextLeagueId: string | null = null;
 
+  const visited = new Set<string>();
   while (currentLeagueId) {
+    if (visited.has(currentLeagueId)) return jsonError("Sleeper league history contains a cycle", 502);
+    visited.add(currentLeagueId);
     // Stop if we’re out of time
     if (Date.now() - startedAt > budgetMs) {
       nextLeagueId = currentLeagueId;
@@ -159,10 +168,9 @@ async function storeRaw(params: {
 
     let previousLeagueId: string | null = null;
     if (leagueRes.ok && leagueRes.json) {
-      const leagueAny = leagueRes.json as any;
-      const prevRaw = leagueAny?.previous_league_id;
+      const prevRaw = asRecord(leagueRes.json).previous_league_id;
 previousLeagueId =
-  prevRaw && String(prevRaw) !== "0" && String(prevRaw).trim() !== "" ? String(prevRaw) : null;
+  typeof prevRaw === "string" && /^\d{1,24}$/.test(prevRaw) && prevRaw !== "0" ? prevRaw : null;
     }
 
     // Core endpoints
@@ -195,9 +203,9 @@ previousLeagueId =
       .order("created_at", { ascending: false })
       .limit(1);
 
-    const draftsPayload = (draftsRow.data?.[0]?.payload ?? null) as any;
+    const draftsPayload: unknown = draftsRow.data?.[0]?.payload ?? null;
     const draftIds: string[] = Array.isArray(draftsPayload)
-      ? draftsPayload.map((d: any) => d?.draft_id).filter(Boolean).map((x: any) => String(x))
+      ? draftsPayload.filter(isRecord).map((d) => d.draft_id).filter((id): id is string => typeof id === "string" && /^\d{1,24}$/.test(id))
       : [];
 
     for (const draftId of draftIds) {
@@ -229,7 +237,7 @@ previousLeagueId =
           `https://api.sleeper.app/v1/league/${currentLeagueId}/matchups/${week}`
         );
         if (!m.timedOut && m.ok && Array.isArray(m.json)) {
-  for (const match of m.json) {
+  for (const match of m.json.filter(isRecord)) {
     const { roster_id, starters, matchup_id, points } = match;
 
     const { error: insertErr } = await supabaseAdmin

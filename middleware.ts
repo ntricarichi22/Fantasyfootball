@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isSessionIdentityAllowed, verifyAppSession } from "@/infrastructure/auth/session";
 
-const PUBLIC_PATHS = ["/login", "/auth/callback", "/reset", "/api/auth/"];
-const MACHINE_PATHS = ["/api/internal/", "/api/scouting/draft/tick"];
+import { isPublicRequestPath, isMachineRequestPath } from "@/infrastructure/auth/requestPaths";
+import { boundedJson } from "@/infrastructure/auth/boundedJson";
 const ACTOR_KEYS = [
   "teamId", "team_id", "rosterId", "roster_id", "my_team_id",
   "user_team_id", "from_team_id", "sender_team_id", "counter_team_id",
@@ -28,7 +28,7 @@ const requestScopeAllowed = (session: NonNullable<Awaited<ReturnType<typeof veri
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname.startsWith("/api/auth/") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+  if (pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     const origin = request.headers.get("origin");
     const fetchSite = request.headers.get("sec-fetch-site");
     if ((origin && origin !== request.nextUrl.origin) || fetchSite === "cross-site") {
@@ -36,38 +36,25 @@ export async function middleware(request: NextRequest) {
     }
   }
 
-  if (
-    PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
-    pathname.startsWith("/_next") ||
-    MACHINE_PATHS.some((p) => pathname.startsWith(p)) ||
-    pathname.match(/\.(ico|png|jpg|jpeg|svg|mp3|woff2?)$/)
-  ) {
+  if (isPublicRequestPath(pathname) || isMachineRequestPath(pathname)) {
     return NextResponse.next();
   }
 
   const session = await verifyAppSession(request.cookies.get("cfc_session")?.value);
   if (!session) return unauthorized(request);
 
-  if (pathname.startsWith("/api/admin/") && session.role !== "admin") {
-    return NextResponse.json({ error: "admin_required" }, { status: 403 });
-  }
-
   if (pathname.startsWith("/api/")) {
-    if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
-      const origin = request.headers.get("origin");
-      const fetchSite = request.headers.get("sec-fetch-site");
-      if ((origin && origin !== request.nextUrl.origin) || fetchSite === "cross-site") {
-        return NextResponse.json({ error: "cross_site_request_rejected" }, { status: 403 });
-      }
-    }
     const query = Object.fromEntries(request.nextUrl.searchParams.entries());
     if (!requestScopeAllowed(session, query)) {
       return NextResponse.json({ error: "forbidden_identity_scope" }, { status: 403 });
     }
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method) &&
         (request.headers.get("content-type") ?? "").includes("application/json")) {
-      const body = await request.clone().json().catch(() => null) as Record<string, unknown> | null;
-      if (body && !requestScopeAllowed(session, body)) {
+      const body = await boundedJson<Record<string, unknown>>(request.clone(), 128 * 1024);
+      if (!body || typeof body !== "object" || Array.isArray(body)) {
+        return NextResponse.json({ error: "invalid_or_oversized_json" }, { status: 400 });
+      }
+      if (!requestScopeAllowed(session, body)) {
         return NextResponse.json({ error: "forbidden_identity_scope" }, { status: 403 });
       }
     }
