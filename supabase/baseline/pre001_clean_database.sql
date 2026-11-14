@@ -245,3 +245,11 @@ CREATE TABLE public.rookie_prospects (
  height_inches integer,weight integer,nfl_team text,nfl_draft_round integer,nfl_draft_pick integer,avatar_url text,
  created_at timestamptz DEFAULT now()
 );
+
+-- Existing production catalog confirmed through information_schema and pg_constraint
+-- on 2026-11-14. Strict function lint validates the runtime metadata lookup against it.
+CREATE TABLE public.slp_raw_players_catalog (
+ sleeper_player_id text PRIMARY KEY,payload_json jsonb NOT NULL,
+ full_name text,first_name text,last_name text,team text,position text,years_exp integer,active boolean,
+ sport text NOT NULL DEFAULT 'nfl',source_updated_at timestamptz,ingested_at timestamptz NOT NULL DEFAULT now()
+);

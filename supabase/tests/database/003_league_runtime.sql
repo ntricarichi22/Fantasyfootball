@@ -1,5 +1,16 @@
 BEGIN;
-SELECT plan(22);
+SELECT plan(25);
+INSERT INTO public.slp_raw_players_catalog(sleeper_player_id,payload_json,full_name,position,team,sport)
+VALUES('pgtap-catalog-player','{}','Catalog Player','WR','KC','nfl'),
+ ('pgtap-catalog-other-sport','{}','Other Sport Player','PG','BOS','nba');
+INSERT INTO public.rookie_prospects(player_id,player_name,position,nfl_team)
+VALUES('pgtap-catalog-other-sport','Rookie Fallback','RB','BUF');
+SELECT is(cfc_runtime_private.player_metadata('pgtap-catalog-player'),
+ '{"name":"Catalog Player","position":"WR","team":"KC"}'::jsonb,'runtime player metadata uses the confirmed NFL catalog');
+SELECT is(cfc_runtime_private.player_metadata('pgtap-catalog-other-sport'),
+ '{"name":"Rookie Fallback","position":"RB","team":"BUF"}'::jsonb,'non-NFL catalog rows do not override rookie metadata');
+SELECT throws_ok($q$SELECT cfc_runtime_private.player_metadata('pgtap-catalog-missing')$q$,
+ 'PT404','player_not_found','unknown player metadata fails closed');
 SELECT ok(NOT has_table_privilege('service_role','public.cfc_asset_ownership','UPDATE'),
  'service role cannot bypass ledger transactions');
 SELECT ok(NOT has_schema_privilege('service_role','cfc_runtime_private','USAGE'),
