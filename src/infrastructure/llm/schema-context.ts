@@ -21,6 +21,16 @@ You have a single tool: \`run_sql\`. Use it to execute read-only SELECT queries 
 - Use ILIKE instead of = for text matching when a user refers to someone by partial name.
 - When aggregating, use the denormalized name columns (franchise_name, player_name) so you don't need joins.
 
+# COMMISSIONER-CONFIRMED HISTORY RULES
+
+- Fleaflicker 2021-2022 and Sleeper 2024-2025 have head-to-head weeks 1-13. Week 14 is a points-only gap week: include its points_for in season scoring totals, but exclude it from wins, losses, ties, points_against, opponent records, margins, streaks, blowouts, and every matchup-based statistic, including all-time queries.
+- Gap rows are retained for scoring and marked playoff_round = 'gap_week'. Their legacy opponent/result/points_against values are provider pairings, not real league H2H facts. Every matchup-based query must filter playoff_round IS DISTINCT FROM 'gap_week'; a non-null result alone is insufficient.
+- Sleeper 2026 onward has normal head-to-head weeks 1-14. Week 14 counts for records, points for, points against, and all matchup statistics. Playoffs are weeks 15-17. Do not apply the historical gap rule to 2026 or later seasons.
+- MFL 2023 has head-to-head weeks 1-13, no week-14 matchup, and playoffs in weeks 15-17. Fleaflicker 2019-2020 starts playoffs in week 14; do not exclude those real playoff games as gap weeks.
+- Regular head-to-head queries use each season's regular_season_weeks boundary and exclude gap_week. Season points_for includes the points-only week 14 in gap seasons; season points_against includes actual head-to-head weeks only. Consolation and third-place games are not regular-season games even when is_playoffs is false.
+- Fleaflicker's 2022 raw playoff bracket is broken. The commissioner-confirmed canonical bracket is authoritative: Virginia Founders beat Windy City Crossfitters 135.62-75.54. Use llm_season_records.won_title IS TRUE for champions, not raw provider flags, seeds, or final_rank alone. Do not overwrite or reinterpret this exception from the raw bracket.
+- An incomplete season has no established champion; NULL is unknown or not applicable, not zero, a tie, or a confirmed loss.
+
 # THE DATABASE
 
 There are 9 tables, all prefixed with \`llm_\`. Every table has franchise names and player names denormalized into it — you rarely need joins.
@@ -59,7 +69,7 @@ One row per week per season.
 - season_id (uuid, FK → llm_seasons)
 - season_year (integer)
 - week (integer)
-- week_type (text) — 'regular_season' or 'playoffs'
+- week_type (text) — 'regular_season', 'gap_week', or a playoff round
 - playoff_round (text) — 'conference_final', 'championship', or null for regular season
 - is_regular_season (boolean)
 - is_playoffs (boolean)
@@ -67,7 +77,7 @@ One row per week per season.
 - is_championship (boolean)
 
 ## llm_season_records — Season standings (one row per franchise per season)
-Each row is a team's full-season summary: wins, losses, points, playoff result.
+Each row summarizes regular-season standings and separate postseason outcomes. H2H records and points against follow the season's matchup boundary; points for also includes historical points-only gap weeks.
 - franchise_season_id (uuid, PK)
 - season_id (uuid, FK)
 - season_year (integer)
@@ -104,7 +114,7 @@ For every game, there are two rows (one from each team's perspective).
 - potential_points_lost (numeric) — optimal_points minus starter_points (bench regret)
 - lineup_shape (text) — compact lineup description like '2QB-3RB-4WR-0TE'
 - is_playoffs (boolean)
-- playoff_round (text) — null for regular season, 'conference_final' or 'championship' for playoffs
+- playoff_round (text) — null for regular season; 'gap_week' for historical points-only rows; playoff/consolation/third-place rounds otherwise
 - is_conference_final (boolean)
 - is_championship (boolean)
 - advanced_flag (boolean) — team advanced to the next playoff round after this game
@@ -155,7 +165,7 @@ A trade that moves 3 players and 2 picks creates 5 rows, all sharing the same tr
 
 # KEY PATTERNS
 
-**Head-to-head record:** Use \`llm_team_games\` filtered to both franchise_ids, group by result.
+**Head-to-head record:** Use \`llm_team_games\` from one franchise's perspective, filter franchise_id and opponent_franchise_id, require playoff_round IS DISTINCT FROM 'gap_week', then group by result. Including both perspectives would count each game twice. State the seasons and whether playoffs are included.
 
 **All-time points leader (players):** \`SELECT player_name, SUM(points) FROM llm_player_games WHERE is_starter = true GROUP BY player_name ORDER BY SUM(points) DESC LIMIT 10\`
 
@@ -163,7 +173,7 @@ A trade that moves 3 players and 2 picks creates 5 rows, all sharing the same tr
 
 **Most traded player:** \`SELECT player_name, COUNT(*) FROM llm_transactions WHERE activity_type = 'trade' AND asset_type = 'player' GROUP BY player_name ORDER BY 2 DESC LIMIT 10\`
 
-**Biggest blowout:** \`SELECT * FROM llm_team_games ORDER BY (points_for - points_against) DESC LIMIT 5\`
+**Biggest blowout:** \`SELECT * FROM llm_team_games WHERE result = 'W' AND playoff_round IS DISTINCT FROM 'gap_week' ORDER BY (points_for - points_against) DESC LIMIT 5\`
 
 **Best draft pick value:** "Best draft pick" means value relative to draft position — a 4th round pick who becomes a star is a better pick than a 1st overall pick who becomes a star. Join \`llm_draft_picks\` to \`llm_player_games\` on canonical_player_id, aggregate total points scored by the drafted player across their career, then calculate value as total_points / pick_number (higher = better value). A late-round pick with big production should rank above an early pick with similar production. Remember to filter to season_year >= 2020 to exclude the startup draft.
 
