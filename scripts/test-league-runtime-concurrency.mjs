@@ -10,6 +10,7 @@ if (!["127.0.0.1", "localhost", "[::1]"].includes(new URL(connectionString).host
 }
 const pool = new pg.Pool({ connectionString, max: 8, statement_timeout: 15_000 });
 const asset = (key) => ({ key, type: key.startsWith("pick:") ? "pick" : "player", label: key });
+const fixtureUserIds = [];
 let passed = 0;
 const check = (name) => { passed++; console.log(`PASS ${name}`); };
 
@@ -31,6 +32,7 @@ async function fixture() {
   for (const roster of ["1", "2", "3"]) {
     const user = randomUUID(), session = randomUUID();
     await pool.query("INSERT INTO auth.users(id,instance_id,aud,role,email,created_at,updated_at) VALUES($1,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',$2,now(),now())", [user, `${user}@example.invalid`]);
+    fixtureUserIds.push(user);
     await pool.query("INSERT INTO auth.sessions(id,user_id,created_at,updated_at) VALUES($1,$2,now(),now())", [session, user]);
     await pool.query("INSERT INTO public.league_memberships(user_id,league_id,roster_id,role) VALUES($1,$2,$3,$4)", [user, league, roster, roster === "1" ? "commissioner" : "member"]);
     actors.push([league, user, session]);
@@ -297,4 +299,15 @@ try {
   await pool.query("DROP TRIGGER runtime_test_failure ON public.security_audit_log; DROP FUNCTION public.runtime_test_fail_late()");
   check("late failures roll back accept, counter and draft ownership/log/clock/thread/revision/idempotency together");
   console.log(`${passed} runtime database concurrency and failure checks passed`);
-} finally { await pool.end(); }
+} finally {
+  try {
+    // These minimal database-only users exercise RPC session authorization. They
+    // are not GoTrue-created accounts and must not reach the later Auth HTTP suite.
+    await pool.query("DELETE FROM auth.sessions WHERE user_id=ANY($1::uuid[])", [fixtureUserIds]);
+    await pool.query("DELETE FROM public.league_memberships WHERE user_id=ANY($1::uuid[])", [fixtureUserIds]);
+    await pool.query("DELETE FROM auth.users WHERE id=ANY($1::uuid[])", [fixtureUserIds]);
+    const remaining = await pool.query("SELECT count(*)::int n FROM auth.users WHERE id=ANY($1::uuid[])", [fixtureUserIds]);
+    assert.equal(remaining.rows[0].n, 0, "database-only Auth fixtures must not leak into subsequent HTTP tests");
+    console.log("Runtime database-only Auth fixtures removed before HTTP smoke");
+  } finally { await pool.end(); }
+}
