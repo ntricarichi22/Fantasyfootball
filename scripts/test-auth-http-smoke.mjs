@@ -259,13 +259,20 @@ try {
   assert.equal((await login(emails.member, password)).response.status, 401, "old password stops working after recovery");
   const recoveredLogin = await login(emails.member, newPassword);
   assert.equal(recoveredLogin.response.status, 200, "recovered password works through the actual login route");
+  const recoveredFinal = await finalize(recoveredLogin.body.accessToken);
+  assert.equal(recoveredFinal.response.status, 200, "recovered provider session can establish application access");
+  const recoveredCookie = appCookie(recoveredFinal.response);
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: recoveredCookie } })).response.status, 200,
+    "fresh recovered session remains authorized before membership revocation");
 
   assert.ifError((await admin.rpc("revoke_league_access", { p_user_id: member.id, p_league_id: league })).error);
-  assert.equal((await app("/api/ai/quota", { headers: { cookie: memberCookie } })).response.status, 401,
-    "revocation invalidates an already signed application cookie");
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: recoveredCookie } })).response.status, 401,
+    "membership revocation invalidates an otherwise active provider session application cookie");
   assert.equal((await finalize(recoveredLogin.body.accessToken)).response.status, 403,
     "consumed invitation cannot recreate revoked membership");
 
+  assert.equal((await app("/api/ai/quota", { headers: { cookie: commissionerCookie } })).response.status, 200,
+    "commissioner session remains active before explicit logout");
   const logout = await post("/api/auth/logout", {}, { cookie: commissionerCookie, authorization: `Bearer ${commissionerLogin.body.accessToken}` });
   assert.equal(logout.response.status, 200);
   assert.match(logout.response.headers.get("set-cookie") ?? "", /cfc_session=;/, "logout clears the application session");
