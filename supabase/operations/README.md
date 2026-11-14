@@ -36,3 +36,11 @@ Apply 021 before deploying code that requires the session RPC. The function and 
 ## Re-sync / repair verification
 
 The existing Sleeper weekly sync remains on its own one-time-token claim flow and Wednesday schedule. This audit did not trigger a data sync. For `quick-worker`, invoke only from a trusted server with its service-role bearer credential, POST a positive `league_id`, `sport: "NFL"`, and `request_filter: "TRADES_COMPLETED"`. Never place the service credential in a browser, URL, repository, or log. Upserts use the existing `(league_id,sport,request_filter,result_offset)` key, so retrying a bounded failed import is idempotent at page level. Review partial imports before treating a run as complete.
+
+### Production release gate and hosted migration history
+
+Production has both the numbered application migrations and timestamped warehouse/operations migrations. Do not run `db push`, `migration repair`, or a reset against this mixed history to make numbering match. The production workflow now performs a read-only verification of the reviewed application's migrations after migration CI passes. Apply pending schema changes through the controlled release runbook before merging the dependent application release; this workflow deliberately does not apply them automatically.
+
+`hosted-migration-aliases.json` records only exact equivalents already applied through the hosted migration tool. The release verifier compares the complete stored SQL with the checked-in migration, normalizing only CRLF and surrounding whitespace. A missing migration or changed alias SQL blocks the check. Unrelated hosted operations retain their original records and are never replayed. Migration 021 was verified against hosted version `20261114181422` on 2026-11-14.
+
+Run: `PROJECT_REF=owkxkpkdffhcordlxqte SUPABASE_ACCESS_TOKEN=... node scripts/verify-supabase-production.mjs` using a secret environment variable, never a committed credential. The Supabase Management API request explicitly uses read-only mode. A successful check verifies applied history, not a full live schema diff or application deployment.

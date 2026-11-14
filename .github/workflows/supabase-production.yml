@@ -14,14 +14,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy:
+  verify-release:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
       github.repository == 'ntricarichi22/Fantasyfootball'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 5
     environment: supabase-production
     steps:
       - name: Check out the tested revision
@@ -29,46 +29,13 @@ jobs:
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           persist-credentials: false
-
-      - name: Validate production target configuration
-        env:
-          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-          ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        shell: bash
-        run: |
-          test "$PROJECT_REF" = "owkxkpkdffhcordlxqte" || {
-            echo "SUPABASE_PROJECT_REF is missing or is not the reviewed production target." >&2
-            exit 1
-          }
-          test -n "$ACCESS_TOKEN" || { echo "SUPABASE_ACCESS_TOKEN is not configured." >&2; exit 1; }
-          test -n "$DB_PASSWORD" || { echo "SUPABASE_DB_PASSWORD is not configured." >&2; exit 1; }
-
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
       - name: Validate migration filenames and ordering
         run: ./scripts/validate-supabase-migrations.bash
-
-      - name: Install pinned Supabase CLI
-        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
-        with:
-          version: 2.45.5
-
-      - name: Link reviewed production target
+      - name: Verify already-applied production migrations without changing history
         env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
           PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        run: supabase link --project-ref "$PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
-
-      - name: Preflight migration history without changing production
-        env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: |
-          supabase migration list --linked
-          supabase db push --linked --dry-run
-
-      - name: Apply reviewed migrations to production
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: supabase db push --linked
+        run: node scripts/verify-supabase-production.mjs
