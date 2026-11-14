@@ -181,7 +181,10 @@ try {
     401, "protected route rejects a forged cookie");
   assert.equal((await app("/api/ai/quota", { headers: { cookie: `${memberCookie}x` } })).response.status,
     401, "protected route rejects a tampered signed cookie");
-  const wrongLeagueCookie = signSession(member.id, "ci-other-league", "1");
+  // Decode only the freshly issued disposable fixture token; application auth verifies tokens server-side.
+  const { session_id: memberSessionId } = JSON.parse(Buffer.from(memberLogin.body.accessToken.split(".")[1], "base64url").toString("utf8"));
+  assert.match(memberSessionId, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+  const wrongLeagueCookie = signSession(member.id, "ci-other-league", "1", "member", memberSessionId);
   assert.equal((await app("/api/ai/quota", { headers: { cookie: wrongLeagueCookie } })).response.status,
     401, "current membership lookup rejects a validly signed cross-league claim");
 
@@ -199,8 +202,11 @@ try {
     403, "builder rejects a foreign roster before constructing a slate");
   assert.equal((await app("/api/research-strategy/class-strength?teamId=2", { headers: { cookie: memberCookie } })).response.status,
     403, "strategy reads reject a foreign roster");
-  assert.equal((await app("/api/scouting/draft/state")).response.status, 401,
-    "draft state rejects an unauthenticated private read");
+  const unauthenticatedDraft = await app("/api/scouting/draft/state");
+  assert.ok([401, 403].includes(unauthenticatedDraft.response.status),
+    "middleware or route authorization rejects an unauthenticated draft-state read");
+  assert.equal(Object.hasOwn(unauthenticatedDraft.body, "data"), false,
+    "unauthenticated draft-state response must not expose private data");
   const spoofedThread = await post("/api/inbox/threads", { team_a_id: "1", team_b_id: "2", created_by_team_id: "2" }, { cookie: memberCookie });
   assert.equal(spoofedThread.response.status, 403, "member cannot spoof the thread creator");
   const legitimateThread = await post("/api/inbox/threads", { team_a_id: "1", team_b_id: "2", created_by_team_id: "1" }, { cookie: memberCookie });
