@@ -440,6 +440,7 @@ export function UnifiedTopbar({ historianHref = "/historian", mobileSearch, onMe
       <button
         type="button"
         onClick={() => setMenuOpen((o) => !o)}
+        disabled={isMobile === null}
         aria-label="Team settings"
         aria-expanded={menuOpen}
         style={{

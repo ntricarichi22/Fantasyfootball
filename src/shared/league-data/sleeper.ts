@@ -1,6 +1,6 @@
-// Low-level Sleeper API access. Each helper uses Next's fetch so identical URLs
-// are deduped within a single request, while the revalidate window keeps data
-// reasonably fresh across requests (slow-moving sources cached longer).
+// Small league responses use Next's revalidation cache. The oversized public
+// player catalog uses the shared process TTL and in-flight cache instead.
+import { ttlMemo } from "../../infrastructure/ttlCache.ts";
 
 export type SleeperPlayer = {
   full_name?: string;
@@ -67,11 +67,9 @@ async function getJson<T>(url: string, revalidate: number, fallback: T): Promise
 }
 
 export function fetchPlayers(): Promise<Record<string, SleeperPlayer>> {
-  return getJson<Record<string, SleeperPlayer>>(
-    "https://api.sleeper.app/v1/players/nfl",
-    PLAYER_TTL,
-    {}
-  );
+  // The full catalog exceeds Next's persistent fetch-cache item limit.
+  // Cache only successful loads; transient failures must not become a 24h empty catalog.
+  return ttlMemo("sleeper:players:nfl", PLAYER_TTL * 1000, fetchPlayersFresh).catch(() => ({}));
 }
 
 /** Uncached dictionary read for an operator-triggered value rebuild. */

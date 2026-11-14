@@ -44,8 +44,17 @@ done
 supabase migration up --local
 node "$root/scripts/test-018-fixtures.mjs"
 "$root/scripts/test-commissioner-assignment.bash"
-SMOKE_PHASE=upgrade "$root/scripts/test-auth-http-smoke.bash"
+# Keep an upgrade failure as a release blocker, but still execute the independent
+# reset/pgTAP/race proof so a browser failure cannot hide database regressions.
+upgrade_failed=false
+if ! SMOKE_PHASE=upgrade "$root/scripts/test-auth-http-smoke.bash"; then
+  upgrade_failed=true
+fi
 
 # Independently retain the clean-bootstrap reset/lint/pgTAP/concurrency proof.
 "$root/scripts/test-supabase-clean-db.bash"
 SMOKE_PHASE=current "$root/scripts/test-auth-http-smoke.bash"
+if [[ $upgrade_failed == true ]]; then
+  echo "The upgraded application smoke failed; release remains blocked." >&2
+  exit 1
+fi
