@@ -69,7 +69,8 @@ export async function assertSyntheticLeagueFixture({ pool, fixture }) {
 }
 
 export async function cleanupSyntheticLeagueFixture({ pool, admin, fixture }) {
-  assertSyntheticClientTargets(pool, admin);
+  // Expiry stops new work; exact fixture deletion must remain possible afterward.
+  assertSyntheticClientTargets(pool, admin, { cleanupOnly: true });
   const identity = /^staging-([a-f0-9-]{36})-(\d+)$/.exec(fixture.leagueId);
   assert.ok(identity, "Refusing cleanup outside a synthetic league");
   const [, runId, leagueIndex] = identity;

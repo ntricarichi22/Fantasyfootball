@@ -17,5 +17,6 @@ export async function GET(request: Request) {
     supabaseProjectRef: supabaseTargetIdentity(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "", environment),
     commitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
     deploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+    vercelProjectId: process.env.VERCEL_PROJECT_ID ?? null,
   });
 }

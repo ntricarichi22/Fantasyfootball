@@ -1,0 +1,98 @@
+name: Protected production readiness drills
+run-name: Readiness drill - ${{ inputs.operation }}
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Reviewed temporary-resource operation (never restores over production)
+        type: choice
+        required: true
+        options:
+          - provision-load
+          - setup-load
+          - run-load
+          - cleanup-load
+          - recovery-drill
+          - cleanup-recovery
+      target_manifest:
+        description: Nonsecret reviewed target manifest JSON; use {} only for provision-load
+        type: string
+        required: true
+        default: '{}'
+      cost_approved:
+        description: Approve temporary databases only, up to USD 2, with deletion within four hours
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: production-readiness-drills
+  cancel-in-progress: false
+jobs:
+  hosted-load:
+    if: >-
+      github.repository == 'ntricarichi22/Fantasyfootball' &&
+      github.ref == 'refs/heads/main' &&
+      contains(fromJSON('["provision-load","setup-load","run-load","cleanup-load"]'), inputs.operation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: supabase-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - name: Operate only the registered synthetic load target
+        env:
+          HOSTED_LOAD_OPERATION: ${{ inputs.operation == 'provision-load' && 'provision' || inputs.operation == 'setup-load' && 'setup' || inputs.operation == 'run-load' && 'run' || 'cleanup' }}
+          DRILL_TARGET_MANIFEST: ${{ inputs.target_manifest }}
+          DRILL_COST_APPROVED: ${{ inputs.cost_approved && 'TEMPORARY-ONLY-USD2-FOUR-HOURS' || '' }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/hosting/hosted-load.mjs
+      - name: Retry exact-target cleanup after a load interruption or failure
+        if: always() && inputs.operation == 'run-load'
+        env:
+          HOSTED_LOAD_OPERATION: cleanup
+          DRILL_TARGET_MANIFEST: ${{ inputs.target_manifest }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/hosting/hosted-load.mjs
+  backup-recovery:
+    if: >-
+      github.repository == 'ntricarichi22/Fantasyfootball' &&
+      github.ref == 'refs/heads/main' &&
+      contains(fromJSON('["recovery-drill","cleanup-recovery"]'), inputs.operation)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: supabase-production
+    env:
+      RECOVERY_TARGET_MANIFEST: ${{ inputs.target_manifest }}
+      RECOVERY_CONFIRM: REGISTERED-PRODUCTION-BACKUP-CLONE
+      RECOVERY_TARGET: ${{ fromJSON(inputs.target_manifest).name }}
+      RECOVERY_PROJECT_REF: ${{ fromJSON(inputs.target_manifest).projectRef }}
+      RECOVERY_BACKUP_TIMESTAMP: ${{ fromJSON(inputs.target_manifest).backupTimestamp }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - name: Quarantine, validate and dispose of the exact restored clone
+        env:
+          RECOVERY_OPERATION: ${{ inputs.operation == 'recovery-drill' && 'drill' || 'delete' }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/recovery/run-hosted-recovery.mjs
+      - name: Retry exact-clone cleanup after interruption or failure
+        if: always() && inputs.operation == 'recovery-drill'
+        env:
+          RECOVERY_OPERATION: delete
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/recovery/run-hosted-recovery.mjs

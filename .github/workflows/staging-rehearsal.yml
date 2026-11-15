@@ -14,10 +14,13 @@ on:
   pull_request:
     paths:
       - 'scripts/lib/**'
+      - 'scripts/hosting/**'
       - 'scripts/load-staging.mjs'
       - 'scripts/bootstrap-staging.bash'
       - 'scripts/recovery/**'
       - 'tests/staging-*.test.mjs'
+      - 'tests/hosted-load-*.test.mjs'
+      - '.github/workflows/production-drills.yml'
       - 'config/deployment-targets.json'
       - 'supabase/**'
       - 'src/app/api/**'
