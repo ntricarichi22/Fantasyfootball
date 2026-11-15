@@ -1,0 +1,12 @@
+{
+  "production": {
+    "supabaseProjectRef": "owkxkpkdffhcordlxqte",
+    "vercelProjectId": "prj_EmMB2k7bAMZHDcFpkum2JwbdeBAm",
+    "appOrigins": [
+      "https://fantasyfootball-six.vercel.app",
+      "https://fantasyfootball-nick-ts-projects-37a944d6.vercel.app",
+      "https://fantasyfootball-git-main-nick-ts-projects-37a944d6.vercel.app"
+    ]
+  },
+  "stagingTargets": []
+}

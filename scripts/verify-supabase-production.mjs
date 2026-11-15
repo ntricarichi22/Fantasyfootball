@@ -1,6 +1,8 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { managementMetadata } from './lib/supabase-management.mjs';
+import deploymentTargets from '../config/deployment-targets.json' with { type: 'json' };
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const normalize = (sql) => sql.replace(/\r\n/g, '\n').trim();
@@ -35,7 +37,7 @@ export function verifyReleaseHistory(local, remote, aliases = {}) {
 async function main() {
   const ref = process.env.PROJECT_REF;
   const token = process.env.SUPABASE_ACCESS_TOKEN;
-  if (ref !== 'owkxkpkdffhcordlxqte' || !token) throw new Error('Reviewed project and access token are required');
+  if (ref !== deploymentTargets.production.supabaseProjectRef || !token) throw new Error('Reviewed project and access token are required');
   const directory = path.join(root, 'supabase/migrations');
   const local = await Promise.all((await readdir(directory)).filter(name => /^\d{3}_[a-z0-9_]+\.sql$/.test(name)).sort().map(async file => ({
     version: file.slice(0, 3), name: file.slice(4, -4), sql: await readFile(path.join(directory, file), 'utf8'),
@@ -47,14 +49,8 @@ async function main() {
     return "'" + alias.version + "'";
   });
   const query = `select version, name, case when version in (${aliasVersions.join(', ') || "''"}) then statements else null end as statements from supabase_migrations.schema_migrations order by version`;
-  const response = await fetch(`https://api.supabase.com/v1/projects/${ref}/database/query`, {
-    method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-    body: JSON.stringify({ read_only: true, query }),
-    signal: AbortSignal.timeout(30_000), redirect: 'error',
-  });
-  // Never print a server response that may include SQL, data or credentials.
-  if (!response.ok) throw new Error(`Read-only migration verification failed (HTTP ${response.status})`);
-  const result = verifyReleaseHistory(local, await response.json(), aliases);
+  const remote = await managementMetadata({ projectRef: ref, token, resource: 'database/query', query });
+  const result = verifyReleaseHistory(local, remote, aliases);
   console.log(`Verified ${result.verified} application migrations; preserved ${result.hostedOperations} hosted operations. No production changes were made.`);
 }
 

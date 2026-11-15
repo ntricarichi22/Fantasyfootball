@@ -1,50 +1,85 @@
-# Security monitoring and audit runbook
+# Security and operations monitoring
 
-## Scope and verified state
+## Current evidence
 
-Source review found Next.js server routes, Supabase Auth, service-role server access, Vercel cron configuration, and metered Anthropic calls. Authorized catalog-only metadata supplied on 2026-09-12 confirmed broad live grants and incomplete/open RLS; see `SECURITY-INTEGRATION-REPORT.md`. Migration `014` was not applied.
+The existing migration `014` events/audit tables, deduplicated alert hook, database
+limiter and runtime ledger are present in production. Read-only aggregate inspection
+on 2026-11-15 found one initialized league with writes enabled; zero error/critical
+occurrences in the preceding hour; zero failed alert deliveries and database cron runs
+in the preceding 24 hours; and zero transactions older than five minutes. These are
+one-time observations, not availability or alert-delivery guarantees.
 
-## First activation (not performed)
+The public probe passed at 2026-11-15 01:23:47 UTC: `/login` returned 200 and anonymous
+`/api/league/snapshot` returned 401. It fetches no league data, signs in no production
+account, invokes no job and spends no AI credits.
 
-1. Review and run `supabase/migrations/014_security_monitoring_audit.sql` through the protected workflow against a staging project, then run its validation queries.
-2. Set a unique 32+ byte `AUDIT_HASH_KEY` in hosting secrets. Never reuse a Supabase or provider credential.
-3. Deploy, deliberately fail a staging login, and confirm one pseudonymous `authentication_failure` row. Confirm `anon` and `authenticated` cannot select/insert/update/delete either table and that update/delete of an audit row fails. The endpoint has a best-effort per-instance 20-event/five-minute limiter; use hosting/WAF rate limiting as the durable multi-instance control.
-4. For email delivery, set `SECURITY_EMAIL_ALERTS_ENABLED=true`, provider `resend`,
-   `SECURITY_ALERT_EMAIL_TO`, `SECURITY_ALERT_EMAIL_FROM`, and `RESEND_API_KEY` as
-   private server settings. Never use a `NEXT_PUBLIC_` value. The recipient is not
-   committed. Claims in `security_alert_deliveries` deduplicate across instances and
-   cap attempts per hour. Payloads contain bounded event metadata only—not email
-   addresses, prompts, bodies, exception messages, or stacks.
-5. Verify in staging that significant server request errors, authoritative AI
-   quota/accounting signals, and server-observed password rejections deliver once per
-   fingerprint/source per window. The legacy browser telemetry endpoint is inert and
-   cannot trigger owner email.
+## Scheduled public checks
 
-No provider credential or verified sender is configured by this change, and no email
-was sent. Until those private settings are staged, email
-alerts remain inactive.
+`operations-monitoring.yml` checks every 15 minutes at minutes 7/22/37/52 on trusted
+`main` and supports manual dispatch. Each request has a 15-second timeout and no
+redirects. It needs no secrets. Repository variable `MONITOR_APPLICATION_ORIGIN` can
+override the confirmed default origin; it must be a bare HTTPS origin.
 
-Password login, account preparation, and signup use a shared PostgreSQL limiter keyed
-by an HMAC-pseudonymous identifier. Request bodies are bounded before JSON parsing.
-The limiter does not trust forwarded client headers and is not process-local. Only the
-exact pre-`016` missing-function rollout window falls back to Supabase Auth's observed
-provider limit; any other accounting outage fails closed. Complementary Vercel/WAF
-configuration and trusted client-IP propagation remain unverified rollout settings.
+It also requires `/api/health` to return 200; that minimal endpoint performs the
+bounded server-side database probe and exposes only `ok`, not identifiers or errors.
+This detects an unreachable/paused app, unexpected anonymous access or database probe
+failure. It does not certify authenticated journeys, database correctness, latency targets or capacity.
+Temporary CI rehearsals cover synthetic authenticated journeys. GitHub schedules are
+best effort and can be delayed; failed-run notifications are not a paging SLA.
 
-## Integration contracts
+## Protected manual database and backup checks
 
-- Server authorization guards should call `recordSecurityEvent` with `authorization_failure`; top-level route error handlers should record `application_error`. Do not include request bodies or exception stacks in summaries.
-- AI metering calls `recordSecurityEvent` and the deduplicated alert hook after
-  authoritative accounting and on quota blocks. Accounting remains authoritative for
-  the $5/user and fixed $60 aggregate limits; events never contain prompts.
-- Next instrumentation emits a bounded `application_error` event without exception
-  text or stack. Delivery failure never exposes the recipient or changes the request.
-- Membership creation records the verified actor, league, target, and bounded role/roster metadata. Future ownership/permission mutation routes must follow the same contract.
+Dispatch `Operations monitoring` on `main` with `cloud_metadata=true`. Its metadata job
+keeps the existing `supabase-production` environment approval and uses that environment's
+`SUPABASE_ACCESS_TOKEN`. No PR or non-main job receives it. The shared Management API
+client limits origin, routes, size and time; queries explicitly set `read_only:true`
+and have a ten-second SQL statement timeout.
 
-## Retention and review
+The checks reuse existing events, alert deliveries, runtime freshness and pg_cron.
+They output counts/timestamps only, never users, emails, SQL/cron commands, prompts,
+exception text or credentials. Failure conditions are:
 
-Retain aggregated `security_events` for 30 days and immutable `security_audit_log` entries for 24 months, unless legal/league policy requires longer. No automatic deletion job is included because audit deletion is intentionally blocked and no operator destination/schedule was authorized. A privileged database owner may perform a reviewed archival migration; application/service-role paths must not delete audit entries. Review warning/critical events weekly during the pilot and tune thresholds based on observed baseline.
+- No initialized runtime, paused writes, or missing/source data older than 30 hours.
+- At least ten error/critical occurrences last observed in the past hour.
+- Any failed alert delivery or database cron run in the past 24 hours.
+- A database transaction open for more than five minutes.
+- Backup availability/freshness cannot be established under the recovery policy.
 
-## Re-sync / rollback
+These are initial pilot thresholds, not automatic repair instructions. Check planned
+maintenance before acting on a write pause. Review deploys/provider status for errors.
+Never replay ingestion, advance drafts, accept trades or issue refunds as health probes.
+The database cron check does not certify Vercel cron HTTP success; runtime freshness
+is one outcome signal for scheduled reconciliation. Individual ingestion jobs and
+external effects still need their own success evidence.
 
-There is no sync job. Event writes are best-effort and fail closed only for telemetry—not user actions. To disable capture, remove the application calls; preserve audit rows. Do not drop tables as an operational rollback.
+Automatic credentialed checks remain unconfigured without a separate read-only token.
+A future dedicated monitoring environment must restrict deployments to trusted `main`
+and hold project-scoped read access. Do not remove release reviewers or expose secrets
+to PR workflows to automate monitoring. Public scheduled checks work without that token.
+
+## Existing application alerts
+
+`audit.ts` records bounded events and pseudonymous fingerprints. `alerts.ts` reuses
+`claim_security_alert` for deduplication/hourly limits; it remains the only application
+alert transport. Significant server errors, authoritative AI accounting signals and
+server-observed password rejection can enter it. Browser telemetry cannot trigger owner
+email. Monitoring scripts add no second transport and send no alerts.
+
+Email activation requires private `SECURITY_EMAIL_ALERTS_ENABLED=true`, provider `resend`,
+`SECURITY_ALERT_EMAIL_TO`, `SECURITY_ALERT_EMAIL_FROM`, `RESEND_API_KEY`, an approved
+recipient and verified sender. Configuration presence or zero failed deliveries does
+not prove delivery. No new email, webhook or external message was sent. Test delivery
+only in a separately approved context. Native GitHub recipients, actual notification
+delivery and human acknowledgement remain unverified.
+
+## Retention and response
+
+Keep the existing policy proposal: aggregated events 30 days and immutable audit
+records 24 months, subject to owner/legal decisions. No deletion job is added. Service
+and application paths cannot delete audit entries. Archive through a reviewed operator
+procedure with recovery evidence.
+
+Use [the recovery runbook](BACKUP-AND-RECOVERY.md) for backup evidence and limitations.
+When a check fails, record run URL, affected check, timing and corrective action without
+copying sensitive logs into issues. Escalation ownership and recipient acknowledgement
+must be agreed before calling this continuous incident response.

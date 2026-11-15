@@ -4,6 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
 import { extractMailpitVerificationUrl, selectMailpitMessage } from "./lib/mailpit.mjs";
+import { fixtureIdentityHeaders, appCookie } from "./lib/auth-fixture.mjs";
 import { runAuthBrowserSmoke } from "./lib/auth-browser-smoke.mjs";
 
 const base = process.env.APP_BASE_URL;
@@ -36,16 +37,6 @@ const emails = {
   outsider: "outsider.auth-smoke@example.invalid",
 };
 
-function fixtureIdentityHeaders(cookie) {
-  // Decode only signed cookies issued by this disposable fixture server; not an application authentication mechanism.
-  try {
-    const payload = cookie?.match(/cfc_session=([^;.]+)/)?.[1];
-    if (!payload) return {};
-    const claims = JSON.parse(Buffer.from(decodeURIComponent(payload), "base64url").toString("utf8"));
-    return { "x-cfc-user-id": claims.userId, "x-cfc-roster-id": claims.rosterId };
-  } catch { return {}; }
-}
-
 async function app(path, init = {}) {
   const response = await fetch(`${base}${path}`, { ...init, headers: { "content-type": "application/json", ...fixtureIdentityHeaders(init.headers?.cookie), ...(init.headers?.cookie ? { "x-cfc-league-id": league } : {}), ...(init.headers ?? {}) } });
   const body = await response.json().catch(() => ({}));
@@ -65,11 +56,6 @@ async function login(email, candidate = password) {
 }
 async function finalize(accessToken, leagueId = league) {
   return post("/api/auth/finalize", leagueId ? { leagueId } : {}, { authorization: `Bearer ${accessToken}` });
-}
-function appCookie(response) {
-  const value = response.headers.get("set-cookie")?.match(/cfc_session=([^;]+)/)?.[1];
-  assert.ok(value, "finalize must issue signed HttpOnly application session");
-  return `cfc_session=${value}`;
 }
 function signSession(userId, leagueId, rosterId, role = "member", sessionId = "11111111-1111-4111-8111-111111111111") {
   const payload = Buffer.from(JSON.stringify({ userId, sessionId, leagueId, rosterId, role,

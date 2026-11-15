@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
+import { deploymentEnvironment } from "./src/infrastructure/environment.ts";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Derive the browser boundary from trusted deployment metadata at build time.
+  env: { NEXT_PUBLIC_APP_ENV: deploymentEnvironment(process.env) },
   async headers() {
     return [{
       source: "/(.*)",

@@ -9,7 +9,7 @@ const PUBLIC_FILES = new Set([
 ]);
 
 export function isPublicRequestPath(pathname: string) {
-  if (PUBLIC_PAGES.has(pathname) || PUBLIC_AUTH_APIS.has(pathname)) return true;
+  if (pathname === "/api/health" || PUBLIC_PAGES.has(pathname) || PUBLIC_AUTH_APIS.has(pathname)) return true;
   if (pathname.startsWith("/api/")) return false;
   return pathname.startsWith("/_next/") || PUBLIC_FILES.has(pathname) ||
     ["/avatars/", "/brand/", "/teams/"].some((prefix) => pathname.startsWith(prefix));

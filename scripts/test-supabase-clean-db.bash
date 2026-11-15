@@ -2,17 +2,9 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-generated="$root/supabase/migrations/000_ci_pre001_clean_database.sql"
-cleanup() { rm -f "$generated"; }
-trap cleanup EXIT
-if [[ -e "$generated" ]]; then
-  cmp -s "$root/supabase/baseline/pre001_clean_database.sql" "$generated" || {
-    echo "Staged CI baseline differs from reviewed source." >&2
-    exit 1
-  }
-else
-  cp "$root/supabase/baseline/pre001_clean_database.sql" "$generated"
-fi
+source "$root/scripts/lib/disposable-baseline.bash"
+stage_ci_baseline "$root"
+trap cleanup_ci_baseline EXIT
 
 supabase db reset --local
 supabase db lint --local --level error --fail-on error

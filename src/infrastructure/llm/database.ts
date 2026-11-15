@@ -1,4 +1,5 @@
 import "server-only";
+import { currentDeploymentEnvironment, databaseIsolationError } from "../environment.ts";
 import { Pool } from "pg";
 import { validateHistoryQuery } from "./sql-policy.ts";
 
@@ -6,6 +7,8 @@ let pool: Pool | undefined;
 export function getHistoryPool() {
   const connectionString = process.env.LLM_DATABASE_URL;
   if (!connectionString) throw new Error("Historian unavailable");
+  const isolationError = databaseIsolationError(connectionString, currentDeploymentEnvironment(), process.env.NEXT_PUBLIC_SUPABASE_URL);
+  if (isolationError) throw new Error(isolationError);
   if (!pool) {
     // Connection-string SSL options override pg's ssl object. Force verified TLS
     // on hosted connections; local fixtures may use loopback without TLS.
