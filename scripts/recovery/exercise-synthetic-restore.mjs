@@ -135,7 +135,7 @@ try {
   // Supabase's postgres role is not a superuser and cannot restore ownership of
   // managed objects. Use the verified administrator only inside this fixed local
   // container; retain all original object owners and grants for strict comparison.
-  await command('docker', ['exec', container, 'pg_restore', '-U', 'supabase_admin', '--exit-on-error', '--dbname', targetName, dumpPath]);
+  await command('docker', ['exec', '-e', 'PGPASSWORD=postgres', container, 'pg_restore', '-U', 'supabase_admin', '--exit-on-error', '--dbname', targetName, dumpPath]);
   stage = 'compare-metadata-and-security-manifest';
   await command('bash', ['scripts/recovery/validate-restore.sh'], { env: { ...process.env,
     SOURCE_DATABASE_URL: sourceUrl, TARGET_DATABASE_URL: targetUrl, RECOVERY_TARGET_CONFIRM: 'DISPOSABLE-NONPRODUCTION' } });
