@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 import pg from "pg";
 import { createClient } from "@supabase/supabase-js";
+import { hostedChildFailure } from "../lib/load-diagnostics.mjs";
 import { stagingPoolOptions } from "../lib/staging-target.mjs";
 import { createSyntheticLeagueFixture, cleanupSyntheticLeagueFixture, assertSyntheticLeagueFixture } from "../lib/synthetic-league-fixture.mjs";
 import { reserveHostedLoadDatabase } from "../lib/hosted-load-preflight.mjs";
@@ -129,7 +130,10 @@ async function runLoad({ target, keys, guard }) {
       child.on("error", () => { clearTimeout(timer); clearTimeout(force); controller.signal.removeEventListener("abort", abort); reject(new Error("Hosted load process unavailable")); });
       child.on("close", code => {
         clearTimeout(timer); clearTimeout(force); controller.signal.removeEventListener("abort", abort);
-        if (code !== 0 || killed) { reject(new Error("Hosted load failed; raw child diagnostics suppressed")); return; }
+        if (code !== 0 || killed) {
+          console.error(JSON.stringify(hostedChildFailure(output, killed)));
+          reject(new Error("Hosted load failed; raw child diagnostics suppressed")); return;
+        }
         try {
           const rows = output.trim().split(/\r?\n/).map(line => JSON.parse(line));
           const final = rows.at(-1);
