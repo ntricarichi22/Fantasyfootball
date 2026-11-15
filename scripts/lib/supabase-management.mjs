@@ -1,3 +1,8 @@
+/** Omit unchanged settings without weakening callers' complete read-back checks. */
+export function changedManagementSettings(current, desired) {
+  return Object.fromEntries(Object.entries(desired).filter(([key, value]) => current[key] !== value));
+}
+
 /** Fixed-origin, bounded Management access; the monitoring wrapper is read-only. */
 export async function managementMetadata({ projectRef, token, resource, query, fetchImpl = fetch }) {
   if (!/^[a-z]{20}$/.test(projectRef ?? '') || !token) throw new Error('Project reference and management token are required');
@@ -16,7 +21,7 @@ export async function managementProjectJson({ projectRef, token, resource = '', 
   if (method === 'DELETE' && resource !== '') throw new Error('Only exact-project deletion is supported');
   if (reveal && (resource !== 'api-keys' || method !== 'GET')) throw new Error('Invalid key request');
   return managementJson({ url: `https://api.supabase.com/v1/projects/${projectRef}${resource ? `/${resource}` : ''}${reveal ? '?reveal=true' : ''}`,
-    token, method, body, fetchImpl });
+    token, method, body, fetchImpl, allowEmptyDelete: method === 'DELETE' });
 }
 
 export async function managementProjectsJson({ token, method = 'GET', body, fetchImpl = fetch }) {
@@ -24,7 +29,14 @@ export async function managementProjectsJson({ token, method = 'GET', body, fetc
   return managementJson({ url: 'https://api.supabase.com/v1/projects', token, method, body, fetchImpl });
 }
 
-async function managementJson({ url, token, method, body, fetchImpl }) {
+class ManagementRequestError extends Error {
+  constructor(category, message) {
+    super(message);
+    this.category = category;
+  }
+}
+
+async function managementJson({ url, token, method, body, fetchImpl, allowEmptyDelete = false }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);
   try {
@@ -34,9 +46,16 @@ async function managementJson({ url, token, method, body, fetchImpl }) {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: controller.signal, redirect: 'error',
     });
-    if (!response.ok) throw new Error(`Metadata request failed (HTTP ${response.status})`);
-    if (response.status === 204) return null;
-    if (!response.body) throw new Error('Empty metadata response');
+    if (!response.ok) {
+      const status = response.status;
+      throw new ManagementRequestError(
+        Number.isInteger(status) && status >= 400 && status <= 599 ? `PROVIDER_HTTP_${status}` : 'PROVIDER_UNEXPECTED_STATUS',
+        `Metadata request failed (HTTP ${status})`);
+    }
+    // Auth/password PATCH responses are documented JSON. Only exact-project
+    // deletion supports an empty 204; never treat an empty read/write as success.
+    if (response.status === 204 && allowEmptyDelete) return null;
+    if (!response.body) throw new ManagementRequestError('PROVIDER_EMPTY_RESPONSE', 'Empty metadata response');
     const reader = response.body.getReader();
     const chunks = []; let length = 0;
     try {
@@ -44,14 +63,22 @@ async function managementJson({ url, token, method, body, fetchImpl }) {
         const { value, done } = await reader.read();
         if (done) break;
         length += value.byteLength;
-        if (length > 2_097_152) { await reader.cancel(); throw new Error('Metadata response exceeds size limit'); }
+        if (length > 2_097_152) {
+          await reader.cancel().catch(() => {});
+          throw new ManagementRequestError('PROVIDER_RESPONSE_TOO_LARGE', 'Metadata response exceeds size limit');
+        }
         chunks.push(value);
       }
     } finally { reader.releaseLock(); }
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const text = Buffer.concat(chunks).toString('utf8');
+    if (!text.trim()) throw new ManagementRequestError('PROVIDER_EMPTY_RESPONSE', 'Empty metadata response');
+    try { return JSON.parse(text); }
+    catch { throw new ManagementRequestError('PROVIDER_INVALID_JSON', 'Metadata response is not valid JSON'); }
   } catch (error) {
-    if (/^(Metadata request failed \(HTTP \d{3}\)|Empty metadata response|Metadata response exceeds size limit)$/.test(error.message)) throw error;
+    if (error instanceof ManagementRequestError) throw error;
     // Never expose provider bodies, redirect targets, tokens or exception stacks.
-    throw new Error('Metadata request failed or returned invalid JSON');
+    if (controller.signal.aborted || ['AbortError', 'TimeoutError'].includes(error?.name))
+      throw new ManagementRequestError('PROVIDER_TIMEOUT', 'Metadata request timed out');
+    throw new ManagementRequestError('PROVIDER_REQUEST_FAILED', 'Metadata request failed');
   } finally { clearTimeout(timer); }
 }

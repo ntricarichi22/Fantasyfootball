@@ -140,6 +140,12 @@ test("GitHub OIDC goes only to the fixed issuer endpoint and binds main SHA and 
 
 test("failure diagnostics emit only recognized SQLSTATE or fixed provider status categories", () => {
   assert.equal(safeFailureCategory({ code: "28P01", message: "sentinel-secret" }), "POSTGRES_28P01");
-  assert.equal(safeFailureCategory({ message: "Metadata request failed (HTTP 403)" }), "PROVIDER_HTTP_403");
+  for (let status = 400; status <= 599; status++) {
+    assert.equal(safeFailureCategory({ message: `Metadata request failed (HTTP ${status})` }), `PROVIDER_HTTP_${status}`);
+    assert.equal(safeFailureCategory({ category: `PROVIDER_HTTP_${status}` }), `PROVIDER_HTTP_${status}`);
+  }
+  for (const category of ["PROVIDER_EMPTY_RESPONSE", "PROVIDER_INVALID_JSON", "PROVIDER_TIMEOUT", "PROVIDER_REQUEST_FAILED", "PROVIDER_RESPONSE_TOO_LARGE", "PROVIDER_UNEXPECTED_STATUS"])
+    assert.equal(safeFailureCategory({ category, message: "sentinel-secret" }), category);
+  assert.equal(safeFailureCategory({ category: "PROVIDER_HTTP_402_sentinel-secret" }), "GUARD_OR_OPERATION_FAILED");
   assert.equal(safeFailureCategory({ code: "sentinel-secret", message: "sentinel-secret" }), "GUARD_OR_OPERATION_FAILED");
 });

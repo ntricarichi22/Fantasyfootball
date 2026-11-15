@@ -2,7 +2,7 @@ import { safeFailureCategory } from "./diagnostics.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { managementProjectJson, managementProjectsJson } from "../lib/supabase-management.mjs";
+import { managementProjectJson, managementProjectsJson, changedManagementSettings } from "../lib/supabase-management.mjs";
 import { PRODUCTION_PROJECT_REF, PROTECTED_PROJECT_REFS } from "../lib/staging-target.mjs";
 
 export const LOAD_PROJECT_NAME = "cfc-load-drill-20261115";
@@ -54,7 +54,15 @@ export async function ensureSyntheticAuth({ request, guard, configure = false, e
   const existing = await request({ resource: "config/auth" });
   emit({ event: "auth_config_shape", fields: syntheticAuthShape(existing) });
   const patch = syntheticAuthPatch(existing);
-  if (configure) { emitStage("auth_config_patch"); guard(); await request({ resource: "config/auth", method: "PATCH", body: patch }); }
+  if (configure) {
+    const changes = changedManagementSettings(existing, patch);
+    // Log fixed public field names only; future provider keys never reach output.
+    emit({ event: "auth_config_changes", fields: AUTH_FIELDS.filter(key => Object.hasOwn(changes, key)),
+      additionalFieldCount: Object.keys(changes).filter(key => !AUTH_FIELDS.includes(key)).length });
+    if (Object.keys(changes).length) {
+      emitStage("auth_config_patch"); guard(); await request({ resource: "config/auth", method: "PATCH", body: changes });
+    }
+  }
   emitStage("auth_config_verify");
   for (let attempt = 0; attempt < (configure ? 6 : 1); attempt++) {
     guard();

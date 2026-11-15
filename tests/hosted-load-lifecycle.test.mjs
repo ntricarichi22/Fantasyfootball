@@ -79,7 +79,7 @@ test("nullable documented Auth flags become explicit safe booleans and propagati
   assert.equal(patch.disable_signup, true); assert.equal(patch.external_phone_enabled, false); assert.equal(patch.external_google_enabled, false);
   let reads = 0, writes = 0; const phases = [], output = [];
   await ensureSyntheticAuth({ configure: true, guard() {}, wait: async () => {}, emitStage: value => phases.push(value), emit: row => output.push(row), request: async options => {
-    if (options.method === "PATCH") { writes++; assert.deepEqual(options.body, patch); return {}; }
+    if (options.method === "PATCH") { writes++; assert.deepEqual(options.body, Object.fromEntries(Object.entries(patch).filter(([key, value]) => config[key] !== value))); return {}; }
     reads++; return reads < 3 ? config : { ...config, ...patch };
   } });
   assert.equal(writes, 1); assert.equal(reads, 3); assert.deepEqual(phases, ["auth_config_get", "auth_config_patch", "auth_config_verify"]);
@@ -94,7 +94,7 @@ test("provision failure records its safe original phase and HTTP category before
     project: async options => {
       if (options.method === "DELETE") { deleted = true; return {}; }
       if (options.resource === "config/auth" && options.method === "PATCH") throw new Error("Metadata request failed (HTTP 400)");
-      if (options.resource === "config/auth") return closedAuth;
+      if (options.resource === "config/auth") return { ...closedAuth, disable_signup: false };
       return target;
     },
   }), error => error.category === "PROVIDER_HTTP_400");
@@ -111,4 +111,28 @@ test("nullable read-back never counts as a successful quarantine", async () => {
   } }), error => error.category === "AUTH_CONFIG_VERIFY_FAILED");
   assert.equal(writes, 1); assert.equal(reads, 7);
   await assert.rejects(ensureSyntheticAuth({ configure: false, guard() {}, request: async () => config }), error => error.category === "AUTH_CONFIG_VERIFY_FAILED");
+});
+
+
+test("Auth writes only changes but still verifies already-disabled providers", async () => {
+  for (const initiallyEnabled of [false, true]) {
+    const config = { ...closedAuth, disable_signup: false, saml_enabled: initiallyEnabled, hook_send_email_enabled: false };
+    const writes = []; let reads = 0;
+    await ensureSyntheticAuth({ configure: true, guard() {}, request: async options => {
+      if (options.method === "PATCH") { writes.push(options.body); return {}; }
+      reads++; return reads === 1 ? config : { ...config, disable_signup: true, saml_enabled: false };
+    } });
+    assert.deepEqual(writes, [{ disable_signup: true, ...(initiallyEnabled ? { saml_enabled: false } : {}) }]);
+  }
+  let writes = 0;
+  await ensureSyntheticAuth({ configure: true, guard() {}, request: async options => {
+    if (options.method === "PATCH") writes++; return { ...closedAuth, saml_enabled: false };
+  } });
+  assert.equal(writes, 0);
+  let reads = 0;
+  await assert.rejects(ensureSyntheticAuth({ configure: true, guard() {}, wait: async () => {}, request: async options => {
+    if (options.method === "PATCH") { writes++; return {}; }
+    reads++; return { ...closedAuth, saml_enabled: reads > 1 };
+  } }), error => error.category === "AUTH_CONFIG_VERIFY_FAILED");
+  assert.equal(writes, 0); assert.equal(reads, 7);
 });

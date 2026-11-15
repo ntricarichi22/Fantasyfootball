@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { readdirSync } from 'node:fs';
 import { runHostedRecovery, requiredRecoveryColumns, deleteRecoveryTarget } from './run-hosted-recovery.mjs';
 import { QUARANTINE_ZERO } from './hosted-checks.mjs';
+import { recoveryAuthPatch } from './hosted-target.mjs';
 
 const source = 'owkxkpkdffhcordlxqte', clone = 'abcdefghijklmnopqrst';
-function fixture() {
+function fixture(initialAuth = {}) {
   // This fixture is relative to the current date so expiry guards are exercised.
   const now=Date.now(), created=new Date(now-60_000).toISOString();
   const record={name:'cfc-recovery-drill-20261115',purpose:'production-backup-recovery',projectRef:clone,sourceProjectRef:source,
@@ -18,12 +19,12 @@ function fixture() {
   const evidence={...Object.fromEntries(QUARANTINE_ZERO.map(key=>[key,0])),users:12,initializedLeagues:1,assets:414,slots:12,trades:5,storageObjects:6,storageBuckets:2,
     browserCommandAllowed:false,serviceDirectWriteAllowed:false,
     ...Object.fromEntries(['schemaDigest','policyDigest','functionDigest','rlsDigest','constraintDigest','migrationDigest','assetDigest','slotDigest','tradeDigest','draftDigest'].map(key=>[key,'a'.repeat(32)]))};
-  const calls=[];let auth={},rest={},written=false;
+  const calls=[];let auth={...initialAuth},rest={},written=false;
   const request=async options=>{
     calls.push(options);
     if(!options.resource) return {id:options.projectRef,name:record.name,organization_id:record.organizationId,region:record.region,created_at:created,status:'ACTIVE_HEALTHY'};
     if(options.resource==='database/backups') return {walg_enabled:true,backups:[{status:'COMPLETED',inserted_at:record.backupTimestamp}]};
-    if(options.resource==='config/auth') { if(options.method==='PATCH') auth=options.body; return auth; }
+    if(options.resource==='config/auth') { if(options.method==='PATCH') auth={...auth,...options.body}; return auth; }
     if(options.resource==='postgrest') { if(options.method==='PATCH') rest=options.body; return rest; }
     const query=options.body.query;
     if(query.includes('SELECT table_schema')) return Object.entries(requiredRecoveryColumns).flatMap(([table,columns])=>columns.map(column_name=>({table_schema:table.split('.')[0],table_name:table.split('.')[1],column_name})));
@@ -49,6 +50,31 @@ test('registration failures cannot reach any API and provider errors are not log
   await assert.rejects(runHostedRecovery({...env,RECOVERY_PROJECT_REF:source},{request:async()=>{calls++;}}),/target-registration/);
   assert.equal(calls,0);
   await assert.rejects(runHostedRecovery(env,{request:async()=>{throw new Error('private-provider-secret');}}),error=>!error.message.includes('private-provider-secret'));
+});
+
+test('Auth quarantine changes only unsafe settings and skips a redundant PATCH',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-15T14:30:00Z')});
+  const desired=recoveryAuthPatch({external_google_enabled:false,hook_send_email_enabled:false});
+  for(const unsafe of [false,true]) {
+    const {env,request,calls}=fixture({...desired,external_email_enabled:unsafe});
+    const result=await runHostedRecovery(env,{request});
+    const patches=calls.filter(call=>call.resource==='config/auth'&&call.method==='PATCH');
+    assert.deepEqual(patches.map(call=>call.body),unsafe?[{external_email_enabled:false}]:[]);
+    assert.equal(result.quarantined,true);
+  }
+});
+
+test('Auth readback still rejects drift in a setting omitted from the write patch',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-15T14:30:00Z')});
+  const desired=recoveryAuthPatch({external_google_enabled:false});
+  const {env,request}=fixture({...desired,external_email_enabled:true});
+  let authReads=0;
+  const drift=async options=>{
+    const value=await request(options);
+    if(options.resource==='config/auth'&&options.method!=='PATCH'&&++authReads===2) return {...value,saml_enabled:true};
+    return value;
+  };
+  await assert.rejects(runHostedRecovery(env,{request:drift}),/verify-target-auth-and-api/);
 });
 
 test('cleanup deletes only the approved clone, confirms absence, and remains available after expiry',async t=>{
