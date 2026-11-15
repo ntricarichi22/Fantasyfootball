@@ -8,5 +8,9 @@
       "https://fantasyfootball-git-main-nick-ts-projects-37a944d6.vercel.app"
     ]
   },
+  "protectedSupabaseProjectRefs": [
+    "owkxkpkdffhcordlxqte",
+    "tnixfvxqqwposoevpogo"
+  ],
   "stagingTargets": []
 }

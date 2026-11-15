@@ -62,6 +62,23 @@ export async function probeApplication(origin, { fetchImpl = fetch } = {}) {
   return { ok: true, failures: [], statuses };
 }
 
+// The canary uses the normal failed-result/exit-code path. It never changes the
+// application or replaces a real probe result, and cannot run on a schedule/PR.
+export async function runPublicOperationsCheck(env = process.env, { fetchImpl = fetch } = {}) {
+  const canary = env.MONITOR_ALERT_CANARY === 'true';
+  if (canary && (env.GITHUB_ACTIONS !== 'true' || env.GITHUB_EVENT_NAME !== 'workflow_dispatch'
+      || env.GITHUB_REF !== 'refs/heads/main' || env.GITHUB_REPOSITORY !== 'ntricarichi22/Fantasyfootball')) {
+    throw new Error('Alert canary requires a manual run on the trusted main branch');
+  }
+  const application = await probeApplication(env.MONITOR_APPLICATION_ORIGIN || deploymentTargets.production.appOrigins[0], { fetchImpl });
+  const result = { checkedAt: new Date().toISOString(), ok: application.ok, checks: { application } };
+  if (canary) {
+    result.checks.alertDeliveryCanary = { ok: false, failures: ['intentional_alert_delivery_canary'] };
+    result.ok = false;
+  }
+  return result;
+}
+
 export async function runOperationsCheck(env = process.env, { fetchImpl = fetch, metadataOnly = false } = {}) {
   const projectRef = env.PROJECT_REF;
   if (projectRef !== deploymentTargets.production.supabaseProjectRef) throw new Error('Monitoring requires the explicitly reviewed production project');
@@ -88,7 +105,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const flags = process.argv.slice(2);
   if (flags.length > 1 || flags.some(flag => !['--public-only', '--metadata-only'].includes(flag))) throw new Error('Choose public-only or metadata-only');
   const check = flags.includes('--public-only')
-    ? probeApplication(process.env.MONITOR_APPLICATION_ORIGIN || deploymentTargets.production.appOrigins[0]).then(application => ({ checkedAt: new Date().toISOString(), ok: application.ok, checks: { application } }))
+    ? runPublicOperationsCheck()
     : runOperationsCheck(process.env, { metadataOnly: flags.includes('--metadata-only') });
   check.then(result => { console.log(JSON.stringify(result, null, 2)); if (!result.ok) process.exitCode = 1; })
     .catch(error => { console.error(error.message); process.exitCode = 1; });

@@ -1,21 +1,38 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { isAbsolute } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import pg from "pg";
-import { stagingConfigFromEnv, stagingPoolOptions, assertStagingAttestation } from "./lib/staging-target.mjs";
+import { stagingConfigFromEnv, stagingPoolOptions, assertStagingAttestation, assertTargetActive } from "./lib/staging-target.mjs";
 import { createSyntheticLeagueFixture, assertSyntheticLeagueFixture, cleanupSyntheticLeagueFixture } from "./lib/synthetic-league-fixture.mjs";
 import { appCookie, fixtureIdentityHeaders } from "./lib/auth-fixture.mjs";
-import { loadOptions, createLoadMetrics, createBoundedRequester, runReadWorkers } from "./lib/bounded-load.mjs";
+import { reserveHostedLoadDatabase } from "./lib/hosted-load-preflight.mjs";
+import { loadOptions, hostedLoadOptions, assertHealthyLoad, createLoadMetrics, createBoundedRequester, runReadWorkers } from "./lib/bounded-load.mjs";
 
-const target = stagingConfigFromEnv(), options = loadOptions();
-assert.equal(target.environment, "local", "This rehearsal is currently CI-only; no hosted target is authorized");
-const pool = new pg.Pool(stagingPoolOptions(target));
+const target = stagingConfigFromEnv(), hosted = target.environment === "staging";
+const options = hosted ? hostedLoadOptions() : loadOptions();
+const stopFile = process.env.STAGING_STOP_FILE;
+if (hosted) assert.ok(stopFile && isAbsolute(stopFile), "An absolute external kill-switch path is required");
+const protectionMode = process.env.STAGING_PROTECTION_MODE ?? "oidc";
+if (hosted) assert.ok(["oidc", "share"].includes(protectionMode) && process.env.STAGING_PROTECTION_TOKEN, "A temporary protected-deployment credential is required");
+const protection = hosted ? { header: protectionMode === "oidc" ? "x-vercel-trusted-oidc-idp-token" : "x-vercel-protection-bypass", token: process.env.STAGING_PROTECTION_TOKEN } : undefined;
+const assertActive = () => {
+  assertTargetActive(target);
+  assert.ok(!stopFile || !existsSync(stopFile), "Load stopped by operator kill switch");
+};
+assertActive();
+const databaseCa = process.env.STAGING_DATABASE_CA_FILE ? await readFile(process.env.STAGING_DATABASE_CA_FILE, "utf8") : undefined;
+const pool = new pg.Pool(stagingPoolOptions(target, databaseCa));
 const clientOptions = { global: { fetch: (url, init) => fetch(url, { ...init, redirect: "error", signal: AbortSignal.timeout(15000) }) }, auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
 const admin = createClient(target.supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY, clientOptions);
 const authClient = createClient(target.supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, clientOptions);
 const fixtures = [], metrics = createLoadMetrics(), controller = new AbortController();
-const request = createBoundedRequester(target, options, metrics, { signal: controller.signal });
+const request = createBoundedRequester(target, options, metrics, { signal: controller.signal, protection, assertActive });
+const stop = () => controller.abort(new Error("Load stopped by process signal"));
+process.on("SIGINT", stop); process.on("SIGTERM", stop);
+const watcher = setInterval(() => { try { assertActive(); } catch (error) { controller.abort(error); } }, 250);
 const started = Date.now(), runId = randomUUID(); let cyclesCompleted = 0;
 const overallTimer = setTimeout(() => controller.abort(new Error("Rehearsal deadline exceeded")), (options.durationSeconds + 120) * 1000);
 const headers = (fixture, actor) => ({ cookie: actor.cookie, "x-cfc-league-id": fixture.leagueId, ...fixtureIdentityHeaders(actor.cookie) });
@@ -71,13 +88,47 @@ async function mutationCycle(draft, trade) {
   cyclesCompleted++;
 }
 
+async function runStage(stage, stageIndex) {
+  assertActive(); controller.signal.throwIfAborted();
+  // Re-attest before every ramp step so an alias/build switch cannot go unnoticed.
+  for (const fixture of fixtures) assertStagingAttestation((await get(fixture, fixture.actors[0], "/api/health/readiness", "readiness")).body, target);
+  const checkpoint = metrics.checkpoint(), initialCycles = cyclesCompleted;
+  const reads = runReadWorkers(stage.concurrency - 2, stage.durationSeconds * 1000, async index => {
+    const fixture = fixtures[index % fixtures.length], actor = fixture.actors[index % 3];
+    const route = index % 3 === 0 ? "/api/league/runtime" : index % 3 === 1 ? "/api/scouting/draft/state" : `/api/inbox/threads?teamId=${actor.rosterId}&include=latest`;
+    const { body } = await get(fixture, actor, route);
+    if (route.includes("threads")) assert.ok(body.data.every(row => row.league_id === fixture.leagueId), "Cross-league thread leaked");
+    else assert.equal((body.draft_state ?? body.data)?.league_id, fixture.leagueId, "Cross-league runtime leaked");
+  }, controller.signal, options.pacingMs).catch(error => { controller.abort(error); throw error; });
+  const mutations = (async () => {
+    for (let cycle = 0; cycle < stage.cycles; cycle++) {
+      controller.signal.throwIfAborted();
+      await mutationCycle(fixtures[0], fixtures[1]);
+    }
+  })().catch(error => { controller.abort(error); throw error; });
+  const settled = await Promise.allSettled([reads, mutations]);
+  const rejected = settled.find(result => result.status === "rejected"); if (rejected) throw rejected.reason;
+  controller.signal.throwIfAborted();
+  assert.equal(cyclesCompleted - initialCycles, stage.cycles);
+  const summary = metrics.summary(checkpoint);
+  assertHealthyLoad(summary, options, stage.concurrency);
+  console.log(JSON.stringify({ ok: true, stage: stageIndex + 1, concurrencyCap: stage.concurrency,
+    measuredSeconds: stage.durationSeconds, cyclesCompleted: stage.cycles, metrics: summary }));
+}
+
 async function main() {
-  let failure;
+  let failure, releaseLease;
   try {
-    for (let leagueIndex = 0; leagueIndex < 2; leagueIndex++) fixtures.push(await createSyntheticLeagueFixture({ pool, admin, authClient, runId, leagueIndex }));
-    const cutover = await pool.connect();
-    try { await cutover.query("SET cfc.runtime_cutover='approved'"); await cutover.query(await readFile(new URL("../supabase/operations/league_runtime_cutover.sql", import.meta.url), "utf8")); }
-    finally { cutover.release(); }
+    if (hosted) releaseLease = await reserveHostedLoadDatabase(pool);
+    for (let leagueIndex = 0; leagueIndex < 2; leagueIndex++) {
+      assertActive(); controller.signal.throwIfAborted();
+      fixtures.push(await createSyntheticLeagueFixture({ pool, admin, authClient, runId, leagueIndex }));
+    }
+    if (!hosted) {
+      const cutover = await pool.connect();
+      try { await cutover.query("SET cfc.runtime_cutover='approved'"); await cutover.query(await readFile(new URL("../supabase/operations/league_runtime_cutover.sql", import.meta.url), "utf8")); }
+      finally { cutover.release(); }
+    }
     for (const fixture of fixtures) for (const actor of fixture.actors) {
       const finalized = await request("/api/auth/finalize", { method: "POST", headers: { authorization: `Bearer ${actor.accessToken}` }, body: JSON.stringify({ leagueId: fixture.leagueId }) });
       actor.cookie = appCookie(finalized.response);
@@ -85,39 +136,31 @@ async function main() {
     }
     const stale = await request("/api/league/runtime", { headers: { ...headers(fixtures[0], fixtures[0].actors[0]), "x-cfc-league-id": fixtures[1].leagueId }, expected: [401, 403, 409], kind: "isolation" });
     assert.ok(stale.response.status !== 200);
+    if (hosted) for (const fixture of fixtures) {
+      assertActive(); controller.signal.throwIfAborted();
+      const enabled = await pool.query("UPDATE public.cfc_league_runtime SET writes_enabled=true WHERE league_id=$1 AND initialized_at IS NOT NULL AND NOT writes_enabled", [fixture.leagueId]);
+      assert.equal(enabled.rowCount, 1, "Synthetic runtime was not initialized");
+    }
     await command(fixtures[0], "start");
-    const reads = runReadWorkers(options.concurrency - 2, options.durationSeconds * 1000, async index => {
-      const fixture = fixtures[index % fixtures.length], actor = fixture.actors[index % 3];
-      const route = index % 3 === 0 ? "/api/league/runtime" : index % 3 === 1 ? "/api/scouting/draft/state" : `/api/inbox/threads?teamId=${actor.rosterId}&include=latest`;
-      const { body } = await get(fixture, actor, route);
-      if (route.includes("threads")) assert.ok(body.data.every(row => row.league_id === fixture.leagueId), "Cross-league thread leaked");
-      else assert.equal((body.draft_state ?? body.data)?.league_id, fixture.leagueId, "Cross-league runtime leaked");
-    }, controller.signal, options.pacingMs).catch(error => { controller.abort(error); throw error; });
-    const mutations = (async () => {
-      for (let cycle = 0; cycle < options.cycles && !controller.signal.aborted; cycle++) {
-        await mutationCycle(fixtures[0], fixtures[1]);
-        if (cycle + 1 < options.cycles) await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    })().catch(error => { controller.abort(error); throw error; });
-    const settled = await Promise.allSettled([reads, mutations]);
-    const rejected = settled.find(result => result.status === "rejected"); if (rejected) throw rejected.reason;
+    const stages = options.stages ?? [{ concurrency: options.concurrency, durationSeconds: options.durationSeconds, cycles: options.cycles }];
+    for (let index = 0; index < stages.length; index++) await runStage(stages[index], index);
     assert.equal(cyclesCompleted, options.cycles);
     for (const fixture of fixtures) await assertSyntheticLeagueFixture({ pool, fixture });
-    const summary = metrics.summary();
-    assert.ok(summary.read?.count >= options.concurrency, "Insufficient authenticated read samples");
-    for (const kind of ["read", "command"]) {
-      assert.ok(summary[kind].errors / summary[kind].count <= options.errorRate, `${kind} error threshold exceeded`);
-      assert.ok(summary[kind].p95Ms <= options.p95Ms, `${kind} p95 threshold exceeded`);
-    }
   } catch (error) { failure = error; controller.abort(error); }
   finally {
-    clearTimeout(overallTimer);
+    clearTimeout(overallTimer); clearInterval(watcher);
+    process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop);
+    for (const fixture of fixtures) try {
+      await pool.query("UPDATE public.cfc_league_runtime SET writes_enabled=false WHERE league_id=$1", [fixture.leagueId]);
+    } catch { failure ??= new Error("Synthetic mutation shutdown failed"); }
     for (const fixture of fixtures.reverse()) try { await cleanupSyntheticLeagueFixture({ pool, admin, fixture }); }
     catch { failure ??= new Error("Synthetic fixture cleanup failed"); }
+    if (releaseLease) try { await releaseLease(); } catch { failure ??= new Error("Hosted test lease release failed"); }
     await pool.end();
     console.log(JSON.stringify({ ok: !failure, environment: target.environment, commitSha: target.commitSha,
+      ...(hosted ? { deploymentId: target.deploymentId, vercelProjectId: target.vercelProjectId } : {}),
       durationMs: Date.now() - started, concurrencyCap: options.concurrency, cyclesCompleted, metrics: metrics.summary(),
-      limitation: "Disposable CI baseline, not hosted production capacity" }));
+      limitation: hosted ? "Bounded synthetic hosted test, not maximum production capacity" : "Disposable CI baseline, not hosted production capacity" }));
   }
   if (failure) throw failure;
 }

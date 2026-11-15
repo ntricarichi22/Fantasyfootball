@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateOperations, probeApplication, runOperationsCheck } from './verify-operations.mjs';
+import { evaluateOperations, probeApplication, runOperationsCheck, runPublicOperationsCheck } from './verify-operations.mjs';
 const now = Date.parse('2026-11-15T12:00:00Z');
 const healthy = () => [{ summary: { registered_leagues: 1, initialized_leagues: 1, paused_initialized_leagues: 0,
   oldest_source_observed_at: new Date(now - 3600_000).toISOString(), security_error_occurrences_1h: 0,
@@ -41,4 +41,47 @@ test('unavailable backup or database checks do not silently skip monitoring or e
     { fetchImpl: async () => { throw new Error('private-token'); } });
   assert.equal(result.ok, false); assert.equal(Object.keys(result.checks).length, 3);
   assert.equal(JSON.stringify(result).includes('private-token'), false);
+});
+
+const manualMainCanary = { MONITOR_ALERT_CANARY: 'true', GITHUB_ACTIONS: 'true',
+  GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main', GITHUB_REPOSITORY: 'ntricarichi22/Fantasyfootball' };
+
+const healthyFetch = async url => new Response('', { status: url.pathname === '/api/league/snapshot' ? 401 : 200 });
+
+test('manual alert canary preserves all real probes and adds a clearly labeled failure without extra requests', async () => {
+  const paths = [];
+  const result = await runPublicOperationsCheck(manualMainCanary, { fetchImpl: async (url, options) => {
+    paths.push(url.pathname); assert.equal(options.method, undefined); assert.equal(options.redirect, 'manual');
+    assert.deepEqual(Object.keys(options.headers), ['cache-control']);
+    return healthyFetch(url);
+  } });
+  assert.equal(result.ok, false);
+  assert.equal(result.checks.application.ok, true);
+  assert.deepEqual(paths, ['/login', '/api/league/snapshot', '/api/health']);
+  assert.deepEqual(result.checks.alertDeliveryCanary, { ok: false, failures: ['intentional_alert_delivery_canary'] });
+});
+
+test('canary never masks an actual production probe failure', async () => {
+  const result = await runPublicOperationsCheck(manualMainCanary, { fetchImpl: async () => new Response('', { status: 503 }) });
+  assert.equal(result.ok, false);
+  assert.deepEqual(result.checks.application.failures, ['login_unexpected_status']);
+  assert.deepEqual(result.checks.alertDeliveryCanary.failures, ['intentional_alert_delivery_canary']);
+});
+
+test('scheduled, PR, non-main, foreign-repository and non-Actions canaries fail before requests', async () => {
+  for (const override of [{ GITHUB_EVENT_NAME: 'schedule' }, { GITHUB_EVENT_NAME: 'pull_request' },
+    { GITHUB_REF: 'refs/heads/canary' }, { GITHUB_REPOSITORY: 'someone/Fantasyfootball' }, { GITHUB_ACTIONS: undefined }]) {
+    await assert.rejects(runPublicOperationsCheck({ ...manualMainCanary, ...override }, { fetchImpl: async () => {
+      assert.fail('Untrusted canary made a network request');
+    } }), /manual run on the trusted main branch/);
+  }
+});
+
+test('normal monitoring and recovery have no synthetic failure or credential requirement', async () => {
+  for (const env of [{}, { ...manualMainCanary, MONITOR_ALERT_CANARY: 'false' }]) {
+    const result = await runPublicOperationsCheck(env, { fetchImpl: healthyFetch });
+    assert.equal(result.ok, true);
+    assert.deepEqual(Object.keys(result.checks), ['application']);
+    assert.deepEqual(result.checks.application.statuses, { login: 200, protectedLeague: 401, databaseHealth: 200 });
+  }
 });

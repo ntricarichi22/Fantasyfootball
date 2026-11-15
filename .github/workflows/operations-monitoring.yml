@@ -1,9 +1,14 @@
 name: Operations monitoring
+run-name: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.alert_canary && 'Operations monitoring - ALERT CANARY (expected failure)' || 'Operations monitoring' }}
 on:
   schedule:
     - cron: '7,22,37,52 * * * *'
   workflow_dispatch:
     inputs:
+      alert_canary:
+        description: Intentionally fail a labeled alert-delivery canary after real public checks (main only; no app outage)
+        type: boolean
+        default: false
       cloud_metadata:
         description: Also check backup and database metadata using the protected production environment
         type: boolean
@@ -44,9 +49,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
-      - name: Check public login and unauthorized API denial without credentials
+      - name: Check public login, auth denial and database health without credentials
         env:
           MONITOR_APPLICATION_ORIGIN: ${{ vars.MONITOR_APPLICATION_ORIGIN }}
+          MONITOR_ALERT_CANARY: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.alert_canary }}
         run: node scripts/monitoring/verify-operations.mjs --public-only
   verify-production-metadata:
     if: github.event_name == 'workflow_dispatch' && inputs.cloud_metadata && github.ref == 'refs/heads/main'

@@ -27,6 +27,48 @@ failure. It does not certify authenticated journeys, database correctness, laten
 Temporary CI rehearsals cover synthetic authenticated journeys. GitHub schedules are
 best effort and can be delayed; failed-run notifications are not a paging SLA.
 
+## Native failure email and delivery canary
+
+On 2026-11-15, the owner enabled **On GitHub + Email**, retaining **Only notify for
+failed workflows**, in [GitHub notification settings](https://github.com/settings/notifications).
+The destination is the owner's existing default notification email, verified privately.
+This is an account-wide Actions preference: it also affects qualifying workflow runs
+in other repositories. It adds no application email provider, secret or subscription.
+
+Recent scheduled runs identified `ntricarichi22` as both actor and triggering actor.
+[GitHub sends scheduled notifications to the schedule's owner](https://docs.github.com/en/actions/concepts/workflows-and-actions/notifications-for-workflow-runs),
+which can change when someone edits the cron syntax or re-enables the workflow.
+Recheck ownership, email preference and receipt after either change. Failed-workflow
+email is best effort, not guaranteed paging or proof of human acknowledgement.
+
+The manual `alert_canary` input defaults to `false`. On trusted `main`, setting it to
+`true` labels the run **Operations monitoring - ALERT CANARY (expected failure)**.
+The shared public monitor still performs the real login, unauthorized-access and
+database-health checks. It then appends `intentional_alert_delivery_canary` and exits
+unsuccessfully through the same result/exit-code path as real probe failures. Actual
+failures remain visible. The canary makes no additional network requests, modifies no
+production state, sends no direct email and does not cause an application outage.
+It is refused outside an Actions manual dispatch on this repository's `main` branch.
+Scheduled runs and pull requests cannot opt into it.
+
+After the reviewed change is merged, coordinate one operator for this drill:
+
+1. Dispatch **Operations monitoring** on `main` with `alert_canary=true` and
+   `cloud_metadata=false`. Record the exact run URL, start time and commit. Do not
+   dispatch duplicates while waiting for mail.
+2. Confirm the labeled run fails with the synthetic check and record the real probe
+   outcomes separately. Match the resulting GitHub notification in the verified
+   owner's mailbox to this exact run; a sent/configured status alone is insufficient.
+3. Dispatch once with both inputs `false`. Require all three real public checks and
+   the workflow to pass; record that recovery run URL. Failed-only settings intentionally
+   send no success/recovery email.
+4. Record receipt timestamp, run correlation and recovery evidence without publishing
+   private email addresses or message contents. If mail is missing, investigate native
+   settings, actor ownership and mailbox filtering before claiming delivery or retrying.
+
+The preference is configured; the canary receipt and recovery-run evidence remain
+pending until the coordinated drill is actually completed.
+
 ## Protected manual database and backup checks
 
 Dispatch `Operations monitoring` on `main` with `cloud_metadata=true`. Its metadata job
@@ -67,10 +109,11 @@ email. Monitoring scripts add no second transport and send no alerts.
 
 Email activation requires private `SECURITY_EMAIL_ALERTS_ENABLED=true`, provider `resend`,
 `SECURITY_ALERT_EMAIL_TO`, `SECURITY_ALERT_EMAIL_FROM`, `RESEND_API_KEY`, an approved
-recipient and verified sender. Configuration presence or zero failed deliveries does
-not prove delivery. No new email, webhook or external message was sent. Test delivery
-only in a separately approved context. Native GitHub recipients, actual notification
-delivery and human acknowledgement remain unverified.
+recipient and verified sender. Production currently has none of these provider fields
+configured. Configuration presence or zero failed deliveries does not prove delivery.
+The native GitHub drill above verifies the monitoring workflow's failure notification,
+not this inactive application email transport. Application-email delivery and human
+acknowledgement remain unverified.
 
 ## Retention and response
 
