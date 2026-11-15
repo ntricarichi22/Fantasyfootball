@@ -1,12 +1,12 @@
 export function safeFailureCategory(error) {
-  if (["AUTH_CONFIG_SCHEMA_UNEXPECTED", "AUTH_CONFIG_VERIFY_FAILED", "PROJECT_STARTUP_FAILED", "PROJECT_STARTUP_TIMEOUT", "CLEANUP_UNCONFIRMED"].includes(error?.category)) return error.category;
+  if (["AUTH_CONFIG_SCHEMA_UNEXPECTED", "AUTH_CONFIG_VERIFY_FAILED", "PROJECT_STARTUP_FAILED", "PROJECT_STARTUP_TIMEOUT", "CLEANUP_UNCONFIRMED", "PROVIDER_EMPTY_RESPONSE", "PROVIDER_INVALID_JSON", "PROVIDER_TIMEOUT", "PROVIDER_REQUEST_FAILED", "PROVIDER_RESPONSE_TOO_LARGE", "PROVIDER_UNEXPECTED_STATUS"].includes(error?.category)) return error.category;
   const sqlStates = new Set(["42501", "42P01", "42703", "23505", "28P01", "28000", "57P03", "57014", "40001", "40P01", "3D000", "08006", "53300"]);
   if (["CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID"].includes(error?.code)) return "TLS_VERIFICATION_FAILED";
   if (error?.category === "TLS_VERIFICATION_FAILED") return error.category;
   if (sqlStates.has(error?.code)) return `POSTGRES_${error.code}`;
-  const status = /^Metadata request failed \(HTTP (400|401|403|404|409|422|429|500|502|503|504)\)$/.exec(error?.message ?? "")?.[1];
+  const status = /^Metadata request failed \(HTTP ([45][0-9]{2})\)$/.exec(error?.message ?? "")?.[1];
   if (status) return `PROVIDER_HTTP_${status}`;
-  if (/^POSTGRES_(?:42501|42P01|42703|23505|28P01|28000|57P03|57014|40001|40P01|3D000|08006|53300)$|^PROVIDER_HTTP_(?:400|401|403|404|409|422|429|500|502|503|504)$/.test(error?.category ?? "")) return error.category;
+  if (/^POSTGRES_(?:42501|42P01|42703|23505|28P01|28000|57P03|57014|40001|40P01|3D000|08006|53300)$|^PROVIDER_HTTP_[45][0-9]{2}$/.test(error?.category ?? "")) return error.category;
   return "GUARD_OR_OPERATION_FAILED";
 }
 

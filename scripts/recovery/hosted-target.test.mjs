@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveRecoveryTarget, recoveryAuthPatch, assertRecoveryAuth } from './hosted-target.mjs';
+import { changedManagementSettings } from '../lib/supabase-management.mjs';
 
 const source = 'owkxkpkdffhcordlxqte', clone = 'abcdefghijklmnopqrst';
 const now = Date.parse('2026-11-15T14:30:00Z');
@@ -31,6 +32,19 @@ test('Auth quarantine closes every returned provider/hook without copying creden
   assert.equal(patch.external_google_secret, undefined);
   assertRecoveryAuth(patch, patch);
   assert.throws(() => assertRecoveryAuth({ ...patch, external_email_enabled: true }, patch), /external_email_enabled/);
+});
+
+test('Auth writes omit already-correct settings while verification retains every required protection', () => {
+  const desired = recoveryAuthPatch({ external_google_enabled: false, hook_send_email_enabled: false });
+  const current = { ...desired, external_email_enabled: true, hook_send_email_enabled: true,
+    external_google_secret: 'private-value' };
+  assert.deepEqual(changedManagementSettings(current, desired), {
+    external_email_enabled: false, hook_send_email_enabled: false,
+  });
+  assert.equal(desired.saml_enabled, false);
+  assert.equal(desired.external_google_enabled, false);
+  assert.deepEqual(changedManagementSettings(desired, desired), {});
+  assert.throws(() => assertRecoveryAuth({ ...desired, saml_enabled: true }, desired), /saml_enabled/);
 });
 
 test('the copied-cron safety window blocks work but never prevents exact-target cleanup',()=>{

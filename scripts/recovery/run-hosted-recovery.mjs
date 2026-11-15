@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { managementProjectJson } from '../lib/supabase-management.mjs';
+import { changedManagementSettings, managementProjectJson } from '../lib/supabase-management.mjs';
 import { recoveryTargetFromEnv, assertRecoveryProject, recoveryAuthPatch, assertRecoveryAuth } from './hosted-target.mjs';
 import { recoveryEvidence, assertQuarantined, assertPreserved, publicRecoveryEvidence } from './hosted-checks.mjs';
 import { restoreFreshStorageCopy } from './hosted-storage.mjs';
@@ -95,10 +95,11 @@ export async function runHostedRecovery(env = process.env, { request = managemen
     const before = recoveryEvidence(await sql(`SET LOCAL statement_timeout='20s';\n${evidenceSql}`));
     for (const key of ['subscriptions','foreignServers','networkTriggers','unreviewedJobs']) assert.equal(before[key], 0, 'Unreviewed restored outbound integration');
     let auth = await call('config/auth');
-    const patch = recoveryAuthPatch(auth);
+    const desiredAuth = recoveryAuthPatch(auth);
     if (['quarantine','drill'].includes(env.RECOVERY_OPERATION)) {
       stage = 'disable-target-auth';
-      await call('config/auth', { method: 'PATCH', body: patch });
+      const writePatch = changedManagementSettings(auth, desiredAuth);
+      if (Object.keys(writePatch).length) await call('config/auth', { method: 'PATCH', body: writePatch });
       stage = 'quarantine-target-database';
       const query = quarantineSql.replaceAll('__RECOVERY_TARGET_REF__', target.projectRef)
         .replace('BEGIN;', `BEGIN;\nSELECT set_config('recovery.approved_target_ref','${target.projectRef}',true);`);
@@ -108,7 +109,7 @@ export async function runHostedRecovery(env = process.env, { request = managemen
     }
     stage = 'verify-target-auth-and-api';
     auth = await call('config/auth');
-    assertRecoveryAuth(auth, patch);
+    assertRecoveryAuth(auth, desiredAuth);
     const rest = await call('postgrest');
     assert.equal(rest.db_schema, 'recovery_quarantine', 'Restored Data API is not quarantined');
     assert.equal(rest.db_extra_search_path, '', 'Restored Data API search path is not quarantined');
