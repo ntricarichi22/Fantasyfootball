@@ -5,16 +5,8 @@ import { managementProjectJson } from "../lib/supabase-management.mjs";
 import { ensureSyntheticAuth, lifecycleManifest } from "./synthetic-project-lifecycle.mjs";
 import { resolveStagingTarget, stagingRegistrations } from "../lib/staging-target.mjs";
 
-export function safeFailureCategory(error) {
-  const sqlStates = new Set(["42501", "42P01", "42703", "23505", "28P01", "28000", "57P03", "57014", "40001", "40P01", "3D000", "08006", "53300"]);
-  if (["CERT_HAS_EXPIRED", "DEPTH_ZERO_SELF_SIGNED_CERT", "SELF_SIGNED_CERT_IN_CHAIN", "UNABLE_TO_VERIFY_LEAF_SIGNATURE", "ERR_TLS_CERT_ALTNAME_INVALID"].includes(error?.code)) return "TLS_VERIFICATION_FAILED";
-  if (error?.category === "TLS_VERIFICATION_FAILED") return error.category;
-  if (sqlStates.has(error?.code)) return `POSTGRES_${error.code}`;
-  const status = /^Metadata request failed \(HTTP (401|403|404|429|500|502|503|504)\)$/.exec(error?.message ?? "")?.[1];
-  if (status) return `PROVIDER_HTTP_${status}`;
-  if (/^POSTGRES_(?:42501|42P01|42703|23505|28P01|28000|57P03|57014|40001|40P01|3D000|08006|53300)$|^PROVIDER_HTTP_(?:401|403|404|429|500|502|503|504)$/.test(error?.category ?? "")) return error.category;
-  return "GUARD_OR_OPERATION_FAILED";
-}
+import { safeFailureCategory } from "./diagnostics.mjs";
+export { safeFailureCategory } from "./diagnostics.mjs";
 
 export const LOAD_REPOSITORY = "ntricarichi22/Fantasyfootball";
 const AUDIENCE = "https://github.com/ntricarichi22";
@@ -160,7 +152,7 @@ export async function withHostedCredentials({ env = process.env, operation, acti
   emitStage(operation === "setup" ? "inspect_fresh_schema" : "verify_existing_target");
   if (operation === "setup") await inspectFreshDatabase(sql => request({ resource: "database/query", method: "POST", body: { query: sql, read_only: true } }));
   emitStage("verify_auth_quarantine");
-  await ensureSyntheticAuth({ request, guard, configure: operation === "setup" });
+  await ensureSyntheticAuth({ request, guard, configure: operation === "setup", emitStage });
   const keys = selectApiKeys(await request({ resource: "api-keys", reveal: true }), record.projectRef);
   let attempted = false, failure, result;
   try {
