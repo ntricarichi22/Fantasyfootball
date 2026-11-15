@@ -49,6 +49,7 @@ function command(binary, args, { input, env = process.env, capture = false } = {
         const categories = [
           ['RESTORE_CRON_DATABASE', /cron\.database_name|can only create extension in database.*postgres/i],
           ['TOOL_REQUIRES_SUPERUSER', /must be superuser|permission denied to create extension/i],
+          ['TOOL_CANNOT_SET_ROLE', /must be able to SET ROLE/i],
           ['TOOL_NOT_OBJECT_OWNER', /must be owner of|not the owner of/i],
           ['TOOL_PERMISSION_DENIED', /permission denied/i],
           ['TOOL_DUPLICATE_OBJECT', /already exists/i],
@@ -96,10 +97,12 @@ try {
   assert.equal(identity.rows[0].name, 'postgres');
   const { rows: [capabilities] } = await pool.query(`SELECT current_user::text role,
     (SELECT rolsuper FROM pg_roles WHERE rolname=current_user) superuser,
+    EXISTS(SELECT 1 FROM pg_roles WHERE rolname='supabase_admin' AND rolsuper AND rolcanlogin) restore_admin_available,
     (SELECT array_agg(extname::text ORDER BY extname) FROM pg_extension) extensions`);
   assert.match(capabilities.role, /^[a-z_][a-z0-9_]{0,62}$/);
   assert.ok(capabilities.extensions.every(name => /^[a-z_][a-z0-9_-]{0,62}$/.test(name)));
   console.log(JSON.stringify({ exercise: 'synthetic-logical-round-trip', sourceCapabilities: capabilities }));
+  assert.equal(capabilities.restore_admin_available, true, 'Disposable cluster administrator required to preserve restored object owners');
   stage = 'synthetic-fixture';
   fixture = await createSyntheticLeagueFixture({ pool, admin, authClient });
   stage = 'canonical-cutover';
@@ -129,7 +132,10 @@ try {
   stage = 'create-disposable-target';
   await command('docker', ['exec', container, 'createdb', '-U', 'postgres', '--template=template0', targetName]); created = true;
   stage = 'restore-disposable-target';
-  await command('docker', ['exec', container, 'pg_restore', '-U', 'postgres', '--exit-on-error', '--dbname', targetName, dumpPath]);
+  // Supabase's postgres role is not a superuser and cannot restore ownership of
+  // managed objects. Use the verified administrator only inside this fixed local
+  // container; retain all original object owners and grants for strict comparison.
+  await command('docker', ['exec', container, 'pg_restore', '-U', 'supabase_admin', '--exit-on-error', '--dbname', targetName, dumpPath]);
   stage = 'compare-metadata-and-security-manifest';
   await command('bash', ['scripts/recovery/validate-restore.sh'], { env: { ...process.env,
     SOURCE_DATABASE_URL: sourceUrl, TARGET_DATABASE_URL: targetUrl, RECOVERY_TARGET_CONFIRM: 'DISPOSABLE-NONPRODUCTION' } });
