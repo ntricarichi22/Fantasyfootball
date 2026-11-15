@@ -7,6 +7,7 @@ import pg from 'pg';
 import { createClient } from '@supabase/supabase-js';
 import { resolveStagingTarget, stagingPoolOptions } from '../lib/staging-target.mjs';
 import { createSyntheticLeagueFixture, assertSyntheticLeagueFixture, cleanupSyntheticLeagueFixture } from '../lib/synthetic-league-fixture.mjs';
+import { partitionRestoreToc } from './restore-archive.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const container = 'supabase_db_fantasyfootball_migration_ci';
@@ -24,12 +25,14 @@ assert.equal(config.supabaseUrl, 'http://127.0.0.1:54321');
 assert.ok(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY && process.env.SUPABASE_SERVICE_ROLE_KEY, 'Local stack keys required');
 const pool = new pg.Pool(stagingPoolOptions(config));
 const restored = new pg.Pool({ connectionString: targetUrl, max: 2, statement_timeout: 15_000 });
+const restoredAdmin = new pg.Pool({ connectionString: targetUrl.replace('postgres:postgres@', 'supabase_admin:postgres@'), max: 1, statement_timeout: 15_000 });
 const options = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } };
 const admin = createClient(config.supabaseUrl, process.env.SUPABASE_SERVICE_ROLE_KEY, options);
 const authClient = createClient(config.supabaseUrl, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY, options);
 
 function command(binary, args, { input, env = process.env, capture = false } = {}) {
   return new Promise((resolve, reject) => {
+    const manifest = binary === 'bash' && args.length === 1 && args[0] === 'scripts/recovery/validate-restore.sh';
     const child = spawn(binary, args, { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'] });
     let output = ''; let bytes = 0; let killed = false; let diagnostic = '';
     const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, 180_000);
@@ -37,7 +40,7 @@ function command(binary, args, { input, env = process.env, capture = false } = {
     child.stdout.on('data', data => {
       bytes += data.length;
       if (bytes > 2_097_152) { killed = true; child.kill('SIGKILL'); }
-      if (capture && !killed) output += data.toString('utf8');
+      if ((capture || manifest) && !killed) output += data.toString('utf8');
     });
     // Retain bounded input only for fixed diagnostic categories; never print raw
     // database/tool errors, SQL, object contents, command arguments or credentials.
@@ -65,7 +68,8 @@ function command(binary, args, { input, env = process.env, capture = false } = {
           .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]')
           .replace(/[A-Za-z0-9_+/.=-]{32,}/g, '[token]')
           .replace(/[^\x20-\x7e]/g, '?').slice(0, 240);
-        reject(Object.assign(new Error('Disposable recovery command failed'), { code: category, primaryError }));
+        const manifestDiff = manifest ? output.split(/\r?\n/).filter(line => /^(?:[+-](?![+-])|@@)/.test(line)).slice(0, 64).join('\n').slice(0, 16_384) : undefined;
+        reject(Object.assign(new Error('Disposable recovery command failed'), { code: category, primaryError, manifestDiff }));
       }
     });
     child.stdin.end(input);
@@ -79,6 +83,21 @@ async function fixtureDigest(client, fixture) {
     hashes[table] = createHash('sha256').update(JSON.stringify(rows)).digest('hex');
   }
   return hashes;
+}
+
+async function graphqlWrapperMetadata(client) {
+  const { rows } = await client.query(`SELECT pg_get_functiondef(p.oid) definition,
+    pg_get_userbyid(p.proowner) owner, e.extname extension,
+    (SELECT jsonb_agg(jsonb_build_array(pg_get_userbyid(a.grantor),
+      CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+      a.privilege_type,a.is_grantable) ORDER BY a.grantor,a.grantee,a.privilege_type,a.is_grantable)
+      FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a) acl
+    FROM pg_proc p LEFT JOIN pg_depend d ON d.classid='pg_proc'::regclass
+      AND d.objid=p.oid AND d.refclassid='pg_extension'::regclass AND d.deptype='e'
+    LEFT JOIN pg_extension e ON e.oid=d.refobjid
+    WHERE p.oid=to_regprocedure('graphql_public.graphql(text,text,jsonb,jsonb)')`);
+  assert.ok(rows.length <= 1, 'Ambiguous platform GraphQL wrapper');
+  return rows[0] ?? null;
 }
 
 function assertRpcSuccess(response) {
@@ -127,15 +146,32 @@ try {
   assertRpcSuccess(accepted); assert.equal(accepted.data.status, 'accepted');
   const before = await assertSyntheticLeagueFixture({ pool, fixture });
   const digests = await fixtureDigest(pool, fixture);
+  const graphqlWrapper = await graphqlWrapperMetadata(pool);
+  assert.equal(graphqlWrapper?.extension, 'pg_graphql', 'Confirmed platform extension wrapper required');
+  assert.match(graphqlWrapper.owner, /^[a-z_][a-z0-9_]{0,62}$/);
   stage = 'dump-disposable-database';
   await command('docker', ['exec', container, 'pg_dump', '-U', 'postgres', '-d', 'postgres', '--format=custom', '--file', dumpPath]);
+  const archive = partitionRestoreToc(await command('docker', ['exec', container, 'pg_restore', '--list', dumpPath], { capture: true }));
   stage = 'create-disposable-target';
   await command('docker', ['exec', container, 'createdb', '-U', 'postgres', '--template=template0', targetName]); created = true;
   stage = 'restore-disposable-target';
   // Supabase's postgres role is not a superuser and cannot restore ownership of
   // managed objects. Use the verified administrator only inside this fixed local
   // container; retain all original object owners and grants for strict comparison.
-  await command('docker', ['exec', '-e', 'PGPASSWORD=postgres', container, 'pg_restore', '-U', 'supabase_admin', '--exit-on-error', '--dbname', targetName, dumpPath]);
+  const restoreArgs = ['exec', '-i', '-e', 'PGPASSWORD=postgres', container, 'pg_restore', '-U', 'supabase_admin',
+    '--exit-on-error', '--use-list=/dev/stdin', '--dbname', targetName, dumpPath];
+  await command('docker', restoreArgs, { input: archive.foundation });
+  stage = 'restore-platform-extension-wrapper';
+  // pg_dump intentionally omits extension members. This wrapper is attached by
+  // Supabase's platform hook, not installed by the extension's own SQL script.
+  // Capture its exact source definition instead of maintaining a second copy.
+  assert.equal(await graphqlWrapperMetadata(restoredAdmin), null, 'Unexpected existing platform wrapper');
+  await restoredAdmin.query(graphqlWrapper.definition);
+  await restoredAdmin.query(`ALTER FUNCTION graphql_public.graphql(text,text,jsonb,jsonb) OWNER TO "${graphqlWrapper.owner}"`);
+  await restoredAdmin.query('ALTER EXTENSION pg_graphql ADD FUNCTION graphql_public.graphql(text,text,jsonb,jsonb)');
+  stage = 'restore-disposable-archive-remainder';
+  await command('docker', restoreArgs, { input: archive.remainder });
+  assert.deepEqual(await graphqlWrapperMetadata(restoredAdmin), graphqlWrapper, 'Restored platform wrapper definition, owner, ACL and membership must match');
   stage = 'compare-metadata-and-security-manifest';
   await command('bash', ['scripts/recovery/validate-restore.sh'], { env: { ...process.env,
     SOURCE_DATABASE_URL: sourceUrl, TARGET_DATABASE_URL: targetUrl, RECOVERY_TARGET_CONFIRM: 'DISPOSABLE-NONPRODUCTION' } });
@@ -148,15 +184,18 @@ try {
     public.is_auth_session_active($1,$2) session_active`, [a.sessionId, a.userId]);
   assert.deepEqual(privileges, { direct_write: false, browser_command: false, session_active: true });
   console.log(JSON.stringify({ ok: true, exercise: 'synthetic-logical-round-trip', postgres: (await pool.query('SHOW server_version')).rows[0].server_version,
-    durationSeconds: Math.round((Date.now() - started) / 1000), assertions: ['metadata-and-security-manifest', 'synthetic-runtime-and-trade-digests', 'service-and-browser-privileges', 'restored-session'],
+    durationSeconds: Math.round((Date.now() - started) / 1000), archiveEntriesRestored: archive.entries,
+    assertions: ['metadata-and-security-manifest', 'platform-wrapper-definition-owner-acl-membership', 'synthetic-runtime-and-trade-digests', 'service-and-browser-privileges', 'restored-session'],
     productionBackupRestored: false, storageObjectBytesRestored: false, productionRpoRtoMeasured: false }));
 } catch (error) {
   const code = typeof error.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(error.code) ? error.code : 'CHECK_FAILED';
   console.error(`Synthetic restore exercise failed at ${stage} (${code}); production was not accessed.`);
   if (error.primaryError) console.error(JSON.stringify({ primaryError: error.primaryError }));
+  if (error.manifestDiff) console.error(JSON.stringify({ manifestDiff: error.manifestDiff }));
   process.exitCode = 1;
 } finally {
   let cleanupFailed = false;
+  await restoredAdmin.end();
   await restored.end();
   if (created) await command('docker', ['exec', container, 'dropdb', '-U', 'postgres', '--force', targetName]).catch(() => { cleanupFailed = true; });
   await command('docker', ['exec', container, 'rm', '-f', dumpPath]).catch(() => { cleanupFailed = true; });

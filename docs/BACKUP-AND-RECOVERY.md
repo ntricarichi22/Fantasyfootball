@@ -71,6 +71,15 @@ restores into a separate database in the **same disposable Docker cluster**, and
 - Browser command denial, service direct-write denial and restored session validity.
 - Removal of the second database, temporary dump and synthetic source accounts.
 
+The local restore uses the verified cluster administrator to preserve managed object
+owners. It restores every archive entry exactly once. Supabase's GraphQL wrapper is
+an extension member created by a platform hook, so `pg_dump` omits its definition.
+The driver captures that exact source definition, owner and extension membership,
+restores it between the archive's schema/extension entries and all remaining entries,
+then compares its definition, owner, privileges and membership. No platform function
+body is maintained separately, and no archive ACLs or objects are skipped. This
+exercise therefore verifies the archive **plus this captured platform metadata**.
+
 The driver accepts no source/target database URL: it is fixed to the disposable
 loopback stack and requires `RECOVERY_SYNTHETIC_CONFIRM=DISPOSABLE-LOCAL-ONLY` and an
 exact reviewed commit. Container PostgreSQL tools match the server. No dump artifact,
