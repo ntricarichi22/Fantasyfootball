@@ -41,7 +41,11 @@ function command(binary, args, { input, env = process.env, capture = false } = {
     });
     // Suppress raw database/tool errors, which can contain fixture credentials.
     child.stderr.on('data', () => {});
-    child.on('close', code => { clearTimeout(timer); code === 0 && !killed ? resolve(output) : reject(new Error(`${binary} failed (exit ${code ?? 'terminated'})`)); });
+    child.on('close', code => {
+      clearTimeout(timer);
+      if (code === 0 && !killed) resolve(output);
+      else reject(new Error(`${binary} failed (exit ${code ?? 'terminated'})`));
+    });
     child.stdin.end(input);
   });
 }
@@ -53,6 +57,14 @@ async function fixtureDigest(client, fixture) {
     hashes[table] = createHash('sha256').update(JSON.stringify(rows)).digest('hex');
   }
   return hashes;
+}
+
+function assertRpcSuccess(response) {
+  if (response.error) {
+    const code = /^[A-Z0-9]{5,10}$/.test(response.error.code ?? '') ? response.error.code : 'RPC_ERROR';
+    throw Object.assign(new Error('Synthetic RPC rejected the fixture'), { code });
+  }
+  assert.ok(response.data && Number.isSafeInteger(response.data.revision), 'Synthetic RPC must return a revision');
 }
 
 let fixture; let created = false; let stage = 'local-target-check';
@@ -69,16 +81,20 @@ try {
     await cutover.query("SET cfc.runtime_cutover='approved'");
     await cutover.query(await readFile(new URL('../../supabase/operations/league_runtime_cutover.sql', import.meta.url), 'utf8'));
   } finally { cutover.release(); }
-  stage = 'synthetic-trade';
+  stage = 'create-synthetic-trade';
   const a = fixture.actors[0], b = fixture.actors[1];
   const offered = await admin.rpc('cfc_create_trade_offer', { p_league_id: fixture.leagueId, p_actor_user_id: a.userId,
     p_session_id: a.sessionId, p_request_id: randomUUID(), p_expected_revision: 1,
-    p_payload: { from_team_id: '1', to_team_id: '2', assets_from: [{ key: 'pick:2027-1-1', type: 'pick' }], assets_to: [{ key: 'pick:2027-1-2', type: 'pick' }] } });
-  assert.ifError(offered.error);
+    p_payload: { from_team_id: '1', to_team_id: '2', grade_label: 'Not rated',
+      assets_from: [{ key: 'pick:2027-1-1', type: 'pick', label: 'Synthetic 2027 pick 1' }],
+      assets_to: [{ key: 'pick:2027-1-2', type: 'pick', label: 'Synthetic 2027 pick 2' }] } });
+  assertRpcSuccess(offered);
+  assert.match(offered.data.id ?? '', /^[a-f0-9-]{36}$/, 'Created offer must return its identifier');
+  stage = 'accept-synthetic-trade';
   const accepted = await admin.rpc('cfc_resolve_trade_offer', { p_league_id: fixture.leagueId, p_actor_user_id: b.userId,
     p_session_id: b.sessionId, p_request_id: randomUUID(), p_expected_revision: offered.data.revision,
     p_offer_id: offered.data.id, p_acting_roster_id: '2', p_status: 'accepted' });
-  assert.ifError(accepted.error); assert.equal(accepted.data.status, 'accepted');
+  assertRpcSuccess(accepted); assert.equal(accepted.data.status, 'accepted');
   const before = await assertSyntheticLeagueFixture({ pool, fixture });
   const digests = await fixtureDigest(pool, fixture);
   stage = 'dump-disposable-database';
