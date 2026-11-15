@@ -18,11 +18,14 @@
     "test:roster-values": "node --conditions=react-server --experimental-strip-types --test tests/roster-value-completeness.test.ts",
     "test:trade-parity": "node --conditions=react-server --experimental-strip-types --test tests/trade-grade-parity.test.ts",
     "test:framework-auth": "node scripts/test-next-auth-boundaries.mjs",
-    "recovery:check": "bash -n scripts/recovery/*.sh",
+    "recovery:check": "bash -n scripts/recovery/validate-restore.sh && bash -n scripts/recovery/preflight-drill.sh && bash -n scripts/recovery/capture-baseline.sh && node --check scripts/recovery/exercise-synthetic-restore.mjs",
+    "monitor:public": "node scripts/monitoring/verify-operations.mjs --public-only",
+    "monitor:metadata": "node scripts/monitoring/verify-operations.mjs --metadata-only",
+    "load:staging": "node scripts/load-staging.mjs",
     "test:historian": "node --conditions=react-server --experimental-strip-types --test tests/historian-sql.test.ts",
     "typecheck": "tsc --noEmit --incremental false",
     "audit:dependencies": "npm audit --audit-level=moderate",
-    "test": "node --conditions=react-server --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs src/infrastructure/security/*.test.ts"
+    "test": "node --conditions=react-server --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs src/infrastructure/security/*.test.ts scripts/monitoring/*.test.mjs scripts/recovery/*.test.mjs"
   },
   "dependencies": {
     "@sparticuz/chromium": "^143.0.4",

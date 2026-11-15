@@ -1,4 +1,5 @@
 import "server-only";
+import { currentDeploymentEnvironment, supabaseIsolationError } from "../environment.ts";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 type SupabaseClientResult =
@@ -12,6 +13,9 @@ export const getSupabaseAdminClient = (): SupabaseClientResult => {
   if (!supabaseUrl || !serviceRoleKey) {
     return { client: null, error: "Missing Supabase configuration" };
   }
+
+  const isolationError = supabaseIsolationError(supabaseUrl, serviceRoleKey, currentDeploymentEnvironment());
+  if (isolationError) return { client: null, error: isolationError };
 
   const client = createClient(supabaseUrl, serviceRoleKey, {
     auth: {

@@ -1,0 +1,85 @@
+name: Disposable staging rehearsal
+
+on:
+  workflow_dispatch:
+    inputs:
+      concurrency:
+        description: Concurrent request cap (3-25)
+        type: number
+        default: 10
+      duration_seconds:
+        description: Authenticated read duration (10-180 seconds)
+        type: number
+        default: 120
+  pull_request:
+    paths:
+      - 'scripts/lib/**'
+      - 'scripts/load-staging.mjs'
+      - 'scripts/bootstrap-staging.bash'
+      - 'scripts/recovery/**'
+      - 'tests/staging-*.test.mjs'
+      - 'config/deployment-targets.json'
+      - 'supabase/**'
+      - 'src/app/api/**'
+      - 'src/infrastructure/auth/**'
+      - 'src/infrastructure/supabase/**'
+      - 'src/infrastructure/environment.ts'
+      - 'src/shared/league-data/**'
+      - 'package*.json'
+      - 'next.config.ts'
+      - '.github/workflows/staging-rehearsal.yml'
+  schedule:
+    - cron: '31 10 1 * *'
+
+permissions:
+  contents: read
+concurrency:
+  group: staging-rehearsal-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  rehearsal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      STAGING_LOCAL: '1'
+      SUPABASE_INTERNAL_IMAGE_REGISTRY: ghcr.io
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # v1.7.3
+        with:
+          version: 2.45.5
+      - name: Verify target guards and workload bounds
+        run: node --test tests/staging-*.test.mjs
+      - name: Bootstrap reviewed schema in disposable PostgreSQL 17
+        run: |
+          sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
+          bash scripts/validate-supabase-migrations.bash
+          bash scripts/bootstrap-staging.bash
+      - name: Exercise authenticated reads and atomic draft/trade races
+        env:
+          LOCAL_APP_MODE: production
+          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+          LOAD_CONCURRENCY: ${{ inputs.concurrency || 10 }}
+          LOAD_DURATION_SECONDS: ${{ inputs.duration_seconds || 120 }}
+        run: bash scripts/lib/with-local-app.bash scripts/load-staging.mjs
+      - name: Restore synthetic database into a second disposable database
+        env:
+          RECOVERY_SYNTHETIC_CONFIRM: DISPOSABLE-LOCAL-ONLY
+          RECOVERY_COMMIT_SHA: ${{ github.sha }}
+        run: |
+          eval "$(supabase status -o env | sed -nE '/^(API_URL|ANON_KEY|SERVICE_ROLE_KEY)=/p')"
+          export NEXT_PUBLIC_SUPABASE_URL="$API_URL"
+          export NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY"
+          export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
+          node scripts/recovery/exercise-synthetic-restore.mjs
+      - name: Destroy disposable stack and backup volumes
+        if: always()
+        run: |
+          if command -v supabase >/dev/null 2>&1; then supabase stop --no-backup; fi

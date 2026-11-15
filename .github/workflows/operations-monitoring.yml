@@ -1,0 +1,74 @@
+name: Operations monitoring
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+    inputs:
+      cloud_metadata:
+        description: Also check backup and database metadata using the protected production environment
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - 'scripts/monitoring/**'
+      - 'scripts/recovery/verify-backup-*'
+      - 'scripts/lib/supabase-management.mjs'
+      - '.github/workflows/operations-monitoring.yml'
+permissions:
+  contents: read
+concurrency:
+  group: operations-monitoring-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  unit-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - run: node --test scripts/recovery/verify-backup-metadata.test.mjs scripts/monitoring/verify-operations.test.mjs tests/production-release-history.test.mjs
+  public-availability:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Check public login and unauthorized API denial without credentials
+        env:
+          MONITOR_APPLICATION_ORIGIN: ${{ vars.MONITOR_APPLICATION_ORIGIN }}
+        run: node scripts/monitoring/verify-operations.mjs --public-only
+  verify-production-metadata:
+    if: github.event_name == 'workflow_dispatch' && inputs.cloud_metadata && github.ref == 'refs/heads/main'
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Existing approval is preserved. Autonomous metadata checks require a future
+    # dedicated read-only credential; no token is exposed to PRs or other branches.
+    environment: supabase-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Read backup and aggregate database metadata
+        env:
+          PROJECT_REF: owkxkpkdffhcordlxqte
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BACKUP_MAX_AGE_HOURS: '30'
+          RUNTIME_SOURCE_MAX_AGE_HOURS: '30'
+          SECURITY_ERROR_MAX_OCCURRENCES: '10'
+        run: node scripts/monitoring/verify-operations.mjs --metadata-only

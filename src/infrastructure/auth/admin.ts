@@ -1,6 +1,7 @@
 import "server-only";
+import { currentDeploymentEnvironment } from "../environment.ts";
 import { timingSafeEqual } from "node:crypto";
-import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { getSupabaseAdminClient } from "../supabase/admin.ts";
 
 const safeEqual = (left: string, right: string) => {
   const a = Buffer.from(left);
@@ -10,6 +11,7 @@ const safeEqual = (left: string, right: string) => {
 
 /** League membership roles never grant global ingestion or maintenance privileges. */
 export async function isAdminRequest(request: Request) {
+  if (currentDeploymentEnvironment() === "staging") return false;
   const authorization = request.headers.get("authorization") ?? "";
   const bearer = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   const configured = [process.env.ADMIN_SECRET, process.env.CRON_SECRET].filter(

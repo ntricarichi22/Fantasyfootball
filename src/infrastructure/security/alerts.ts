@@ -1,3 +1,4 @@
+import { currentDeploymentEnvironment } from "../environment.ts";
 import { createHash } from "node:crypto";
 import { getSupabaseAdminClient } from "../supabase/admin.ts";
 import { sanitizeSummary, type SecurityEvent } from "./audit.ts";
@@ -57,6 +58,7 @@ export async function sendSecurityAlert(
   event: SecurityEvent,
   options: { trusted: boolean; client?: AlertClient; transport?: AlertTransport } = { trusted: false },
 ): Promise<boolean> {
+  if (currentDeploymentEnvironment() === "staging") return false;
   if (process.env.SECURITY_EMAIL_ALERTS_ENABLED !== "true" || !shouldAlert(event, options.trusted)) return false;
   const to = process.env.SECURITY_ALERT_EMAIL_TO;
   const from = process.env.SECURITY_ALERT_EMAIL_FROM;

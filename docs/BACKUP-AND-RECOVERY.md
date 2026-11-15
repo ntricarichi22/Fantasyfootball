@@ -1,162 +1,114 @@
-# Backup and disaster-recovery runbook
+# Backup and recovery runbook
 
-## Status and scope (2026-09-12)
+## Verified state: 2026-11-15 UTC
 
-This repository review verifies that the application uses Supabase Postgres and
-Supabase Auth. Read-only configuration showed two public Storage buckets: `Players`
-(no configured size/MIME limits observed) and `team-logos` (2 MiB size limit, no
-configured MIME list observed). Names suggest public player assets and logos, but
-object contents and write authorization were not inspected. Metadata and binary
-files for both buckets are therefore recovery-review dependencies; public visibility
-alone is not evidence that objects contain private data.
+Read-only inspection of production Supabase (`owkxkpkdffhcordlxqte`) showed seven
+scheduled **physical** backups, November 8–14. The newest displayed backup was
+**2026-11-14 11:25:58 UTC**; the oldest was **2026-11-08 11:21:04 UTC**. These dates
+are observed evidence, not a retention guarantee or proof of restoration. The PITR
+page offered an add-on: **PITR is not enabled**. No backup was downloaded, restored
+or changed. Production reports PostgreSQL `17.6.1.063`.
 
-The dashboard listed eight daily physical backups from September 5–12, 2026;
-the newest was September 12 at 11:15:36 UTC. This is an observed span, not a
-contractual retention guarantee. PITR is not enabled (the dashboard offers it as an
-add-on). The dashboard explicitly states Storage object bytes are excluded: database
-backup covers only object metadata, and restoring an older backup does not recover
-deleted objects. Restore validity remains unverified; no restore was performed.
-Do not infer coverage from a Supabase plan name: record the dashboard evidence
-in the drill record each time this runbook is exercised.
+The dashboard and [Supabase documentation](https://supabase.com/docs/guides/platform/backups)
+explicitly exclude **Storage object bytes**. Database backups include their metadata,
+not deleted logo/player-image files. Independent object-copy coverage remains unverified.
+Daily backup availability does not establish a one-hour live-draft recovery point or
+measured recovery time. No paid PITR, new project or standing staging database is part
+of this work. The owner selected temporary CI databases only.
 
-Database backups restore Postgres state, including `public`, `auth`, and Storage
-metadata. They must not be treated as a backup of Storage object bytes. Preserve
-and restore the `Players` and `team-logos` objects separately, or confirm from current Supabase
-documentation/support in writing that the selected recovery mechanism includes
-object bytes.
+## Metadata checks
 
-## Owner decisions and targets
+Dispatch `Operations monitoring` from `main` with `cloud_metadata=true`, then follow
+the existing `supabase-production` environment approval. Its management credential is
+used only for the fixed production project, GET backup metadata and POST database
+queries with `read_only:true`. Release reviewers remain required. Automatic cloud
+metadata checks need a future dedicated read-only credential; they are not active.
 
-For the present twelve-person league, adopt these targets after the first timed
-drill confirms they are achievable:
+The standalone command is:
 
-* **RPO proposal:** 24 hours normally; one hour during a live draft.
-* **RTO proposal:** four hours normally; one hour during a live draft.
-* Retain at least 30 daily recovery points plus an encrypted, access-controlled
-  pre-draft logical export. Increase frequency/retention as more leagues join.
+```bash
+PROJECT_REF=owkxkpkdffhcordlxqte BACKUP_MAX_AGE_HOURS=30 \
+  node scripts/recovery/verify-backup-metadata.mjs
+```
 
-These are policy targets, not measured capabilities. Actual RPO is bounded by
-the newest usable database recovery point **and** newest independent Storage
-copy. Actual RTO remains unknown until a complete timed drill passes.
+Supply `SUPABASE_ACCESS_TOKEN` through a private environment/secret manager, never
+a command-line argument. The checker bounds time and response size and prints only
+allowlisted dates, counts, enablement flags and failure codes. It accepts completed
+backups or the documented physical recovery window. Pending/failed entries alone
+cannot pass; missing, stale, malformed and future-dated evidence fails.
+Thirty hours allows daily scheduling delay: it is an alert threshold, **not** an RPO.
+If PITR is enabled later, an old recovery point requires review because an idle database
+can legitimately produce no new WAL. See the [Management API](https://supabase.com/docs/reference/api/v1-list-all-backups).
 
-## Quarterly evidence collection (read-only)
+GitHub failures provide an operator-visible signal. Native notification delivery,
+recipients and acknowledgement remain unverified. These scripts send no emails,
+webhooks, issue comments or third-party messages.
 
-1. In the Supabase dashboard, record project reference, plan, backup type,
-   schedule/time zone, retention, PITR status/window, newest and oldest
-   restorable times, and last successful backup. Screenshot without secrets.
-2. Confirm who can initiate a restore and that two maintainers can access the
-   procedure. Never place database passwords or service-role keys in the record.
-3. Inventory Storage in the dashboard. Record bucket count, aggregate object
-   count/bytes, versioning or independent-copy mechanism, its retention, and
-   its last successful run. Do not record object names.
-4. With a read-only direct database credential, capture a privacy-safe baseline:
+## Recovery inventory
+
+| Component | Recovery source | Verification and remaining gap |
+| --- | --- | --- |
+| Application data, Auth, ownership/commands, audit logs | Hosted physical database backup | Availability observed; real production restore not exercised |
+| RLS, grants, functions, constraints and migration history | Same backup plus reviewed source/hosted alias map | Manifest checks definitions and privileges; never rewrite history blindly |
+| Storage metadata | Database backup | Metadata does not recover object bytes |
+| `Players` and `team-logos` bytes | Independent object backup/versioning | Mechanism, retention and recovery remain unverified |
+| Custom role credentials | Private secret manager/reviewed rotation | Daily backups omit custom-role passwords; never put them in drill records |
+| Vercel environment, release, host retirement and cron | Private hosting configuration plus source/runbooks | Reconcile scope and deploy an RPC-compatible release before resuming writes |
+| Supabase functions and scheduled jobs | Versioned sources and approved configuration | Disable outbound jobs in a real isolated restore; verify authentication before resuming |
+| Provider billing and side effects | Provider records/idempotent reconciliation | Do not replay emails, charges or AI requests after rollback |
+
+## Temporary CI restore exercise
+
+The shared staging rehearsal creates the reviewed baseline and migrations in a
+disposable local Supabase stack. `scripts/recovery/exercise-synthetic-restore.mjs`
+reuses the load-test fixture helper: real local GoTrue sessions, a three-team league,
+canonical ownership and an accepted synthetic trade. It makes a logical `pg_dump`,
+restores into a separate database in the **same disposable Docker cluster**, and checks:
+
+- The existing read-only metadata manifest, extended with function/owner/ACL, RLS,
+  policy signatures and the private runtime schema.
+- Exact synthetic ownership, slot, command, trade/thread and pending-state hashes.
+- Browser command denial, service direct-write denial and restored session validity.
+- Removal of the second database, temporary dump and synthetic source accounts.
+
+The driver accepts no source/target database URL: it is fixed to the disposable
+loopback stack and requires `RECOVERY_SYNTHETIC_CONFIRM=DISPOSABLE-LOCAL-ONLY` and an
+exact reviewed commit. Container PostgreSQL tools match the server. No dump artifact,
+tokens or application rows are uploaded. The workflow destroys the stack after failure.
+
+This is a **synthetic logical round trip**, not a production-backup restore, not a
+new-cluster/global-role recovery test, and not Storage-byte recovery. Its duration is
+not production RTO and provides no measured production RPO. Record the actual hosted
+CI run before calling the exercise verified.
+
+## Real incident or separately authorized production-backup drill
+
+1. Preserve evidence; stop writes/outbound jobs when appropriate. Select the last good
+   database recovery point and independent Storage recovery point.
+2. Record target, operator, cost if any, side-effect isolation and cleanup deadline in
+   `docs/templates/RESTORE-DRILL-RECORD.md`. A hosted restore is separate from CI-only
+   authorization. Never restore over production to test.
+3. Run `scripts/recovery/preflight-drill.sh` with the reviewed protected-project
+   denylist and disposable-target declaration. It does not provision or restore.
+4. Follow the current supported Supabase restore procedure for the backup type.
+   Isolate mail, cron, replication and provider integrations. Review custom-role
+   passwords and replication slots before restarting services.
+5. Restore independent Storage bytes. Compare aggregate counts and an approved
+   synthetic object without printing private names, signed URLs or content.
+6. Compare manifests with private read-only credentials:
 
    ```bash
    SOURCE_DATABASE_URL='postgresql://…?sslmode=require' \
-     ./scripts/recovery/capture-baseline.sh recovery-baseline.txt
+   TARGET_DATABASE_URL='postgresql://…?sslmode=require' \
+   RECOVERY_TARGET_CONFIRM=DISPOSABLE-NONPRODUCTION \
+     ./scripts/recovery/validate-restore.sh
    ```
 
-   Store the output as restricted operational evidence, not in Git. Although it
-   contains no rows, its schema inventory is operationally sensitive.
-
-## Safe restore drill
-
-### Preconditions
-
-No safe hosted target currently exists: both observed projects are production-class,
-and neither has an isolated branch. The source is Micro (1 GB RAM, 2 CPU), 8 GB gp3,
-in `us-east-1`; Supabase's displayed 1.5x sizing rule makes the proposed isolated clone
-12 GB. The dashboard quote was `$10.18/month` (`$9.68` compute plus `$0.50` disk), or
-approximately `$0.34` for 24 hours. That is an estimate, not a guaranteed cap and does
-not include possible restore, egress, Storage, tax, or other charges.
-
-The minimum remaining operator decision is explicit approval of one new disposable
-destination that is not either existing project, its quoted cost, authorization to
-restore the selected physical backup into it, a named owner, side-effect isolation,
-and deletion/reset within 24 hours. No clone has been approved, provisioned, restored,
-or billed from this repository task.
-
-Before handling credentials, complete `docs/templates/RESTORE-DRILL-RECORD.md` and run:
-
-```bash
-PRODUCTION_PROJECT_REF=owkxkpkdffhcordlxqte \
-RECOVERY_TARGET_PROJECT_REF=approved-disposable-ref \
-RECOVERY_PROTECTED_PROJECT_REFS=owkxkpkdffhcordlxqte,other-protected-ref \
-RECOVERY_TARGET_APPROVAL=approval-reference \
-RECOVERY_TARGET_DELETE_AFTER=2026-09-13T00:00:00Z \
-RECOVERY_SIDE_EFFECTS_DISABLED=YES \
-RECOVERY_STORAGE_PLAN_CONFIRMED=YES \
-  ./scripts/recovery/preflight-drill.sh
-```
-
-The command validates declarations only; it does not provision, connect, restore, or incur cost.
-
-Use an existing disposable, isolated, nonproduction Supabase project (or local
-Supabase/Postgres environment) with no production integrations, email delivery,
-webhooks, schedules, or app deployment pointed at it. Never use production as
-the target. Do not create paid infrastructure solely for this drill.
-
-Record start time and chosen recovery point. Verify the target reference differs
-from production before restoring. Temporarily disable outbound side effects in
-the target. Restore through the dashboard's supported restore workflow, or use
-the current official CLI procedure appropriate to the backup artifact. Do not
-paste credentials into shell history or logs.
-
-Restore the independent Storage copy into the target bucket after the database
-restore. Preserve paths and content types. Compare aggregate bucket/object/byte
-counts and sample-download a non-sensitive owner-approved fixture; never expose
-private logos or signed URLs in drill evidence.
-
-### Automated validation
-
-Use read-only credentials for both databases. The validator refuses identical
-database identities and requires an explicit disposable-target confirmation:
-
-```bash
-SOURCE_DATABASE_URL='postgresql://…?sslmode=require' \
-TARGET_DATABASE_URL='postgresql://…?sslmode=require' \
-RECOVERY_TARGET_CONFIRM=DISPOSABLE-NONPRODUCTION \
-  ./scripts/recovery/validate-restore.sh
-```
-
-The check compares Postgres version, extensions, relation counts, hashed column
-and constraint definitions, exact aggregate row totals, invalid foreign keys, Auth
-metadata totals, and Storage metadata totals. It displays no application rows,
-user identities, filenames, or credentials. A mismatch is a failed drill until
-explained and documented.
-
-Then point a local app instance **only** at the disposable target and validate:
-
-1. A designated test account can sign in and sign out.
-2. The test team can load home, roster/value data, inbox, and scouting views.
-3. A team logo loads from restored Storage.
-4. In target only, create/update/delete a clearly marked synthetic draft or
-   message fixture and verify its relationship behavior. Never use a real user.
-5. Confirm production remained unchanged, then destroy or reset the disposable
-   target according to its owner-approved lifecycle.
-
-## Drill record and incident recovery
-
-Record recovery point, start/end times, database and Storage results, validator
-result, app smoke-test result, failures, operator, and target deletion/reset.
-Never record secrets or private records. The measured RPO is the gap between the
-simulated incident time and the older of the database and Storage recovery
-points. The measured RTO ends only after all validation succeeds.
-
-During a real incident: stop writes if safe; preserve evidence; select a recovery
-point before the incident; restore to isolation first; run all validation; have
-the owner approve cutover; update application secrets through the hosting secret
-manager; monitor; and document any lost interval. A database-only success is not
-a complete recovery while Storage files remain missing.
-
-## Minimal access still required
-
-* Supabase dashboard read access to Backups/PITR and Storage configuration.
-* A read-only production database credential for baseline validation.
-* An already-approved disposable target plus permission to restore into it.
-* Access to the independent Storage copy mechanism and an owner-approved test
-  account/fixture.
-
-No migration is required for this recovery-only change, and nothing here changes
-production data, policies, credentials, or infrastructure. A fixture reset in migration CI
-is not a production-backup restore and provides no measured production RPO/RTO.
+   Source and target must be distinct. Exact totals require a quiescent source or a
+   baseline at the selected recovery point; live counts cannot validate an older backup.
+   Keep restricted evidence outside Git/project folders. A timeout is incomplete evidence.
+7. Verify Auth/session revocation, tenant access, restored files and synthetic draft/
+   trade commands only in isolation. Reconcile hosted migration aliases. Resume only
+   an RPC-compatible app; never restore legacy direct-write grants.
+8. Record data-loss interval and full recovery time, then remove/reset the authorized
+   target. Database-only success is incomplete without Storage/external reconciliation.
