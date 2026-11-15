@@ -90,7 +90,8 @@ async function graphqlWrapperMetadata(client) {
     pg_get_userbyid(p.proowner) owner, e.extname extension,
     (SELECT jsonb_agg(jsonb_build_array(pg_get_userbyid(a.grantor),
       CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
-      a.privilege_type,a.is_grantable) ORDER BY a.grantor,a.grantee,a.privilege_type,a.is_grantable)
+      a.privilege_type,a.is_grantable) ORDER BY pg_get_userbyid(a.grantor),
+      CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,a.privilege_type,a.is_grantable)
       FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a) acl
     FROM pg_proc p LEFT JOIN pg_depend d ON d.classid='pg_proc'::regclass
       AND d.objid=p.oid AND d.refclassid='pg_extension'::regclass AND d.deptype='e'

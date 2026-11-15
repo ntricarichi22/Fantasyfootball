@@ -42,11 +42,26 @@ GROUP BY n.nspname
 ORDER BY n.nspname;
 
 -- Hash security definitions without exposing their source or any application rows.
+-- GRANT replay can reorder ACL storage without changing privileges. Compare every
+-- effective grant by role name/privilege/grant option, including default ACLs.
+-- Separate hashes identify owner, privilege or definition drift without source text.
 SELECT 'function-signature', n.nspname,
        md5(string_agg(pg_get_function_identity_arguments(p.oid) || ':' || p.proname || ':' ||
-           pg_get_userbyid(p.proowner) || ':' || coalesce(p.proacl::text,'') || ':' ||
-           pg_get_functiondef(p.oid), E'\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid)))
+           pg_get_userbyid(p.proowner), E'\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid))) AS owners,
+       md5(string_agg(pg_get_function_identity_arguments(p.oid) || ':' || p.proname || ':' ||
+           acl.canonical, E'\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid))) AS privileges,
+       md5(string_agg(pg_get_function_identity_arguments(p.oid) || ':' || p.proname || ':' ||
+           pg_get_functiondef(p.oid), E'\n' ORDER BY p.proname, pg_get_function_identity_arguments(p.oid))) AS definitions
 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+LEFT JOIN LATERAL (
+  SELECT coalesce(jsonb_agg(jsonb_build_array(pg_get_userbyid(a.grantor),
+      CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+      a.privilege_type,a.is_grantable)
+    ORDER BY pg_get_userbyid(a.grantor),
+      CASE WHEN a.grantee=0 THEN 'PUBLIC' ELSE pg_get_userbyid(a.grantee) END,
+      a.privilege_type,a.is_grantable)::text,'[]') canonical
+  FROM aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
+) acl ON true
 WHERE n.nspname IN ('public','auth','storage','cfc_runtime_private') AND p.prokind IN ('f','p')
 GROUP BY n.nspname ORDER BY n.nspname;
 
