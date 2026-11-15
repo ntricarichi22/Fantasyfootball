@@ -31,7 +31,7 @@ const authClient = createClient(config.supabaseUrl, process.env.NEXT_PUBLIC_SUPA
 function command(binary, args, { input, env = process.env, capture = false } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { cwd: root, env, stdio: ['pipe', 'pipe', 'pipe'] });
-    let output = ''; let bytes = 0; let killed = false;
+    let output = ''; let bytes = 0; let killed = false; let diagnostic = '';
     const timer = setTimeout(() => { killed = true; child.kill('SIGKILL'); }, 180_000);
     child.on('error', () => { clearTimeout(timer); reject(new Error(`${binary} could not start`)); });
     child.stdout.on('data', data => {
@@ -39,12 +39,27 @@ function command(binary, args, { input, env = process.env, capture = false } = {
       if (bytes > 2_097_152) { killed = true; child.kill('SIGKILL'); }
       if (capture && !killed) output += data.toString('utf8');
     });
-    // Suppress raw database/tool errors, which can contain fixture credentials.
-    child.stderr.on('data', () => {});
+    // Retain bounded input only for fixed diagnostic categories; never print raw
+    // database/tool errors, SQL, object contents, command arguments or credentials.
+    child.stderr.on('data', data => { diagnostic = (diagnostic + data.toString('utf8')).slice(0, 16_384); });
     child.on('close', code => {
       clearTimeout(timer);
       if (code === 0 && !killed) resolve(output);
-      else reject(new Error(`${binary} failed (exit ${code ?? 'terminated'})`));
+      else {
+        const categories = [
+          ['RESTORE_CRON_DATABASE', /cron\.database_name|can only create extension in database.*postgres/i],
+          ['TOOL_REQUIRES_SUPERUSER', /must be superuser|permission denied to create extension/i],
+          ['TOOL_NOT_OBJECT_OWNER', /must be owner of|not the owner of/i],
+          ['TOOL_PERMISSION_DENIED', /permission denied/i],
+          ['TOOL_DUPLICATE_OBJECT', /already exists/i],
+          ['TOOL_EXTENSION_UNAVAILABLE', /extension.*is not available|extension control file/i],
+          ['TOOL_MISSING_OBJECT', /does not exist|no such file or directory/i],
+          ['TOOL_VERSION_MISMATCH', /version mismatch|unsupported version/i],
+          ['TOOL_SYNTAX_ERROR', /syntax error/i],
+        ];
+        const category = killed ? 'TOOL_LIMIT_EXCEEDED' : categories.find(([, pattern]) => pattern.test(diagnostic))?.[0] ?? 'TOOL_EXIT_FAILURE';
+        reject(Object.assign(new Error('Disposable recovery command failed'), { code: category }));
+      }
     });
     child.stdin.end(input);
   });
@@ -73,6 +88,12 @@ try {
   // Full reset/seed belongs to the surrounding disposable CI workflow.
   const identity = await pool.query('SELECT current_database() name');
   assert.equal(identity.rows[0].name, 'postgres');
+  const { rows: [capabilities] } = await pool.query(`SELECT current_user::text role,
+    (SELECT rolsuper FROM pg_roles WHERE rolname=current_user) superuser,
+    (SELECT array_agg(extname::text ORDER BY extname) FROM pg_extension) extensions`);
+  assert.match(capabilities.role, /^[a-z_][a-z0-9_]{0,62}$/);
+  assert.ok(capabilities.extensions.every(name => /^[a-z_][a-z0-9_-]{0,62}$/.test(name)));
+  console.log(JSON.stringify({ exercise: 'synthetic-logical-round-trip', sourceCapabilities: capabilities }));
   stage = 'synthetic-fixture';
   fixture = await createSyntheticLeagueFixture({ pool, admin, authClient });
   stage = 'canonical-cutover';
