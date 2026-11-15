@@ -62,13 +62,6 @@ jobs:
           sed -i 's/^major_version = .*/major_version = 17/' supabase/config.toml
           bash scripts/validate-supabase-migrations.bash
           bash scripts/bootstrap-staging.bash
-      - name: Exercise authenticated reads and atomic draft/trade races
-        env:
-          LOCAL_APP_MODE: production
-          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
-          LOAD_CONCURRENCY: ${{ inputs.concurrency || 10 }}
-          LOAD_DURATION_SECONDS: ${{ inputs.duration_seconds || 120 }}
-        run: bash scripts/lib/with-local-app.bash scripts/load-staging.mjs
       - name: Restore synthetic database into a second disposable database
         env:
           RECOVERY_SYNTHETIC_CONFIRM: DISPOSABLE-LOCAL-ONLY
@@ -79,6 +72,13 @@ jobs:
           export NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY"
           export SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY"
           node scripts/recovery/exercise-synthetic-restore.mjs
+      - name: Exercise authenticated reads and atomic draft/trade races
+        env:
+          LOCAL_APP_MODE: production
+          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
+          LOAD_CONCURRENCY: ${{ inputs.concurrency || 10 }}
+          LOAD_DURATION_SECONDS: ${{ inputs.duration_seconds || 120 }}
+        run: bash scripts/lib/with-local-app.bash scripts/load-staging.mjs
       - name: Destroy disposable stack and backup volumes
         if: always()
         run: |

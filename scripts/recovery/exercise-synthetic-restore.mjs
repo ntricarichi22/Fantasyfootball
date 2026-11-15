@@ -41,7 +41,7 @@ function command(binary, args, { input, env = process.env, capture = false } = {
     });
     // Retain bounded input only for fixed diagnostic categories; never print raw
     // database/tool errors, SQL, object contents, command arguments or credentials.
-    child.stderr.on('data', data => { diagnostic = (diagnostic + data.toString('utf8')).slice(0, 16_384); });
+    child.stderr.on('data', data => { diagnostic = (diagnostic + data.toString('utf8')).slice(-16_384); });
     child.on('close', code => {
       clearTimeout(timer);
       if (code === 0 && !killed) resolve(output);
@@ -58,7 +58,13 @@ function command(binary, args, { input, env = process.env, capture = false } = {
           ['TOOL_SYNTAX_ERROR', /syntax error/i],
         ];
         const category = killed ? 'TOOL_LIMIT_EXCEEDED' : categories.find(([, pattern]) => pattern.test(diagnostic))?.[0] ?? 'TOOL_EXIT_FAILURE';
-        reject(Object.assign(new Error('Disposable recovery command failed'), { code: category }));
+        const primary = diagnostic.split(/\r?\n/).find(line => /\b(?:ERROR|FATAL):|^pg_restore: error:/.test(line));
+        const primaryError = primary?.replace(/^.*?(?:\b(?:ERROR|FATAL):|pg_restore: error:)\s*/, '')
+          .replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'/g, '[quoted]')
+          .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, '[url]')
+          .replace(/[A-Za-z0-9_+/.=-]{32,}/g, '[token]')
+          .replace(/[^\x20-\x7e]/g, '?').slice(0, 240);
+        reject(Object.assign(new Error('Disposable recovery command failed'), { code: category, primaryError }));
       }
     });
     child.stdin.end(input);
@@ -141,6 +147,7 @@ try {
 } catch (error) {
   const code = typeof error.code === 'string' && /^[A-Z0-9_]{1,32}$/.test(error.code) ? error.code : 'CHECK_FAILED';
   console.error(`Synthetic restore exercise failed at ${stage} (${code}); production was not accessed.`);
+  if (error.primaryError) console.error(JSON.stringify({ primaryError: error.primaryError }));
   process.exitCode = 1;
 } finally {
   let cleanupFailed = false;
