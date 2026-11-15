@@ -70,3 +70,45 @@ test("cleanup after expiry retains identity checks and has a bounded 24-hour rec
   assert.throws(() => lifecycleManifest(expiredEnv)); assert.doesNotThrow(() => lifecycleManifest(expiredEnv, { cleanup: true }));
   assert.throws(() => lifecycleManifest(expiredEnv, { cleanup: true, now: now + 24 * 3600000 }));
 });
+
+
+test("nullable documented Auth flags become explicit safe booleans and propagation is read-only", async () => {
+  const config = { disable_signup: null, external_email_enabled: true, external_phone_enabled: null, external_anonymous_users_enabled: null,
+    saml_enabled: null, security_manual_linking_enabled: null, external_google_enabled: null };
+  const patch = syntheticAuthPatch(config);
+  assert.equal(patch.disable_signup, true); assert.equal(patch.external_phone_enabled, false); assert.equal(patch.external_google_enabled, false);
+  let reads = 0, writes = 0; const phases = [], output = [];
+  await ensureSyntheticAuth({ configure: true, guard() {}, wait: async () => {}, emitStage: value => phases.push(value), emit: row => output.push(row), request: async options => {
+    if (options.method === "PATCH") { writes++; assert.deepEqual(options.body, patch); return {}; }
+    reads++; return reads < 3 ? config : { ...config, ...patch };
+  } });
+  assert.equal(writes, 1); assert.equal(reads, 3); assert.deepEqual(phases, ["auth_config_get", "auth_config_patch", "auth_config_verify"]);
+  assert.equal(output[0].fields.disable_signup, "null"); assert.equal(output[0].fields.external_email_enabled, "boolean");
+  assert.throws(() => syntheticAuthPatch({ ...config, disable_signup: "secret-sentinel" }), error => error.category === "AUTH_CONFIG_SCHEMA_UNEXPECTED" && !error.stack.includes("secret-sentinel"));
+});
+
+test("provision failure records its safe original phase and HTTP category before cleanup", async () => {
+  let created = false, deleted = false; const events = [];
+  await assert.rejects(provisionSyntheticProject({ env, emit: row => events.push(row), wait: async () => {},
+    collection: async options => { if (options.method === "POST") { created = true; return target; } return [source, ...(created && !deleted ? [target] : [])]; },
+    project: async options => {
+      if (options.method === "DELETE") { deleted = true; return {}; }
+      if (options.resource === "config/auth" && options.method === "PATCH") throw new Error("Metadata request failed (HTTP 400)");
+      if (options.resource === "config/auth") return closedAuth;
+      return target;
+    },
+  }), error => error.category === "PROVIDER_HTTP_400");
+  const failure = events.findIndex(row => row.event === "provision_failure"), cleanup = events.findIndex(row => row.deleted === true);
+  assert.ok(failure >= 0 && cleanup > failure); assert.equal(events[failure].stage, "auth_config_patch"); assert.equal(events[failure].category, "PROVIDER_HTTP_400");
+});
+
+
+test("nullable read-back never counts as a successful quarantine", async () => {
+  const config = { disable_signup: null, external_email_enabled: null, external_phone_enabled: null, external_anonymous_users_enabled: null };
+  let writes = 0, reads = 0;
+  await assert.rejects(ensureSyntheticAuth({ configure: true, guard() {}, wait: async () => {}, request: async options => {
+    if (options.method === "PATCH") { writes++; return {}; } reads++; return config;
+  } }), error => error.category === "AUTH_CONFIG_VERIFY_FAILED");
+  assert.equal(writes, 1); assert.equal(reads, 7);
+  await assert.rejects(ensureSyntheticAuth({ configure: false, guard() {}, request: async () => config }), error => error.category === "AUTH_CONFIG_VERIFY_FAILED");
+});
