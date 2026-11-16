@@ -1,0 +1,59 @@
+name: Temporary resource expiry watchdog
+run-name: Temporary resource expiry watchdog
+on:
+  workflow_dispatch:
+    inputs:
+      cost_approved:
+        description: Approve one synthetic Micro database, up to USD 2, deleted within four hours
+        type: boolean
+        required: true
+        default: false
+permissions:
+  contents: read
+# Independent of the drill queue; serialized creation prevents duplicate-name races.
+# A later dispatch cannot cancel an active watcher and creates nothing while queued.
+concurrency:
+  group: temporary-resource-expiry
+  cancel-in-progress: false
+jobs:
+  expire-synthetic-project:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.cost_approved == true &&
+      github.repository == 'ntricarichi22/Fantasyfootball' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: supabase-production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      # No npm install: the metadata-only watcher uses Node built-ins exclusively.
+      # Approval precedes provisioning; this same process immediately watches.
+      # Verify this approved job is active and the exact live project is healthy before
+      # setup/load in the independent queue. Final logs include watchdog_ready.
+      - name: Provision one approved target and immediately enforce its expiry
+        id: watch
+        env:
+          DRILL_COST_APPROVED: TEMPORARY-ONLY-USD2-FOUR-HOURS
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: node scripts/hosting/temporary-resource-watchdog.mjs
+      # Best effort only: forced runner termination or provider outages can prevent
+      # this step. A confirmed absence event is the only proof of cleanup.
+      - name: Final exact-target cleanup after completion, failure or cancellation
+        if: always() && steps.watch.outputs.target_manifest != ''
+        timeout-minutes: 5
+        env:
+          DRILL_TARGET_MANIFEST: ${{ steps.watch.outputs.target_manifest }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: >-
+          node --input-type=module -e '
+          import { cleanupSyntheticProject } from "./scripts/hosting/synthetic-project-lifecycle.mjs";
+          import { safeFailureCategory } from "./scripts/hosting/diagnostics.mjs";
+          try { console.log(JSON.stringify(await cleanupSyntheticProject())); }
+          catch (error) { console.error(JSON.stringify({ok:false,event:"watchdog_final_cleanup_failed",category:safeFailureCategory(error)})); process.exitCode=1; }'

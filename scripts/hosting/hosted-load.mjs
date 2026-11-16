@@ -11,7 +11,7 @@ import { hostedChildFailure } from "../lib/load-diagnostics.mjs";
 import { stagingPoolOptions } from "../lib/staging-target.mjs";
 import { createSyntheticLeagueFixture, cleanupSyntheticLeagueFixture, assertSyntheticLeagueFixture } from "../lib/synthetic-league-fixture.mjs";
 import { reserveHostedLoadDatabase } from "../lib/hosted-load-preflight.mjs";
-import { provisionSyntheticProject, cleanupSyntheticProject, lifecycleManifest } from "./synthetic-project-lifecycle.mjs";
+import { cleanupSyntheticProject, lifecycleManifest } from "./synthetic-project-lifecycle.mjs";
 import { applyFreshSchema, safeFailureCategory, githubOidcToken, migrationBody, withHostedCredentials } from "./hosted-load-support.mjs";
 
 let currentStage = "validate_operation";
@@ -157,11 +157,10 @@ async function runLoad({ target, keys, guard }) {
 
 try {
   const operation = process.env.HOSTED_LOAD_OPERATION;
-  assert.ok(["provision", "setup", "run", "cleanup"].includes(operation), "Unsupported hosted operation");
+  assert.ok(["setup", "run", "cleanup"].includes(operation), "Unsupported hosted operation");
   let result;
   stage(operation);
-  if (operation === "provision") result = await provisionSyntheticProject({ signal: controller.signal, emit: value => console.log(JSON.stringify(value)) });
-  else if (operation === "cleanup") result = await cleanupSyntheticProject();
+  if (operation === "cleanup") result = await cleanupSyntheticProject();
   else {
     const manifest = lifecycleManifest();
     process.env.STAGING_TARGET_MANIFEST = JSON.stringify(manifest);
