@@ -33,25 +33,46 @@ export function hostedConfig(record, databaseUrl) {
     commitSha: record.commitSha, deploymentId: record.deploymentId, vercelProjectId: record.vercelProjectId };
 }
 export function selectSessionPool(records, target) {
-  assert.ok(Array.isArray(records), "Invalid session pool metadata");
-  const matches = records.filter(row => row.database_type === "PRIMARY" && row.pool_mode === "session" &&
-    Number(row.db_port) === 5432 && row.db_name === "postgres" && row.db_user === `postgres.${target.projectRef}` &&
-    target.databaseHosts.includes(row.db_host));
-  assert.equal(matches.length, 1, "Exactly one registered primary session pool is required");
-  return matches[0];
+  try {
+    assert.ok(Array.isArray(records) && records.every(row => row && ["PRIMARY", "READ_REPLICA"].includes(row.database_type)));
+    assert.ok(/^[a-z]{20}$/.test(target.projectRef) && Array.isArray(target.databaseHosts));
+    const candidates = records.filter(row => row.database_type === "PRIMARY").map(row => {
+      // The provider URI is the client endpoint (as used by Supabase CLI).
+      // db_* metadata can describe upstream Postgres and must not override it.
+      assert.equal(typeof row.connection_string, "string");
+      const endpoint = new URL(row.connection_string);
+      assert.ok(["postgres:", "postgresql:"].includes(endpoint.protocol) && !endpoint.search && !endpoint.hash &&
+        endpoint.pathname === "/postgres" && /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(endpoint.hostname) &&
+        target.databaseHosts.includes(endpoint.hostname) && decodeURIComponent(endpoint.username) === `postgres.${target.projectRef}`);
+      assert.ok((row.pool_mode === "session" && endpoint.port === "5432") || (row.pool_mode === "transaction" && endpoint.port === "6543"));
+      return { database_type: "PRIMARY", pool_mode: row.pool_mode, db_user: `postgres.${target.projectRef}`,
+        db_host: endpoint.hostname, db_port: 5432, db_name: "postgres" };
+    });
+    assert.ok(candidates.length > 0 && new Set(candidates.map(row => row.db_host)).size === 1);
+    const sessions = candidates.filter(row => row.pool_mode === "session");
+    const transactions = candidates.filter(row => row.pool_mode === "transaction");
+    assert.ok(sessions.length <= 1 && transactions.length <= 1);
+    // Shared Supavisor routes the same verified host/user to session mode on 5432.
+    // Never retain the provider URI/password or change a dedicated endpoint.
+    return { ...(sessions[0] ?? transactions[0]), pool_mode: "session" };
+  } catch {
+    throw Object.assign(new Error("Expected unique registered Supavisor endpoint unavailable"), { category: "POOLER_METADATA_UNEXPECTED" });
+  }
 }
 export function selectApiKeys(rows, projectRef) {
   return { anonKey: selectSupabaseApiKey(rows, projectRef, "anon"),
     serviceKey: selectSupabaseApiKey(rows, projectRef, "service_role") };
 }
 
-// Live catalog inspected 2026-11-15. Never alter an existing incompatible ledger.
+// Live catalogs inspected 2026-11-15/16: hosted six-column and CLI three-column ledgers.
+// Never alter an existing incompatible ledger or the CLI seed_files table.
 const LEDGER_COLUMNS = { version: ["text", "NO"], statements: ["_text", "YES"], name: ["text", "YES"],
   created_by: ["text", "YES"], idempotency_key: ["text", "YES"], rollback: ["_text", "YES"] };
 export function assertLedgerColumns(columns) {
   if (!columns.length) return;
-  assert.equal(columns.length, Object.keys(LEDGER_COLUMNS).length, "Unexpected migration ledger schema");
-  for (const row of columns) assert.ok(LEDGER_COLUMNS[row.column_name]?.[0] === row.udt_name &&
+  const names = columns.length === 3 ? ["version", "statements", "name"] : Object.keys(LEDGER_COLUMNS);
+  assert.equal(columns.length, names.length, "Unexpected migration ledger schema");
+  for (const row of columns) assert.ok(names.includes(row.column_name) && LEDGER_COLUMNS[row.column_name]?.[0] === row.udt_name &&
     LEDGER_COLUMNS[row.column_name][1] === row.is_nullable && row.column_default === null, "Unexpected migration ledger schema");
   assert.equal(new Set(columns.map(row => row.column_name)).size, columns.length);
 }
@@ -64,7 +85,8 @@ export async function inspectFreshDatabase(query) {
   if (ledger.length) {
     const constraints = await query(`SELECT c.contype,pg_get_constraintdef(c.oid) definition FROM pg_constraint c
       WHERE c.conrelid='supabase_migrations.schema_migrations'::regclass ORDER BY c.contype`);
-    assert.deepEqual(constraints.map(row => [row.contype, row.definition]), [["p", "PRIMARY KEY (version)"], ["u", "UNIQUE (idempotency_key)"]], "Unexpected migration ledger constraints");
+    const expected = [["p", "PRIMARY KEY (version)"], ...(ledger.length === 6 ? [["u", "UNIQUE (idempotency_key)"]] : [])];
+    assert.deepEqual(constraints.map(row => [row.contype, row.definition]), expected, "Unexpected migration ledger constraints");
   }
   const [state] = await query(`SELECT (SELECT count(*)::int FROM auth.users) users,
     ((SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
@@ -131,6 +153,7 @@ export async function withHostedCredentials({ env = process.env, operation, acti
   assert.ok((project.ref ?? project.id) === record.projectRef && project.status === "ACTIVE_HEALTHY" &&
     Date.parse(project.created_at) === Date.parse(record.createdAt) && project.name === record.name &&
     project.organization_id === record.organizationId && project.region === record.region, "Live synthetic project identity or creation time mismatch");
+  emitStage("inspect_pooler");
   const pooler = selectSessionPool(await request({ resource: "config/database/pooler" }), record);
   const password = randomBytes(36).toString("base64url");
   const db = new URL(`postgresql://${pooler.db_user}@${pooler.db_host}:5432/postgres`); db.password = password;

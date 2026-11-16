@@ -10,7 +10,10 @@ const record = { name: "cfc-load-drill-20261115", organizationId: "peotkumhnipgh
   createdAt: new Date(now - 1000).toISOString(), expiresAt: new Date(now + 1800000).toISOString() };
 const env = { GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "ntricarichi22/Fantasyfootball", GITHUB_REF: "refs/heads/main", GITHUB_SHA: record.commitSha,
   STAGING_CONFIRM: "REGISTERED-SYNTHETIC-LOAD", STAGING_TARGET: record.name, STAGING_TARGET_MANIFEST: JSON.stringify(record), SUPABASE_ACCESS_TOKEN: "test-management-sentinel" };
-const pooler = { database_type: "PRIMARY", pool_mode: "session", db_user: `postgres.${ref}`, db_host: host, db_port: 5432, db_name: "postgres" };
+const sessionEndpoint = `postgresql://postgres.${ref}@${host}:5432/postgres`;
+const pooler = { database_type: "PRIMARY", pool_mode: "session", connection_string: sessionEndpoint,
+  db_user: "upstream-user", db_host: "upstream.example", db_port: 9999, db_name: "upstream-database" };
+const normalizedPooler = { database_type: "PRIMARY", pool_mode: "session", db_user: `postgres.${ref}`, db_host: host, db_port: 5432, db_name: "postgres" };
 const keys = [{ type: "publishable", name: "default", api_key: "sb_publishable_test" }, { type: "secret", name: "default", api_key: "sb_secret_test" }];
 const authColumns = [{ table_schema: "auth", table_name: "users", column_name: "id", udt_name: "uuid" }];
 function managementMock({ failFirstPassword = false, dirty = false } = {}) {
@@ -46,11 +49,45 @@ test("one-run load registration is restricted to reviewed main and cannot target
   assert.throws(() => stagingRegistrations({ ...env, STAGING_TARGET_MANIFEST: '{"secret":"sentinel"' }), error => error.message === "Invalid synthetic target manifest" && !error.stack.includes("sentinel"));
 });
 
-test("session pools require the registered primary project, exact host, and session port", () => {
-  assert.equal(selectSessionPool([pooler], record), pooler);
-  for (const patch of [{ pool_mode: "transaction" }, { db_port: 6543 }, { db_host: "outside.example" }, { db_user: "postgres.other" }, { database_type: "READ_REPLICA" }])
-    assert.throws(() => selectSessionPool([{ ...pooler, ...patch }], record));
-  assert.throws(() => selectSessionPool([pooler, pooler], record));
+test("pool selection uses the verified provider client URI, preferring explicit session mode", () => {
+  assert.deepEqual(selectSessionPool([pooler], record), normalizedPooler);
+  const transaction = { ...pooler, pool_mode: "transaction", connection_string: sessionEndpoint.replace(":5432/", ":6543/") };
+  assert.deepEqual(selectSessionPool([transaction], record), normalizedPooler);
+  assert.deepEqual(selectSessionPool([transaction, pooler], record), normalizedPooler);
+  const privateEndpoint = new URL(sessionEndpoint); privateEndpoint.password = "private-password-sentinel";
+  const selected = selectSessionPool([{ ...pooler, connection_string: privateEndpoint.href, extra: "private-extra-sentinel" }], record);
+  assert.deepEqual(selected, normalizedPooler);
+  assert.ok(!JSON.stringify(selected).includes("sentinel"));
+});
+
+test("pool selection rejects ambiguous, mismatched, dedicated and unregistered endpoints without leaking URIs", () => {
+  const transaction = { ...pooler, pool_mode: "transaction", connection_string: sessionEndpoint.replace(":5432/", ":6543/") };
+  const malformedEndpoint = "postgresql://user:" + ["private", "password", "sentinel"].join("-") + "@[invalid";
+  const invalid = [null, {}, [], [pooler, pooler], [transaction, transaction],
+    [{ ...pooler, connection_string: undefined }], [{ ...pooler, connection_string: malformedEndpoint }],
+    [{ ...pooler, pool_mode: "transaction" }], [{ ...transaction, pool_mode: "session" }],
+    [{ ...pooler, database_type: "READ_REPLICA" }], [{ ...pooler, connection_string: sessionEndpoint.replace("postgresql:", "https:") }],
+    [{ ...pooler, connection_string: sessionEndpoint.replace(ref, "other") }],
+    [{ ...pooler, connection_string: sessionEndpoint.replace(`postgres.${ref}`, "postgres") }],
+    [{ ...pooler, connection_string: sessionEndpoint.replace("/postgres", "/") }],
+    [{ ...pooler, connection_string: sessionEndpoint + "?host=outside.example" }],
+    [{ ...pooler, connection_string: sessionEndpoint + "#private-password-sentinel" }],
+    [{ ...pooler, connection_string: sessionEndpoint.replace(host, `db.${ref}.supabase.co`) }],
+    [{ ...pooler, connection_string: sessionEndpoint.replace(host, "aws-99-us-east-1.pooler.supabase.com") }]];
+  for (const rows of invalid) assert.throws(() => selectSessionPool(rows, record),
+    error => error.category === "POOLER_METADATA_UNEXPECTED" && !error.stack.includes("sentinel") && error.input === undefined);
+  const otherHost = "aws-1-us-east-1.pooler.supabase.com";
+  assert.throws(() => selectSessionPool([pooler, { ...transaction, connection_string: transaction.connection_string.replace(host, otherHost) }],
+    { ...record, databaseHosts: [host, otherHost] }), error => error.category === "POOLER_METADATA_UNEXPECTED");
+});
+
+test("invalid pool metadata emits a distinct stage and stops before password changes", async () => {
+  const mock = managementMock(), stages = [];
+  await assert.rejects(withHostedCredentials({ env, operation: "run", emitStage: stage => stages.push(stage),
+    management: async options => options.resource === "config/database/pooler" ? [] : mock.send(options), action: async () => assert.fail("must not run") }),
+    error => error.category === "POOLER_METADATA_UNEXPECTED");
+  assert.deepEqual(stages, ["verify_project", "inspect_pooler"]);
+  assert.ok(mock.calls.every(call => call.method !== "PATCH"));
 });
 
 test("key selection requires unique explicit roles and validates legacy project claims", () => {
@@ -141,6 +178,46 @@ test("ledger inspection refuses invented or incompatible migration columns", asy
   assert.equal(calls, 1);
 });
 
+const ledgerColumns = count => [
+  ["version", "text", "NO"], ["statements", "_text", "YES"], ["name", "text", "YES"],
+  ["created_by", "text", "YES"], ["idempotency_key", "text", "YES"], ["rollback", "_text", "YES"],
+].slice(0, count).map(([column_name, udt_name, is_nullable]) => ({ table_schema: "supabase_migrations", table_name: "schema_migrations",
+  column_name, udt_name, is_nullable, column_default: null }));
+const ledgerConstraints = count => [{ contype: "p", definition: "PRIMARY KEY (version)" },
+  ...(count === 6 ? [{ contype: "u", definition: "UNIQUE (idempotency_key)" }] : [])];
+function ledgerQuery(columns, constraints, migrations = 0) {
+  return async sql => sql.includes("information_schema.columns") ? [...authColumns, ...columns] :
+    sql.includes("pg_constraint") ? constraints : [{ users: 0, app_objects: 0, migrations }];
+}
+
+test("fresh inspection accepts only the confirmed empty three/six-column ledger shapes and constraints", async () => {
+  for (const count of [3, 6]) {
+    const columns = ledgerColumns(count), constraints = ledgerConstraints(count);
+    assert.deepEqual(await inspectFreshDatabase(ledgerQuery(columns, constraints)), { ledgerExists: true });
+    await assert.rejects(inspectFreshDatabase(ledgerQuery(columns, constraints, 1)), /fresh empty/);
+    for (const invalid of [[], [...constraints, { contype: "c", definition: "CHECK (version <> '')" }],
+      [{ contype: "p", definition: "PRIMARY KEY (name)" }]])
+      await assert.rejects(inspectFreshDatabase(ledgerQuery(columns, invalid)), /ledger constraints/);
+    for (const patch of [{ udt_name: "int4" }, { is_nullable: "YES" }, { column_default: "'001'::text" }, { column_name: "unexpected" }])
+      assert.throws(() => assertLedgerColumns([{ ...columns[0], ...patch }, ...columns.slice(1)]), /ledger schema/);
+    assert.throws(() => assertLedgerColumns([columns[1], ...columns.slice(1)]));
+  }
+  assert.throws(() => assertLedgerColumns(ledgerColumns(4)), /ledger schema/);
+  assert.throws(() => assertLedgerColumns([ledgerColumns(6)[3], ...ledgerColumns(3).slice(1)]), /ledger schema/);
+  await assert.rejects(inspectFreshDatabase(ledgerQuery(ledgerColumns(6), ledgerConstraints(3))), /ledger constraints/);
+});
+
+test("bootstrap reuses a valid standard ledger without altering it and inserts only shared columns", async () => {
+  const calls = [], query = ledgerQuery(ledgerColumns(3), ledgerConstraints(3));
+  const count = await applyFreshSchema({ query: async (sql, args) => { calls.push([sql, args]); return { rows: await query(sql) }; } }, () => {});
+  assert.equal(count, 24);
+  assert.equal(calls[0][0], "BEGIN"); assert.equal(calls.at(-1)[0], "COMMIT");
+  const history = calls.filter(([sql]) => sql.startsWith("INSERT INTO supabase_migrations"));
+  assert.equal(history.length, 24);
+  assert.ok(history.every(([sql]) => sql.startsWith("INSERT INTO supabase_migrations.schema_migrations(version,name,statements)")));
+  assert.ok(calls.every(([sql]) => !/^(?:CREATE|ALTER|DROP)\s+(?:SCHEMA|TABLE)\s+(?:IF NOT EXISTS\s+)?supabase_migrations/.test(sql)));
+});
+
 test("GitHub OIDC goes only to the fixed issuer endpoint and binds main SHA and audience", async () => {
   const oidcEnv = { ...env, ACTIONS_ID_TOKEN_REQUEST_URL: "https://run.actions.githubusercontent.com/path/idtoken?api-version=2.0", ACTIONS_ID_TOKEN_REQUEST_TOKEN: "test-oidc-secret" };
   const claims = { iss: "https://token.actions.githubusercontent.com", aud: "https://github.com/ntricarichi22", repository: env.GITHUB_REPOSITORY, ref: env.GITHUB_REF, sha: env.GITHUB_SHA, exp: Date.now() / 1000 + 600 };
@@ -163,7 +240,7 @@ test("failure diagnostics emit only recognized SQLSTATE or fixed provider status
     assert.equal(safeFailureCategory({ message: `Metadata request failed (HTTP ${status})` }), `PROVIDER_HTTP_${status}`);
     assert.equal(safeFailureCategory({ category: `PROVIDER_HTTP_${status}` }), `PROVIDER_HTTP_${status}`);
   }
-  for (const category of ["BACKUP_TIMESTAMP_AMBIGUOUS", "BACKUP_METADATA_UNSUPPORTED", "BACKUP_PHYSICAL_UNAVAILABLE", "BACKUP_SELECTED_UNAVAILABLE", "BACKUP_TIMESTAMP_MISMATCH", "PROJECT_INVENTORY_INVALID", "PROJECT_INVENTORY_SOURCE_MISMATCH", "PROVIDER_EMPTY_RESPONSE", "PROVIDER_INVALID_JSON", "PROVIDER_TIMEOUT", "PROVIDER_REQUEST_FAILED", "PROVIDER_RESPONSE_TOO_LARGE", "PROVIDER_UNEXPECTED_STATUS"])
+  for (const category of ["POOLER_METADATA_UNEXPECTED", "BACKUP_TIMESTAMP_AMBIGUOUS", "BACKUP_METADATA_UNSUPPORTED", "BACKUP_PHYSICAL_UNAVAILABLE", "BACKUP_SELECTED_UNAVAILABLE", "BACKUP_TIMESTAMP_MISMATCH", "PROJECT_INVENTORY_INVALID", "PROJECT_INVENTORY_SOURCE_MISMATCH", "PROVIDER_EMPTY_RESPONSE", "PROVIDER_INVALID_JSON", "PROVIDER_TIMEOUT", "PROVIDER_REQUEST_FAILED", "PROVIDER_RESPONSE_TOO_LARGE", "PROVIDER_UNEXPECTED_STATUS"])
     assert.equal(safeFailureCategory({ category, message: "sentinel-secret" }), category);
   assert.equal(safeFailureCategory({ category: "PROVIDER_HTTP_402_sentinel-secret" }), "GUARD_OR_OPERATION_FAILED");
   assert.equal(safeFailureCategory({ code: "sentinel-secret", message: "sentinel-secret" }), "GUARD_OR_OPERATION_FAILED");
