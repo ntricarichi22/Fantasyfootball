@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { changedManagementSettings, managementProjectJson } from '../lib/supabase-management.mjs';
+import { changedManagementSettings, managementProjectJson, managementProjectsJson, projectFromVerifiedInventory } from '../lib/supabase-management.mjs';
+import { safeFailureCategory } from '../hosting/diagnostics.mjs';
 import { recoveryTargetFromEnv, assertRecoveryProject, recoveryAuthPatch, assertRecoveryAuth } from './hosted-target.mjs';
-import { recoveryEvidence, assertQuarantined, assertPreserved, publicRecoveryEvidence } from './hosted-checks.mjs';
+import { recoveryEvidence, assertQuarantined, assertPreserved, publicRecoveryEvidence, verifySelectedBackup } from './hosted-checks.mjs';
 import { restoreFreshStorageCopy } from './hosted-storage.mjs';
 import { verifyReleaseHistory } from '../verify-supabase-production.mjs';
 
@@ -21,7 +22,8 @@ export const requiredRecoveryColumns = {
   'storage.buckets': ['id','public'], 'supabase_migrations.schema_migrations': ['version','statements'],
 };
 
-export async function deleteRecoveryTarget(env, request = managementProjectJson) {
+export async function deleteRecoveryTarget(env, request = managementProjectJson,
+  { collection = managementProjectsJson, wait = ms => new Promise(resolve=>setTimeout(resolve,ms)) } = {}) {
   // Expiry blocks data mutations, but must never prevent deletion of the exact
   // previously approved temporary project. Identity/protected-project checks stay.
   const target = recoveryTargetFromEnv(env, { cleanup: true });
@@ -29,33 +31,45 @@ export async function deleteRecoveryTarget(env, request = managementProjectJson)
   assert.ok(token, 'Management credential required');
   const get = projectRef => request({projectRef,token});
   const source = await get(target.sourceProjectRef);
+  assert.equal(source.id,target.sourceProjectRef,'Live source project mismatch');
+  assert.equal(source.organization_id,target.organizationId,'Live source organization mismatch');
+  assert.equal(source.region,target.region,'Live source region mismatch');
+  const inventory = () => projectFromVerifiedInventory({projectRef:target.projectRef,
+    sourceProjectRef:target.sourceProjectRef,organizationId:target.organizationId,region:target.region,token,collection});
+  const listed = await inventory();
+  if (!listed) return {deleted:true,alreadyAbsent:true,absenceVerifiedBy:'authenticated-project-inventory'};
+  assertRecoveryProject(target,listed,source,{cleanup:true});
   let project;
   try { project = await get(target.projectRef); }
   catch (error) {
-    if (error.message === 'Metadata request failed (HTTP 404)') return {deleted:true,alreadyAbsent:true};
+    if (['PROVIDER_HTTP_403','PROVIDER_HTTP_404'].includes(safeFailureCategory(error)) && !await inventory())
+      return {deleted:true,alreadyAbsent:true,absenceVerifiedBy:'authenticated-project-inventory'};
     throw error;
   }
   assertRecoveryProject(target,project,source,{cleanup:true});
-  await request({projectRef:target.projectRef,token,method:'DELETE'});
+  try { await request({projectRef:target.projectRef,token,method:'DELETE'}); }
+  catch (error) {
+    // A forbidden response alone cannot establish deletion. Recheck the complete
+    // authenticated inventory after a possible concurrent deletion, then fail closed.
+    if (!['PROVIDER_HTTP_403','PROVIDER_HTTP_404'].includes(safeFailureCategory(error))) throw error;
+    if (!await inventory()) return {deleted:true,alreadyAbsent:false,absenceVerifiedBy:'authenticated-project-inventory'};
+    throw error;
+  }
   for (let attempt=0;attempt<5;attempt++) {
-    try { await get(target.projectRef); }
-    catch (error) {
-      if (error.message === 'Metadata request failed (HTTP 404)') return {deleted:true,alreadyAbsent:false};
-      throw error;
-    }
-    if (attempt<4) await new Promise(resolve=>setTimeout(resolve,2000));
+    if (!await inventory()) return {deleted:true,alreadyAbsent:false,absenceVerifiedBy:'authenticated-project-inventory'};
+    if (attempt<4) await wait(2000);
   }
   throw new Error('Recovery deletion not yet confirmed');
 }
 
-export async function runHostedRecovery(env = process.env, { request = managementProjectJson } = {}) {
+export async function runHostedRecovery(env = process.env, { request = managementProjectJson, collection = managementProjectsJson } = {}) {
   const startedAt = new Date().toISOString();
   let stage = 'target-registration';
   let targetVerified = false, outcome, failure;
   try {
     if (env.RECOVERY_OPERATION === 'delete') {
       stage = 'delete-target';
-      return {ok:true,operation:'delete',cleanup:await deleteRecoveryTarget(env,request)};
+      return {ok:true,operation:'delete',cleanup:await deleteRecoveryTarget(env,request,{collection})};
     }
     const target = recoveryTargetFromEnv(env);
     assert.ok(['quarantine','validate','storage','drill'].includes(env.RECOVERY_OPERATION), 'Invalid recovery operation');
@@ -73,11 +87,8 @@ export async function runHostedRecovery(env = process.env, { request = managemen
     targetVerified = true;
     stage = 'selected-backup';
     const backups = await request({ projectRef: target.sourceProjectRef, token, resource: 'database/backups' });
-    const selectedAt = Date.parse(target.backupTimestamp);
-    assert.equal(backups.walg_enabled, true, 'Physical backups required');
-    assert.ok(backups.backups?.some(item => item.status === 'COMPLETED' && Date.parse(item.inserted_at) === selectedAt)
-      || backups.physical_backup_data?.latest_physical_backup_date_unix * 1000 === selectedAt,
-    'The exact selected source backup is no longer available');
+    const selectedBackup = verifySelectedBackup(backups,target.backupTimestamp);
+    const selectedAt = selectedBackup.selectedAt;
     const sql = (query, readOnly = true) => call('database/query', { method: 'POST', body: { read_only: readOnly, query } });
     stage = 'inspect-restored-schema';
     const columns = await sql("SELECT table_schema,table_name,column_name FROM information_schema.columns WHERE table_schema IN ('public','auth','storage','cron','league_sync','net','supabase_migrations')");
@@ -123,24 +134,25 @@ export async function runHostedRecovery(env = process.env, { request = managemen
       storage = await restoreFreshStorageCopy({ target, token, request, assertTarget: () => recoveryTargetFromEnv(env) });
     }
     outcome = { ok: true, operation: env.RECOVERY_OPERATION, sourceProjectRef: target.sourceProjectRef, targetProjectRef: target.projectRef,
-      selectedBackupAt: target.backupTimestamp, restoreProvenance: 'operator-verified-dashboard',
-      startedAt, providerRestoreCompletedAt:target.restoreCompletedAt,
-      providerCloneElapsedSeconds:Math.round((Date.parse(target.restoreCompletedAt)-Date.parse(target.createdAt))/1000),
+      selectedBackupAt:selectedBackup.resolvedBackupTimestamp, requestedBackupAt:target.backupTimestamp,
+      backupTimestampResolution:selectedBackup.resolution, restoreProvenance: 'operator-verified-dashboard',
+      startedAt, observedRestoreConfirmedAt:target.observedRestoreConfirmedAt,
+      observedCloneElapsedUpperBoundSeconds:Math.ceil((Date.parse(target.observedRestoreConfirmedAt)-Date.parse(target.createdAt))/1000),
       selectedBackupAgeSecondsAtCheck:Math.round((Date.now()-selectedAt)/1000),
       migrationsVerified: history.verified,
       quarantined: true, preservedDomainAndSchema: true, aggregates: publicRecoveryEvidence(after),
       currentSourceEqualityAsserted: false, historicalStorageBytesRestored: false, ...(storage ? { storage } : {}) };
-  } catch {
+  } catch (error) {
     // Never emit provider bodies, SQL, copied identities, paths, credentials or hashes.
-    failure = new Error(`Hosted recovery failed at ${stage}`);
+    failure = new Error(`Hosted recovery failed at ${stage} (${safeFailureCategory(error)})`);
   }
   // Runs after both success and failure, without masking the failed drill as a pass.
   if (env.RECOVERY_OPERATION === 'drill' && targetVerified) {
     try {
-      const cleanup = await deleteRecoveryTarget(env,request);
+      const cleanup = await deleteRecoveryTarget(env,request,{collection});
       if (outcome) outcome.cleanup = cleanup;
       else console.log(JSON.stringify({operation:'recovery-failure-cleanup',...cleanup}));
-    } catch { failure = new Error(`Hosted recovery failed at ${stage}; exact temporary-project cleanup requires immediate retry`); }
+    } catch (error) { failure = new Error(`${failure?.message ?? `Hosted recovery failed at ${stage}`}; exact temporary-project cleanup requires immediate retry (${safeFailureCategory(error)})`); }
   }
   if (failure) throw failure;
   outcome.finishedAt = new Date().toISOString();

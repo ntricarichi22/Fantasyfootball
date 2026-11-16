@@ -24,6 +24,13 @@ test('only the exact registered completed backup clone within its deadline is ac
   assert.throws(() => resolveRecoveryTarget(config, { ...registry, recoveryTargets: [{ ...record, restoreStatus: 'PENDING' }] }, now), /provenance/);
 });
 
+test('restore confirmation uses an observed timestamp while retaining legacy manifest compatibility',()=>{
+  assert.equal(resolveRecoveryTarget(config,registry,now).observedRestoreConfirmedAt,record.restoreCompletedAt);
+  const modern={...record,observedRestoreConfirmedAt:record.restoreCompletedAt};delete modern.restoreCompletedAt;
+  assert.equal(resolveRecoveryTarget(config,{...registry,recoveryTargets:[modern]},now).observedRestoreConfirmedAt,record.restoreCompletedAt);
+  assert.throws(()=>resolveRecoveryTarget(config,{...registry,recoveryTargets:[{...modern,restoreCompletedAt:record.createdAt}]},now),/Conflicting/);
+});
+
 test('Auth quarantine closes every returned provider/hook without copying credentials into patch or diagnostics', () => {
   const patch = recoveryAuthPatch({ external_google_enabled: true, hook_send_email_enabled: true,
     mailer_notifications_password_changed_enabled: true, external_google_secret: 'private-value' });

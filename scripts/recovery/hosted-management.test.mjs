@@ -1,6 +1,28 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { managementProjectJson, managementProjectsJson, managementMetadata } from '../lib/supabase-management.mjs';
+import { managementProjectJson, managementProjectsJson, managementMetadata, projectFromVerifiedInventory } from '../lib/supabase-management.mjs';
+
+test('absence requires a complete authenticated inventory with the expected source identity',async()=>{
+  const source={id:'owkxkpkdffhcordlxqte',organization_id:'peotkumhnipghqkrtjfs',region:'us-east-1'};
+  const target={...source,id:'abcdefghijklmnopqrst',name:'cfc-recovery-drill-20261116'};
+  const args={projectRef:target.id,sourceProjectRef:source.id,organizationId:source.organization_id,region:source.region,token:'test'};
+  assert.equal(await projectFromVerifiedInventory({...args,collection:async options=>{
+    assert.deepEqual(options,{token:'test'});return [source];
+  }}),null);
+  assert.equal(await projectFromVerifiedInventory({...args,collection:async()=>[source,target]}),target);
+  for(const invalid of [[],{}, {data:[source],next_cursor:'next'},[null],[source,source],
+    [source,{...target,ref:source.id}],Array.from({length:10001},()=>source)]) {
+    await assert.rejects(projectFromVerifiedInventory({...args,collection:async()=>invalid}),
+      error=>error.category==='PROJECT_INVENTORY_INVALID');
+  }
+  for(const unavailable of [[target],[{...source,organization_id:target.id}],[{...source,region:'us-west-1'}]]) {
+    await assert.rejects(projectFromVerifiedInventory({...args,collection:async()=>unavailable}),
+      error=>error.category==='PROJECT_INVENTORY_SOURCE_MISMATCH');
+  }
+  await assert.rejects(projectFromVerifiedInventory({...args,collection:async()=>{
+    throw Object.assign(new Error('Metadata request failed (HTTP 403)'),{category:'PROVIDER_HTTP_403'});
+  }}),error=>error.category==='PROVIDER_HTTP_403');
+});
 
 test('guarded caller transport uses fixed collection/project endpoints and accepts empty204 deletion',async()=>{
   const calls=[],fetchImpl=async(url,options)=>{

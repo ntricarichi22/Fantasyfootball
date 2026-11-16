@@ -2,7 +2,7 @@ import { safeFailureCategory } from "./diagnostics.mjs";
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
-import { managementProjectJson, managementProjectsJson, changedManagementSettings } from "../lib/supabase-management.mjs";
+import { managementProjectJson, managementProjectsJson, changedManagementSettings, projectFromVerifiedInventory } from "../lib/supabase-management.mjs";
 import { PRODUCTION_PROJECT_REF, PROTECTED_PROJECT_REFS } from "../lib/staging-target.mjs";
 
 export const LOAD_PROJECT_NAME = "cfc-load-drill-20261115";
@@ -133,17 +133,26 @@ export async function provisionSyntheticProject({ env = process.env, collection 
 export async function cleanupSyntheticProject({ env = process.env, management = managementProjectJson, collection = managementProjectsJson, wait = delay } = {}) {
   const manifest = lifecycleManifest(env, { cleanup: true }), token = env.SUPABASE_ACCESS_TOKEN;
   assert.ok(token, "Management credential unavailable");
-  const listed = await collection({ token }); assert.ok(Array.isArray(listed));
-  const existing = listed.find(item => (item.ref ?? item.id) === manifest.projectRef);
+  const inventory = () => projectFromVerifiedInventory({ projectRef: manifest.projectRef, sourceProjectRef: PRODUCTION_PROJECT_REF,
+    organizationId: manifest.organizationId, region: manifest.region, token, collection });
+  const existing = await inventory();
   if (!existing) return { ok: true, operation: "cleanup", projectRef: manifest.projectRef, alreadyAbsent: true };
   verifyProject(existing, manifest);
-  const live = await management({ projectRef: manifest.projectRef, token }); verifyProject(live, manifest);
-  lifecycleManifest(env, { cleanup: true });
-  await management({ projectRef: manifest.projectRef, token, method: "DELETE" });
+  let deletionAttempted = false;
+  try {
+    const live = await management({ projectRef: manifest.projectRef, token }); verifyProject(live, manifest);
+    lifecycleManifest(env, { cleanup: true });
+    deletionAttempted = true;
+    await management({ projectRef: manifest.projectRef, token, method: "DELETE" });
+  } catch (error) {
+    // A deleted target may return 403/404. Permission failure alone is never proof.
+    if (!["PROVIDER_HTTP_403", "PROVIDER_HTTP_404"].includes(safeFailureCategory(error)) || await inventory()) throw error;
+    return { ok: true, operation: "cleanup", projectRef: manifest.projectRef, deleted: true, alreadyAbsent: !deletionAttempted };
+  }
   for (let attempt = 0; attempt < 12; attempt++) {
-    const remaining = await collection({ token }); assert.ok(Array.isArray(remaining), "Unexpected project list during deletion verification");
-    if (!remaining.some(item => (item.ref ?? item.id) === manifest.projectRef))
-      return { ok: true, operation: "cleanup", projectRef: manifest.projectRef, deleted: true };
+    const remaining = await inventory();
+    if (!remaining) return { ok: true, operation: "cleanup", projectRef: manifest.projectRef, deleted: true };
+    verifyProject(remaining, manifest);
     await wait(5000);
   }
   throw new Error("Temporary project deletion is not yet confirmed; retry exact-target cleanup");

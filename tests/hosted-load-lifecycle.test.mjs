@@ -4,9 +4,9 @@ import { provisionSyntheticProject, cleanupSyntheticProject, lifecycleManifest, 
   LOAD_ORGANIZATION_ID, LOAD_PROJECT_NAME, LOAD_REGION } from "../scripts/hosting/synthetic-project-lifecycle.mjs";
 import { PRODUCTION_PROJECT_REF, PROTECTED_PROJECT_REFS } from "../scripts/lib/staging-target.mjs";
 const ref = "abcdefghijklmnopqrst", now = Date.now();
-const target = { ref, name: LOAD_PROJECT_NAME, organization_id: LOAD_ORGANIZATION_ID, organization_slug: "approved-slug", region: LOAD_REGION,
+const target = { id: ref, ref, name: LOAD_PROJECT_NAME, organization_id: LOAD_ORGANIZATION_ID, organization_slug: "approved-slug", region: LOAD_REGION,
   created_at: new Date(now - 1000).toISOString(), status: "ACTIVE_HEALTHY" };
-const source = { ...target, ref: PRODUCTION_PROJECT_REF, name: "production" };
+const source = { ...target, id: PRODUCTION_PROJECT_REF, ref: PRODUCTION_PROJECT_REF, name: "production" };
 const manifest = { name: LOAD_PROJECT_NAME, purpose: "synthetic-load", projectRef: ref, organizationId: LOAD_ORGANIZATION_ID, region: LOAD_REGION,
   createdAt: target.created_at, expiresAt: new Date(now + 3600000).toISOString() };
 const env = { GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: "ntricarichi22/Fantasyfootball", GITHUB_REF: "refs/heads/main", GITHUB_SHA: "c".repeat(40),
@@ -135,4 +135,26 @@ test("Auth writes only changes but still verifies already-disabled providers", a
     reads++; return { ...closedAuth, saml_enabled: reads > 1 };
   } }), error => error.category === "AUTH_CONFIG_VERIFY_FAILED");
   assert.equal(writes, 0); assert.equal(reads, 7);
+});
+
+
+test("cleanup403 needs source-verified inventory absence and never treats lost permission as deletion", async () => {
+  for (const failsAt of ["GET", "DELETE"]) {
+    let deleted = false;
+    const result = await cleanupSyntheticProject({ env,
+      collection: async () => [source, ...(deleted ? [] : [target])],
+      management: async options => {
+        if ((options.method ?? "GET") === failsAt) { deleted = true; throw new Error("Metadata request failed (HTTP 403)"); }
+        return target;
+      },
+    });
+    assert.equal(result.deleted, true); assert.equal(result.alreadyAbsent, failsAt === "GET");
+  }
+  for (const list of [[source, target], [], [{ ...source, organization_id: "other" }]]) {
+    let reads = 0;
+    await assert.rejects(cleanupSyntheticProject({ env,
+      collection: async () => ++reads === 1 ? [source, target] : list,
+      management: async () => { throw new Error("Metadata request failed (HTTP 403)"); },
+    }));
+  }
 });
