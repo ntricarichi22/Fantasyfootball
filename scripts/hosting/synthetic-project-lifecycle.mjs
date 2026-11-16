@@ -28,7 +28,7 @@ export function lifecycleManifest(env = process.env, { cleanup = false, now = Da
     (cleanup ? now - created <= 24 * 3600000 : expires > now), "Synthetic project is outside its approved lifetime");
   return manifest;
 }
-function verifyProject(project, manifest) {
+export function verifySyntheticProject(project, manifest) {
   assert.equal(project.ref ?? project.id, manifest.projectRef, "Live project mismatch");
   assert.equal(project.name, LOAD_PROJECT_NAME, "Live project name mismatch");
   assert.equal(project.organization_id, LOAD_ORGANIZATION_ID, "Live project organization mismatch");
@@ -98,7 +98,7 @@ export async function provisionSyntheticProject({ env = process.env, collection 
   const manifest = { name: LOAD_PROJECT_NAME, purpose: "synthetic-load", projectRef: created.ref ?? created.id,
     organizationId: LOAD_ORGANIZATION_ID, region: LOAD_REGION, createdAt: created.created_at,
     expiresAt: new Date(Date.parse(created.created_at) + FOUR_HOURS).toISOString() };
-  lifecycleManifest({ ...env, DRILL_TARGET_MANIFEST: JSON.stringify(manifest) }); verifyProject(created, manifest);
+  lifecycleManifest({ ...env, DRILL_TARGET_MANIFEST: JSON.stringify(manifest) }); verifySyntheticProject(created, manifest);
   let phase = "provision_wait_healthy";
   const emitStage = value => { phase = value; emit({ event: "provision_stage", stage: value }); };
   try {
@@ -106,7 +106,7 @@ export async function provisionSyntheticProject({ env = process.env, collection 
     emitStage("provision_wait_healthy");
     for (let attempt = 0; attempt < 30; attempt++) {
       signal?.throwIfAborted();
-      const current = await project({ projectRef: manifest.projectRef, token }); verifyProject(current, manifest);
+      const current = await project({ projectRef: manifest.projectRef, token }); verifySyntheticProject(current, manifest);
       if (current.status === "ACTIVE_HEALTHY") {
         await ensureSyntheticAuth({ request: options => project({ projectRef: manifest.projectRef, token, ...options }),
           guard: () => lifecycleManifest({ ...env, DRILL_TARGET_MANIFEST: JSON.stringify(manifest) }), configure: true, emitStage, emit, wait });
@@ -137,10 +137,10 @@ export async function cleanupSyntheticProject({ env = process.env, management = 
     organizationId: manifest.organizationId, region: manifest.region, token, collection });
   const existing = await inventory();
   if (!existing) return { ok: true, operation: "cleanup", projectRef: manifest.projectRef, alreadyAbsent: true };
-  verifyProject(existing, manifest);
+  verifySyntheticProject(existing, manifest);
   let deletionAttempted = false;
   try {
-    const live = await management({ projectRef: manifest.projectRef, token }); verifyProject(live, manifest);
+    const live = await management({ projectRef: manifest.projectRef, token }); verifySyntheticProject(live, manifest);
     lifecycleManifest(env, { cleanup: true });
     deletionAttempted = true;
     await management({ projectRef: manifest.projectRef, token, method: "DELETE" });
@@ -152,7 +152,7 @@ export async function cleanupSyntheticProject({ env = process.env, management = 
   for (let attempt = 0; attempt < 12; attempt++) {
     const remaining = await inventory();
     if (!remaining) return { ok: true, operation: "cleanup", projectRef: manifest.projectRef, deleted: true };
-    verifyProject(remaining, manifest);
+    verifySyntheticProject(remaining, manifest);
     await wait(5000);
   }
   throw new Error("Temporary project deletion is not yet confirmed; retry exact-target cleanup");

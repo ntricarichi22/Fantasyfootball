@@ -8,21 +8,16 @@ on:
         type: choice
         required: true
         options:
-          - provision-load
           - setup-load
           - run-load
           - cleanup-load
           - recovery-drill
           - cleanup-recovery
       target_manifest:
-        description: Nonsecret reviewed target manifest JSON; use {} only for provision-load
+        description: Nonsecret reviewed target manifest JSON from the active watchdog
         type: string
         required: true
         default: '{}'
-      cost_approved:
-        description: Approve temporary databases only, up to USD 2, with deletion within four hours
-        type: boolean
-        default: false
 permissions:
   contents: read
 concurrency:
@@ -33,7 +28,7 @@ jobs:
     if: >-
       github.repository == 'ntricarichi22/Fantasyfootball' &&
       github.ref == 'refs/heads/main' &&
-      contains(fromJSON('["provision-load","setup-load","run-load","cleanup-load"]'), inputs.operation)
+      contains(fromJSON('["setup-load","run-load","cleanup-load"]'), inputs.operation)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment: supabase-production
@@ -51,9 +46,8 @@ jobs:
       - run: npm ci --ignore-scripts
       - name: Operate only the registered synthetic load target
         env:
-          HOSTED_LOAD_OPERATION: ${{ inputs.operation == 'provision-load' && 'provision' || inputs.operation == 'setup-load' && 'setup' || inputs.operation == 'run-load' && 'run' || 'cleanup' }}
+          HOSTED_LOAD_OPERATION: ${{ inputs.operation == 'setup-load' && 'setup' || inputs.operation == 'run-load' && 'run' || 'cleanup' }}
           DRILL_TARGET_MANIFEST: ${{ inputs.target_manifest }}
-          DRILL_COST_APPROVED: ${{ inputs.cost_approved && 'TEMPORARY-ONLY-USD2-FOUR-HOURS' || '' }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: node scripts/hosting/hosted-load.mjs
       - name: Retry exact-target cleanup after a load interruption or failure
