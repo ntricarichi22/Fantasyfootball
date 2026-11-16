@@ -183,26 +183,55 @@ export async function withHostedCredentials({ env = process.env, operation, acti
   return result;
 }
 
-export async function githubOidcToken(env = process.env, fetchImpl = fetch) {
-  assert.equal(env.GITHUB_REPOSITORY, LOAD_REPOSITORY); assert.equal(env.GITHUB_REF, "refs/heads/main");
+function inspectGithubOidc(env) {
   let url;
-  try { url = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL); } catch { throw new Error("GitHub OIDC endpoint unavailable"); }
-  assert.ok(url.protocol === "https:" && url.hostname.endsWith(".actions.githubusercontent.com") &&
-    !url.username && !url.password && !url.port && !url.hash && url.pathname.endsWith("/idtoken"), "Unexpected GitHub OIDC endpoint");
-  assert.ok(env.ACTIONS_ID_TOKEN_REQUEST_TOKEN, "GitHub OIDC credential unavailable");
+  try { url = new URL(env.ACTIONS_ID_TOKEN_REQUEST_URL); } catch { /* Never retain URL parsing errors or input. */ }
+  const hostnameAllowed = !!url && /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+actions\.githubusercontent\.com$/.test(url.hostname);
+  return { url, report: {
+    repositoryMatches: env.GITHUB_REPOSITORY === LOAD_REPOSITORY,
+    refMatches: env.GITHUB_REF === "refs/heads/main",
+    shaValid: /^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? ""),
+    requestUrlPresent: typeof env.ACTIONS_ID_TOKEN_REQUEST_URL === "string" && !!env.ACTIONS_ID_TOKEN_REQUEST_URL,
+    requestTokenPresent: typeof env.ACTIONS_ID_TOKEN_REQUEST_TOKEN === "string" && !!env.ACTIONS_ID_TOKEN_REQUEST_TOKEN,
+    urlParsed: !!url, https: url?.protocol === "https:", hostnameAllowed,
+    noUrlCredentials: !!url && !url.username && !url.password,
+    noCustomPort: !!url && !url.port, noFragment: !!url && !url.hash,
+    // GitHub supplies an opaque GenerateIdTokenUrl; this suffix is diagnostic only.
+    // https://github.com/actions/runner/blob/main/src/Runner.Worker/Handlers/ScriptHandler.cs
+    pathHasLegacyIdtokenSuffix: !!url?.pathname.endsWith("/idtoken"),
+    endpointHostname: hostnameAllowed ? url.hostname : null,
+  } };
+}
+export function githubOidcPrerequisites(env = process.env) { return inspectGithubOidc(env).report; }
+const oidcFailure = category => Object.assign(new Error("GitHub OIDC request or identity validation failed"), { category });
+export async function githubOidcToken(env = process.env, fetchImpl = fetch) {
+  const { url, report } = inspectGithubOidc(env);
+  for (const [flag, category] of [["repositoryMatches", "OIDC_REPOSITORY_MISMATCH"], ["refMatches", "OIDC_REF_MISMATCH"],
+    ["shaValid", "OIDC_SHA_INVALID"], ["requestUrlPresent", "OIDC_URL_MISSING"], ["urlParsed", "OIDC_URL_INVALID"],
+    ["https", "OIDC_ENDPOINT_REJECTED"], ["hostnameAllowed", "OIDC_ENDPOINT_REJECTED"], ["noUrlCredentials", "OIDC_ENDPOINT_REJECTED"],
+    ["noCustomPort", "OIDC_ENDPOINT_REJECTED"], ["noFragment", "OIDC_ENDPOINT_REJECTED"], ["requestTokenPresent", "OIDC_TOKEN_MISSING"]])
+    if (!report[flag]) throw oidcFailure(category);
   url.searchParams.set("audience", AUDIENCE);
   try {
     const response = await fetchImpl(url, { headers: { Authorization: `Bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` }, redirect: "error", signal: AbortSignal.timeout(15000) });
-    assert.ok(response.ok && response.body, "OIDC request failed");
+    if (!response.ok) throw oidcFailure(Number.isInteger(response.status) && response.status >= 400 && response.status <= 599 ? `OIDC_HTTP_${response.status}` : "OIDC_RESPONSE_INVALID");
+    if (!response.body) throw oidcFailure("OIDC_RESPONSE_INVALID");
     const reader = response.body.getReader(); const chunks = []; let size = 0;
     try { while (true) { const { done, value } = await reader.read(); if (done) break;
-      size += value.byteLength; if (size > 32768) { await reader.cancel(); throw new Error("OIDC response too large"); } chunks.push(value); }
+      size += value.byteLength; if (size > 32768) { await reader.cancel(); throw oidcFailure("OIDC_RESPONSE_TOO_LARGE"); } chunks.push(value); }
     } finally { reader.releaseLock(); }
-    const { value } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    const claims = JSON.parse(Buffer.from(value.split(".")[1], "base64url").toString("utf8"));
-    assert.ok(claims.iss === "https://token.actions.githubusercontent.com" && claims.aud === AUDIENCE &&
-      claims.repository === LOAD_REPOSITORY && claims.ref === "refs/heads/main" && claims.sha === env.GITHUB_SHA &&
-      Number(claims.exp) * 1000 > Date.now() + 240000, "Unexpected or expiring OIDC identity");
+    let value, claims;
+    try {
+      ({ value } = JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      if (typeof value !== "string" || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value)) throw oidcFailure("OIDC_RESPONSE_INVALID");
+      claims = JSON.parse(Buffer.from(value.split(".")[1], "base64url").toString("utf8"));
+    } catch { throw oidcFailure("OIDC_RESPONSE_INVALID"); }
+    if (!claims || claims.iss !== "https://token.actions.githubusercontent.com" || claims.aud !== AUDIENCE ||
+      claims.repository !== LOAD_REPOSITORY || claims.ref !== "refs/heads/main" || claims.sha !== env.GITHUB_SHA) throw oidcFailure("OIDC_IDENTITY_MISMATCH");
+    if (!(Number(claims.exp) * 1000 > Date.now() + 240000)) throw oidcFailure("OIDC_TOKEN_EXPIRING");
     return value;
-  } catch { throw new Error("GitHub OIDC request or identity validation failed"); }
+  } catch (error) {
+    if (safeFailureCategory(error).startsWith("OIDC_")) throw oidcFailure(safeFailureCategory(error));
+    throw oidcFailure(["AbortError", "TimeoutError"].includes(error?.name) ? "OIDC_TIMEOUT" : "OIDC_REQUEST_FAILED");
+  }
 }
