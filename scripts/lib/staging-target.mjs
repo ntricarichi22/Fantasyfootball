@@ -95,9 +95,12 @@ export function assertStagingAttestation(body, target) {
   }
 }
 
+// Official dashboard CA download is pinned in config; see the TLS regression test
+// for source and fingerprint. Hosted connections retain Node CA + hostname checks.
 export function stagingPoolOptions(target, ca) {
   return { connectionString: target.databaseUrl, max: target.environment === "local" ? 8 : 3, connectionTimeoutMillis: 10000, statement_timeout: 15000,
-    ssl: target.environment === "local" ? false : { rejectUnauthorized: true, ...(ca ? { ca } : {}) } };
+    ssl: target.environment === "local" ? false : { rejectUnauthorized: true,
+      ca: ca ?? readFileSync(new URL("../../config/supabase-root-2021.crt", import.meta.url), "utf8") } };
 }
 
 export function assertSyntheticClientTargets(pool, admin, { cleanupOnly = false } = {}) {
