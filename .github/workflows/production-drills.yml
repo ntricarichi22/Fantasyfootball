@@ -8,13 +8,14 @@ on:
         type: choice
         required: true
         options:
+          - oidc-preflight
           - setup-load
           - run-load
           - cleanup-load
           - recovery-drill
           - cleanup-recovery
       target_manifest:
-        description: Nonsecret reviewed target manifest JSON from the active watchdog
+        description: Nonsecret reviewed target manifest JSON; leave {} for OIDC preflight
         type: string
         required: true
         default: '{}'
@@ -24,6 +25,28 @@ concurrency:
   group: production-readiness-drills
   cancel-in-progress: false
 jobs:
+  oidc-preflight:
+    if: >-
+      github.repository == 'ntricarichi22/Fantasyfootball' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.operation == 'oidc-preflight'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: supabase-production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      # No Supabase/Vercel secret, target manifest, install or database access.
+      - name: Inspect fixed prerequisites and validate GitHub token minting
+        run: node scripts/hosting/oidc-preflight.mjs
   hosted-load:
     if: >-
       github.repository == 'ntricarichi22/Fantasyfootball' &&
