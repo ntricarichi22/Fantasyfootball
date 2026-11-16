@@ -9,7 +9,7 @@ export function resolveRecoveryTarget(config, records = registry, now = Date.now
   assert.ok(target && target.purpose === 'production-backup-recovery', 'Unregistered recovery target');
   assert.match(target.name, /^cfc-recovery-drill-\d{8}$/, 'Dedicated recovery project name required');
   const fields = ['name','purpose','projectRef','sourceProjectRef','organizationId','region','backupTimestamp',
-    'createdAt','expiresAt','restoreCompletedAt','restoreStatus','restoreEvidence'];
+    'createdAt','expiresAt','restoreCompletedAt','observedRestoreConfirmedAt','restoreStatus','restoreEvidence'];
   assert.ok(Object.keys(target).every(key => fields.includes(key)), 'Unexpected recovery manifest field');
   assert.equal(target.restoreEvidence, 'DASHBOARD_SOURCE_BACKUP_AND_COMPLETED_TARGET_VERIFIED', 'Operator must verify dashboard restore provenance');
   assert.ok(REF.test(target.organizationId ?? '') && /^[a-z]+-[a-z]+-\d+$/.test(target.region ?? ''), 'Expected organization and region required');
@@ -21,7 +21,12 @@ export function resolveRecoveryTarget(config, records = registry, now = Date.now
   assert.equal(config.backupTimestamp, target.backupTimestamp, 'Exact selected backup timestamp required');
   assert.equal(target.restoreStatus, 'COMPLETED', 'Restore provenance must be verified before quarantine');
   const created = Date.parse(target.createdAt), expires = Date.parse(target.expiresAt);
-  const backup = Date.parse(target.backupTimestamp), restored = Date.parse(target.restoreCompletedAt);
+  // Older manifests named the operator's observation restoreCompletedAt. Keep
+  // accepting them without presenting that observation as an exact provider time.
+  const observedRestoreConfirmedAt = target.observedRestoreConfirmedAt ?? target.restoreCompletedAt;
+  if (target.observedRestoreConfirmedAt !== undefined && target.restoreCompletedAt !== undefined)
+    assert.equal(target.observedRestoreConfirmedAt,target.restoreCompletedAt,'Conflicting restore confirmation timestamps');
+  const backup = Date.parse(target.backupTimestamp), restored = Date.parse(observedRestoreConfirmedAt);
   assert.ok([created, expires, backup, restored].every(Number.isFinite), 'Complete recovery provenance required');
   assert.ok(backup <= created && created <= restored && restored <= now && created <= now && (cleanup || now < expires) &&
     expires > created && expires - created <= 4 * 60 * 60 * 1000, 'Recovery target expired or outside approved four-hour window');
@@ -34,7 +39,7 @@ export function resolveRecoveryTarget(config, records = registry, now = Date.now
     }
   }
   assert.ok(!records.stagingTargets?.some(item => item.projectRef === target.projectRef), 'Recovery and synthetic load targets must be separate');
-  return Object.freeze({ ...target });
+  return Object.freeze({ ...target,observedRestoreConfirmedAt });
 }
 
 export function assertRecoveryProject(target, project, source, { cleanup = false } = {}) {

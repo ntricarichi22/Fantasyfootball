@@ -29,6 +29,24 @@ export async function managementProjectsJson({ token, method = 'GET', body, fetc
   return managementJson({ url: 'https://api.supabase.com/v1/projects', token, method, body, fetchImpl });
 }
 
+/** GET /v1/projects is a complete, nonpaginated array in the published OpenAPI. */
+export async function projectFromVerifiedInventory({ projectRef, sourceProjectRef, organizationId, region, token,
+  collection = managementProjectsJson }) {
+  if (![projectRef, sourceProjectRef, organizationId].every(value => /^[a-z]{20}$/.test(value ?? '')) ||
+      projectRef === sourceProjectRef || !/^[a-z]+-[a-z]+-\d+$/.test(region ?? '') || !token)
+    throw new ManagementRequestError('PROJECT_INVENTORY_INVALID', 'Invalid project inventory check');
+  const projects = await collection({ token });
+  if (!Array.isArray(projects) || projects.length === 0 || projects.length > 10_000 ||
+      !projects.every(project => project && /^[a-z]{20}$/.test(project.id ?? '') &&
+        (project.ref === undefined || project.ref === project.id)) ||
+      new Set(projects.map(project => project.id)).size !== projects.length)
+    throw new ManagementRequestError('PROJECT_INVENTORY_INVALID', 'Invalid complete project inventory');
+  const source = projects.find(project => project.id === sourceProjectRef);
+  if (!source || source.organization_id !== organizationId || source.region !== region)
+    throw new ManagementRequestError('PROJECT_INVENTORY_SOURCE_MISMATCH', 'Expected source missing from project inventory');
+  return projects.find(project => project.id === projectRef) ?? null;
+}
+
 class ManagementRequestError extends Error {
   constructor(category, message) {
     super(message);

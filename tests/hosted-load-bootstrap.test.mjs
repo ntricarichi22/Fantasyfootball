@@ -61,6 +61,25 @@ test("key selection requires unique explicit roles and validates legacy project 
   assert.throws(() => selectApiKeys([legacy("anon"), legacy("service_role", "other")], ref));
 });
 
+test("documented omitted or null key types accept only unique project-bound legacy JWT roles", () => {
+  const legacy = (name, type, claims = { role: name, ref }) => ({ name,
+    ...(type === undefined ? {} : { type }), api_key: `x.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.x` });
+  for (const type of [undefined, null, "legacy"]) {
+    const rows = [legacy("anon", type), legacy("service_role", type)];
+    assert.deepEqual(selectApiKeys(rows, ref), { anonKey: rows[0].api_key, serviceKey: rows[1].api_key });
+    assert.deepEqual(selectApiKeys([...rows, ...keys], ref), { anonKey: keys[0].api_key, serviceKey: keys[1].api_key });
+    for (const patch of [
+      legacy("anon", type, { role: "service_role", ref }),
+      legacy("anon", type, { role: "anon", ref: "other" }),
+      legacy("anon", "unknown"),
+      { ...legacy("anon", type), api_key: "private-key-sentinel" },
+      { ...legacy("anon", type), api_key: `x.${Buffer.from("private-key-sentinel").toString("base64url")}.x` },
+    ]) assert.throws(() => selectApiKeys([patch, rows[1]], ref), error => !error.stack.includes("private-key-sentinel"));
+    assert.throws(() => selectApiKeys([rows[0], legacy("anon", "legacy"), rows[1]], ref), /Exactly one/);
+    assert.throws(() => selectApiKeys([rows[0], rows[1], legacy("service_role", null)], ref), /Exactly one/);
+  }
+});
+
 test("fresh setup rejects existing Auth data before any password write", async () => {
   const mock = managementMock({ dirty: true });
   await assert.rejects(withHostedCredentials({ env, operation: "setup", management: mock.send, action: async () => assert.fail("must not run") }), /fresh empty/);
@@ -144,7 +163,7 @@ test("failure diagnostics emit only recognized SQLSTATE or fixed provider status
     assert.equal(safeFailureCategory({ message: `Metadata request failed (HTTP ${status})` }), `PROVIDER_HTTP_${status}`);
     assert.equal(safeFailureCategory({ category: `PROVIDER_HTTP_${status}` }), `PROVIDER_HTTP_${status}`);
   }
-  for (const category of ["PROVIDER_EMPTY_RESPONSE", "PROVIDER_INVALID_JSON", "PROVIDER_TIMEOUT", "PROVIDER_REQUEST_FAILED", "PROVIDER_RESPONSE_TOO_LARGE", "PROVIDER_UNEXPECTED_STATUS"])
+  for (const category of ["BACKUP_TIMESTAMP_AMBIGUOUS", "BACKUP_METADATA_UNSUPPORTED", "BACKUP_PHYSICAL_UNAVAILABLE", "BACKUP_SELECTED_UNAVAILABLE", "BACKUP_TIMESTAMP_MISMATCH", "PROJECT_INVENTORY_INVALID", "PROJECT_INVENTORY_SOURCE_MISMATCH", "PROVIDER_EMPTY_RESPONSE", "PROVIDER_INVALID_JSON", "PROVIDER_TIMEOUT", "PROVIDER_REQUEST_FAILED", "PROVIDER_RESPONSE_TOO_LARGE", "PROVIDER_UNEXPECTED_STATUS"])
     assert.equal(safeFailureCategory({ category, message: "sentinel-secret" }), category);
   assert.equal(safeFailureCategory({ category: "PROVIDER_HTTP_402_sentinel-secret" }), "GUARD_OR_OPERATION_FAILED");
   assert.equal(safeFailureCategory({ code: "sentinel-secret", message: "sentinel-secret" }), "GUARD_OR_OPERATION_FAILED");

@@ -1,17 +1,12 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
+import { selectSupabaseApiKey } from '../lib/supabase-api-keys.mjs';
 
 const MAX_OBJECT = 32 * 1024 * 1024, MAX_TOTAL = 128 * 1024 * 1024;
 const inventorySql = `SELECT jsonb_build_object('total',(SELECT count(*) FROM storage.objects WHERE NOT coalesce(is_delete_marker,false)),
   'objects',(SELECT coalesce(jsonb_agg(to_jsonb(o) ORDER BY bucket_id,name),'[]'::jsonb)
   FROM (SELECT id,bucket_id,name,metadata,updated_at FROM storage.objects WHERE NOT coalesce(is_delete_marker,false)
   ORDER BY bucket_id,name LIMIT 101) o)) AS inventory`;
-
-function serviceKey(keys) {
-  const key = Array.isArray(keys) && keys.find(item => item.name === 'service_role' && item.type === 'legacy')?.api_key;
-  assert.ok(typeof key === 'string' && key.length > 30, 'Existing service key unavailable');
-  return key;
-}
 
 export function objectPath(bucket, name) {
   assert.ok(typeof bucket === 'string' && bucket.length > 0 && !bucket.includes('/'), 'Invalid storage bucket');
@@ -63,8 +58,9 @@ export async function restoreFreshStorageCopy({ target, token, request, assertTa
     return result;
   };
   const before = await inventory();
-  const sourceKey = serviceKey(await request({ projectRef: target.sourceProjectRef, token, resource: 'api-keys', reveal: true }));
-  const targetKey = serviceKey(await request({ projectRef: target.projectRef, token, resource: 'api-keys', reveal: true }));
+  // Preserve this driver's existing JWT Bearer authentication contract.
+  const sourceKey = selectSupabaseApiKey(await request({ projectRef: target.sourceProjectRef, token, resource: 'api-keys', reveal: true }), target.sourceProjectRef, 'service_role', { legacyOnly: true });
+  const targetKey = selectSupabaseApiKey(await request({ projectRef: target.projectRef, token, resource: 'api-keys', reveal: true }), target.projectRef, 'service_role', { legacyOnly: true });
   // The source client exposes only a fixed GET download; all mutations use target.
   const downloadSource = item => storageRequest({ projectRef: target.sourceProjectRef, key: sourceKey,
     pathname: `/object/authenticated/${objectPath(item.bucket_id,item.name)}`, binary: true });

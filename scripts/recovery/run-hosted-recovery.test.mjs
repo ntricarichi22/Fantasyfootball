@@ -23,7 +23,7 @@ function fixture(initialAuth = {}) {
   const request=async options=>{
     calls.push(options);
     if(!options.resource) return {id:options.projectRef,name:record.name,organization_id:record.organizationId,region:record.region,created_at:created,status:'ACTIVE_HEALTHY'};
-    if(options.resource==='database/backups') return {walg_enabled:true,backups:[{status:'COMPLETED',inserted_at:record.backupTimestamp}]};
+    if(options.resource==='database/backups') return {walg_enabled:true,physical_backup_data:{},backups:[{status:'COMPLETED',is_physical_backup:true,inserted_at:record.backupTimestamp}]};
     if(options.resource==='config/auth') { if(options.method==='PATCH') auth={...auth,...options.body}; return auth; }
     if(options.resource==='postgrest') { if(options.method==='PATCH') rest=options.body; return rest; }
     const query=options.body.query;
@@ -32,7 +32,8 @@ function fixture(initialAuth = {}) {
     if(options.body.read_only===false) { written=true; return []; }
     return [{evidence:{...evidence,sessions:written?0:2}}];
   };
-  return {env,request,calls};
+  const collection=async()=>[await request({projectRef:source}),await request({projectRef:clone})];
+  return {env,request,calls,collection};
 }
 
 test('hosted quarantine routes mutations only to exact clone and reports aggregates without secrets or hashes',async t=>{
@@ -43,6 +44,10 @@ test('hosted quarantine routes mutations only to exact clone and reports aggrega
   assert.ok(calls.filter(call=>call.method==='PATCH'||call.body?.read_only===false).every(call=>call.projectRef===clone));
   assert.ok(calls.find(call=>call.body?.read_only===false).body.query.includes(`set_config('recovery.approved_target_ref','${clone}',true)`));
   const text=JSON.stringify(result);assert.ok(!text.includes('Digest')&&!text.includes('test-only'));
+  assert.equal(result.observedRestoreConfirmedAt,JSON.parse(env.RECOVERY_TARGET_MANIFEST).restoreCompletedAt);
+  assert.equal(result.observedCloneElapsedUpperBoundSeconds,30);
+  assert.equal(result.providerRestoreCompletedAt,undefined);
+  assert.equal(result.providerCloneElapsedSeconds,undefined);
 });
 
 test('registration failures cannot reach any API and provider errors are not logged',async()=>{
@@ -87,9 +92,56 @@ test('cleanup deletes only the approved clone, confirms absence, and remains ava
     if(deleted && options.projectRef===clone) throw new Error('Metadata request failed (HTTP 404)');
     return request(options);
   };
-  assert.equal((await deleteRecoveryTarget(env,cleanupRequest)).deleted,true);
+  const collection=async()=>[await request({projectRef:source}),...(!deleted?[await request({projectRef:clone})]:[])];
+  assert.equal((await deleteRecoveryTarget(env,cleanupRequest,{collection})).deleted,true);
   assert.deepEqual(calls.filter(item=>item.method==='DELETE').map(item=>item.projectRef),[clone]);
-  await assert.rejects(deleteRecoveryTarget({...env,RECOVERY_PROJECT_REF:source},cleanupRequest));
+  await assert.rejects(deleteRecoveryTarget({...env,RECOVERY_PROJECT_REF:source},cleanupRequest,{collection}));
+});
+
+test('already-absent cleanup uses source-verified inventory without treating a forbidden GET as proof',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-15T14:30:00Z')});
+  const {env,request}=fixture(),calls=[];
+  const guarded=async options=>{
+    calls.push(options);
+    if(options.projectRef===clone) throw new Error('Metadata request failed (HTTP 403)');
+    return request(options);
+  };
+  const collection=async()=>[await request({projectRef:source})];
+  const result=await deleteRecoveryTarget(env,guarded,{collection});
+  assert.equal(result.alreadyAbsent,true);assert.equal(result.absenceVerifiedBy,'authenticated-project-inventory');
+  assert.ok(calls.every(call=>call.projectRef===source&&!call.method));
+  await assert.rejects(deleteRecoveryTarget(env,guarded,{collection:async()=>[]}),error=>error.category==='PROJECT_INVENTORY_INVALID');
+  await assert.rejects(deleteRecoveryTarget(env,guarded,{collection:async()=>[await request({projectRef:clone})]}),
+    error=>error.category==='PROJECT_INVENTORY_SOURCE_MISMATCH');
+});
+
+test('403 or404 during target read or deletion requires independent inventory absence',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-15T14:30:00Z')});
+  for(const status of [403,404]) for(const phase of ['GET','DELETE']) for(const disappears of [false,true]) {
+    const {env,request}=fixture();let rejected=false,deletes=0;
+    const collection=async()=>[await request({projectRef:source}),...(!rejected||!disappears?[await request({projectRef:clone})]:[])];
+    const fault=async options=>{
+      if(options.method==='DELETE') deletes++;
+      if(options.projectRef===clone&&(options.method??'GET')===phase) {
+        rejected=true;throw new Error(`Metadata request failed (HTTP ${status})`);
+      }
+      return request(options);
+    };
+    if(disappears) assert.equal((await deleteRecoveryTarget(env,fault,{collection})).deleted,true);
+    else await assert.rejects(deleteRecoveryTarget(env,fault,{collection}),new RegExp(`HTTP ${status}`));
+    assert.equal(deletes,phase==='DELETE'?1:0);
+  }
+});
+
+test('accepted deletion remains unconfirmed while the exact target is still visible',async t=>{
+  t.mock.timers.enable({apis:['Date'],now:Date.parse('2026-11-15T14:30:00Z')});
+  const {env,request,collection}=fixture();let deletes=0,waits=0;
+  const pending=async options=>{
+    if(options.method==='DELETE') {deletes++;return null;}
+    return request(options);
+  };
+  await assert.rejects(deleteRecoveryTarget(env,pending,{collection,wait:async()=>{waits++;}}),/not yet confirmed/);
+  assert.equal(deletes,1);assert.equal(waits,4);
 });
 
 test('a verified clone is removed after a failed drill but a different live project name is never deleted',async t=>{
@@ -103,7 +155,8 @@ test('a verified clone is removed after a failed drill but a different live proj
       const result=await request(options);
       return wrongName&&options.projectRef===clone&&!options.resource?{...result,name:'cfc-hosted-load-20261115'}:result;
     };
-    await assert.rejects(runHostedRecovery({...env,RECOVERY_OPERATION:'drill'},{request:fault}),wrongName?/live-project-identity/:/selected-backup/);
+    const collection=async()=>[await request({projectRef:source}),...(!deleted?[await request({projectRef:clone})]:[])];
+    await assert.rejects(runHostedRecovery({...env,RECOVERY_OPERATION:'drill'},{request:fault,collection}),wrongName?/live-project-identity/:/selected-backup/);
     assert.equal(deleted,!wrongName);
   }
 });

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
+import { selectSupabaseApiKey } from "../lib/supabase-api-keys.mjs";
 import { managementProjectJson } from "../lib/supabase-management.mjs";
 import { ensureSyntheticAuth, lifecycleManifest } from "./synthetic-project-lifecycle.mjs";
 import { resolveStagingTarget, stagingRegistrations } from "../lib/staging-target.mjs";
@@ -40,21 +41,8 @@ export function selectSessionPool(records, target) {
   return matches[0];
 }
 export function selectApiKeys(rows, projectRef) {
-  assert.ok(Array.isArray(rows), "Invalid API key metadata");
-  const select = (type, legacyName, role) => {
-    let candidates = rows.filter(row => row.type === type && typeof row.api_key === "string" && row.api_key);
-    if (candidates.length === 0) candidates = rows.filter(row => row.type === "legacy" && row.name === legacyName && typeof row.api_key === "string" && row.api_key);
-    assert.equal(candidates.length, 1, "Exactly one API key per required role is required");
-    const row = candidates[0];
-    if (row.type === "legacy") {
-      let payload;
-      try { payload = JSON.parse(Buffer.from(row.api_key.split(".")[1], "base64url").toString("utf8")); }
-      catch { throw new Error("Invalid legacy API key metadata"); }
-      assert.ok(payload.ref === projectRef && payload.role === role, "Legacy API key project or role mismatch");
-    } else assert.ok(row.api_key.startsWith(type === "secret" ? "sb_secret_" : "sb_publishable_"), "Invalid API key type");
-    return row.api_key;
-  };
-  return { anonKey: select("publishable", "anon", "anon"), serviceKey: select("secret", "service_role", "service_role") };
+  return { anonKey: selectSupabaseApiKey(rows, projectRef, "anon"),
+    serviceKey: selectSupabaseApiKey(rows, projectRef, "service_role") };
 }
 
 // Live catalog inspected 2026-11-15. Never alter an existing incompatible ledger.
