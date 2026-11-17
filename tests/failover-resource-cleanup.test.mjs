@@ -1,9 +1,10 @@
+import {productionOrigins} from '../scripts/lib/production-origins.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {randomBytes} from 'node:crypto';
 import {createResourceCleanup,validateResourceCleanupPlan} from '../scripts/failover/resource-cleanup.mjs';
-import {registerResourceWatcher,watchFailoverResource,verifyResourceWatcher} from '../scripts/failover/resource-watchdog.mjs';
+import {registerResourceWatcher,watchFailoverResource,verifyResourceWatcher,resourcePlanFor} from '../scripts/failover/resource-watchdog.mjs';
 import {deleteVerifiedRecoveryTarget} from '../scripts/recovery/run-hosted-recovery.mjs';
 const targets=JSON.parse(readFileSync(new URL('../config/deployment-targets.json',import.meta.url)));
 function fixture(){
@@ -88,4 +89,15 @@ test('expiry workflow is independent, bounded and a prerequisite before archive 
  const expiry=readFileSync(new URL('../.github/workflows/production-failover-resource-expiry.yml',import.meta.url),'utf8');
  assert.match(expiry,/timeout-minutes: 240/);assert.match(expiry,/group: production-failover-resource-expiry/);assert.match(expiry,/cancel-in-progress: false/);assert.match(expiry,/environment: supabase-production/);assert.ok(!expiry.includes('npm ci'));
  const controller=readFileSync(new URL('../.github/workflows/production-failover.yml',import.meta.url),'utf8');assert.match(controller,/restore-files:\s+needs: approve-file-restore/);assert.match(controller,/FAILOVER_RESOURCE_OPERATION=register/);
+});
+
+
+test('initial registration and unused/completed cleanup include the auxiliary branch alias',async()=>{
+ const branch=new URL(productionOrigins.auxiliary[0]).hostname;
+ for(const completed of [false,true]){
+  const f=fixture();f.state.exists=completed;if(completed)f.setAlias('dpl_return');const send=f.options.fetchImpl;
+  f.options.fetchImpl=async(url,init)=>new URL(url).pathname===`/v4/aliases/${branch}`?Response.json({alias:branch,projectId:f.manifest.projectId,deploymentId:completed?'dpl_initial':'dpl_old'}):send(url,init);
+  await assert.rejects(createResourceCleanup(f.options).cleanup());assert.ok(!f.events.includes('delete'));
+  if(!completed)await assert.rejects(resourcePlanFor({resourceManifest:f.plan.resourceManifest,epoch:f.plan.epoch,commitSha:f.plan.commitSha,vercelToken:'synthetic',fetchImpl:f.options.fetchImpl}));
+ }
 });

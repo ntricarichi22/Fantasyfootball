@@ -1,3 +1,4 @@
+import {productionOrigins} from '../scripts/lib/production-origins.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ function fixture(){
  const now=Date.now(),secret=randomBytes(32).toString('hex'),events=[];
  const manifest={version:1,purpose:'production-failover-drill',teamId:'team_example',projectId:registry.production.vercelProjectId,commitSha:'a'.repeat(40),sourceRef:registry.production.supabaseProjectRef,recoveryRef:'abcdefghijklmnopqrst',sourceInitialDeploymentId:'dpl_initial',recoveryDeploymentId:'dpl_recovery',sourceReturnDeploymentId:'dpl_return',aliases:registry.production.appOrigins,epoch:'11111111-2222-3333-4444-555555555555',issuedAt:new Date(now).toISOString(),deadline:new Date(now+10*60000).toISOString()};
  const state={active:{id:'config_active',ownerId:manifest.teamId,projectKey:`${manifest.projectId}#active`,version:21,firewallEnabled:true,ips:[],changes:[],updatedAt:new Date(now).toISOString(),crs:{sd:{active:false,action:'log'}},rules:[{id:'existing_one',name:'existing deny',active:true,conditionGroup:[{conditions:[{type:'host',op:'eq',value:'old.vercel.app'}]}],action:{mitigate:{action:'deny'}}}]},draft:null};
- const baseline=clone(state.active),origins=[...manifest.aliases,'https://old-immutable.vercel.app','https://recovery-immutable.vercel.app','https://return-immutable.vercel.app'];
+ const baseline=clone(state.active),origins=[...productionOrigins.all,'https://old-immutable.vercel.app','https://recovery-immutable.vercel.app','https://return-immutable.vercel.app'];
  const fetchImpl=async(url,init)=>{
   const parsed=new URL(url);assert.equal(init.redirect,'error');
   if(parsed.origin!=='https://api.vercel.com'){
@@ -42,6 +43,7 @@ test('adapter stages targeted insertion/first priority and restores only its rul
  const f=fixture(),adapter=createAdmissionAdapter(f.options),saved=await adapter.snapshot(f.manifest);
  const entered=await adapter.enter(f.manifest,saved);assert.equal(entered.allDeployments,true);assert.equal(entered.pinnedRoutesCovered,true);
  assert.equal(f.state.active.rules[0].name,`cfc-failover-${f.manifest.epoch}`);
+ for(const origin of productionOrigins.all)assert.ok(f.events.some(event=>event[0]==='probe'&&event[1]===origin));
  assert.ok(f.events.some(event=>event[0]==='probe'&&event[2].includes('dpl=')));assert.ok(f.events.some(event=>event[0]==='probe'&&event[3]['x-deployment-id']));assert.ok(f.events.some(event=>event[0]==='probe'&&event[3].cookie));
  await adapter.restore(f.manifest,saved);assert.equal((await adapter.verifyRestored(f.manifest,saved)).restored,true);
  assert.deepEqual(f.state.active.rules,f.baseline.rules);assert.deepEqual(f.state.active.crs,f.baseline.crs);assert.equal(f.state.active.firewallEnabled,true);
@@ -71,4 +73,10 @@ test('sampled denial requires403 and actual WAF deny marker, never a redirect/lo
   const f=fixture(),send=f.options.fetchImpl;f.options.fetchImpl=async(url,init)=>new URL(url).origin==='https://api.vercel.com'?send(url,init):new Response(null,{status:kind==='redirect'?302:403});
   const adapter=createAdmissionAdapter(f.options),saved=await adapter.snapshot(f.manifest);await assert.rejects(adapter.enter(f.manifest,saved));assert.equal(f.state.active.rules[0].name,`cfc-failover-${f.manifest.epoch}`);
  }
+});
+
+
+test('denial proof cannot omit the auxiliary branch origin',async()=>{
+ const f=fixture(),sample=f.options.sampleOrigins;f.options.sampleOrigins=async()=>{const result=await sample();return {...result,origins:result.origins.filter(origin=>!productionOrigins.auxiliary.includes(origin))};};
+ const adapter=createAdmissionAdapter(f.options),saved=await adapter.snapshot(f.manifest);await assert.rejects(adapter.enter(f.manifest,saved));
 });

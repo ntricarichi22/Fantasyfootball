@@ -1,3 +1,4 @@
+import {productionOrigins,deriveProductionOrigins} from '../scripts/lib/production-origins.mjs';
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolveStagingTarget, assertStagingAttestation, assertTargetActive, PROTECTED_PROJECT_REFS } from "../scripts/lib/staging-target.mjs";
@@ -98,4 +99,11 @@ test("malformed response diagnostics never include response prefixes", async () 
     assert.equal(error.message, "Malformed JSON response from rehearsal target"); assert.ok(!String(error.stack).includes(secret));
     return true;
   });
+});
+
+
+test('both promoted production domains and auxiliary branch aliases stay forbidden to load targets',()=>{
+ assert.equal(productionOrigins.promoted.length,2);assert.equal(productionOrigins.auxiliary.length,1);assert.equal(productionOrigins.all.length,3);
+ assert.throws(()=>deriveProductionOrigins({appOrigins:productionOrigins.promoted,auxiliaryAppOrigins:[productionOrigins.promoted[0]]}));
+ for(const origin of productionOrigins.all)assert.throws(()=>resolveStagingTarget({...config,appUrl:origin},[{...record,appOrigins:[origin]}]),/Production application is forbidden/);
 });

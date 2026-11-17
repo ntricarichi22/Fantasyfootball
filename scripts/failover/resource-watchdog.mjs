@@ -1,3 +1,4 @@
+import {productionOrigins} from '../lib/production-origins.mjs';
 import {appendFileSync,readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -13,7 +14,7 @@ const fail=()=>failoverError('RESOURCE_CLEANUP_UNCONFIRMED');
 export async function resourcePlanFor({resourceManifest,epoch,commitSha,vercelToken,fetchImpl=fetch}){
  validateHistoricalRestoreTarget(resourceManifest);
  const request=createVercelRequest({teamId:'team_5mueZCV3pwwyaumyBjs5zPUo',token:vercelToken,fetchImpl}),ids=[];
- for(const origin of targets.production.appOrigins){
+ for(const origin of productionOrigins.all){
   const row=await request(`/v4/aliases/${new URL(origin).hostname}`,{params:{projectId:targets.production.vercelProjectId}});
   if(row.alias!==new URL(origin).hostname||row.projectId!==targets.production.vercelProjectId||!/^dpl_[A-Za-z0-9]+$/.test(row.deploymentId??''))throw fail();ids.push(row.deploymentId);
  }
