@@ -257,6 +257,22 @@ an administrator or stolen archive token can delete the archive. Database,
 Storage, Auth settings and external-provider configuration must be reconciled
 together. Passing archive checks alone does not establish a production RTO.
 
+### Verified archive evidence — 2026-11-17 UTC
+
+The first [daily capture](https://github.com/ntricarichi22/Fantasyfootball/actions/runs/44003856205)
+completed at 02:34 UTC on reviewed main `576c2686e62005c14c5ec7db5ba47c009ee3552c`.
+All 6 production files (12,273,202 bytes) were encrypted, read back, decrypted and
+SHA-256 verified. One complete snapshot and zero pending snapshots remained;
+retention pruning removed nothing. The retained snapshot is
+`1794882837218-04490f69-7bc7-49e5-850a-1257ccc686e8`.
+
+The separate [historical-version proof](https://github.com/ntricarichi22/Fantasyfootball/actions/runs/44004089775)
+created 3 synthetic snapshots in the real private Blob archive and recovered both
+earlier file versions after overwrite and deletion. Its restore sink was memory;
+this proves archive retention, not a restored Supabase app or production failover.
+Production files were not modified. Public login, protected-route denial and
+database health passed after deployment at 02:43 UTC.
+
 ### Incident recovery checklist
 
 1. Preserve evidence; stop writes/outbound jobs when appropriate. Select the last good
