@@ -3,8 +3,11 @@ import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { createStatelessAuthClient } from "@/infrastructure/supabase/auth";
 import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { claimAuthAttempt } from "@/infrastructure/auth/rateLimit";
+import { currentFailoverConfig } from "@/infrastructure/failover/config";
+import { maintenanceResponse } from "@/infrastructure/failover/guard";
 
 export async function POST(request: NextRequest) {
+  if (currentFailoverConfig().mode !== "normal") return maintenanceResponse("/api/auth/signup");
   try {
     const body = await boundedJson<{ email?: unknown; password?: unknown }>(request, 4096) ?? {};
     const email = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";

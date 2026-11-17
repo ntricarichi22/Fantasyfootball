@@ -1,0 +1,55 @@
+name: Independent failover clone expiry
+run-name: Failover resource ${{ inputs.epoch }} ${{ inputs.plan_sha256 }}
+on:
+  workflow_dispatch:
+    inputs:
+      plan:
+        description: Exact nonsecret cleanup plan from the approved registration job
+        type: string
+        required: true
+      epoch:
+        type: string
+        required: true
+      plan_sha256:
+        type: string
+        required: true
+      expected_sha:
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: production-failover-resource-expiry
+  cancel-in-progress: false
+jobs:
+  watch-clone-expiry:
+    name: watch-clone-expiry
+    if: github.repository == 'ntricarichi22/Fantasyfootball' && github.ref == 'refs/heads/main' && github.sha == inputs.expected_sha
+    environment: supabase-production
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: {ref: '${{ github.sha }}', persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version: '24'}
+      - name: Validate exact clone and cleanup plan
+        run: FAILOVER_RESOURCE_OPERATION=validate node scripts/failover/resource-watchdog.mjs
+        env: &resource_env
+          FAILOVER_RESOURCE_PLAN: ${{ inputs.plan }}
+          FAILOVER_EPOCH: ${{ inputs.epoch }}
+          FAILOVER_RESOURCE_PLAN_SHA256: ${{ inputs.plan_sha256 }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          FAILOVER_VERCEL_TOKEN: ${{ secrets.FAILOVER_VERCEL_TOKEN }}
+          FAILOVER_JOURNAL_KEY: ${{ secrets.FAILOVER_JOURNAL_KEY }}
+          FAILOVER_ADMISSION_SECRET: ${{ secrets.FAILOVER_ADMISSION_SECRET }}
+          OPS_DRILL_ATTESTATION_SECRET: ${{ secrets.OPS_DRILL_ATTESTATION_SECRET }}
+      - name: Watch exact clone expiry
+        run: FAILOVER_RESOURCE_OPERATION=watch node scripts/failover/resource-watchdog.mjs
+        env: *resource_env
+      - name: Retry exact clone cleanup after a soft interruption
+        if: failure() || cancelled()
+        run: FAILOVER_RESOURCE_OPERATION=cleanup node scripts/failover/resource-watchdog.mjs
+        env: *resource_env

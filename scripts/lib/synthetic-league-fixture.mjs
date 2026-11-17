@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
 import { assertSyntheticClientTargets } from "./staging-target.mjs";
 import { randomBytes, randomUUID } from "node:crypto";
+import { validateHistoricalRestoreTarget } from "../backup/supabase-target.mjs";
+
+function assertFixtureTargets(pool, admin, { recoveryTarget, cleanupOnly = false } = {}) {
+  if (!recoveryTarget) return assertSyntheticClientTargets(pool, admin, { cleanupOnly });
+  // A restored production copy is never admitted through the synthetic-load guard.
+  try {
+    const target = validateHistoricalRestoreTarget(recoveryTarget, Date.now(), { cleanup: cleanupOnly });
+    const db = new URL(pool.options.connectionString);
+    assert.equal(admin.supabaseUrl.replace(/\/$/, ""), `https://${target.projectRef}.supabase.co`);
+    assert.ok(["postgres:", "postgresql:"].includes(db.protocol) && db.pathname === "/postgres" && db.port === "5432" && !db.search && !db.hash);
+    assert.ok(new RegExp(`^aws-[0-9]+-${target.region}\\.pooler\\.supabase\\.com$`).test(db.hostname));
+    assert.equal(decodeURIComponent(db.username), `postgres.${target.projectRef}`);
+    assert.equal(pool.options.ssl?.rejectUnauthorized, true);
+  } catch { throw new Error("Synthetic fixture target mismatch"); }
+}
 
 // Column names were checked against information_schema on 2026-11-15.
 // Callers MUST validate their staging/loopback target before constructing clients.
@@ -17,13 +32,15 @@ export async function inspectSyntheticFixtureSchema(pool) {
   }
 }
 
-export async function createSyntheticLeagueFixture({ pool, admin, authClient, runId = randomUUID(), leagueIndex = 0, enableWrites = false }) {
-  assertSyntheticClientTargets(pool, admin);
+export async function createSyntheticLeagueFixture({ pool, admin, authClient, runId = randomUUID(), leagueIndex = 0, enableWrites = false, recoveryTarget,
+  password = `Synthetic-${randomBytes(24).toString("base64url")}!` }) {
+  assertFixtureTargets(pool, admin, { recoveryTarget });
+  assertFixtureTargets(pool, authClient, { recoveryTarget });
+  assert.ok(typeof password === "string" && password.length >= 32 && password.length <= 128);
   assert.match(runId, /^[a-f0-9-]{36}$/); assert.ok(Number.isInteger(leagueIndex) && leagueIndex >= 0 && leagueIndex < 20);
   await inspectSyntheticFixtureSchema(pool);
   const fixture = { leagueId: `staging-${runId}-${leagueIndex}`, season: 2026, actors: [],
     rookieIds: [0, 1].map(index => `stg_${runId.replaceAll("-", "").slice(0, 24)}_${leagueIndex}_${index}`) };
-  const password = `Synthetic-${randomBytes(24).toString("base64url")}!`;
   try {
     for (const rosterId of ["1", "2", "3"]) {
       const email = `${runId}-${leagueIndex}-${rosterId}@example.invalid`;
@@ -51,7 +68,7 @@ export async function createSyntheticLeagueFixture({ pool, admin, authClient, ru
     if (enableWrites) await pool.query("UPDATE public.cfc_league_runtime SET writes_enabled=true WHERE league_id=$1", [fixture.leagueId]);
     return fixture;
   } catch (error) {
-    try { await cleanupSyntheticLeagueFixture({ pool, admin, fixture }); }
+    try { await cleanupSyntheticLeagueFixture({ pool, admin, fixture, recoveryTarget }); }
     catch (cleanupError) { throw new AggregateError([error, cleanupError], "Synthetic fixture creation and cleanup failed"); }
     throw error;
   }
@@ -68,9 +85,9 @@ export async function assertSyntheticLeagueFixture({ pool, fixture }) {
   return state;
 }
 
-export async function cleanupSyntheticLeagueFixture({ pool, admin, fixture }) {
+export async function cleanupSyntheticLeagueFixture({ pool, admin, fixture, recoveryTarget }) {
   // Expiry stops new work; exact fixture deletion must remain possible afterward.
-  assertSyntheticClientTargets(pool, admin, { cleanupOnly: true });
+  assertFixtureTargets(pool, admin, { cleanupOnly: true, recoveryTarget });
   const identity = /^staging-([a-f0-9-]{36})-(\d+)$/.exec(fixture.leagueId);
   assert.ok(identity, "Refusing cleanup outside a synthetic league");
   const [, runId, leagueIndex] = identity;

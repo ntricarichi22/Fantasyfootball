@@ -15,13 +15,13 @@ export async function managementMetadata({ projectRef, token, resource, query, f
 
 // Transport only. Mutating callers must validate their explicitly registered
 // target before invoking this primitive. The metadata wrapper remains read-only.
-export async function managementProjectJson({ projectRef, token, resource = '', method = 'GET', body, reveal = false, fetchImpl = fetch }) {
+export async function managementProjectJson({ projectRef, token, resource = '', method = 'GET', body, reveal = false, fetchImpl = fetch, timeoutMs = 30_000, signal }) {
   if (!/^[a-z]{20}$/.test(projectRef ?? '') || !token) throw new Error('Project reference and management token are required');
   if (!/^(?:[a-z][a-z0-9-]*(?:\/[a-z][a-z0-9-]*)*)?$/.test(resource) || !['GET','POST','PATCH','DELETE'].includes(method)) throw new Error('Invalid management request');
   if (method === 'DELETE' && resource !== '') throw new Error('Only exact-project deletion is supported');
   if (reveal && (resource !== 'api-keys' || method !== 'GET')) throw new Error('Invalid key request');
   return managementJson({ url: `https://api.supabase.com/v1/projects/${projectRef}${resource ? `/${resource}` : ''}${reveal ? '?reveal=true' : ''}`,
-    token, method, body, fetchImpl, allowEmptyDelete: method === 'DELETE' });
+    token, method, body, fetchImpl, allowEmptyDelete: method === 'DELETE', timeoutMs, signal });
 }
 
 export async function managementProjectsJson({ token, method = 'GET', body, fetchImpl = fetch }) {
@@ -54,9 +54,14 @@ class ManagementRequestError extends Error {
   }
 }
 
-async function managementJson({ url, token, method, body, fetchImpl, allowEmptyDelete = false }) {
+async function managementJson({ url, token, method, body, fetchImpl, allowEmptyDelete = false, timeoutMs = 30_000, signal }) {
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120_000)
+    throw new ManagementRequestError('PROVIDER_REQUEST_FAILED', 'Invalid bounded request timeout');
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 30_000);
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  const timer = setTimeout(abort, timeoutMs);
   try {
     const response = await fetchImpl(url, {
       method,
@@ -98,5 +103,5 @@ async function managementJson({ url, token, method, body, fetchImpl, allowEmptyD
     if (controller.signal.aborted || ['AbortError', 'TimeoutError'].includes(error?.name))
       throw new ManagementRequestError('PROVIDER_TIMEOUT', 'Metadata request timed out');
     throw new ManagementRequestError('PROVIDER_REQUEST_FAILED', 'Metadata request failed');
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }

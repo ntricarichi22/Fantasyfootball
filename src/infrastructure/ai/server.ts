@@ -1,4 +1,5 @@
 import { currentDeploymentEnvironment } from "../environment.ts";
+import { currentFailoverConfig } from "../failover/config.ts";
 import { isCfcLeague } from "@/shared/league-data/capabilities";
 import { registeredMachineLeague } from "@/infrastructure/auth/admin";
 import "server-only";
@@ -23,6 +24,7 @@ export async function authenticatedAiUser(request: Request): Promise<string> {
 }
 
 export async function reserveAi(request: Request, params: { feature: string; model: string; maxInputTokens: number; maxOutputTokens: number; maxCalls?: number; background?: boolean }) {
+  if (currentFailoverConfig().mode !== "normal") throw new AiLimitError("Paid AI is unavailable during maintenance");
   if (currentDeploymentEnvironment() === "staging") throw new AiLimitError("Paid AI is disabled in staging");
   const active = params.background ? null : (await currentAppSessionFromRequest(request)).session;
   if (!params.background && !active) throw new AiLimitError("Authentication required", 401);

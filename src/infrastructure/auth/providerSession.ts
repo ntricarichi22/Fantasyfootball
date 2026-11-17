@@ -1,9 +1,12 @@
 import "server-only";
-import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { providerSessionIdFromVerifiedToken } from "./session";
+import { getSupabaseAdminClient } from "../supabase/admin.ts";
+import { providerSessionIdFromVerifiedToken } from "./session.ts";
+import { currentFailoverConfig, failoverIdentityAllowed } from "../failover/config.ts";
 
 /** Verify the provider token and current session before selecting an application league. */
 export async function verifiedProviderSession(request: Request) {
+  const failover = currentFailoverConfig();
+  if (failover.mode === "blocked" || failover.mode === "maintenance") return { error: "maintenance", status: 503 } as const;
   const authorization = request.headers.get("authorization") ?? "";
   const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
   if (!token) return { error: "reauthentication_required", status: 401 } as const;
@@ -11,6 +14,7 @@ export async function verifiedProviderSession(request: Request) {
   if (!client) return { error: "auth_state_unavailable", status: 503 } as const;
   const { data, error } = await client.auth.getUser(token);
   if (error || !data.user) return { error: "invalid_session", status: 401 } as const;
+  if (!failoverIdentityAllowed(failover, data.user.id)) return { error: "maintenance", status: 503 } as const;
   const sessionId = providerSessionIdFromVerifiedToken(token, data.user.id);
   if (!sessionId) return { error: "invalid_session", status: 401 } as const;
   const active = await client.rpc("is_auth_session_active", { p_session_id: sessionId, p_user_id: data.user.id });
@@ -30,5 +34,7 @@ export async function availableLeagueChoices(provider: Extract<Awaited<ReturnTyp
   const choices = new Map<string, { leagueId: string; rosterId: string; role: string }>();
   for (const row of invitations.data ?? []) choices.set(row.league_id, { leagueId: row.league_id, rosterId: row.roster_id, role: "member" });
   for (const row of memberships.data ?? []) choices.set(row.league_id, { leagueId: row.league_id, rosterId: row.roster_id, role: row.role });
-  return [...choices.values()].sort((a, b) => a.leagueId.localeCompare(b.leagueId));
+  const failover = currentFailoverConfig();
+  return [...choices.values()].filter((choice) => failoverIdentityAllowed(failover, provider.user.id, choice.leagueId))
+    .sort((a, b) => a.leagueId.localeCompare(b.leagueId));
 }

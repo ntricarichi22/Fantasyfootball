@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { appSessionCookie, appSessionFromRequest, identityCookies, providerSessionIdFromVerifiedToken } from "@/infrastructure/auth/session";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
+import { currentFailoverConfig, failoverIdentityAllowed } from "@/infrastructure/failover/config";
+import { maintenanceResponse } from "@/infrastructure/failover/guard";
 
 export async function POST(request: Request) {
   const bearer = request.headers.get("authorization") ?? "";
@@ -10,6 +12,7 @@ export async function POST(request: Request) {
   if (!client) return NextResponse.json({ error: "auth_unavailable" }, { status: 503 });
   const { data, error } = await client.auth.getUser(token);
   if (error || !data.user) return NextResponse.json({ error: "reauthentication_required" }, { status: 401 });
+  if (!failoverIdentityAllowed(currentFailoverConfig(), data.user.id)) return maintenanceResponse("/api/auth/logout");
   const sessionId = providerSessionIdFromVerifiedToken(token, data.user.id);
   if (!sessionId) return NextResponse.json({ error: "invalid_session" }, { status: 401 });
   const signed = await appSessionFromRequest(request);

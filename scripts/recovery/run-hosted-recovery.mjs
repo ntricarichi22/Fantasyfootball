@@ -7,6 +7,7 @@ import { safeFailureCategory } from '../hosting/diagnostics.mjs';
 import { recoveryTargetFromEnv, assertRecoveryProject, recoveryAuthPatch, assertRecoveryAuth } from './hosted-target.mjs';
 import { recoveryEvidence, assertQuarantined, assertPreserved, publicRecoveryEvidence, verifySelectedBackup } from './hosted-checks.mjs';
 import { restoreFreshStorageCopy } from './hosted-storage.mjs';
+import { PROTECTED_PROJECT_REFS, PRODUCTION_PROJECT_REF } from '../lib/staging-target.mjs';
 import { verifyReleaseHistory } from '../verify-supabase-production.mjs';
 
 const evidenceSql = readFileSync(new URL('./hosted-evidence.sql', import.meta.url), 'utf8');
@@ -27,7 +28,13 @@ export async function deleteRecoveryTarget(env, request = managementProjectJson,
   // Expiry blocks data mutations, but must never prevent deletion of the exact
   // previously approved temporary project. Identity/protected-project checks stay.
   const target = recoveryTargetFromEnv(env, { cleanup: true });
-  const token = env.SUPABASE_ACCESS_TOKEN;
+  return deleteVerifiedRecoveryTarget(target, env.SUPABASE_ACCESS_TOKEN, {request,collection,wait});
+}
+
+/** Caller validates its distinct purpose; exact protected source and live identity remain mandatory. */
+export async function deleteVerifiedRecoveryTarget(target,token,{request=managementProjectJson,collection=managementProjectsJson,wait=ms=>new Promise(resolve=>setTimeout(resolve,ms))}={}) {
+  assert.equal(target.sourceProjectRef,PRODUCTION_PROJECT_REF);
+  assert.ok(/^[a-z]{20}$/.test(target.projectRef)&&!PROTECTED_PROJECT_REFS.has(target.projectRef));
   assert.ok(token, 'Management credential required');
   const get = projectRef => request({projectRef,token});
   const source = await get(target.sourceProjectRef);
@@ -62,7 +69,8 @@ export async function deleteRecoveryTarget(env, request = managementProjectJson,
   throw new Error('Recovery deletion not yet confirmed');
 }
 
-export async function runHostedRecovery(env = process.env, { request = managementProjectJson, collection = managementProjectsJson } = {}) {
+export async function runHostedRecovery(env = process.env, { request = managementProjectJson, collection = managementProjectsJson,
+  resolveTarget = recoveryTargetFromEnv } = {}) {
   const startedAt = new Date().toISOString();
   let stage = 'target-registration';
   let targetVerified = false, outcome, failure;
@@ -71,13 +79,13 @@ export async function runHostedRecovery(env = process.env, { request = managemen
       stage = 'delete-target';
       return {ok:true,operation:'delete',cleanup:await deleteRecoveryTarget(env,request,{collection})};
     }
-    const target = recoveryTargetFromEnv(env);
+    const target = resolveTarget(env);
     assert.ok(['quarantine','validate','storage','drill'].includes(env.RECOVERY_OPERATION), 'Invalid recovery operation');
     const token = env.SUPABASE_ACCESS_TOKEN;
     assert.ok(token, 'Management credential required');
     const call = (resource, options = {}) => {
       // Every mutating request repeats the deadline/registry guard; target URL is never an input.
-      recoveryTargetFromEnv(env);
+      resolveTarget(env);
       return request({ projectRef: target.projectRef, token, resource, ...options });
     };
     stage = 'live-project-identity';

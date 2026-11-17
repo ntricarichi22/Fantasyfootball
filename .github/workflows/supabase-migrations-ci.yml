@@ -8,6 +8,10 @@ on:
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-league-runtime-concurrency.mjs"
+      - "scripts/test-production-failover-fence.mjs"
+      - "scripts/failover/**"
+      - "src/infrastructure/failover/**"
+      - "tests/failover-*"
       - "scripts/verify-supabase-production.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-next-auth-boundaries.mjs"
@@ -60,6 +64,10 @@ on:
       - "scripts/test-supabase-clean-db.bash"
       - "scripts/test-ai-db-concurrency.mjs"
       - "scripts/test-league-runtime-concurrency.mjs"
+      - "scripts/test-production-failover-fence.mjs"
+      - "scripts/failover/**"
+      - "src/infrastructure/failover/**"
+      - "tests/failover-*"
       - "scripts/verify-supabase-production.mjs"
       - "scripts/test-auth-http-smoke.*"
       - "scripts/test-next-auth-boundaries.mjs"
@@ -170,6 +178,15 @@ jobs:
         run: ./scripts/test-staged-security-rollout.bash
         env:
           LOCAL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+
+      - name: Prove reversible production fence in an isolated disposable database
+        env:
+          FENCE_TEST_CONFIRM: DISPOSABLE-EMPTY-DATABASE
+          FENCE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/cfc_failover_ci
+        run: |
+          docker exec -e PGPASSWORD=postgres supabase_db_fantasyfootball_migration_ci createdb -h 127.0.0.1 -U postgres --owner=postgres cfc_failover_ci
+          trap 'docker exec -e PGPASSWORD=postgres supabase_db_fantasyfootball_migration_ci dropdb -h 127.0.0.1 -U postgres --if-exists --force cfc_failover_ci' EXIT
+          node scripts/test-production-failover-fence.mjs
 
       - name: Stop disposable stack
         if: always()

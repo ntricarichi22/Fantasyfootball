@@ -9,6 +9,7 @@ import pg from "pg";
 import { createClient } from "@supabase/supabase-js";
 import { hostedChildFailure } from "../lib/load-diagnostics.mjs";
 import { stagingPoolOptions } from "../lib/staging-target.mjs";
+import { verifiedPgConnection } from "../lib/verified-pg-connection.mjs";
 import { createSyntheticLeagueFixture, cleanupSyntheticLeagueFixture, assertSyntheticLeagueFixture } from "../lib/synthetic-league-fixture.mjs";
 import { reserveHostedLoadDatabase } from "../lib/hosted-load-preflight.mjs";
 import { cleanupSyntheticProject, lifecycleManifest } from "./synthetic-project-lifecycle.mjs";
@@ -24,20 +25,7 @@ const deadline = setTimeout(stop, 12 * 60 * 1000);
 function assertRunning(guard) { controller.signal.throwIfAborted(); guard(); }
 
 async function verifiedConnection(pool, guard) {
-  let client;
-  // Password propagation through the registered session pool can be delayed.
-  for (let attempt = 0; attempt < 6; attempt++) {
-    assertRunning(guard);
-    try { client = await pool.connect(); break; }
-    catch (error) { if (attempt === 5) throw error; await delay(2000, undefined, { signal: controller.signal }); }
-  }
-  try {
-    // pg_stat_ssl describes pooler-to-Postgres, not this Node-to-pooler hop.
-    assert.ok(client.connection.stream.encrypted === true && client.connection.stream.authorized === true, "Verified TLS database connection required");
-    const { rows: [connection] } = await client.query("SELECT current_database() database");
-    assert.equal(connection.database, "postgres", "Expected database required");
-    return client;
-  } catch (error) { client.release(); throw error; }
+  return verifiedPgConnection(pool,{guard,signal:controller.signal});
 }
 
 async function setup({ target, keys, guard }) {

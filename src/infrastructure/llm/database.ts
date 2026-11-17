@@ -1,10 +1,12 @@
 import "server-only";
 import { currentDeploymentEnvironment, databaseIsolationError } from "../environment.ts";
+import { currentFailoverConfig } from "../failover/config.ts";
 import { Pool } from "pg";
 import { validateHistoryQuery } from "./sql-policy.ts";
 
 let pool: Pool | undefined;
 export function getHistoryPool() {
+  if (currentFailoverConfig().mode !== "normal") throw new Error("Historian unavailable during maintenance");
   const connectionString = process.env.LLM_DATABASE_URL;
   if (!connectionString) throw new Error("Historian unavailable");
   const isolationError = databaseIsolationError(connectionString, currentDeploymentEnvironment(), process.env.NEXT_PUBLIC_SUPABASE_URL);

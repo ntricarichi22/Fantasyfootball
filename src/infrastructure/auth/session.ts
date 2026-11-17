@@ -1,3 +1,5 @@
+import { readFailoverConfig, failoverIdentityAllowed, failoverSessionAllowed } from "../failover/config.ts";
+
 const SESSION_COOKIE = "cfc_session";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 
@@ -8,6 +10,7 @@ export type AppSession = {
   rosterId: string;
   role: "member" | "commissioner" | "admin";
   expiresAt: number;
+  failoverEpoch?: string;
 };
 
 const encoder = new TextEncoder();
@@ -39,9 +42,13 @@ export const createAppSession = async (
   session: Omit<AppSession, "expiresAt">,
   nowSeconds = Math.floor(Date.now() / 1000),
 ) => {
+  const failover = readFailoverConfig(process.env, nowSeconds * 1000);
+  if (!failoverIdentityAllowed(failover, session.userId, session.leagueId)) throw new Error("maintenance");
   const payload = base64UrlEncode(encoder.encode(JSON.stringify({
     ...session,
-    expiresAt: nowSeconds + SESSION_TTL_SECONDS,
+    failoverEpoch: failover.mode === "recovery" ? failover.epoch : undefined,
+    expiresAt: Math.min(nowSeconds + SESSION_TTL_SECONDS,
+      failover.mode === "recovery" ? Math.floor(failover.expiresAt / 1000) : Infinity),
   })));
   const signature = new Uint8Array(await crypto.subtle.sign(
     "HMAC", await signingKey(), encoder.encode(payload),
@@ -70,7 +77,8 @@ export const verifyAppSession = async (
       !["member", "commissioner", "admin"].includes(parsed.role ?? "") ||
       typeof parsed.expiresAt !== "number" || parsed.expiresAt <= nowSeconds
     ) return null;
-    return parsed as AppSession;
+    const session = parsed as AppSession;
+    return failoverSessionAllowed(readFailoverConfig(process.env, nowSeconds * 1000), session) ? session : null;
   } catch {
     return null;
   }
