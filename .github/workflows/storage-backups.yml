@@ -1,0 +1,83 @@
+name: Historical file backups
+run-name: File archive - ${{ inputs.operation || 'daily' }}
+on:
+  schedule:
+    - cron: '41 12 * * *'
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Operate only the reviewed private file archive
+        required: true
+        type: choice
+        default: daily
+        options: [daily, verify, prove-history]
+permissions:
+  contents: read
+# All archive readers/writers/retention share this group, including restore jobs.
+# Never cancel a capture between uploading objects and its completed manifest.
+concurrency:
+  group: cfc-production-storage-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    if: github.repository == 'ntricarichi22/Fantasyfootball' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: storage-backups
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts
+      - name: Capture encrypted production files
+        if: github.event_name == 'schedule' || inputs.operation == 'daily'
+        run: node scripts/backup/run.mjs
+        env:
+          BACKUP_OPERATION: capture
+          BACKUP_EXCLUSIVE: 'true'
+          BACKUP_CURRENT_KEY_ID: ${{ vars.BACKUP_CURRENT_KEY_ID }}
+          BACKUP_KEYRING_JSON: ${{ secrets.BACKUP_KEYRING_JSON }}
+          BACKUP_BLOB_READ_WRITE_TOKEN: ${{ secrets.BACKUP_BLOB_READ_WRITE_TOKEN }}
+          BACKUP_SOURCE_ANON_KEY: ${{ secrets.BACKUP_SOURCE_ANON_KEY }}
+          BACKUP_SOURCE_EMAIL: ${{ secrets.BACKUP_SOURCE_EMAIL }}
+          BACKUP_SOURCE_PASSWORD: ${{ secrets.BACKUP_SOURCE_PASSWORD }}
+      - name: Decrypt and verify the latest snapshot
+        if: inputs.operation != 'prove-history'
+        run: node scripts/backup/run.mjs
+        env:
+          BACKUP_OPERATION: verify
+          BACKUP_EXCLUSIVE: 'true'
+          BACKUP_CURRENT_KEY_ID: ${{ vars.BACKUP_CURRENT_KEY_ID }}
+          BACKUP_KEYRING_JSON: ${{ secrets.BACKUP_KEYRING_JSON }}
+          BACKUP_BLOB_READ_WRITE_TOKEN: ${{ secrets.BACKUP_BLOB_READ_WRITE_TOKEN }}
+      - name: Prune only expired unreferenced completed snapshots
+        if: github.event_name == 'schedule' || inputs.operation == 'daily'
+        run: node scripts/backup/run.mjs
+        env:
+          BACKUP_OPERATION: prune
+          BACKUP_EXCLUSIVE: 'true'
+          BACKUP_CURRENT_KEY_ID: ${{ vars.BACKUP_CURRENT_KEY_ID }}
+          BACKUP_KEYRING_JSON: ${{ secrets.BACKUP_KEYRING_JSON }}
+          BACKUP_BLOB_READ_WRITE_TOKEN: ${{ secrets.BACKUP_BLOB_READ_WRITE_TOKEN }}
+      - name: Prove synthetic overwritten and deleted versions remain recoverable
+        if: inputs.operation == 'prove-history'
+        run: node scripts/backup/run.mjs
+        env:
+          BACKUP_OPERATION: prove-history
+          BACKUP_EXCLUSIVE: 'true'
+          BACKUP_CURRENT_KEY_ID: ${{ vars.BACKUP_CURRENT_KEY_ID }}
+          BACKUP_KEYRING_JSON: ${{ secrets.BACKUP_KEYRING_JSON }}
+          BACKUP_BLOB_READ_WRITE_TOKEN: ${{ secrets.BACKUP_BLOB_READ_WRITE_TOKEN }}
+      # No file contents, object names, credentials or manifests become artifacts.
+      # Owner Actions failure notifications use the already verified delivery path.
+      - name: Write safe run summary
+        if: always()
+        env:
+          ARCHIVE_JOB_STATUS: ${{ job.status }}
+        run: |
+          printf 'File archive job: %s\n' "$ARCHIVE_JOB_STATUS" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Retention: 30 daily and 12 monthly completed snapshots.\n' >> "$GITHUB_STEP_SUMMARY"

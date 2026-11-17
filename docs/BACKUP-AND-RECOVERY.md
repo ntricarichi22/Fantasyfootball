@@ -181,13 +181,81 @@ It verifies the source inventory stayed unchanged, then removes its exact tempor
 objects and bucket. This proves a **fresh object-copy/restore round trip**, not recovery
 of historical bytes from the database backup. Object paths and bytes stay in bounded
 process memory (100 objects, 32 MiB/object, 128 MiB total). Source Storage operations
-are read-only. There is still no historical object-retention guarantee.
+are read-only. That older fresh-copy drill did not establish historical retention;
+the separate encrypted archive below now supplies the retention mechanism.
 
 After recording aggregate results, clone/validation elapsed time and backup age,
 confirm automatic deletion of the exact clone through Supabase and verify it is absent. Record the actual
 creation/deletion timestamps and compute/disk quote. This drill does not establish a
 guaranteed production RTO/RPO or validate a production cutback. Its temporary target
 must never be connected to the production app or used by the synthetic load runner.
+
+### Historical file archive
+
+`storage-backups.yml` captures the reviewed production buckets daily at 12:41 UTC.
+Every successful run decrypts and verifies the snapshot before retention pruning.
+Operations monitoring separately checks for a failed or missing daily capture
+older than 30 hours; a successful `verify` or synthetic history test cannot mask it.
+GitHub schedules can be delayed and are not an availability guarantee.
+
+The private `cfc-storage-backups` Vercel Blob store lives in `cle1`, outside the
+source database region, and is not connected to the application. Files and
+manifests are encrypted with AES-256-GCM and bound to their archive paths. The
+manifest is committed only after every object passes SHA-256 readback. Existing
+content is deduplicated; later overwrites/deletions never modify earlier snapshots.
+Retention keeps the latest snapshot on each of 30 distinct days and 12 distinct
+months, with overlapping points counted once. Interrupted captures are preserved
+for operator review rather than guessed safe to delete.
+
+`config/storage-backups.json` fixes the source, exact buckets, private store and
+backup-only Auth identity. Its two Storage SELECT policies are installed through
+`supabase/operations/storage_backup_reader.sql`, after inspecting live columns and
+setting that identity UUID on the same connection. It grants no file writes,
+league membership or invitation. This ordinary authenticated role still has its
+existing public rookie-catalog access. Production administrator and Management
+credentials are not in the recurring backup job.
+
+GitHub environment `storage-backups` allows only the `main` branch. It contains
+`BACKUP_BLOB_READ_WRITE_TOKEN`, `BACKUP_KEYRING_JSON`, `BACKUP_SOURCE_ANON_KEY`,
+`BACKUP_SOURCE_EMAIL`, `BACKUP_SOURCE_PASSWORD`, and variable
+`BACKUP_CURRENT_KEY_ID`. All capture, verification, restore and pruning jobs must
+share the fixed `cfc-production-storage-archive` concurrency group. Do not run
+another archive writer outside that lock. The library deliberately fails without
+the trusted runner contract; setting flags locally is not a replacement for it.
+
+Run **Historical file backups → Run workflow → daily** for first capture or
+re-sync. Use **verify** for read-only decryption/checksum and 30-hour age checks.
+Use **prove-history** for an actual private Blob round trip: create synthetic
+versions, overwrite/delete the synthetic source, and recover both earlier
+versions into memory. Its output explicitly says `providerTargetRestoreVerified:
+false`; it does not prove a Supabase restore or production failover. Test objects
+stay in a separate `-proof` archive and are tiny synthetic content.
+
+Recovery code uses `restoreSnapshot` with a verified empty isolated target and
+checks all archived bytes before writes, then verifies the resulting names and
+checksums. It refuses both protected production projects. A physical database
+clone already contains Storage metadata: reconcile that metadata under quarantine
+with an explicitly reviewed target adapter before restoring bytes. Never silently
+upsert over source objects or infer file/DB compatibility from nearby timestamps.
+
+The runner caps snapshots at 1000 objects, 32 MiB/object and 256 MiB total, and checks a
+5 GiB total archive budget before writing. These are application limits, not a
+provider billing cap. The archive intentionally persists and has metered Blob
+storage/operation/transfer charges; no standing staging database is added.
+
+Keep all prior encryption keys while any retained manifest references them. A
+verified Windows DPAPI-encrypted keyring copy is held outside the repository at
+`%LOCALAPPDATA%\CFC-Recovery\storage-backup-keyring.dpapi`, accessible to the current
+Windows identity and SYSTEM. This is **not portable off-site key escrow**. Before
+claiming recovery independent of GitHub and this Windows account, place a verified
+portable copy in the owner's password manager/offline recovery kit. Never print
+keys in workflow logs, upload decrypted manifests as artifacts, or commit them.
+
+Daily capture can lose changes made after the last successful snapshot and cannot
+recover a version overwritten between captures. Blob is not WORM/Object Lock;
+an administrator or stolen archive token can delete the archive. Database,
+Storage, Auth settings and external-provider configuration must be reconciled
+together. Passing archive checks alone does not establish a production RTO.
 
 ### Incident recovery checklist
 

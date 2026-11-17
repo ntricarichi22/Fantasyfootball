@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "archiveId": "cfc-production-storage",
+  "blobStoreId": "store_0GKT6GHI128WQOWt",
+  "blobHostname": "0gkt6ghi128wqowt.private.blob.vercel-storage.com",
+  "sourceProjectRef": "owkxkpkdffhcordlxqte",
+  "expectedBucketIds": [
+    "Players",
+    "team-logos"
+  ],
+  "sourceUserId": "4b958371-27b5-4f46-8db7-b361b5bfa049",
+  "retention": {
+    "daily": 30,
+    "monthly": 12
+  },
+  "limits": {
+    "objects": 1000,
+    "objectBytes": 33554432,
+    "totalBytes": 268435456,
+    "archiveBytes": 5368709120
+  }
+}

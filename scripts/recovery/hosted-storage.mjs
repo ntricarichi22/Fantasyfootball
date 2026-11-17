@@ -16,12 +16,18 @@ export function objectPath(bucket, name) {
   return parts.map(encodeURIComponent).join('/');
 }
 
-export async function boundedStorageRequest({ projectRef, key, pathname, method = 'GET', body, binary = false, fetchImpl = fetch }) {
+export async function boundedStorageRequest({ projectRef, key, pathname, method = 'GET', body, binary = false, accessToken = key, bucketQuery, fetchImpl = fetch }) {
   assert.match(projectRef, /^[a-z]{20}$/);
   assert.ok(/^\/(?:bucket|object)(?:\/|$)/.test(pathname) && !pathname.includes('?') && !pathname.includes('#'), 'Invalid Storage resource');
-  const response = await fetchImpl(`https://${projectRef}.supabase.co/storage/v1${pathname}`, {
+  let query = '';
+  if (bucketQuery) {
+    assert.equal(pathname, '/bucket'); assert.equal(method, 'GET');
+    assert.ok(Number.isSafeInteger(bucketQuery.offset) && bucketQuery.offset >= 0 && bucketQuery.offset <= 1000);
+    query = `?limit=100&offset=${bucketQuery.offset}&sortColumn=id&sortOrder=asc`;
+  }
+  const response = await fetchImpl(`https://${projectRef}.supabase.co/storage/v1${pathname}${query}`, {
     method, redirect: 'error', signal: AbortSignal.timeout(30_000),
-    headers: { apikey: key, Authorization: `Bearer ${key}`,
+    headers: { apikey: key, Authorization: `Bearer ${accessToken}`,
       'content-type': Buffer.isBuffer(body) ? 'application/octet-stream' : 'application/json',
       'cache-control': 'no-cache', ...(method === 'POST' && Buffer.isBuffer(body) ? { 'x-upsert': 'false' } : {}) },
     ...(body === undefined ? {} : { body: Buffer.isBuffer(body) ? body : JSON.stringify(body) }),
