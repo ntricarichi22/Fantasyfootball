@@ -28,7 +28,7 @@
     "test": "node --conditions=react-server --experimental-strip-types --test tests/*.test.ts tests/*.test.mjs src/infrastructure/security/*.test.ts scripts/monitoring/*.test.mjs scripts/recovery/*.test.mjs"
   },
   "dependencies": {
-    "@sparticuz/chromium": "^143.0.4",
+    "@sparticuz/chromium": "^153.0.0",
     "@supabase/supabase-js": "2.95.3",
     "cheerio": "^1.2.0",
     "lucide-react": "^0.574.0",
