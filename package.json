@@ -34,10 +34,10 @@
     "lucide-react": "^0.574.0",
     "next": "16.4.6",
     "pg": "^8.20.0",
+    "pgsql-ast-parser": "12.0.2",
     "playwright-core": "^1.58.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "pgsql-ast-parser": "12.0.2",
     "server-only": "0.0.1"
   },
   "devDependencies": {
@@ -46,12 +46,16 @@
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vercel/blob": "2.9.0",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "^4",
     "typescript": "5.9.3"
   },
   "overrides": {
+    "@vercel/cli-config": {
+      "zod": "4.6.6"
+    },
     "@typescript-eslint/typescript-estree": {
       "minimatch": "11.0.1"
     }
