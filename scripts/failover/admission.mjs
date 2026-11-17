@@ -1,3 +1,4 @@
+import {productionOrigins} from '../lib/production-origins.mjs';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { failoverError, validateFailoverManifest } from './controller.mjs';
@@ -65,9 +66,9 @@ export function createAdmissionAdapter({manifest:input,token,admissionSecret,sam
  const sample=async context=>{
   if(typeof sampleOrigins!=='function')throw failoverError('ADAPTER_UNAVAILABLE');
   const sample=await sampleOrigins(manifest,context);
-  if(sample?.projectId!==manifest.projectId||sample.verified!==true||!Array.isArray(sample.origins)||sample.origins.length<manifest.aliases.length+3||sample.origins.length>12)throw failoverError('ADMISSION_PROOF_FAILED');
+  if(sample?.projectId!==manifest.projectId||sample.verified!==true||!Array.isArray(sample.origins)||sample.origins.length<productionOrigins.all.length+3||sample.origins.length>12)throw failoverError('ADMISSION_PROOF_FAILED');
   const origins=[...new Set(sample.origins)];
-  if(origins.length!==sample.origins.length||origins.length<manifest.aliases.length+3||!manifest.aliases.every(origin=>origins.includes(origin)))throw failoverError('ADMISSION_PROOF_FAILED');
+  if(origins.length!==sample.origins.length||origins.length<productionOrigins.all.length+3||!productionOrigins.all.every(origin=>origins.includes(origin)))throw failoverError('ADMISSION_PROOF_FAILED');
   try { for(const origin of origins){const url=new URL(origin);if(url.protocol!=='https:'||url.origin!==origin||!url.hostname.endsWith('.vercel.app')||url.username||url.password||url.port)throw failoverError('ADMISSION_PROOF_FAILED');} } catch { throw failoverError('ADMISSION_PROOF_FAILED'); }
   let wrong=randomBytes(32).toString('hex');if(wrong===admissionSecret)wrong=(wrong[0]==='0'?'1':'0')+wrong.slice(1);
   const checks=[];

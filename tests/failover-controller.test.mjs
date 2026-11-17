@@ -1,3 +1,4 @@
+import {productionOrigins} from '../scripts/lib/production-origins.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ function fixture(){
  const admission={projectId:m.projectId,epoch:m.epoch,allDeployments:true,allHosts:true,allPaths:true,allEnvironments:true,pinnedRoutesCovered:true,firstRule:true,untrustedDenied:true};
  const record=(name,result)=>async()=>{events.push(name);return result;};
  const a={vercel:{awaitRecoveryPromotionSettled:record('settle-promotion',{settled:true,projectId:m.projectId,epoch:m.epoch}),inspectDeployment:async id=>({id,projectId:m.projectId,teamId:m.teamId,readyState:'READY',target:'production',commitSha:m.commitSha,createdAt:id==='dpl_return'?now-1000:now-2000}),
-  promote:async id=>{events.push(`promote:${id}`);},assignCanonicalAliases:async id=>{events.push(`assign:${id}`);},verifyAliasMappings:async id=>({complete:true,projectId:m.projectId,deploymentId:id,aliases:m.aliases}),verifyPersistedSourceEnvironment:async()=>({sourceRef:m.sourceRef,unchanged:true}),verifyAliasScope:async()=>({projectId:m.projectId,complete:true,onlyReviewedDeployments:true})},
+  promote:async id=>{events.push(`promote:${id}`);},assignCanonicalAliases:async id=>{events.push(`assign:${id}`);},verifyAliasMappings:async id=>({complete:true,projectId:m.projectId,deploymentId:id,aliases:m.aliases,auxiliaryAliases:productionOrigins.auxiliary,auxiliaryDeploymentId:id===m.recoveryDeploymentId?m.sourceInitialDeploymentId:id}),verifyPersistedSourceEnvironment:async()=>({sourceRef:m.sourceRef,unchanged:true}),verifyAliasScope:async()=>({projectId:m.projectId,complete:true,onlyReviewedDeployments:true})},
   attestDeployment:async id=>({deploymentId:id,projectId:m.projectId,commitSha:m.commitSha,buildSourceRef:id==='dpl_recovery'?m.recoveryRef:m.sourceRef,runtimeSourceRef:id==='dpl_recovery'?m.recoveryRef:m.sourceRef,mode:id==='dpl_recovery'?'recovery':'normal',ready:true,authenticated:true,...(id==='dpl_recovery'?{epoch:m.epoch,expiresAt:m.deadline}:{})}),
   admission:{snapshot:record('snapshot',{version:3}),enter:record('admit',admission),verify:async()=>admission,restore:record('restore-admission'),verifyRestored:async()=>({projectId:m.projectId,restored:true})},
   fence:{beginFailback:record('claim-failback',{sourceRef:m.sourceRef,epoch:m.epoch,failbackClaimed:true}),activate:async(_m,admission,context)=>{assert.equal(admission.allDeployments,true);assert.ok(context.timeoutMs>0&&context.timeoutMs<=120000);events.push('activate-fence');fenceState='active';},
@@ -63,7 +64,7 @@ test('phase timeout aborts provider signal and still returns traffic before rele
 
 test('Vercel adapter uses exact API destinations, waits for promotion and repairs only canonical aliases',async()=>{
  const {createVercelFailoverAdapter}=await import('../scripts/failover/vercel.mjs');const f=fixture(),calls=[];let promoted=null,jobReads=0;
- const mappings=new Map(f.m.aliases.map(origin=>[new URL(origin).hostname,f.m.sourceInitialDeploymentId]));
+ const mappings=new Map(productionOrigins.all.map(origin=>[new URL(origin).hostname,f.m.sourceInitialDeploymentId]));
  const journal={requestPromotion:async()=>{},read:async()=>({recoveryPromotionRequestedAt:null,recoveryPromotionSettledAt:null})};
  const adapter=createVercelFailoverAdapter({manifest:f.m,journal,token:['private','token'].join('-'),sleep:async()=>{},fetchImpl:async(url,init)=>{
   const u=new URL(url);assert.equal(u.origin,'https://api.vercel.com');assert.equal(u.searchParams.get('teamId'),f.m.teamId);assert.equal(init.redirect,'error');calls.push({path:u.pathname,method:init.method,body:init.body});
@@ -73,7 +74,7 @@ test('Vercel adapter uses exact API destinations, waits for promotion and repair
   if(u.pathname.startsWith('/v4/aliases/')){const host=u.pathname.split('/').at(-1);return Response.json({alias:host,projectId:f.m.projectId,deploymentId:mappings.get(host)});}
   if(u.pathname.startsWith('/v2/deployments/')){const host=JSON.parse(init.body).alias;mappings.set(host,promoted);return Response.json({alias:host});}
   if(u.pathname.startsWith('/v10/projects/'))return Response.json({envs:[{id:'env_endpoint',key:'NEXT_PUBLIC_SUPABASE_URL',target:['production']},{id:'env_secret',key:'SUPABASE_SERVICE_ROLE_KEY',target:['production']}]});
-  if(u.pathname.endsWith('/env/env_endpoint'))return Response.json({key:'NEXT_PUBLIC_SUPABASE_URL',value:`https://${f.m.sourceRef}.supabase.co`});
+  if(u.pathname.endsWith('/env/env_endpoint')){assert.equal(u.searchParams.get('decrypt'),'true');return Response.json({key:'NEXT_PUBLIC_SUPABASE_URL',value:`https://${f.m.sourceRef}.supabase.co`});}
   throw new Error('Unexpected provider request');
  }});
  await adapter.promote(f.m.sourceReturnDeploymentId);await adapter.assignCanonicalAliases(f.m.sourceReturnDeploymentId,f.m);assert.equal((await adapter.verifyAliasMappings(f.m.sourceReturnDeploymentId,f.m)).complete,true);
@@ -169,7 +170,7 @@ test('denial sampling origins come only from fresh exact project deployment meta
   return Response.json({...await f.a.vercel.inspectDeployment(id),url:`${id.slice(4)}-verified.vercel.app`,team:{id:f.m.teamId},gitSource:{type:'github',repoId:1158002473,ref:'main',sha:f.m.commitSha}});
  }});
  const result=await provider.sampleOrigins(f.m);assert.equal(count,3);assert.equal(result.verified,true);assert.equal(new Set(result.origins).size,6);
- for(const alias of f.m.aliases)assert.ok(result.origins.includes(alias));
+ for(const alias of productionOrigins.all)assert.ok(result.origins.includes(alias));
 });
 
 
@@ -202,4 +203,40 @@ test('provider settlement accepts only the exact newly observed terminal recover
   return Response.json({alias:new URL(f.m.aliases[0]).hostname,projectId:f.m.projectId,deploymentId:f.m.sourceInitialDeploymentId});
  }});
  await assert.rejects(adapter.assignCanonicalAliases(f.m.recoveryDeploymentId,f.m));assert.equal(writes,0);
+});
+
+
+test('recovery promotion moves only project domains; branch stays on fenced source and only failback repairs it',async()=>{
+ const {createVercelFailoverAdapter}=await import('../scripts/failover/vercel.mjs');const f=fixture(),writes=[];
+ const mappings=new Map(productionOrigins.all.map(origin=>[new URL(origin).hostname,f.m.sourceInitialDeploymentId]));let promoted;
+ const journal={requestPromotion:async()=>{},read:async()=>({recoveryPromotionRequestedAt:null,recoveryPromotionSettledAt:null})};
+ const provider=createVercelFailoverAdapter({manifest:f.m,journal,token:'synthetic',sleep:async()=>{},fetchImpl:async(url,init)=>{
+  const u=new URL(url);if(init.method==='POST')writes.push({path:u.pathname,body:init.body});
+  if(u.pathname.startsWith('/v13/')){const id=u.pathname.split('/').at(-1);return Response.json({...await f.a.vercel.inspectDeployment(id),team:{id:f.m.teamId},gitSource:{type:'github',repoId:1158002473,ref:'main',sha:f.m.commitSha}});}
+  if(u.pathname.includes('/promote/')){promoted=u.pathname.split('/').at(-1);for(const origin of productionOrigins.promoted)mappings.set(new URL(origin).hostname,promoted);return new Response(null,{status:202});}
+  if(u.pathname.startsWith('/v9/'))return Response.json({id:f.m.projectId,accountId:f.m.teamId,lastAliasRequest:{toDeploymentId:promoted,type:'promote',jobStatus:'succeeded'}});
+  if(u.pathname.startsWith('/v4/')){const host=u.pathname.split('/').at(-1);return Response.json({alias:host,projectId:f.m.projectId,deploymentId:mappings.get(host)});}
+  if(u.pathname.startsWith('/v2/')){assert.equal(u.pathname,`/v2/deployments/${f.m.sourceReturnDeploymentId}/aliases`);const host=JSON.parse(init.body).alias;mappings.set(host,f.m.sourceReturnDeploymentId);return Response.json({alias:host});}
+  assert.fail('Unexpected provider request');
+ }});
+ await provider.verifyAliasMappings(f.m.sourceInitialDeploymentId,f.m);
+ await provider.promote(f.m.recoveryDeploymentId);await provider.assignCanonicalAliases(f.m.recoveryDeploymentId,f.m);
+ const proof=await provider.verifyAliasMappings(f.m.recoveryDeploymentId,f.m);assert.equal(proof.aliases.length,2);assert.equal(proof.auxiliaryDeploymentId,f.m.sourceInitialDeploymentId);
+ assert.equal(writes.filter(x=>x.path.endsWith('/aliases')).length,0);
+ const branchHost=new URL(productionOrigins.auxiliary[0]).hostname;
+ for(const wrong of [f.m.recoveryDeploymentId,'dpl_unreviewed']){
+  mappings.set(branchHost,wrong);await assert.rejects(provider.verifyAliasMappings(f.m.recoveryDeploymentId,f.m));await assert.rejects(provider.verifyAliasScope(f.m));
+  await assert.rejects(provider.assignCanonicalAliases(f.m.recoveryDeploymentId,f.m));assert.equal(writes.filter(x=>x.path.endsWith('/aliases')).length,0);
+ }
+ mappings.set(branchHost,f.m.sourceInitialDeploymentId);await provider.promote(f.m.sourceReturnDeploymentId);
+ await assert.rejects(provider.verifyAliasMappings(f.m.sourceReturnDeploymentId,f.m));
+ await provider.assignCanonicalAliases(f.m.sourceReturnDeploymentId,f.m);assert.equal((await provider.verifyAliasMappings(f.m.sourceReturnDeploymentId,f.m)).auxiliaryDeploymentId,f.m.sourceReturnDeploymentId);
+ const repaired=writes.filter(x=>x.path.endsWith('/aliases'));assert.equal(repaired.length,1);assert.equal(JSON.parse(repaired[0].body).alias,branchHost);
+});
+
+test('controller requires auxiliary source proof before reopening the source fence',async()=>{
+ const f=fixture(),verify=f.a.vercel.verifyAliasMappings;
+ f.a.vercel.verifyAliasMappings=async id=>({...await verify(id),...(id===f.m.sourceReturnDeploymentId?{auxiliaryDeploymentId:f.m.sourceInitialDeploymentId}:{})});
+ await assert.rejects(runFailover({manifest:f.m,adapters:f.a,now:f.now}),e=>e.category==='FAILBACK_UNCONFIRMED');
+ assert.ok(!f.events.includes('release-fence'));assert.ok(!f.events.includes('restore-admission'));
 });

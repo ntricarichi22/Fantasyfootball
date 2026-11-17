@@ -11,12 +11,21 @@ Production: Supabase `owkxkpkdffhcordlxqte`, Vercel
 `ntricarichi22/Fantasyfootball`. The unrelated Supabase owner-meeting project
 `tnixfvxqqwposoevpogo` is also protected. No step restores over either project.
 
+The two promoted production domains are `fantasyfootball-six.vercel.app` and
+`fantasyfootball-nick-ts-projects-37a944d6.vercel.app`. The separate
+`fantasyfootball-git-main-nick-ts-projects-37a944d6.vercel.app` branch alias is
+auxiliary: Vercel promotion does not move it. Config records each origin once;
+shared checks derive the full protected set.
+
 ## Prerequisites
 
 - Merge reviewed code only after quality/security, staging and real PostgreSQL
   migration/fence checks pass. Wait for the normal production deployment before
   creating the recovery project. Keep this exact main commit unchanged through
   the drill; avoid concurrent Vercel deployment/firewall administration.
+  Before creating the clone, explicitly point the auxiliary branch alias to that
+  normal deployment. Registration and candidate builds require all three origins
+  to remain on the same initial source deployment.
 - The `supabase-production` GitHub environment retains its main-only branch
   rule, owner review and disabled administrator bypass. The source Management
   credential remains protected. A temporary token limited to the production
@@ -84,10 +93,14 @@ Production: Supabase `owkxkpkdffhcordlxqte`, Vercel
    across all hosts, immutable deployment URLs, pinned routes and environments.
    Existing firewall protections remain. After draining, the database fence
    blocks writes to the reviewed application/Auth/Storage relations.
-10. The controller promotes recovery and proves all canonical aliases, authenticates
+10. The controller promotes recovery and proves both canonical production domains.
+    The auxiliary branch must remain on the initial source deployment, denied by
+    the same all-host admission rule and protected by the source database write
+    fence. No recovery alias assignment is made. The controller authenticates
     the synthetic user, reads its league, runs/replays an atomic future draft
     schedule command, verifies readback, and checks restored public file hashes.
-    It then promotes the newer source-return build, verifies source identity and
+    It then promotes the newer source-return build, explicitly repairs the auxiliary
+    branch to that return build, verifies all three origins, source identity and
     unchanged data, releases only its own fence, and restores the original WAF.
     Source-return authentication means private operator attestation; it is not a
     claim that a real customer's login was exercised while the source was fenced.
@@ -101,15 +114,15 @@ reopened source. A recorded but unresolved promotion blocks reopening; an HTTP
 timeout is never treated as proof that a remote mutation did not happen.
 
 Do not cancel the watcher or delete a recovery database while canonical traffic
-may still point to it. Unknown provider outcomes require operator recovery.
+or auxiliary traffic may still point to it. Unknown provider outcomes require operator recovery.
 Cleanup verifies the exact project identity and authenticated inventory absence;
 a 403/404 response alone is insufficient. The resource watcher handles abandoned
 preparation, but also refuses deletion when source return cannot be established.
 This prioritizes preserving a serving database over blind cost-based deletion.
 The expiry job starts cleanup ten minutes before the original four-hour deadline.
-An unused clone requires unchanged original aliases and a normal deployment older
+An unused clone requires all three unchanged original aliases and a normal deployment older
 than the clone; a used clone requires the completed journal plus fresh source
-return and firewall proofs. A durable retirement marker prevents delayed arming
+return on all three aliases and firewall proofs. A durable retirement marker prevents delayed arming
 after cleanup. Normal controller/watchdog completion also attempts immediate
 verified deletion. GitHub hard cancellation or a provider outage can still require
 operator cleanup; neither a timeout nor expiry authorizes blind deletion.

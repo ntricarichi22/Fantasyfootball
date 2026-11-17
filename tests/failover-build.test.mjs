@@ -1,3 +1,4 @@
+import {productionOrigins} from '../scripts/lib/production-origins.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {buildFailoverCandidates} from '../scripts/failover/build-candidates.mjs';
@@ -20,7 +21,8 @@ function setup(){
 }
 test('candidate preparation disables automatic promotion and separates clone secrets from source return',async()=>{
  const {options,calls,built}=setup();const manifest=await buildFailoverCandidates(options);
- assert.equal(manifest.recoveryRef,options.resourceManifest.projectRef);assert.equal(built.length,2);
+ assert.equal(manifest.recoveryRef,options.resourceManifest.projectRef);assert.equal(built.length,2);assert.deepEqual(manifest.aliases,productionOrigins.promoted);
+ for(const origin of productionOrigins.all)assert.ok(calls.some(c=>c.path===`/v4/aliases/${new URL(origin).hostname}`));
  for(const b of built){assert.equal(b.autoAssignCustomDomains,false);assert.equal(b.target,'production');assert.equal(b.gitSource.sha,sha);assert.deepEqual(b.build.env,b.env);}
  assert.equal(built[0].env.OPENAI_API_KEY,'');assert.equal(built[0].env.SUPABASE_SERVICE_ROLE_KEY,'clone-server');
  assert.deepEqual(Object.keys(built[1].env).sort(),['OPS_DRILL_ATTESTATION_EXPIRES_AT','OPS_DRILL_ATTESTATION_SECRET']);
@@ -52,4 +54,11 @@ test('only the verified public database endpoint environment key can be inspecte
  const badId=setup();badId.env[0].id='../env_secret';await assert.rejects(buildFailoverCandidates(badId.options));assert.equal(badId.built.length,0);assert.ok(!badId.calls.some(call=>call.path.startsWith('/v1/')));
  const badKey=setup(),request=badKey.options.request;badKey.options.request=async(path,options)=>path.endsWith('/env/env_url')?{key:'ANOTHER_KEY',value:'https://owkxkpkdffhcordlxqte.supabase.co'}:request(path,options);
  await assert.rejects(buildFailoverCandidates(badKey.options));assert.equal(badKey.built.length,0);
+});
+
+
+test('stale auxiliary branch alias prevents candidate creation even when both production domains agree',async()=>{
+ const f=setup(),request=f.options.request,branch=new URL(productionOrigins.auxiliary[0]).hostname;
+ f.options.request=async(path,opts)=>{const row=await request(path,opts);return path===`/v4/aliases/${branch}`?{...row,deploymentId:'dpl_old'}:row;};
+ await assert.rejects(buildFailoverCandidates(f.options));assert.equal(f.built.length,0);
 });
