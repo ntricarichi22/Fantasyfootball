@@ -5,11 +5,14 @@ import { authoritativePasswordFailureEvent } from "@/infrastructure/security/aut
 import { sendSecurityAlert } from "@/infrastructure/security/alerts";
 import { boundedJson } from "@/infrastructure/auth/boundedJson";
 import { claimAuthAttempt } from "@/infrastructure/auth/rateLimit";
+import { currentFailoverConfig, failoverIdentityAllowed, failoverLoginAllowed } from "@/infrastructure/failover/config";
+import { maintenanceResponse } from "@/infrastructure/failover/guard";
 
 export async function POST(request: NextRequest) {
   const body = await boundedJson<{ email?: unknown; password?: unknown }>(request, 4096) ?? {};
   const email = typeof body.email === "string" ? body.email.trim().toLowerCase().slice(0, 320) : "";
   const password = typeof body.password === "string" ? body.password : "";
+  if (!failoverLoginAllowed(currentFailoverConfig(), email)) return maintenanceResponse("/api/auth/login");
   if (!email || !password || password.length > 1024)
     return NextResponse.json({ error: "invalid_credentials" }, { status: 400 });
 
@@ -33,6 +36,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_credentials" }, { status: 401 });
   }
 
+  if (!failoverIdentityAllowed(currentFailoverConfig(), data.session.user.id)) return maintenanceResponse("/api/auth/login");
   return NextResponse.json({
     accessToken: data.session.access_token,
     refreshToken: data.session.refresh_token,

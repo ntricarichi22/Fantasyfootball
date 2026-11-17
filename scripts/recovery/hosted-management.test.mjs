@@ -81,3 +81,17 @@ test('bounded transport distinguishes timeout, network error and oversized respo
   await assert.rejects(request(async () => { throw new Error('private-network-sentinel'); }), hasCategory('PROVIDER_REQUEST_FAILED'));
   await assert.rejects(request(async () => new Response('private-body-sentinel'.repeat(110_000))), hasCategory('PROVIDER_RESPONSE_TOO_LARGE'));
 });
+
+test('database fingerprint requests may use120s and caller cancellation remains effective', async t => {
+  t.mock.timers.enable({apis:['setTimeout']});
+  const waitForAbort = async (_url,{signal}) => new Promise((_resolve,reject) => {
+    if(signal.aborted) reject(new Error('cancelled'));
+    else signal.addEventListener('abort',()=>reject(new Error('cancelled')),{once:true});
+  });
+  const extended = assert.rejects(request(waitForAbort,{timeoutMs:120_000}),hasCategory('PROVIDER_TIMEOUT'));
+  t.mock.timers.tick(120_000); await extended;
+  const controller = new AbortController();
+  const cancelled = assert.rejects(request(waitForAbort,{signal:controller.signal,timeoutMs:120_000}),hasCategory('PROVIDER_TIMEOUT'));
+  controller.abort(); await cancelled;
+  await assert.rejects(request(async()=>Response.json({}),{timeoutMs:120_001}),hasCategory('PROVIDER_REQUEST_FAILED'));
+});

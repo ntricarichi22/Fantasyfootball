@@ -38,6 +38,7 @@ type Step = "email" | "new-password" | "existing-password";
 const subscribeToHydration = () => () => {};
 
 function LoginForm() {
+  const failoverActive = process.env.NEXT_PUBLIC_FAILOVER_ACTIVE === "true";
   const hydrated = useSyncExternalStore(subscribeToHydration, () => true, () => false);
   const searchParams = useSearchParams();
   const [leagues, setLeagues] = useState<LeagueChoice[] | null>(null);
@@ -88,7 +89,7 @@ function LoginForm() {
 
   const handleNewPasswordSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (submitting) return;
+    if (submitting || failoverActive) return;
     const trimmed = email.trim().toLowerCase();
     if (password.length < 8) {
       setFormError("Password must be at least 8 characters.");
@@ -160,7 +161,7 @@ function LoginForm() {
 
   const handleForgotPassword = async () => {
     const trimmed = email.trim().toLowerCase();
-    if (!trimmed || resetSending) return;
+    if (!trimmed || resetSending || failoverActive) return;
     if (!supabase) {
       setFormError("Something went wrong. Please try again.");
       return;
@@ -480,6 +481,8 @@ function LoginForm() {
               <button
                 type="button"
                 onClick={() => { setStep("new-password"); setPassword(""); setFormError(""); }}
+                hidden={failoverActive}
+                disabled={failoverActive}
                 style={{ background: "transparent", border: "none", color: "#888", cursor: "pointer", marginTop: 16, width: "100%", textDecoration: "underline" }}
               >
                 Create an invited account
@@ -504,7 +507,8 @@ function LoginForm() {
                 <button
                   type="button"
                   onClick={handleForgotPassword}
-                  disabled={resetSending}
+                  hidden={failoverActive}
+                  disabled={resetSending || failoverActive}
                   style={{
                     background: "transparent",
                     border: "none",

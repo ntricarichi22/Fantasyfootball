@@ -25,7 +25,7 @@ export function validateBackupConfig(config) {
   assert.ok(config.sourceUserId === "" || /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(config.sourceUserId));
   return config;
 }
-function keysFromEnv(env) {
+export function backupKeysFromEnv(env) {
   let encoded; try { encoded = JSON.parse(env.BACKUP_KEYRING_JSON); } catch { throw backupError("BACKUP_KEY_INVALID"); }
   assert.ok(encoded && typeof encoded === "object" && !Array.isArray(encoded) && Object.keys(encoded).length > 0 && Object.keys(encoded).length <= 12);
   const keys = Object.create(null);
@@ -68,7 +68,7 @@ export async function runBackup({ env = process.env, config, storeFactory = crea
   try {
     assertWorkflow(env); validateBackupConfig(config);
     const operation = env.BACKUP_OPERATION; assert.ok(["capture", "verify", "prune", "prove-history"].includes(operation));
-    keyring = keysFromEnv(env);
+    keyring = backupKeysFromEnv(env);
     const archiveId = operation === "prove-history" ? `${config.archiveId}-proof` : config.archiveId;
     const store = await storeFactory({ archiveId, hostname: config.blobHostname, token: env.BACKUP_BLOB_READ_WRITE_TOKEN });
     const common = { store, keyring, archiveId, sourceRef: config.sourceProjectRef, currentKeyId: env.BACKUP_CURRENT_KEY_ID };

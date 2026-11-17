@@ -3,6 +3,7 @@ import { isSessionIdentityAllowed, verifyAppSession } from "@/infrastructure/aut
 
 import { isPublicRequestPath, isMachineRequestPath } from "@/infrastructure/auth/requestPaths";
 import { boundedJson } from "@/infrastructure/auth/boundedJson";
+import { failoverRequestGuard } from "@/infrastructure/failover/guard";
 const ACTOR_KEYS = [
   "teamId", "team_id", "rosterId", "roster_id", "my_team_id",
   "user_team_id", "from_team_id", "sender_team_id", "counter_team_id",
@@ -27,6 +28,8 @@ const requestScopeAllowed = (session: NonNullable<Awaited<ReturnType<typeof veri
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const maintenance = failoverRequestGuard(request);
+  if (maintenance) return maintenance;
 
   if (pathname.startsWith("/api/") && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
     const origin = request.headers.get("origin");

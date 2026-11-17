@@ -1,8 +1,9 @@
 import "server-only";
-import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
-import { appSessionFromRequest, type AppSession } from "./session";
-import { resolveCurrentSession, requestMatchesActiveLeague, requestMatchesActiveIdentity } from "./authorization";
-export { currentSessionCanActForRoster, currentSessionCanAccessTeamPair } from "./authorization";
+import { getSupabaseAdminClient } from "../supabase/admin.ts";
+import { appSessionFromRequest, type AppSession } from "./session.ts";
+import { resolveCurrentSession, requestMatchesActiveLeague, requestMatchesActiveIdentity } from "./authorization.ts";
+import { currentFailoverConfig, failoverSessionAllowed } from "../failover/config.ts";
+export { currentSessionCanActForRoster, currentSessionCanAccessTeamPair } from "./authorization.ts";
 
 export type CurrentSessionResult =
   | { session: AppSession; error: null }
@@ -29,6 +30,7 @@ export async function currentAppSessionFromRequest(
 ): Promise<CurrentSessionResult> {
   const signed = await dependencies.readSignedSession(request);
   if (!signed) return { session: null, error: "not_authenticated" };
+  if (!failoverSessionAllowed(currentFailoverConfig(), signed)) return { session: null, error: "auth_state_unavailable" };
   if (!requestMatchesActiveLeague(request, signed)) return { session: null, error: "league_context_changed" };
 
   // Local-only impersonation identities deliberately have no auth/membership
@@ -51,5 +53,7 @@ export async function currentAppSessionFromRequest(
       .maybeSingle(),
     client.rpc("is_auth_session_active", { p_session_id: signed.sessionId, p_user_id: signed.userId }),
   ]);
-  return resolveCurrentSession(signed, Boolean(userData.user), data, !(userError || error || providerSession.error), providerSession.data === true, request);
+  const resolved = resolveCurrentSession(signed, Boolean(userData.user), data, !(userError || error || providerSession.error), providerSession.data === true, request);
+  if (resolved.session && !failoverSessionAllowed(currentFailoverConfig(), resolved.session)) return { session: null, error: "auth_state_unavailable" };
+  return resolved;
 }

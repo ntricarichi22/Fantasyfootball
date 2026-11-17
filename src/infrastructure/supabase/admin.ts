@@ -1,12 +1,15 @@
 import "server-only";
 import { currentDeploymentEnvironment, supabaseIsolationError } from "../environment.ts";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { currentFailoverConfig } from "../failover/config.ts";
 
 type SupabaseClientResult =
   | { client: SupabaseClient; error: null }
   | { client: null; error: string };
 
 export const getSupabaseAdminClient = (): SupabaseClientResult => {
+  const failover = currentFailoverConfig();
+  if (failover.mode === "blocked" || failover.mode === "maintenance") return { client: null, error: "maintenance" };
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -14,7 +17,8 @@ export const getSupabaseAdminClient = (): SupabaseClientResult => {
     return { client: null, error: "Missing Supabase configuration" };
   }
 
-  const isolationError = supabaseIsolationError(supabaseUrl, serviceRoleKey, currentDeploymentEnvironment());
+  const isolationError = supabaseIsolationError(supabaseUrl, serviceRoleKey,
+    failover.mode === "recovery" ? "staging" : currentDeploymentEnvironment());
   if (isolationError) return { client: null, error: isolationError };
 
   const client = createClient(supabaseUrl, serviceRoleKey, {

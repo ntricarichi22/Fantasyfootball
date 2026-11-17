@@ -1,0 +1,117 @@
+name: Controlled production failover
+run-name: Production failover - ${{ inputs.operation }}
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Reviewed preparation or bounded production failover
+        type: choice
+        required: true
+        options: [install-helpers, restore-files, drill]
+      resource_manifest:
+        description: Exact nonsecret operator-verified physical restore identity
+        type: string
+        default: '{}'
+      snapshot_id:
+        description: Exact retained file snapshot to restore
+        type: string
+        default: ''
+      epoch:
+        description: One UUID allocated before resource registration and reused for every step
+        type: string
+        default: ''
+permissions:
+  contents: read
+concurrency:
+  group: production-failover-controller
+  cancel-in-progress: false
+jobs:
+  install-helpers:
+    if: github.repository == 'ntricarichi22/Fantasyfootball' && github.ref == 'refs/heads/main' && inputs.operation == 'install-helpers'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: supabase-production
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: {ref: '${{ github.sha }}', persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version: '24'}
+      - run: node scripts/failover/install-helpers.mjs
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          FAILOVER_VERCEL_TOKEN: ${{ secrets.FAILOVER_VERCEL_TOKEN }}
+  approve-file-restore:
+    if: github.repository == 'ntricarichi22/Fantasyfootball' && github.ref == 'refs/heads/main' && inputs.operation == 'restore-files'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    environment: supabase-production
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: {ref: '${{ github.sha }}', persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version: '24'}
+      - name: Register and verify independent clone expiry before file restoration
+        run: FAILOVER_RESOURCE_OPERATION=register node scripts/failover/resource-watchdog.mjs
+        env:
+          FAILOVER_RESOURCE_MANIFEST: ${{ inputs.resource_manifest }}
+          FAILOVER_EPOCH: ${{ inputs.epoch }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          FAILOVER_VERCEL_TOKEN: ${{ secrets.FAILOVER_VERCEL_TOKEN }}
+          FAILOVER_JOURNAL_KEY: ${{ secrets.FAILOVER_JOURNAL_KEY }}
+          FAILOVER_ADMISSION_SECRET: ${{ secrets.FAILOVER_ADMISSION_SECRET }}
+          OPS_DRILL_ATTESTATION_SECRET: ${{ secrets.OPS_DRILL_ATTESTATION_SECRET }}
+  restore-files:
+    needs: approve-file-restore
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: storage-backups
+    concurrency:
+      group: cfc-production-storage-archive
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: {ref: '${{ github.sha }}', persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version: '24'}
+      - run: npm ci --ignore-scripts
+      - run: node scripts/failover/restore-files.mjs
+        env:
+          FAILOVER_RESOURCE_MANIFEST: ${{ inputs.resource_manifest }}
+          FAILOVER_EPOCH: ${{ inputs.epoch }}
+          FAILOVER_SNAPSHOT_ID: ${{ inputs.snapshot_id }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          BACKUP_EXCLUSIVE: 'true'
+          BACKUP_CURRENT_KEY_ID: ${{ vars.BACKUP_CURRENT_KEY_ID }}
+          BACKUP_KEYRING_JSON: ${{ secrets.BACKUP_KEYRING_JSON }}
+          BACKUP_BLOB_READ_WRITE_TOKEN: ${{ secrets.BACKUP_BLOB_READ_WRITE_TOKEN }}
+  controller:
+    if: github.repository == 'ntricarichi22/Fantasyfootball' && github.ref == 'refs/heads/main' && inputs.operation == 'drill'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: supabase-production
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with: {ref: '${{ github.sha }}', persist-credentials: false}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: {node-version: '24'}
+      - run: npm ci --ignore-scripts
+      - name: Prepare candidates, prove watchdog, switch and verify return
+        run: node scripts/failover/run.mjs
+        env:
+          FAILOVER_RESOURCE_MANIFEST: ${{ inputs.resource_manifest }}
+          FAILOVER_EPOCH: ${{ inputs.epoch }}
+          FAILOVER_SNAPSHOT_ID: ${{ inputs.snapshot_id }}
+          GITHUB_TOKEN: ${{ github.token }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          FAILOVER_VERCEL_TOKEN: ${{ secrets.FAILOVER_VERCEL_TOKEN }}
+          FAILOVER_JOURNAL_KEY: ${{ secrets.FAILOVER_JOURNAL_KEY }}
+          FAILOVER_ADMISSION_SECRET: ${{ secrets.FAILOVER_ADMISSION_SECRET }}
+          OPS_DRILL_ATTESTATION_SECRET: ${{ secrets.OPS_DRILL_ATTESTATION_SECRET }}
+          FAILOVER_SYNTHETIC_PASSWORD: ${{ secrets.FAILOVER_SYNTHETIC_PASSWORD }}

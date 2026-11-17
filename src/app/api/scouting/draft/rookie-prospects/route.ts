@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { normalizeName } from "@/infrastructure/strings/normalize";
 import { getSupabaseAdminClient } from "@/infrastructure/supabase/admin";
 import { currentAppSessionFromRequest } from "@/infrastructure/auth/currentSession";
+import { recoveredRookieProspect } from "@/infrastructure/failover/storageUrl";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +42,7 @@ export async function GET(request: Request) {
   const result: Record<string, unknown> = {};
   (data ?? []).forEach((row) => {
     const key = normalizeName(row?.player_name);
-    if (key) result[key] = row;
+    if (key) result[key] = recoveredRookieProspect(row);
   });
 
   return NextResponse.json({ data: result });

@@ -117,11 +117,15 @@ async function restoreSnapshotUnsafe({ store, keyring, archiveId, sourceRef, sna
   identity({ archiveId, sourceRef });
   assert.ok(target && /^[a-z]{20}$/.test(target.projectRef) && target.projectRef !== sourceRef && !PROTECTED_PROJECT_REFS.has(target.projectRef), "Restore requires an isolated nonproduction target");
   await target.assertSafe();
-  const current = await target.inventory();
-  assert.equal(current?.complete, true); assert.ok(Array.isArray(current.entries) && current.entries.length === 0, "Restore target must be empty");
   const manifest = await readManifest(store, keyring, manifestKey(archiveId, snapshotId, "complete"), { archiveId, sourceRef, snapshotId, kind: "complete" });
   // Validate all archived bytes before writing anything to the isolated target.
   const objects = await snapshotObjects(store, keyring, manifest);
+  await target.assertSafe();
+  // Physical clones retain metadata without object bytes. Only a purpose-built
+  // adapter may reconcile it, after the entire archive is authenticated.
+  if (target.reconcileSnapshot) await target.reconcileSnapshot(manifest);
+  const current = await target.inventory();
+  assert.equal(current?.complete, true); assert.ok(Array.isArray(current.entries) && current.entries.length === 0, "Restore target must be empty");
   await target.assertSafe(); await target.prepareBuckets(manifest.buckets);
   for (const { entry, bytes } of objects) {
     await target.assertSafe(); await target.put(entry, bytes);

@@ -1,10 +1,16 @@
 import type { NextConfig } from "next";
-import { deploymentEnvironment } from "./src/infrastructure/environment.ts";
+import { deploymentEnvironment, supabaseProjectRef } from "./src/infrastructure/environment.ts";
+import { failoverConfigured } from "./src/infrastructure/failover/config.ts";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   // Derive the browser boundary from trusted deployment metadata at build time.
-  env: { NEXT_PUBLIC_APP_ENV: deploymentEnvironment(process.env) },
+  env: {
+    NEXT_PUBLIC_APP_ENV: deploymentEnvironment(process.env),
+    NEXT_PUBLIC_FAILOVER_ACTIVE: String(failoverConfigured(process.env)),
+    CFC_BUILD_SUPABASE_PROJECT_REF: supabaseProjectRef(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "") ?? "",
+    CFC_BUILD_CREATED_AT: new Date().toISOString(),
+  },
   async headers() {
     return [{
       source: "/(.*)",

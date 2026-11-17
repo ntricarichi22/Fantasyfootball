@@ -8,8 +8,11 @@ const PUBLIC_FILES = new Set([
   "/welcome-bg.png", "/window.svg", "/zubaz-card-bg-40fuzz.png",
 ]);
 
+// Exact handler-only authorization; it is not a public readiness endpoint.
+export const DRILL_ATTESTATION_PATH = "/api/health/drill-attestation";
+
 export function isPublicRequestPath(pathname: string) {
-  if (pathname === "/api/health" || PUBLIC_PAGES.has(pathname) || PUBLIC_AUTH_APIS.has(pathname)) return true;
+  if (pathname === "/api/health" || pathname === DRILL_ATTESTATION_PATH || PUBLIC_PAGES.has(pathname) || PUBLIC_AUTH_APIS.has(pathname)) return true;
   if (pathname.startsWith("/api/")) return false;
   return pathname.startsWith("/_next/") || PUBLIC_FILES.has(pathname) ||
     ["/avatars/", "/brand/", "/teams/"].some((prefix) => pathname.startsWith(prefix));

@@ -2,6 +2,7 @@ import "server-only";
 import { currentDeploymentEnvironment } from "../environment.ts";
 import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdminClient } from "../supabase/admin.ts";
+import { currentFailoverConfig } from "../failover/config.ts";
 
 const safeEqual = (left: string, right: string) => {
   const a = Buffer.from(left);
@@ -11,6 +12,7 @@ const safeEqual = (left: string, right: string) => {
 
 /** League membership roles never grant global ingestion or maintenance privileges. */
 export async function isAdminRequest(request: Request) {
+  if (currentFailoverConfig().mode !== "normal") return false;
   if (currentDeploymentEnvironment() === "staging") return false;
   const authorization = request.headers.get("authorization") ?? "";
   const bearer = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
