@@ -1,3 +1,4 @@
+import { productionOrigins } from './production-origins.mjs';
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
@@ -41,7 +42,7 @@ export function resolveStagingTarget(config, registered = registry.stagingTarget
   if (!cleanupOnly) assertTargetActive(record);
   assert.equal(config.projectRef, record.projectRef, "Staging project mismatch");
   assert.equal(api.origin, `https://${record.projectRef}.supabase.co`, "Staging API mismatch");
-  assert.ok(!registry.production.appOrigins.includes(app.origin), "Production application is forbidden");
+  assert.ok(!productionOrigins.all.includes(app.origin), "Production application is forbidden");
   assert.ok(record.appOrigins.includes(app.origin), "Unknown application origin");
   assert.ok(record.databaseHosts.includes(db.hostname), "Unknown database host");
   assert.ok(["", "5432"].includes(db.port) && db.pathname === "/postgres", "Hosted fixtures require a direct/session PostgreSQL connection");

@@ -1,3 +1,4 @@
+import {productionOrigins} from '../lib/production-origins.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
@@ -21,7 +22,7 @@ export function validateFailoverManifest(input, { now = Date.now(), expectedSha,
     assert.ok(!new Set([input.sourceRef, ...(targets.protectedSupabaseProjectRefs ?? [])]).has(input.recoveryRef));
     for (const key of ['sourceInitialDeploymentId','recoveryDeploymentId','sourceReturnDeploymentId']) assert.match(input[key], /^dpl_[A-Za-z0-9]+$/);
     assert.equal(new Set([input.sourceInitialDeploymentId,input.recoveryDeploymentId,input.sourceReturnDeploymentId]).size, 3);
-    assert.deepEqual([...input.aliases].sort(), [...targets.production.appOrigins].sort()); assert.match(input.epoch, UUID);
+    assert.deepEqual([...input.aliases].sort(), [...productionOrigins.promoted].sort()); assert.match(input.epoch, UUID);
     const deadline = Date.parse(input.deadline), issuedAt = Date.parse(input.issuedAt);
     assert.ok(Number.isFinite(deadline) && Number.isFinite(issuedAt) && new Date(deadline).toISOString() === input.deadline &&
       new Date(issuedAt).toISOString() === input.issuedAt && issuedAt <= now && deadline > issuedAt && deadline - issuedAt <= 30 * 60_000 && (cleanup || deadline > now));
@@ -52,8 +53,8 @@ function fenceProof(value, manifest) { same(value, { sourceRef: manifest.sourceR
 function admissionProof(value, manifest) { same(value, { projectId: manifest.projectId, epoch: manifest.epoch, allDeployments: true, allHosts: true, allPaths: true,
   allEnvironments: true, pinnedRoutesCovered: true, firstRule: true, untrustedDenied: true }, 'ADMISSION_PROOF_FAILED'); }
 function aliasesProof(value, manifest, deploymentId) {
-  same(value, { projectId: manifest.projectId, deploymentId, complete: true }, 'ALIAS_PROOF_FAILED');
-  try { assert.deepEqual([...value.aliases].sort(), [...manifest.aliases].sort()); } catch { throw failoverError('ALIAS_PROOF_FAILED'); }
+  same(value, { projectId: manifest.projectId, deploymentId, complete: true, auxiliaryDeploymentId: deploymentId === manifest.recoveryDeploymentId ? manifest.sourceInitialDeploymentId : deploymentId }, 'ALIAS_PROOF_FAILED');
+  try { assert.deepEqual([...value.aliases].sort(), [...manifest.aliases].sort()); assert.deepEqual([...value.auxiliaryAliases].sort(), [...productionOrigins.auxiliary].sort()); } catch { throw failoverError('ALIAS_PROOF_FAILED'); }
 }
 function canonical(value) {
   if (Array.isArray(value)) return value.map(canonical);

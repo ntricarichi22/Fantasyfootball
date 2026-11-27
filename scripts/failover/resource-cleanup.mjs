@@ -1,3 +1,4 @@
+import {productionOrigins} from '../lib/production-origins.mjs';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {validateHistoricalRestoreTarget} from '../backup/supabase-target.mjs';
@@ -37,7 +38,7 @@ export function createResourceCleanup({plan:input,token,vercelToken,journal,atte
   if(d.id!==plan.sourceInitialDeploymentId||d.projectId!==targets.production.vercelProjectId||d.team?.id!==TEAM||d.readyState!=='READY'||d.target!=='production'||!Number.isSafeInteger(d.createdAt)||d.createdAt>=Date.parse(target.createdAt)||d.gitSource?.type!=='github'||String(d.gitSource.repoId)!=='1158002473'||d.gitSource.ref!=='main'||!/^[a-f0-9]{40}$/.test(d.gitSource.sha??'')||d.meta?.cfcFailoverEpoch===plan.epoch||d.meta?.cfcFailoverRole!==undefined&&d.meta.cfcFailoverRole!=='return')throw fail();
   const project=await vercel(`/v9/projects/${targets.production.vercelProjectId}`,{...context,params:{rollbackInfo:true}});
   if(project.id!==targets.production.vercelProjectId||project.accountId!==TEAM||['pending','in-progress'].includes(project.lastAliasRequest?.jobStatus))throw fail();
-  for(const origin of targets.production.appOrigins){const row=await vercel(`/v4/aliases/${new URL(origin).hostname}`,{...context,params:{projectId:targets.production.vercelProjectId}});if(row.alias!==new URL(origin).hostname||row.projectId!==targets.production.vercelProjectId||row.deploymentId!==plan.sourceInitialDeploymentId)throw fail();}
+  for(const origin of productionOrigins.all){const row=await vercel(`/v4/aliases/${new URL(origin).hostname}`,{...context,params:{projectId:targets.production.vercelProjectId}});if(row.alias!==new URL(origin).hostname||row.projectId!==targets.production.vercelProjectId||row.deploymentId!==plan.sourceInitialDeploymentId)throw fail();}
   const env=await vercel(`/v10/projects/${targets.production.vercelProjectId}/env`,context);
   if(!Array.isArray(env.envs)||env.envs.length>1000)throw fail();
   const production=env.envs.filter(item=>item.target?.includes('production'));

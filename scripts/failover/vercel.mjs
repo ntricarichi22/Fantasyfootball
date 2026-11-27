@@ -1,3 +1,4 @@
+import {productionOrigins} from '../lib/production-origins.mjs';
 import assert from 'node:assert/strict';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createVercelRequest } from './vercel-http.mjs';
@@ -22,12 +23,13 @@ export function createVercelFailoverAdapter({ manifest: input, token, attestatio
   return { id, projectId: raw.projectId, teamId: raw.team.id, readyState: raw.readyState, target: raw.target, createdAt: raw.createdAt, commitSha: raw.gitSource.sha };
  };
  const alias = async (origin, context) => {
-  if (!manifest.aliases.includes(origin)) throw failoverError('ALIAS_PROOF_FAILED');
+  if (!productionOrigins.all.includes(origin)) throw failoverError('ALIAS_PROOF_FAILED');
   const host = new URL(origin).hostname;
   return request(`/v4/aliases/${host}`, { ...context, params: { projectId: manifest.projectId } });
  };
  const aliasMatches = (row, origin, id) => row?.alias === new URL(origin).hostname && row.projectId === manifest.projectId &&
   row.deploymentId === id && (!row.deployment || row.deployment.id === id);
+ const aliasDestinations = id => productionOrigins.all.map(origin => ({origin, deploymentId: productionOrigins.auxiliary.includes(origin) && id === manifest.recoveryDeploymentId ? manifest.sourceInitialDeploymentId : id}));
  const verifyAliasMappings = async (id, _manifest, context = {}) => {
   if (!ids.has(id)) throw failoverError('ALIAS_PROOF_FAILED');
   if (mutableIds.has(id)) {
@@ -35,8 +37,8 @@ export function createVercelFailoverAdapter({ manifest: input, token, attestatio
    if (project.id !== manifest.projectId || project.accountId !== manifest.teamId || project.lastAliasRequest?.toDeploymentId !== id ||
     project.lastAliasRequest.jobStatus !== 'succeeded' || project.lastAliasRequest.type !== 'promote') throw failoverError('ALIAS_PROOF_FAILED');
   }
-  for(const origin of manifest.aliases) if (!aliasMatches(await alias(origin, context), origin, id)) throw failoverError('ALIAS_PROOF_FAILED');
-  return { complete: true, projectId: manifest.projectId, deploymentId: id, aliases: [...manifest.aliases] };
+  for(const {origin,deploymentId} of aliasDestinations(id)) if (!aliasMatches(await alias(origin, context), origin, deploymentId)) throw failoverError('ALIAS_PROOF_FAILED');
+  return { complete: true, projectId: manifest.projectId, deploymentId: id, aliases: [...manifest.aliases], auxiliaryAliases: [...productionOrigins.auxiliary], auxiliaryDeploymentId: id === manifest.recoveryDeploymentId ? manifest.sourceInitialDeploymentId : id };
  };
  const awaitRecoveryPromotionSettled=async(_manifest,context={})=>{
   if(!journal)throw failoverError('ADAPTER_UNAVAILABLE');
@@ -58,8 +60,8 @@ export function createVercelFailoverAdapter({ manifest: input, token, attestatio
   inspectDeployment,awaitRecoveryPromotionSettled,
   async sampleOrigins(_manifest, context = {}) {
    for (const id of ids) await inspectDeployment(id, context);
-   const origins = [...new Set([...manifest.aliases, ...ids].map(value => ids.has(value) ? deploymentOrigins.get(value) : value))];
-   if (origins.length !== manifest.aliases.length + ids.size || origins.some(value => typeof value !== 'string')) throw failoverError('ADMISSION_PROOF_FAILED');
+   const origins = [...new Set([...productionOrigins.all, ...ids].map(value => ids.has(value) ? deploymentOrigins.get(value) : value))];
+   if (origins.length !== productionOrigins.all.length + ids.size || origins.some(value => typeof value !== 'string')) throw failoverError('ADMISSION_PROOF_FAILED');
    return { projectId: manifest.projectId, verified: true, origins };
   },
   async attestDeployment(id, _manifest, context = {}) {
@@ -109,16 +111,17 @@ export function createVercelFailoverAdapter({ manifest: input, token, attestatio
    }
    if(!settled)throw failoverError('ALIAS_PROOF_FAILED');
    if(id===manifest.recoveryDeploymentId)await awaitRecoveryPromotionSettled(manifest,context);
-   for(const origin of manifest.aliases) if(!aliasMatches(await alias(origin,context),origin,id)){
+   // Recovery promotion moves only project domains. The auxiliary branch remains on the fenced initial source.
+   for(const {origin,deploymentId} of aliasDestinations(id)) if(!aliasMatches(await alias(origin,context),origin,deploymentId)){
     if(id!==manifest.sourceReturnDeploymentId)throw failoverError('ALIAS_PROOF_FAILED');
     await request(`/v2/deployments/${id}/aliases`,{...context,method:'POST',body:{alias:new URL(origin).hostname}});
    }
   },
   verifyAliasMappings,
   async verifyAliasScope(_manifest, context = {}) {
-   for (const origin of manifest.aliases) {
+   for (const origin of productionOrigins.all) {
     const row = await alias(origin, context);
-    if (!ids.has(row?.deploymentId) || !aliasMatches(row, origin, row.deploymentId)) throw failoverError('ALIAS_PROOF_FAILED');
+    if (!ids.has(row?.deploymentId) || productionOrigins.auxiliary.includes(origin) && row.deploymentId === manifest.recoveryDeploymentId || !aliasMatches(row, origin, row.deploymentId)) throw failoverError('ALIAS_PROOF_FAILED');
    }
    return { projectId: manifest.projectId, complete: true, onlyReviewedDeployments: true };
   },
@@ -130,7 +133,7 @@ export function createVercelFailoverAdapter({ manifest: input, token, attestatio
    const endpoints=production.filter(row=>row.key==='NEXT_PUBLIC_SUPABASE_URL');
    if(endpoints.length!==1 || !/^[A-Za-z0-9_-]{1,256}$/.test(endpoints[0].id))throw failoverError('CONFIGURATION_PROOF_UNAVAILABLE');
    // Only the nonsecret database endpoint is decrypted, never key/password envs.
-   const endpoint=await request(`/v1/projects/${manifest.projectId}/env/${endpoints[0].id}`,context);
+   const endpoint=await request(`/v1/projects/${manifest.projectId}/env/${endpoints[0].id}`,{...context,params:{decrypt:true}});
    if(endpoint.key!=='NEXT_PUBLIC_SUPABASE_URL' || ![`https://${manifest.sourceRef}.supabase.co`,`https://${manifest.sourceRef}.supabase.co/`].includes(endpoint.value))throw failoverError('CONFIGURATION_PROOF_UNAVAILABLE');
    return { sourceRef: manifest.sourceRef, unchanged: true };
   },

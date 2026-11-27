@@ -1,3 +1,4 @@
+import {productionOrigins} from '../lib/production-origins.mjs';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -23,8 +24,8 @@ export async function buildFailoverCandidates({resourceManifest,epoch,commitSha,
   assert.ok(Date.parse(resourceManifest.expiresAt)>Date.parse(deadline)+10*60000);
   const project=await request(`/v9/projects/${projectId}`);
   assert.equal(project.id,projectId);assert.equal(project.accountId,teamId);assert.equal(project.name,'fantasyfootball');
-  const aliases=targets.production.appOrigins;
-  const aliasIds=async()=>Promise.all(aliases.map(async origin=>{
+  const aliases=productionOrigins.promoted;
+  const aliasIds=async()=>Promise.all(productionOrigins.all.map(async origin=>{
     const a=await request(`/v4/aliases/${new URL(origin).hostname}`,{params:{projectId}});
     assert.equal(a.projectId,projectId);assert.equal(a.alias,new URL(origin).hostname);assert.match(a.deploymentId,/^dpl_[A-Za-z0-9]+$/);return a.deploymentId;
   }));
